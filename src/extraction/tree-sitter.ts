@@ -16,7 +16,7 @@ import {
   ExtractionError,
   UnresolvedReference,
 } from '../types';
-import { createParser, getParser, detectLanguage, isLanguageSupported, isFileLevelOnlyLanguage } from './grammars';
+import { createParser, getParser, detectLanguage, isLanguageSupported, isFileLevelOnlyLanguage, maskCStyleCommentsAndLiterals } from './grammars';
 import { generateNodeId, getNodeText, getChildByField, getPrecedingDocstring } from './tree-sitter-helpers';
 import type { LanguageExtractor, ExtractorContext } from './tree-sitter-types';
 import { EXTRACTORS } from './languages';
@@ -1000,17 +1000,19 @@ export class TreeSitterExtractor {
       };
     }
 
-    // Fast path for pure-macro data headers (C only). Files that are entirely
-    // object-like #define macros with bare `{...}` initializer bodies and zero
-    // real declarations trigger tree-sitter-c's O(n^2) parse — every #define
-    // hangs off a single preproc_ifdef guard node, so the tree-balancing/
-    // traversal cost is quadratic (upstream tree-sitter-c#196,
-    // tree-sitter#1356). Yet such files yield no extractable symbols beyond
-    // macro names. Skip the parse and collect macro names via regex instead:
-    // O(n), and better recall than the broken parse path (which only reaches
-    // the first macro under the giant node before the slowdown swamps it).
-    // C++ is unaffected (different grammar shape), so this is C-only.
-    // Escape hatch: CODEGRAPH_FORCE_PARSE=1 forces the normal parse path.
+    // Fast path for pure-macro data headers (C only). Files made entirely of
+    // preprocessor directives (≥20 object-like #define data macros) trigger a
+    // pathological tree-sitter-c parse once macro bodies carry inline block
+    // comments or very long rows — measured ~O(n²) with a collapsed tree
+    // (0-2 macros survive), far past the per-file parse timeout, yet they
+    // yield no extractable symbols beyond macro names. Skip the parse and
+    // collect macro names via regex instead: O(n), and better recall than the
+    // broken parse path. Detection is a structural whitelist over
+    // comment/literal-masked text (see isPureMacroDataHeader), so semicolons
+    // in a license banner no longer push a data table into the pathological
+    // parse, and code of any shape keeps the normal path. C++ is not affected
+    // by the timeout (different grammar constants) and stays on the normal
+    // path. Escape hatch: CODEGRAPH_FORCE_PARSE=1 forces the normal parse.
     if (this.language === 'c' && isPureMacroDataHeader(this.source)) {
       const { nodes: macroNodes, edges: macroEdges } = extractMacrosByRegex(
         this.filePath,
@@ -1051,6 +1053,17 @@ export class TreeSitterExtractor {
         this.xMacroConstructs = xmacro.constructs;
       }
 
+      // Controlled plan F (C only): a define-dense header that did NOT take
+      // the pure-macro fast path (mixed macro table + real declarations)
+      // blanked the block comments inside its #define bodies before parsing —
+      // they are what drives tree-sitter-c into the O(n²) error recovery that
+      // times out syncs and collapses the tree. Length-preserving, so node
+      // offsets stay valid; comments outside directives are untouched. See
+      // blankDefineBodyComments for the full rationale and semantics.
+      if (this.language === 'c') {
+        this.source = blankDefineBodyComments(this.source);
+      }
+
       const primaryParseStarted = performance.now();
       // Optional offset-preserving source transform for grammar gaps. Most
       // languages use the historical `always` strategy. C/C++ uses `on-error`:
@@ -1072,12 +1085,36 @@ export class TreeSitterExtractor {
             this.globalMacroNames ?? undefined,
             this.globalBodylessMacroNames ?? undefined,
           );
-          const scopes = collectRecoveryScopes(
-            rawTree.rootNode,
-            baseSource,
-            this.extractor,
-            this.globalMacroNames,
-          );
+          // Some C++ grammar workarounds are syntax-only. Parse their masked
+          // bytes, but keep the ordinary recovery source for getNodeText and
+          // signatures after adoption. Every transform is offset preserving,
+          // so one tree can safely address the other string.
+          const parseOnlyRecovery = this.extractor.parseOnlyRecovery;
+          const parseOnlyTransformed = parseOnlyRecovery
+            ? parseOnlyRecovery(
+                transformed,
+                this.globalMacroNames ?? undefined,
+                this.globalBodylessMacroNames ?? undefined,
+              )
+            : undefined;
+          // Collect recovery scopes ONLY when some transformer actually
+          // changed the source: with both transforms identical to the
+          // original, restrictTransformToScopes can only return the original
+          // and the candidate list is necessarily empty — yet the scope
+          // walk over an ERROR-heavy tree is expensive (measured 8.9s on a
+          // single-macro header whose damage was unrelated to macros). The
+          // parse-only transformer is checked too: it can mask `const`
+          // qualifiers even when the macro transform is a no-op, and those
+          // candidates must survive.
+          const scopes =
+            transformed !== baseSource || parseOnlyTransformed !== undefined && parseOnlyTransformed !== baseSource
+              ? collectRecoveryScopes(
+                  rawTree.rootNode,
+                  baseSource,
+                  this.extractor,
+                  this.globalMacroNames,
+                )
+              : [];
           const extractionRecoverySource = restrictTransformToScopes(
             baseSource,
             transformed,
@@ -1085,20 +1122,10 @@ export class TreeSitterExtractor {
           );
           const candidates: Array<{ parseSource: string; extractionSource: string }> = [];
 
-          // Some C++ grammar workarounds are syntax-only. Parse their masked
-          // bytes, but keep the ordinary recovery source for getNodeText and
-          // signatures after adoption. Every transform is offset preserving,
-          // so one tree can safely address the other string.
-          const parseOnlyRecovery = this.extractor.parseOnlyRecovery;
           if (parseOnlyRecovery) {
-            const parseOnlyTransformed = parseOnlyRecovery(
-              transformed,
-              this.globalMacroNames ?? undefined,
-              this.globalBodylessMacroNames ?? undefined,
-            );
             const parseOnlySource = restrictTransformToScopes(
               baseSource,
-              parseOnlyTransformed,
+              parseOnlyTransformed!,
               scopes,
             );
             if (
@@ -7613,46 +7640,343 @@ export class TreeSitterExtractor {
 
 
 /**
- * Detect a "pure-macro data header": a file made entirely of object-like
- * #define macros with bare `{...}` initializer bodies and zero real
- * declarations. Such files trigger tree-sitter-c's O(n^2) parse
- * (tree-sitter-c#196 / tree-sitter#1356) yet yield no extractable symbols
- * beyond macro names.
+ * Detect a "pure-macro data header": a C file whose entire content — after
+ * masking comments and string/char literals — is whitespace and preprocessor
+ * directive lines (with their backslash continuations), holding >= 20
+ * object-like #define macros and no function-like macros. tree-sitter-c
+ * degenerates to ~O(n²) on such files once macro bodies carry inline block
+ * comments or very long rows (measured on synthetic reproducers: 20 macros
+ * 16.7s → 40 macros 67.6s; the parse tree collapses to 0-2 macros either way),
+ * yet they yield no extractable symbols beyond macro names, so the parse is
+ * skipped and macro names are collected via regex instead. Upstream refs
+ * tree-sitter-c#196 / tree-sitter#1356 describe related-but-not-identical
+ * pathologies and are kept here as context only.
  *
- * Conditions are deliberately conservative — any file with a real
- * declaration (a ';', a typedef/struct/enum/union keyword, or a function-like
- * macro) is left on the normal parse path. The ';'-free check alone already
- * covers every C file with a real function/variable/type definition, since
- * those all end in ';'. C-only (cpp has a different grammar shape and is not
- * affected by the upstream pathology). Escape hatch: CODEGRAPH_FORCE_PARSE=1.
+ * Structural whitelist, not a semicolon blacklist. The previous "zero
+ * semicolons / zero type keywords" heuristic wrongly skipped files whose real
+ * declarations carry no semicolon (`void real_fn(void) {}` loses the function
+ * entirely) and counted semicolons/keywords living only inside block comments
+ * (a license banner), letting pure data tables fall into the pathological
+ * parse. Now every non-blank masked line must be a directive (or a
+ * continuation of one), so real code of any shape stays on the normal parse
+ * path while semicolons in comments can no longer disqualify a data header.
+ * A `#define` at a physical line start inside a continuation chain still
+ * counts toward defineCount: real cpp swallows it into the previous macro
+ * (dangling-continuation files are malformed), but the author's intent is a
+ * macro definition, and counting keeps such files on the fast path instead
+ * of re-hitting the pathological parse. Function-like detection is only done
+ * on non-continued directive lines, and every counted #define must pass the
+ * isFastPathSafeDefineHeader gate (cross-line headers and non-ASCII names
+ * fall back to the normal parse, which handles both). C-only. Escape hatch:
+ * CODEGRAPH_FORCE_PARSE=1 forces the normal parse path.
  */
-function isPureMacroDataHeader(source: string): boolean {
-  if (process.env.CODEGRAPH_FORCE_PARSE === '1') return false;
-  let defineCount = 0;
-  let semicolonCount = 0;
-  let typeKeywordCount = 0;
-  let paramMacroCount = 0;
-  const lines = source.split(/\r?\n/);
-  for (const raw of lines) {
-    // Strip // line comments so words inside them don't skew the keyword
-    // counts (only matters for the safe direction — a stray `struct` in a
-    // comment would keep the file on the slow path, not wrongly skip it).
-    const line = raw.replace(/\/\/.*$/, '');
-    if (/^\s*#\s*define\b/.test(line)) {
-      defineCount++;
-      // Function-like macro: NAME immediately followed by '(' (no space).
-      if (/^\s*#\s*define\s+[A-Za-z_]\w*\(/.test(line)) paramMacroCount++;
+/**
+ * Controlled plan F: blank block comments that live INSIDE `#define`
+ * directives (the directive's own logical line, including its spliced
+ * continuation lines) before the parse, for C files the pure-macro fast path
+ * did not take (mixed headers: data macros plus real declarations). Macro
+ * bodies carrying inline block comments drive tree-sitter-c into ~O(n²)
+ * error recovery and the tree collapses (measured: a 105KB mixed header
+ * parsed 17.3s and kept 3 of 100+ macros; after blanking, milliseconds and
+ * everything kept). A comment is equivalent to whitespace in real cpp
+ * semantics, so the transform cannot change what directives mean — only what
+ * tree-sitter's approximate preprocessor scanner sees.
+ *
+ * A SINGLE character-level scan over the original source keeps one global
+ * lexical state (block comments, string/char literals, logical-line starts,
+ * splicing). Line-by-line classification was tried and wrongly blanked the
+ * closing `*\/` of a comment opened OUTSIDE a directive — destroying the
+ * comment boundary and swallowing every symbol after it. Now a comment is
+ * blanked only when it OPENS while the scanner is genuinely inside a #define
+ * logical line; comments opened elsewhere — even when they close on a
+ * directive-shaped line — are left byte-for-byte alone.
+ *
+ * Continuation follows real cpp splicing (GCC initial processing): a backslash
+ * continues the logical line only when it IMMEDIATELY precedes the newline —
+ * a backslash-then-comment line ending is NOT a continuation, because
+ * splicing happens before comments are removed. Blank a comment does not
+ * change any continuation decision; it only removes comment content that the
+ * scanner mishandles. A comment opened inside a directive that spans lines
+ * kills the directive (its opening line had no immediately-preceding-newline
+ * backslash), so the in-directive state is dropped at the comment's close.
+ * `#define` inside comments or string literals is never a directive.
+ *
+ * Comments outside directives (real code) are never touched. Macro signatures
+ * lose their in-body comments on this path — `originalSource` still holds the
+ * full bytes. Returns the input string unchanged when the file has no
+ * define-dense directive-body comments.
+ */
+function blankDefineBodyComments(source: string): string {
+  // Same cheap pre-filter as the fast path, widened for single-table files:
+  // a header can hold ONE giant data macro instead of many — measured, a
+  // single ~11KB backslash-continued body (extern "C" + lint pragmas around
+  // it) parses for 17.5s with a collapsed tree, and blanking its in-body
+  // comments restores milliseconds. Qualify when the file has >= 20 #define
+  // lines OR any single #define directive (its own line plus its continued
+  // lines) reaches the size threshold. Continuation is judged loosely here
+  // (trailing blanks after the backslash allowed): the pre-filter may only
+  // over-trigger, and a triggered scan that finds nothing returns the source
+  // unchanged.
+  // Count UTF-16 code units excluding line terminators, not UTF-8 bytes.
+  const OVERSIZED_DEFINE_CODE_UNITS = 8192;
+  let defineLines = 0;
+  let continuesDefine = false;
+  let directiveSize = 0;
+  let hasOversizedDefine = false;
+  for (const raw of source.split(/\r?\n/)) {
+    const isDefineLine = /^\s*#\s*define\b/.test(raw);
+    if (isDefineLine) defineLines++;
+    // Membership comes from the PREVIOUS line's continuation. Include the
+    // final body line even when it has no backslash, and never accumulate
+    // unrelated rows after a completed directive. A define-looking line in
+    // a continued body also must not reset that body's size.
+    const belongsToDefine: boolean = continuesDefine || isDefineLine;
+    directiveSize = continuesDefine
+      ? directiveSize + raw.length
+      : isDefineLine ? raw.length : 0;
+    if (belongsToDefine && directiveSize >= OVERSIZED_DEFINE_CODE_UNITS) {
+      hasOversizedDefine = true;
+    }
+    continuesDefine = belongsToDefine && /\\[ \t]*\r?$/.test(raw);
+    // Qualification is file-wide: a subsequent small #define cannot undo
+    // it. No further pre-filter work is needed once either gate is met.
+    if (defineLines >= 20 || hasOversizedDefine) break;
+  }
+  if (defineLines < 20 && !hasOversizedDefine) return source;
+
+  let out = '';
+  let codeStart = 0;
+  let i = 0;
+  let inDefine = false;          // scanner is inside a #define logical line
+  let atLogicalLineStart = true;  // scanner is at a (spliced) logical-line head
+  let inBlockComment = false;     // a block comment is open (opened ANYWHERE)
+  let commentStart = -1;
+  let commentOpenedInDefine = false;
+  let commentSpannedLines = false;
+  let literal: string | null = null;
+  let changed = false;
+
+  const appendMasked = (start: number, end: number): void => {
+    out += source.slice(codeStart, start);
+    out += source.slice(start, end).replace(/[^\r\n]/g, ' ');
+    codeStart = end;
+    changed = true;
+  };
+
+  while (i < source.length) {
+    const c = source[i]!;
+
+    if (inBlockComment) {
+      if (c === '*' && source[i + 1] === '/') {
+        const end = i + 2;
+        if (commentOpenedInDefine) {
+          appendMasked(commentStart, end);
+          // A directive-body comment that spans lines means the opening line
+          // had no splicing backslash at its end — the directive died there.
+          if (commentSpannedLines) inDefine = false;
+        }
+        inBlockComment = false;
+        commentOpenedInDefine = false;
+        commentSpannedLines = false;
+        i = end;
+        continue;
+      }
+      if (c === '\n') commentSpannedLines = true;
+      i++;
       continue;
     }
-    for (const c of line) if (c === ';') semicolonCount++;
-    if (/\b(?:typedef|struct|enum|union)\b/.test(line)) typeKeywordCount++;
+
+    if (atLogicalLineStart && !inDefine) {
+      // Detect a directive at the logical-line head: blanks, `#`, blanks,
+      // `define`, word boundary. Comments and literals never reach here —
+      // their content is consumed by the states below — so a `#define` inside
+      // a comment or string cannot start a directive.
+      let j = i;
+      while (source[j] === ' ' || source[j] === '\t' || source[j] === '\r') j++;
+      if (source[j] === '#') {
+        let k = j + 1;
+        while (source[k] === ' ' || source[k] === '\t') k++;
+        if (
+          source.startsWith('define', k) &&
+          !/[A-Za-z0-9_]/.test(source[k + 6] ?? '')
+        ) {
+          inDefine = true;
+        }
+      }
+      atLogicalLineStart = false;
+      continue; // rescan the same offset in normal token mode
+    }
+
+    if (literal !== null) {
+      if (c === '\\') {
+        i += 2;
+        continue;
+      }
+      if (c === literal) literal = null;
+      else if (c === '\n') literal = null; // literals do not span lines
+      i++;
+      continue;
+    }
+
+    if (c === '"' || c === "'") {
+      literal = c;
+      i++;
+      continue;
+    }
+
+    if (c === '/' && source[i + 1] === '/') {
+      // Line comment: skip to end of line, keep verbatim (line comments are
+      // not part of the observed pathology).
+      const nl = source.indexOf('\n', i);
+      i = nl === -1 ? source.length : nl;
+      continue;
+    }
+
+    if (c === '/' && source[i + 1] === '*') {
+      inBlockComment = true;
+      commentStart = i;
+      commentOpenedInDefine = inDefine; // capture the state AT OPEN time
+      commentSpannedLines = false;
+      i += 2;
+      continue;
+    }
+
+    if (c === '\\') {
+      // Real cpp splicing: the backslash must immediately precede the
+      // newline. Anything between the backslash and the newline — including a
+      // comment — breaks the continuation, and the logical line ends at the
+      // upcoming newline.
+      if (source[i + 1] === '\n') {
+        i += 2;
+        continue; // logical line continues (inDefine stays)
+      }
+      if (source[i + 1] === '\r' && source[i + 2] === '\n') {
+        i += 3;
+        continue;
+      }
+      i++;
+      continue;
+    }
+
+    if (c === '\n') {
+      // Physical line end without a splicing backslash: logical line over.
+      inDefine = false;
+      atLogicalLineStart = true;
+      i++;
+      continue;
+    }
+
+    i++;
   }
-  return (
-    defineCount >= 20 &&
-    semicolonCount === 0 &&
-    typeKeywordCount === 0 &&
-    paramMacroCount === 0
-  );
+
+  if (!changed) return source;
+  out += source.slice(codeStart);
+  return out;
+}
+
+/**
+ * A `#define` line can only be collected by the regex fast path when its
+ * header is fully classifiable on this physical line. Two shapes are NOT
+ * safe and must keep the normal parse path:
+ *
+ * - `#define FN\` — name directly followed by the continuation backslash.
+ *   The next line may open a parameter list (`(x) …`), making this a
+ *   function-like macro whose header spans lines; the fast path would
+ *   truncate its signature to `#define FN` and misclassify it.
+ * - a name the fast path cannot extract at all — non-ASCII identifiers
+ *   (`#define 宏函数(x)`) match neither the counting rule nor the extraction
+ *   regex, while the tree-sitter parse CAN produce the node.
+ *
+ * Everything else — name then space/`(`/line-end/`\`-after-blanks — proves
+ * the name extractable and the header complete on this line.
+ */
+function isFastPathSafeDefineHeader(trimmed: string): boolean {
+  const m = /^[ \t]*#[ \t]*define[ \t]+([A-Za-z_]\w*)/.exec(trimmed);
+  if (!m) return false;
+  return trimmed[m[0].length] !== '\\';
+}
+
+function isPureMacroDataHeader(source: string): boolean {
+  if (process.env.CODEGRAPH_FORCE_PARSE === '1') return false;
+  // Cheap pre-filter on the raw text: files with few #define lines cannot
+  // qualify, and they are the overwhelming majority — skip the masking pass
+  // entirely for them (this check runs on every C file). Comment-resident
+  // `#define`s inflate this count, which only widens the pre-filter.
+  let preCount = 0;
+  for (const raw of source.split(/\r?\n/)) {
+    if (/^\s*#\s*define\b/.test(raw)) preCount++;
+  }
+  if (preCount < 20) return false;
+
+  const masked = maskCStyleCommentsAndLiterals(source);
+  // The mask is code-unit length-preserving, so raw and masked split into
+  // the same line count and any masked index addresses raw identically.
+  const maskedLines = masked.split('\n');
+  const rawLines = source.split('\n');
+  let defineCount = 0;
+  let paramMacroCount = 0;
+  let inContinuation = false;
+  for (let i = 0; i < maskedLines.length; i++) {
+    const line = maskedLines[i]!;
+    const trimmed = line.trim();
+    // Trailing backslash continues the logical line, but only when it really
+    // sits at the end of the RAW line too: masking replaces block comments
+    // with spaces, which could disguise `#define X \ /* note */` as a
+    // continuation and swallow the next line's real declaration — a swallow
+    // the tree-sitter parse does not perform. Verify the raw bytes after the
+    // backslash are all whitespace.
+    const bs = /\\[ \t]*\r?$/.exec(line);
+    const isContinued =
+      bs !== null && /^[ \t]*\r?$/.test((rawLines[i] ?? '').slice(bs.index + 1));
+    if (inContinuation) {
+      // Body of the preceding directive — any content is allowed. Count
+      // would-be macros so dangling-continuation tables stay on the fast
+      // path (see the function doc for why they must not re-qualify for the
+      // pathological parse); do not run function-like detection here, but the
+      // header-safety gate still applies.
+      if (/^#\s*define\b/.test(trimmed)) {
+        if (!isFastPathSafeDefineHeader(trimmed)) return false;
+        defineCount++;
+      }
+      inContinuation = isContinued;
+      continue;
+    }
+    // Blank after masking = empty line or a line whose content was entirely
+    // comment/literal. It cannot open a continuation (a lone `\` outside a
+    // directive is invalid C anyway).
+    if (trimmed === '') continue;
+    if (!trimmed.startsWith('#')) {
+      // Top-level DATA residue — rows a data macro's body left behind when
+      // its continuation backslashes were lost or hidden behind a comment.
+      // The row must consist ENTIRELY of data tokens (digits, commas, braces,
+      // blanks, hex letters/prefix, sign, dot); identifier letters outside
+      // hex and every other code character (word keywords, parentheses,
+      // semicolons) disqualify it. Real code therefore never matches — even
+      // `{} int real_fn(void) { return 0; }` keeps the file on the parse
+      // path — while top-level pure data rows are inert either way (they are
+      // invalid C, and the normal parse yields only symbol-free ERROR
+      // nodes). A residue file on the parse path degenerates badly (a 485KB
+      // repro parsed 8.2 minutes for 2 macros), so certified residue rows
+      // stay on the fast path. Residue rows never open a continuation: a
+      // trailing backslash is just more residue, and the next row is judged
+      // on its own. Strip only one raw-confirmed terminal backslash for the
+      // data check; embedded backslashes and comment-disguised suffixes must
+      // still reject the fast path.
+      const residue = bs !== null && isContinued
+        ? line.slice(0, bs.index).trim()
+        : trimmed;
+      if (!/^[\d,{}\s+\-.xXa-fA-F]+$/.test(residue)) return false;
+      continue;
+    }
+    if (/^#\s*define\b/.test(trimmed)) {
+      if (!isFastPathSafeDefineHeader(trimmed)) return false;
+      defineCount++;
+      // Function-like macro: NAME immediately followed by '(' (no space).
+      if (/^#\s*define\s+[A-Za-z_]\w*\(/.test(trimmed)) paramMacroCount++;
+    }
+    inContinuation = isContinued;
+  }
+  return defineCount >= 20 && paramMacroCount === 0;
 }
 
 /**
@@ -7662,6 +7986,13 @@ function isPureMacroDataHeader(source: string): boolean {
  * edges from the file node. Recall is actually better than the broken parse
  * path, which only reaches the first macro under the giant preproc_ifdef node
  * before the O(n^2) slowdown swamps it.
+ *
+ * Directive lines are matched against the comment/literal-masked text (the
+ * mask is length-preserving in UTF-16 code units, so offsets index the
+ * original identically), so a `#define` written inside a block comment or a
+ * string literal cannot become a ghost macro node. Signatures are sliced
+ * from the ORIGINAL source at the same offsets, keeping comment content
+ * visible in the stored signature.
  */
 function extractMacrosByRegex(
   filePath: string,
@@ -7687,17 +8018,33 @@ function extractMacrosByRegex(
     updatedAt: Date.now(),
   });
   // `^` is line-anchored under the `m` flag, so m.index is the line start.
-  const re = /^\s*#\s*define\s+([A-Za-z_]\w*)/gm;
+  // Blank classes are LINE-LOCAL (`[ \t]`, not `\s`): `\s` also matches the
+  // newline, so a `#define` preceded by a blank line matched from the blank
+  // line's own start — shifting the macro's line number, breaking its
+  // column math, and slicing an empty signature. With `[ \t]` the match
+  // always begins at the directive's physical line start.
+  const masked = maskCStyleCommentsAndLiterals(source);
+  const re = /^[ \t]*#[ \t]*define[ \t]+([A-Za-z_]\w*)/gm;
   let m: RegExpExecArray | null;
-  while ((m = re.exec(source)) !== null) {
+  // exec() advances monotonically (the pattern always consumes at least one
+  // character, so there is no zero-width match to worry about): count newlines
+  // between consecutive matches with a cursor instead of re-scanning the whole
+  // prefix per macro, keeping the fast path genuinely linear.
+  let cursorIndex = 0;
+  let cursorLine = 1;
+  while ((m = re.exec(masked)) !== null) {
     const name = m[1]!;
-    const line = source.slice(0, m.index).split('\n').length;
+    for (let i = cursorIndex; i < m.index; i++) {
+      if (masked.charCodeAt(i) === 10) cursorLine++;
+    }
+    cursorIndex = m.index;
+    const line = cursorLine;
     // Column of the macro name within its line: the regex match starts at the
     // line head, so the name's column is just the length of the prefix
     // `  #define ` = m[0]!.length - name.length.
     const startColumn = m[0]!.length - name.length;
-    const lineEnd = source.indexOf('\n', m.index);
-    const lineEndIdx = lineEnd === -1 ? source.length : lineEnd;
+    const lineEnd = masked.indexOf('\n', m.index);
+    const lineEndIdx = lineEnd === -1 ? masked.length : lineEnd;
     const signature = source
       .slice(m.index, lineEndIdx)
       .replace(/\\\s*$/, '')

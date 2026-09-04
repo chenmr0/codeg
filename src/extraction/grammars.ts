@@ -350,8 +350,19 @@ export function detectLanguage(filePath: string, source?: string): Language {
  * such as `namespace` in a license comment, diagnostic string, or raw string do
  * not promote an otherwise-C header to C++. Newlines are retained for future
  * line-oriented heuristics and diagnostics.
+ *
+ * The mask is length-preserving in JavaScript UTF-16 CODE UNITS (each
+ * comment/literal code unit becomes one space, `\r\n` kept) — NOT in UTF-8
+ * bytes, which shrink when multi-byte characters are replaced. String
+ * indexes in the masked text therefore address the original source
+ * identically, which is what web-tree-sitter's `startIndex` and the regex
+ * match offsets use. `isPureMacroDataHeader` / `extractMacrosByRegex` in
+ * tree-sitter.ts rely on that invariant to detect pure-macro data headers
+ * whose semicolons live only inside comments and to keep ghost `#define`s in
+ * comments out of the graph. Do not reuse this function where real byte
+ * offsets are required.
  */
-function maskCStyleCommentsAndLiterals(source: string): string {
+export function maskCStyleCommentsAndLiterals(source: string): string {
   let out = '';
   let codeStart = 0;
   let i = 0;
