@@ -9,6 +9,10 @@ and adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Diagnostics
+
+- `codegraph sync -v` now breaks file reconciliation down into enumeration, database-record loading, lookup construction, removal checks, and change checks. It reports the actual Git/walk/scoped route, fallback reason, stat/read/hash timings, and counters for unchanged metadata, same-hash skips, failures, and recovery retries. Diagnostics are per-run and verbose-only; indexing behavior and database format are unchanged, so no re-index is required. See [sync diagnostics](docs/sync-diagnostics.md).
+
 ### Performance
 
 - Incremental sync now keeps watcher-triggered saves scoped to the actual changed paths, yields during fallback reconciliation, defers WAL checkpoint work until safe phase boundaries, and backs off repeated watcher failures. Small C/C++ edits avoid both an unnecessary repository walk and a full dynamic-synthesis pass.

@@ -9,7 +9,7 @@ import * as fsp from 'fs/promises';
 import * as path from 'path';
 import * as crypto from 'crypto';
 import * as os from 'os';
-import { execFileSync } from 'child_process';
+import { execFileSync, type ExecFileSyncOptionsWithStringEncoding } from 'child_process';
 import {
   Language,
   FileRecord,
@@ -45,6 +45,7 @@ import {
   hasDeclarationMacroRecoverySkipped,
   replaceWithDeclarationMacroRecoverySkipped,
 } from './diagnostics';
+import { ReconcileDiagnostics, type ScanDiagnostics } from './sync-diagnostics';
 
 /**
  * Number of files to read in parallel during indexing.
@@ -489,23 +490,28 @@ export function expandAnchoredNegations(patterns: string): string[] {
  * defaults apply to tracked files too (committing a dependency dir doesn't make it
  * project code).
  */
-export function buildDefaultIgnore(rootDir: string): Ignore {
-  const ig = ignore().add(DEFAULT_IGNORE_PATTERNS);
-  const rootGitignore = path.join(rootDir, '.gitignore');
-  if (fs.existsSync(rootGitignore)) ig.add(readGitignorePatterns(rootGitignore));
-  const gitExclude = path.join(rootDir, '.git', 'info', 'exclude');
-  if (fs.existsSync(gitExclude)) ig.add(readGitignorePatterns(gitExclude));
-  const cgIgnore = path.join(rootDir, '.codegraphignore');
-  if (fs.existsSync(cgIgnore)) {
-    const cgPatterns = readGitignorePatterns(cgIgnore);
-    ig.add(cgPatterns);
-    // Whitelist dialect: a root-anchored negation may re-include a path below
-    // an excluded parent (git's spec forbids this; `.codegraphignore` allows
-    // it). The expansion appends AFTER the raw patterns so it wins.
-    const expanded = expandAnchoredNegations(cgPatterns);
-    if (expanded.length > 0) ig.add(expanded.join('\n'));
+export function buildDefaultIgnore(rootDir: string, diagnostics?: ScanDiagnostics): Ignore {
+  const started = diagnostics ? performance.now() : 0;
+  try {
+    const ig = ignore().add(DEFAULT_IGNORE_PATTERNS);
+    const rootGitignore = path.join(rootDir, '.gitignore');
+    if (fs.existsSync(rootGitignore)) ig.add(readGitignorePatterns(rootGitignore));
+    const gitExclude = path.join(rootDir, '.git', 'info', 'exclude');
+    if (fs.existsSync(gitExclude)) ig.add(readGitignorePatterns(gitExclude));
+    const cgIgnore = path.join(rootDir, '.codegraphignore');
+    if (fs.existsSync(cgIgnore)) {
+      const cgPatterns = readGitignorePatterns(cgIgnore);
+      ig.add(cgPatterns);
+      // Whitelist dialect: a root-anchored negation may re-include a path below
+      // an excluded parent (git's spec forbids this; `.codegraphignore` allows
+      // it). The expansion appends AFTER the raw patterns so it wins.
+      const expanded = expandAnchoredNegations(cgPatterns);
+      if (expanded.length > 0) ig.add(expanded.join('\n'));
+    }
+    return ig;
+  } finally {
+    if (diagnostics) diagnostics.ignoreBuildMs += performance.now() - started;
   }
-  return ig;
 }
 
 /**
@@ -532,6 +538,20 @@ function hasCodegraphIgnoreNegation(rootDir: string): boolean {
   return false;
 }
 
+/** Time only existing Git commands, including failed attempts. */
+function runScanGit(
+  args: string[], options: ExecFileSyncOptionsWithStringEncoding, diagnostics?: ScanDiagnostics,
+): string {
+  if (!diagnostics) return execFileSync('git', args, options);
+  const started = performance.now();
+  diagnostics.gitCommands++;
+  try {
+    return execFileSync('git', args, options);
+  } finally {
+    diagnostics.gitCommandMs += performance.now() - started;
+  }
+}
+
 /**
  * Collect git-visible files (tracked + untracked, .gitignore-respected) from the
  * git repository rooted at `repoDir`, adding each to `files` with `prefix`
@@ -545,7 +565,7 @@ function hasCodegraphIgnoreNegation(rootDir: string): boolean {
  * embedded repo is its own git boundary, so we re-run `git ls-files` inside it.
  * (See issue #193.)
  */
-function collectGitFiles(repoDir: string, prefix: string, files: Set<string>): void {
+function collectGitFiles(repoDir: string, prefix: string, files: Set<string>, diagnostics?: ScanDiagnostics): void {
   const gitOpts = { cwd: repoDir, encoding: 'utf-8' as const, timeout: 30000, maxBuffer: 50 * 1024 * 1024, stdio: ['pipe', 'pipe', 'pipe'] as ['pipe', 'pipe', 'pipe'], windowsHide: true };
 
   // Tracked files. --recurse-submodules pulls in files from active submodules,
@@ -557,7 +577,7 @@ function collectGitFiles(repoDir: string, prefix: string, files: Set<string>): v
   // survive verbatim. Without it git octal-escapes and double-quotes such paths
   // (the core.quotepath default), and the quoted form never matches a real file
   // on disk → those files are silently dropped from the index. (#541)
-  const tracked = execFileSync('git', ['ls-files', '-z', '-c', '--recurse-submodules'], gitOpts);
+  const tracked = runScanGit(['ls-files', '-z', '-c', '--recurse-submodules'], gitOpts, diagnostics);
   for (const rel of tracked.split('\0')) {
     if (rel) files.add(normalizePath(prefix + rel));
   }
@@ -565,7 +585,7 @@ function collectGitFiles(repoDir: string, prefix: string, files: Set<string>): v
   // Untracked files (submodules manage their own untracked state). Embedded git
   // repos surface here as a single "subdir/" entry that git refuses to descend
   // into — recurse into those as their own repos so their source gets indexed.
-  const untracked = execFileSync('git', ['ls-files', '-z', '-o', '--exclude-standard'], gitOpts);
+  const untracked = runScanGit(['ls-files', '-z', '-o', '--exclude-standard'], gitOpts, diagnostics);
   for (const rel of untracked.split('\0')) {
     if (!rel) continue;
     if (rel.endsWith('/')) {
@@ -574,7 +594,7 @@ function collectGitFiles(repoDir: string, prefix: string, files: Set<string>): v
       // itself skips it (we never descend into a non-repo opaque dir).
       const childDir = path.join(repoDir, rel);
       if (fs.existsSync(path.join(childDir, '.git'))) {
-        collectGitFiles(childDir, prefix + rel, files);
+        collectGitFiles(childDir, prefix + rel, files, diagnostics);
       }
       continue;
     }
@@ -588,30 +608,35 @@ function collectGitFiles(repoDir: string, prefix: string, files: Set<string>): v
  * embedded (nested, non-submodule) git repos. Returns null on failure
  * (non-git project) so callers can fall back to a filesystem walk.
  */
-function getGitVisibleFiles(rootDir: string): Set<string> | null {
+function getGitVisibleFiles(rootDir: string, diagnostics?: ScanDiagnostics): Set<string> | null {
   // .codegraphignore negation rules re-include files git has already excluded,
   // so `git ls-files` never reports them.  Fall back to a filesystem walk.
-  if (hasCodegraphIgnoreNegation(rootDir)) return null;
+  if (hasCodegraphIgnoreNegation(rootDir)) {
+    if (diagnostics) diagnostics.fallbackReason = 'codegraph-negation';
+    return null;
+  }
 
+  let failureStage = 'rev-parse';
   try {
     // Check if the project directory is gitignored by a parent repo.
     // When rootDir lives inside a parent git repo that ignores it,
     // `git ls-files` returns nothing — fall back to filesystem walk.
-    const gitRoot = execFileSync(
-      'git',
+    const gitRoot = runScanGit(
       ['rev-parse', '--show-toplevel'],
-      { cwd: rootDir, encoding: 'utf-8', timeout: 5000, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true }
+      { cwd: rootDir, encoding: 'utf-8', timeout: 5000, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true },
+      diagnostics,
     ).trim();
 
     if (path.resolve(gitRoot) !== path.resolve(rootDir)) {
       try {
         // git check-ignore exits 0 if the path IS ignored, 1 if not
-        execFileSync(
-          'git',
+        runScanGit(
           ['check-ignore', '-q', path.resolve(rootDir)],
-          { cwd: rootDir, encoding: 'utf-8', timeout: 5000, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true }
+          { cwd: rootDir, encoding: 'utf-8', timeout: 5000, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true },
+          diagnostics,
         );
         // Directory is gitignored by parent repo — fall back to filesystem walk
+        if (diagnostics) diagnostics.fallbackReason = 'parent-gitignored';
         return null;
       } catch {
         // Not ignored — safe to use git ls-files
@@ -619,21 +644,36 @@ function getGitVisibleFiles(rootDir: string): Set<string> | null {
     }
 
     const files = new Set<string>();
-    collectGitFiles(rootDir, '', files);
+    failureStage = 'collect-git-files';
+    collectGitFiles(rootDir, '', files, diagnostics);
+    if (diagnostics) diagnostics.gitCandidates = files.size;
     // Apply built-in default ignores uniformly — to tracked files too, since
     // committing a dependency/build dir doesn't make it project code. A
     // `.gitignore` negation (e.g. `!vendor/`) is the explicit opt-in. (issue #407)
     // Filter on the LOGICAL path first (a user's .codegraphignore rule targets
     // the symlink name they see), THEN canonicalize+dedup so the same physical
     // file reached via its real path or a symlink collapses to one entry.
-    const ig = buildDefaultIgnore(rootDir);
+    failureStage = 'ignore-build';
+    const ig = buildDefaultIgnore(rootDir, diagnostics);
     const canonical = new Set<string>();
-    for (const f of files) {
-      if (ig.ignores(f)) continue;
-      canonical.add(canonicalFilePath(rootDir, f));
+    failureStage = 'filter-canonical';
+    const filterStarted = diagnostics ? performance.now() : 0;
+    try {
+      for (const f of files) {
+        if (ig.ignores(f)) continue;
+        canonical.add(canonicalFilePath(rootDir, f));
+      }
+    } finally {
+      if (diagnostics) diagnostics.filterCanonicalMs += performance.now() - filterStarted;
     }
     return canonical;
   } catch {
+    // This catch also covers ignore/canonicalization failures. Do not
+    // mislabel every fallback as a non-git project or run a second probe.
+    if (diagnostics) {
+      diagnostics.fallbackReason = 'git-path-error';
+      diagnostics.failureStage = failureStage;
+    }
     return null;
   }
 }
@@ -699,11 +739,13 @@ function getGitChangedFiles(rootDir: string): GitChanges | null {
  */
 export function scanDirectory(
   rootDir: string,
-  onProgress?: (current: number, file: string) => void
+  onProgress?: (current: number, file: string) => void,
+  diagnostics?: ScanDiagnostics,
 ): string[] {
   // Fast path: use git to get all visible files (respects .gitignore everywhere)
-  const gitFiles = getGitVisibleFiles(rootDir);
+  const gitFiles = getGitVisibleFiles(rootDir, diagnostics);
   if (gitFiles) {
+    if (diagnostics) diagnostics.mode = 'git';
     const files: string[] = [];
     let count = 0;
     for (const filePath of gitFiles) {
@@ -713,11 +755,12 @@ export function scanDirectory(
         onProgress?.(count, filePath);
       }
     }
+    if (diagnostics) diagnostics.sourceFiles = files.length;
     return files;
   }
 
   // Fallback: walk filesystem for non-git projects
-  return scanDirectoryWalk(rootDir, onProgress);
+  return scanDirectoryWalk(rootDir, onProgress, diagnostics);
 }
 
 /**
@@ -726,10 +769,12 @@ export function scanDirectory(
  */
 export async function scanDirectoryAsync(
   rootDir: string,
-  onProgress?: (current: number, file: string) => void
+  onProgress?: (current: number, file: string) => void,
+  diagnostics?: ScanDiagnostics,
 ): Promise<string[]> {
-  const gitFiles = getGitVisibleFiles(rootDir);
+  const gitFiles = getGitVisibleFiles(rootDir, diagnostics);
   if (gitFiles) {
+    if (diagnostics) diagnostics.mode = 'git';
     const files: string[] = [];
     let count = 0;
     for (const filePath of gitFiles) {
@@ -743,10 +788,11 @@ export async function scanDirectoryAsync(
         }
       }
     }
+    if (diagnostics) diagnostics.sourceFiles = files.length;
     return files;
   }
 
-  return scanDirectoryWalk(rootDir, onProgress);
+  return scanDirectoryWalk(rootDir, onProgress, diagnostics);
 }
 
 /**
@@ -754,8 +800,11 @@ export async function scanDirectoryAsync(
  */
 function scanDirectoryWalk(
   rootDir: string,
-  onProgress?: (current: number, file: string) => void
+  onProgress?: (current: number, file: string) => void,
+  diagnostics?: ScanDiagnostics,
 ): string[] {
+  const walkStarted = diagnostics ? performance.now() : 0;
+  if (diagnostics) diagnostics.mode = 'walk';
   const files: string[] = [];
   let count = 0;
   const visitedDirs = new Set<string>();
@@ -782,13 +831,18 @@ function scanDirectoryWalk(
   }
 
   const loadIgnore = (dir: string): ScopedIgnore | null => {
-    const giPath = path.join(dir, '.gitignore');
-    if (!fs.existsSync(giPath)) return null;
-    // readGitignorePatterns is defensive: a non-UTF-8 (DLP-encrypted) or
-    // uncompilable .gitignore is skipped/filtered with a warning, never thrown
-    // (issue #682) — so the per-file `.ignores()` calls below can't crash.
-    const patterns = readGitignorePatterns(giPath);
-    return patterns ? { dir, ig: ignore().add(patterns) } : null;
+    const started = diagnostics ? performance.now() : 0;
+    try {
+      const giPath = path.join(dir, '.gitignore');
+      if (!fs.existsSync(giPath)) return null;
+      // readGitignorePatterns is defensive: a non-UTF-8 (DLP-encrypted) or
+      // uncompilable .gitignore is skipped/filtered with a warning, never thrown
+      // (issue #682) — so the per-file `.ignores()` calls below can't crash.
+      const patterns = readGitignorePatterns(giPath);
+      return patterns ? { dir, ig: ignore().add(patterns) } : null;
+    } finally {
+      if (diagnostics) diagnostics.ignoreBuildMs += performance.now() - started;
+    }
   };
 
   const isIgnored = (fullPath: string, isDir: boolean, matchers: ScopedIgnore[]): boolean => {
@@ -815,6 +869,7 @@ function scanDirectoryWalk(
       return;
     }
     visitedDirs.add(realDir);
+    if (diagnostics) diagnostics.walkDirectories++;
 
     // This directory's own .gitignore (if present) applies to everything below it.
     // The root's .gitignore is already merged into the seeded base matcher (so a
@@ -871,8 +926,15 @@ function scanDirectoryWalk(
 
   // Seed a base matcher with the built-in default ignores (merged with the root
   // .gitignore so a negation can override). Nested .gitignores still layer per-dir.
-  walk(rootDir, [{ dir: rootDir, ig: buildDefaultIgnore(rootDir) }]);
-  return files;
+  try {
+    walk(rootDir, [{ dir: rootDir, ig: buildDefaultIgnore(rootDir, diagnostics) }]);
+    return files;
+  } finally {
+    if (diagnostics) {
+      diagnostics.walkMs += performance.now() - walkStarted;
+      diagnostics.sourceFiles = files.length;
+    }
+  }
 }
 
 /**
@@ -2301,6 +2363,7 @@ export class ExtractionOrchestrator {
     const log = verbose
       ? (message: string) => console.log(`[sync] ${message}`)
       : (_message: string) => {};
+    const diagnostics = verbose ? new ReconcileDiagnostics() : undefined;
     const reconcileStarted = performance.now();
 
     onProgress?.({
@@ -2321,6 +2384,7 @@ export class ExtractionOrchestrator {
     // cannot see, because the working tree is clean afterward.
     let currentFiles: string[];
     let trackedFiles: FileRecord[];
+    let phaseStarted = diagnostics ? performance.now() : 0;
     if (scopedPaths && scopedPaths.length > 0) {
       // Watcher paths are already filtered and canonicalized. Validate again
       // at this API boundary so a direct caller cannot make the pre-hash read
@@ -2341,10 +2405,20 @@ export class ExtractionOrchestrator {
       }
 
       if (safe && unique.size > 0) {
+        if (diagnostics) {
+          diagnostics.scope = 'scoped';
+          diagnostics.scan.mode = 'scoped';
+        }
         const paths = [...unique];
-        currentFiles = paths.filter((filePath) =>
-          fs.existsSync(path.join(this.rootDir, filePath))
-        );
+        currentFiles = paths.filter((filePath) => {
+          if (diagnostics) diagnostics.counts.existsChecks++;
+          return fs.existsSync(path.join(this.rootDir, filePath));
+        });
+        if (diagnostics) {
+          diagnostics.phases.enumerateMs = performance.now() - phaseStarted;
+          diagnostics.scan.sourceFiles = currentFiles.length;
+          phaseStarted = performance.now();
+        }
         trackedFiles = [];
         for (const filePath of paths) {
           const tracked = this.queries.getFileByPath(filePath);
@@ -2354,14 +2428,29 @@ export class ExtractionOrchestrator {
         // delete cannot resemble the zero-shape used for lock contention.
         filesChecked = paths.length;
       } else {
-        currentFiles = await scanDirectoryAsync(this.rootDir);
+        if (diagnostics) diagnostics.scope = 'full-fallback';
+        currentFiles = await scanDirectoryAsync(this.rootDir, undefined, diagnostics?.scan);
+        if (diagnostics) {
+          diagnostics.phases.enumerateMs = performance.now() - phaseStarted;
+          phaseStarted = performance.now();
+        }
         trackedFiles = this.queries.getAllFiles();
         filesChecked = currentFiles.length;
       }
     } else {
-      currentFiles = await scanDirectoryAsync(this.rootDir);
+      currentFiles = await scanDirectoryAsync(this.rootDir, undefined, diagnostics?.scan);
+      if (diagnostics) {
+        diagnostics.phases.enumerateMs = performance.now() - phaseStarted;
+        phaseStarted = performance.now();
+      }
       trackedFiles = this.queries.getAllFiles();
       filesChecked = currentFiles.length;
+    }
+    if (diagnostics) {
+      diagnostics.phases.loadTrackedMs = performance.now() - phaseStarted;
+      diagnostics.counts.currentFiles = currentFiles.length;
+      diagnostics.counts.trackedFiles = trackedFiles.length;
+      phaseStarted = performance.now();
     }
     const currentSet = new Set(currentFiles);
 
@@ -2369,13 +2458,20 @@ export class ExtractionOrchestrator {
     for (const f of trackedFiles) {
       trackedMap.set(f.path, f);
     }
+    if (diagnostics) {
+      diagnostics.phases.buildLookupMs = performance.now() - phaseStarted;
+      phaseStarted = performance.now();
+    }
 
     // Removals: tracked in the DB but no longer a present source file. Check the
     // filesystem directly — `scanDirectory` (via `git ls-files`) still lists a
     // file deleted from disk but not yet staged, so set membership alone misses it.
     let reconcileChecks = 0;
     for (const tracked of trackedFiles) {
-      if (!currentSet.has(tracked.path) || !fs.existsSync(path.join(this.rootDir, tracked.path))) {
+      const missingFromScan = !currentSet.has(tracked.path);
+      // Preserve the original short circuit: count only actual exists calls.
+      if (!missingFromScan && diagnostics) diagnostics.counts.existsChecks++;
+      if (missingFromScan || !fs.existsSync(path.join(this.rootDir, tracked.path))) {
         // Deleting the target cascades its incoming edges even though callers
         // in other files are unchanged. Preserve stamped resolution edges as
         // pending refs so this same sync can rebind them or park them for a
@@ -2397,6 +2493,10 @@ export class ExtractionOrchestrator {
         await new Promise<void>((resolve) => setImmediate(resolve));
       }
     }
+    if (diagnostics) {
+      diagnostics.phases.removalMs = performance.now() - phaseStarted;
+      phaseStarted = performance.now();
+    }
 
     // Adds / modifications.
     for (const filePath of currentFiles) {
@@ -2410,6 +2510,7 @@ export class ExtractionOrchestrator {
       const needsDeclarationMacroRecovery = hasDeclarationMacroRecoverySkipped(
         tracked?.errors,
       );
+      if (needsDeclarationMacroRecovery && diagnostics) diagnostics.counts.recoveryRetryFiles++;
 
       // Cheap pre-filter: an already-indexed file whose size AND mtime both match
       // the DB is unchanged — skip it without reading or hashing. (A content
@@ -2419,26 +2520,40 @@ export class ExtractionOrchestrator {
       // A base-only file is intentionally exempt: unchanged source bytes do not
       // mean its graph coverage is complete, so a later sync must retry it.
       if (tracked && !needsDeclarationMacroRecovery) {
+        const statStarted = diagnostics ? performance.now() : 0;
+        if (diagnostics) diagnostics.counts.statChecks++;
         try {
           const stat = fs.statSync(fullPath);
           if (stat.size === tracked.size && Math.floor(stat.mtimeMs) === Math.floor(tracked.modifiedAt)) {
+            if (diagnostics) diagnostics.counts.statUnchanged++;
             continue;
           }
         } catch (error) {
+          if (diagnostics) diagnostics.counts.statErrors++;
           logDebug('Skipping unstattable file during sync', { filePath, error: String(error) });
           continue;
+        } finally {
+          if (diagnostics) diagnostics.io.statMs += performance.now() - statStarted;
         }
       }
 
       // New, or size/mtime changed — read + hash to confirm a real content change.
       let content: string;
+      const readStarted = diagnostics ? performance.now() : 0;
+      if (diagnostics) diagnostics.counts.hashReadAttempts++;
       try {
         content = fs.readFileSync(fullPath, 'utf-8');
       } catch (error) {
+        if (diagnostics) diagnostics.counts.hashReadErrors++;
         logDebug('Skipping unreadable file during sync', { filePath, error: String(error) });
         continue;
+      } finally {
+        if (diagnostics) diagnostics.io.readForHashMs += performance.now() - readStarted;
       }
+      if (diagnostics) diagnostics.counts.hashReadFiles++;
+      const hashStarted = diagnostics ? performance.now() : 0;
       const contentHash = hashContent(content);
+      if (diagnostics) diagnostics.io.hashMs += performance.now() - hashStarted;
 
       if (!tracked) {
         filesToIndex.push(filePath);
@@ -2449,10 +2564,21 @@ export class ExtractionOrchestrator {
       ) {
         filesToIndex.push(filePath);
         filesModified++;
+      } else if (diagnostics) {
+        diagnostics.counts.sameHashSkipped++;
       }
     }
 
+    if (diagnostics) diagnostics.phases.changeCheckMs = performance.now() - phaseStarted;
     const reconcileMs = performance.now() - reconcileStarted;
+    if (diagnostics) {
+      diagnostics.counts.added = filesAdded;
+      diagnostics.counts.modified = filesModified;
+      diagnostics.counts.removed = filesRemoved;
+      // Emit immediately, before macro scanning/worker setup: even a later
+      // failure must not hide where reconciliation spent its time.
+      diagnostics.log(log, reconcileMs);
+    }
     const total = filesToIndex.length;
     let macroScanMs = 0;
     let frameworkDetectionMs = 0;
