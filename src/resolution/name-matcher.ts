@@ -7,6 +7,7 @@
 import { Node } from '../types';
 import { UnresolvedRef, ResolvedRef, ResolutionContext } from './types';
 import { canonicalFilePath } from '../utils';
+import { splitNameWords } from './text-cache';
 
 /**
  * Try to resolve a path-like reference (e.g., "snippets/drawer-menu.liquid")
@@ -471,10 +472,10 @@ function inferCppReceiverType(
   context: ResolutionContext,
   depth = 0,
 ): string | null {
-  const source = context.readFile(ref.filePath);
-  if (!source) return null;
-
-  const lines = source.split(/\r?\n/);
+  const lines = context.getFileLines
+    ? context.getFileLines(ref.filePath)
+    : context.readFile(ref.filePath)?.split(/\r?\n/);
+  if (!lines || lines.length === 0 || (lines.length === 1 && lines[0] === '')) return null;
   const callLineIndex = Math.max(0, Math.min(lines.length - 1, ref.line - 1));
   const escapedReceiver = receiverName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const receiverPattern = new RegExp(`\\b${escapedReceiver}\\b`);
@@ -507,10 +508,12 @@ function inferCppReceiverType(
 
   for (const headerPath of headerCandidates) {
     if (!context.fileExists(headerPath)) continue;
-    const headerSource = context.readFile(headerPath);
-    if (!headerSource) continue;
+    const headerLines = context.getFileLines
+      ? context.getFileLines(headerPath)
+      : context.readFile(headerPath)?.split(/\r?\n/);
+    if (!headerLines) continue;
 
-    for (const line of headerSource.split(/\r?\n/)) {
+    for (const line of headerLines) {
       if (!receiverPattern.test(line)) continue;
       const declaratorMatch = line.match(declaratorRegex);
       if (!declaratorMatch) continue;
@@ -1005,12 +1008,12 @@ export function matchMethodCall(
 
     // Multiple methods: score by receiver name word overlap with class name
     if (targetMethods.length > 1) {
-      const receiverWords = splitCamelCase(objectOrClass!);
+      const receiverWords = context.getNameWords?.(objectOrClass!) ?? splitNameWords(objectOrClass!);
       let bestMatch: typeof targetMethods[0] | undefined;
       let bestScore = 0;
 
       for (const method of targetMethods) {
-        const classWords = splitCamelCase(method.qualifiedName);
+        const classWords = context.getNameWords?.(method.qualifiedName) ?? splitNameWords(method.qualifiedName);
         let score = receiverWords.filter(w =>
           classWords.some(cw => cw.toLowerCase() === w.toLowerCase())
         ).length;
@@ -1034,16 +1037,6 @@ export function matchMethodCall(
   }
 
   return null;
-}
-
-/**
- * Split a camelCase or PascalCase string into words.
- */
-function splitCamelCase(str: string): string[] {
-  return str.replace(/([a-z])([A-Z])/g, '$1 $2')
-    .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2')
-    .split(/[\s._:\/\\]+/)
-    .filter(w => w.length > 1);
 }
 
 /**

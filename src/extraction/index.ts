@@ -2383,6 +2383,10 @@ export class ExtractionOrchestrator {
     // changes from `git pull`/`checkout`/`merge`/`rebase` — which `git status`
     // cannot see, because the working tree is clean afterward.
     let currentFiles: string[];
+    // Only a full reconciliation scan can seed project-wide context. Scoped
+    // watcher paths must never masquerade as the complete macro/framework list.
+    // Keep this snapshot local to this sync, not on the orchestrator.
+    let fullProjectFiles: string[] | undefined;
     let trackedFiles: FileRecord[];
     let phaseStarted = diagnostics ? performance.now() : 0;
     if (scopedPaths && scopedPaths.length > 0) {
@@ -2430,6 +2434,7 @@ export class ExtractionOrchestrator {
       } else {
         if (diagnostics) diagnostics.scope = 'full-fallback';
         currentFiles = await scanDirectoryAsync(this.rootDir, undefined, diagnostics?.scan);
+        fullProjectFiles = currentFiles;
         if (diagnostics) {
           diagnostics.phases.enumerateMs = performance.now() - phaseStarted;
           phaseStarted = performance.now();
@@ -2439,6 +2444,7 @@ export class ExtractionOrchestrator {
       }
     } else {
       currentFiles = await scanDirectoryAsync(this.rootDir, undefined, diagnostics?.scan);
+      fullProjectFiles = currentFiles;
       if (diagnostics) {
         diagnostics.phases.enumerateMs = performance.now() - phaseStarted;
         phaseStarted = performance.now();
@@ -2589,13 +2595,30 @@ export class ExtractionOrchestrator {
     const extractionTimingTotals: ExtractionTimings = {};
 
     if (total > 0) {
+      const hasReconcileFileList = fullProjectFiles !== undefined;
+      let contextFileListReuses = 0;
+      let contextFileListScans = 0;
+      const getContextFiles = (): string[] => {
+        if (fullProjectFiles !== undefined) {
+          contextFileListReuses++;
+        } else {
+          // Cold scoped sync: lazily scan once, then share with both consumers.
+          // Keep the existing synchronous fallback and charge it to whichever
+          // preparation phase needs it. Warm contexts/no-op sync never scan here.
+          fullProjectFiles = scanDirectory(this.rootDir);
+          contextFileListScans++;
+        }
+        return fullProjectFiles;
+      };
       const neededLanguages = [...new Set(filesToIndex.map((filePath) => detectLanguage(filePath)))];
       if (neededLanguages.includes('c') && !neededLanguages.includes('cpp')) {
         neededLanguages.push('cpp');
       }
 
       const frameworkStarted = performance.now();
-      const frameworkNames = this.ensureDetectedFrameworks();
+      const frameworkNames = this.ensureDetectedFrameworks(
+        this.detectedFrameworkNames === null ? getContextFiles() : undefined,
+      );
       frameworkDetectionMs = performance.now() - frameworkStarted;
 
       const needsCppMacroContext = neededLanguages.some(
@@ -2606,10 +2629,19 @@ export class ExtractionOrchestrator {
       let globalMacroDefinitions: CppMacroDefinition[] = [];
       if (needsCppMacroContext) {
         const macroStarted = performance.now();
-        globalMacroNames = await this.ensureGlobalMacroNames();
+        globalMacroNames = await this.ensureGlobalMacroNames(
+          this.globalMacroNames === null ? getContextFiles() : undefined,
+        );
         globalBodylessMacroNames = this.globalBodylessMacroNames ?? new Set<string>();
         globalMacroDefinitions = this.globalMacroDefinitions ?? [];
         macroScanMs = performance.now() - macroStarted;
+      }
+
+      if (verbose) {
+        const source = hasReconcileFileList ? 'reconcile'
+          : contextFileListScans > 0 ? 'scoped-scan' : 'unused';
+        log(`context-files source=${source} files=${fullProjectFiles?.length ?? 0} ` +
+          `reuses=${contextFileListReuses} extraScans=${contextFileListScans}`);
       }
 
       const setupStarted = performance.now();

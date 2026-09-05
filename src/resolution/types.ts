@@ -95,6 +95,10 @@ export interface ResolutionContext {
   fileExists(filePath: string): boolean;
   /** Read file content */
   readFile(filePath: string): string | null;
+  /** Optional read-only lines of the same content readFile would return. */
+  getFileLines?(filePath: string): readonly string[] | null;
+  /** Optional pure name tokenization cache; callers must not mutate results. */
+  getNameWords?(name: string): readonly string[];
   /** Get project root */
   getProjectRoot(): string;
   /** Get all files */

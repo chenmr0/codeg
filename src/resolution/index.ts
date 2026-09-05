@@ -37,6 +37,7 @@ import { loadWorkspacePackages, type WorkspacePackages } from './workspace-packa
 import { logDebug } from '../errors';
 import type { ReExport } from './types';
 import { LRUCache } from './lru-cache';
+import { ResolutionTextCache } from './text-cache';
 import { canonicalFilePath, clearCanonicalCache } from '../utils';
 import {
   ResolverPool,
@@ -234,6 +235,7 @@ export class ReferenceResolver {
   // codebases with 20k+ files (see issue: unbounded cache growth).
   private nodeCache: LRUCache<string, Node[]>; // per-file node cache
   private fileCache: LRUCache<string, string | null>; // per-file content cache
+  private readonly textCache = new ResolutionTextCache();
   private importMappingCache: LRUCache<string, ImportMapping[]>;
   private reExportCache: LRUCache<string, ReExport[]>;
   private nameCache: LRUCache<string, Node[]>; // name → nodes cache
@@ -354,6 +356,7 @@ export class ReferenceResolver {
   clearCaches(): void {
     this.nodeCache.clear();
     this.fileCache.clear();
+    this.textCache.clear();
     this.importMappingCache.clear();
     this.reExportCache.clear();
     this.nameCache.clear();
@@ -523,6 +526,15 @@ export class ReferenceResolver {
           return null;
         }
       },
+
+      getFileLines: (filePath: string) => {
+        // Always obtain the resolver's current content first. If the file
+        // cache was evicted/refilled, a same-path edit cannot hit stale lines.
+        const source = this.context.readFile(filePath);
+        return source === null ? null : this.textCache.fileLines(source);
+      },
+
+      getNameWords: (name: string) => this.textCache.nameWords(name),
 
       getProjectRoot: () => this.projectRoot,
 
