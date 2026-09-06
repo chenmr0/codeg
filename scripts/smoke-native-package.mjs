@@ -12,6 +12,7 @@ env.PATH = [path.dirname(process.execPath), ...(process.platform === 'win32'
   ? [path.join(process.env.SystemRoot ?? 'C:/Windows', 'System32'), process.env.SystemRoot ?? 'C:/Windows']
   : ['/usr/bin', '/bin'])].join(path.delimiter);
 for (const key of ['CODEGRAPH_RUST_SCAN', 'CODEGRAPH_RUST_SCAN_PATH', 'CODEGRAPH_DIR', 'CODEGRAPH_HYBRID_SCAN',
+  'CODEGRAPH_RUST_MACROS', 'CODEGRAPH_RUST_MACROS_PATH', 'CODEGRAPH_RUST_MACROS_WORKERS', 'CODEGRAPH_RUST_MACROS_TIMEOUT_MS',
   'CODEGRAPH_PACK_ALLOW_INCOMPLETE', 'CODEGRAPH_CARGO', 'CODEGRAPH_RUSTC', 'CARGO_HOME', 'RUSTUP_HOME']) delete env[key];
 const run = (command, args, options = {}) => {
   const result = spawnSync(command, args, { cwd: work, env, encoding: 'utf8', windowsHide: true,
@@ -66,6 +67,25 @@ try {
   const output = run(process.execPath, ['--liftoff-only', cli, 'sync', project, '-v']);
   assert.match(output, /nativeStatus=used/); assert.match(output, /Already up to date/);
   console.log('[rust-scan] Installed npm package PASS: no Rust/Cargo, no enable switch, add/modify/remove/no-op and CLI verified.');
+  if (process.argv.includes('--macros')) {
+    const macroProgram = `
+      const fs=require('fs'),path=require('path'),assert=require('assert/strict');
+      const installed=process.argv[1],project=process.argv[2];
+      const {buildMacroContext}=require(path.join(installed,'dist/extraction/macro-scan.js'));
+      fs.writeFileSync(path.join(project,'src/defs.h'),'#define DECL(name) int name;\\n#define EMPTY /*中文*/\\n');
+      (async()=>{
+        process.env.CODEGRAPH_RUST_MACROS='0';const baseline=await buildMacroContext(project,['src/defs.h']);
+        for(const mode of ['1','verify']) {
+          process.env.CODEGRAPH_RUST_MACROS=mode;const actual=await buildMacroContext(project,['src/defs.h']);
+          assert.equal(actual.metrics.mode,mode==='1'?'rust':'verify');
+          assert.deepEqual(actual.definitions,baseline.definitions);assert.deepEqual([...actual.names],['DECL','EMPTY']);
+          assert.deepEqual([...actual.bodyless],['EMPTY']);
+        }
+      })().catch(e=>{console.error(e);process.exitCode=1;});
+    `;
+    console.log(run(process.execPath, ['-e', macroProgram, installed, project]));
+    console.log('[rust-macros] Installed opt-in prototype PASS: no Rust/Cargo, native and verify modes match TS.');
+  }
 } finally {
   assert.ok(path.basename(work).startsWith('cg-native-npm-smoke-'));
   assert.equal(path.dirname(fs.realpathSync(work)), fs.realpathSync(os.tmpdir()));

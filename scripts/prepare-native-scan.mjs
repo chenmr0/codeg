@@ -16,3 +16,20 @@ try {
 } catch (error) {
   console.warn(`[rust-scan] Native permissions unavailable; TypeScript fallback remains available: ${error.message}`);
 }
+
+// The macro prototype is independent and remains opt-in. Restore permission
+// only for the exact checked-in-layout bytes; never run it during installation.
+try {
+  const binary = path.join(root, 'dist/native-macros/linux-x64/codegraph-macros');
+  if (fs.existsSync(binary)) {
+    const api = artifactApi(root);
+    const m = JSON.parse(fs.readFileSync(path.join(path.dirname(binary), 'manifest.json'), 'utf8'));
+    if (m.schema !== 1 || m.protocol !== 1 || m.platform !== 'linux' || m.arch !== 'x64' ||
+      m.target !== 'x86_64-unknown-linux-musl' || m.executable !== 'codegraph-macros' ||
+      m.packageVersion !== api.rustScanPackageVersion() || m.profile !== 'release' || m.experimental !== true ||
+      !fs.lstatSync(binary).isFile() || api.sha256(fs.readFileSync(binary)) !== m.sha256) throw new Error('macro-artifact-mismatch');
+    fs.chmodSync(binary, 0o755);
+  }
+} catch (error) {
+  console.warn(`[rust-macros] Prototype permissions unavailable; TypeScript fallback remains available: ${error.message}`);
+}

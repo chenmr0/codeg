@@ -30,11 +30,8 @@ import ignore, { Ignore } from 'ignore';
 import { detectFrameworks } from '../resolution/frameworks';
 import type { ResolutionContext } from '../resolution/types';
 import { ParseWorkerPool, resolveParsePoolSize } from './parse-pool';
-import {
-  scanCppMacroDefinitions,
-  selectUnambiguousCppMacroDefinitions,
-  type CppMacroDefinition,
-} from './declaration-macros';
+import type { CppMacroDefinition } from './declaration-macros';
+import { buildMacroContext, formatMacroScanMetrics } from './macro-scan';
 import { isRetryableParseWorkerError } from './wasm-errors';
 import {
   StoreWriter,
@@ -1197,23 +1194,10 @@ export class ExtractionOrchestrator {
    * Cached on the orchestrator for the lifetime of the run. Call with
    * the scanned file list to avoid re-scanning the directory.
    */
-  private async ensureGlobalMacroNames(files?: string[]): Promise<Set<string>> {
+  private async ensureGlobalMacroNames(files?: string[], log?: (message: string) => void): Promise<Set<string>> {
     if (this.globalMacroNames !== null) return this.globalMacroNames;
 
     const fileList = files ?? scanDirectory(this.rootDir);
-    const macroRegex = /^\s*#\s*define\s+([A-Za-z_]\w*)/gm;
-    const names = new Set<string>();
-    // Bodyless object-like macros: `#define NAME` with an EMPTY body (only
-    // whitespace/comments follow on the line), and NOT function-like
-    // (`NAME(` immediately after — `(?!\s*\()` rejects both `NAME(` and
-    // the object-with-body form `NAME (x)`). These expand to nothing and are
-    // blanked by preParse so prefix-attribute macros like `SAFE`/`BORROW` in
-    // `typedef SAFE VOS_BOOL (*FnPtr)(...)` don't push tree-sitter into the
-    // error-recovery path that buries the real name.
-    const bodylessRegex = /^\s*#\s*define\s+([A-Za-z_]\w*)(?!\s*\()(?:[ \t]*(?:\/\/[^\n]*|\/\*[\s\S]*?\*\/[ \t]*)?)?[ \t]*$/gm;
-    const bodyless = new Set<string>();
-    const definitions: CppMacroDefinition[] = [];
-
     // Filter to C/C++/ObjC files — only these have the preprocessor and
     // the macro-misparse-as-function problem.
     const cLikeFiles = fileList.filter((f) => {
@@ -1222,44 +1206,13 @@ export class ExtractionOrchestrator {
       return lang === 'c' || lang === 'cpp' || lang === 'objc';
     });
 
-    // Batch reads to overlap I/O. 50 files per batch balances throughput
-    // against memory for very large projects.
-    const BATCH = 50;
-    for (let i = 0; i < cLikeFiles.length; i += BATCH) {
-      const batch = cLikeFiles.slice(i, i + BATCH);
-      const contents = await Promise.all(
-        batch.map(async (relPath) => {
-          const full = validatePathWithinRoot(this.rootDir, relPath);
-          if (!full) return null;
-          try {
-            return await fsp.readFile(full, 'utf-8');
-          } catch {
-            return null;
-          }
-        })
-      );
-      for (const content of contents) {
-        if (!content) continue;
-        let m: RegExpExecArray | null;
-        macroRegex.lastIndex = 0;
-        while ((m = macroRegex.exec(content)) !== null) {
-          const name = m[1];
-          if (name) names.add(name);
-        }
-        let bm: RegExpExecArray | null;
-        bodylessRegex.lastIndex = 0;
-        while ((bm = bodylessRegex.exec(content)) !== null) {
-          const name = bm[1];
-          if (name) bodyless.add(name);
-        }
-        definitions.push(...scanCppMacroDefinitions(content));
-      }
-    }
-
-    this.globalMacroNames = names;
-    this.globalBodylessMacroNames = bodyless;
-    this.globalMacroDefinitions = selectUnambiguousCppMacroDefinitions(definitions);
-    return names;
+    const context = await buildMacroContext(this.rootDir, cLikeFiles);
+    log?.(`macro-detail ${formatMacroScanMetrics(context.metrics)} names=${context.names.size} ` +
+      `bodyless=${context.bodyless.size} definitions=${context.definitions.length}`);
+    this.globalMacroNames = context.names;
+    this.globalBodylessMacroNames = context.bodyless;
+    this.globalMacroDefinitions = context.definitions;
+    return context.names;
   }
 
   /**
@@ -1343,7 +1296,7 @@ export class ExtractionOrchestrator {
     this.globalMacroNames = null;
     this.globalBodylessMacroNames = null;
     this.globalMacroDefinitions = null;
-    const globalMacroNames = await this.ensureGlobalMacroNames(files);
+    const globalMacroNames = await this.ensureGlobalMacroNames(files, verbose ? log : undefined);
     const globalBodylessMacroNames = this.globalBodylessMacroNames!;
     const globalMacroDefinitions = this.globalMacroDefinitions!;
     const macroScanMs = performance.now() - macroScanStarted;
@@ -2762,6 +2715,7 @@ export class ExtractionOrchestrator {
         const macroStarted = performance.now();
         globalMacroNames = await this.ensureGlobalMacroNames(
           this.globalMacroNames === null ? getContextFiles() : undefined,
+          verbose ? log : undefined,
         );
         globalBodylessMacroNames = this.globalBodylessMacroNames ?? new Set<string>();
         globalMacroDefinitions = this.globalMacroDefinitions ?? [];

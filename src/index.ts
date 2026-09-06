@@ -650,6 +650,16 @@ export class CodeGraph {
       let deferWal = false;
       let priorAutocheckpoint = 0;
       let walValve: WalCheckpointValve | null = null;
+      // Verbose-only attribution of the work AFTER extraction. These are
+      // sequential wall intervals, not sums of per-reference CPU timings.
+      let tailCheckpoint = 0;
+      const tailTimings: Record<string, number> = {};
+      const tailMark = (phase: string): void => {
+        if (!options.verbose || tailCheckpoint === 0) return;
+        const now = performance.now();
+        tailTimings[phase] = (tailTimings[phase] ?? 0) + now - tailCheckpoint;
+        tailCheckpoint = now;
+      };
       try {
         deferWal =
           process.env.CODEGRAPH_NO_WAL_DEFER !== '1' &&
@@ -675,6 +685,7 @@ export class CodeGraph {
           options.verbose,
         );
         const hasSuccessfulChangedFiles = (result.changedFilePaths?.length ?? 0) > 0;
+        if (options.verbose) tailCheckpoint = performance.now();
         retryState.finishPrimaryExtraction();
         const referenceFiles = [...new Set([
           ...(result.changedFilePaths ?? []), ...recoveredRetryFiles,
@@ -684,6 +695,7 @@ export class CodeGraph {
         // graph. Besides bounding the WAL, this avoids making the main thread
         // page through a large unfurled write set at the phase boundary.
         if (walValve) await walValve.foldNow();
+        tailMark('prepareAndWalMs');
 
         // Cross-file finalization (e.g. NestJS RouterModule prefixes). Run on
         // every sync that touched files so edits to `app.module.ts` propagate
@@ -697,6 +709,7 @@ export class CodeGraph {
           this.resolver.clearCaches();
         }
 
+        tailMark('postExtractMs');
         // Resolve references for changed files first. This restores their
         // import edges (e.g. `a.c --imports--> a.h`), which the co-importer
         // query in the next step relies on.
@@ -709,6 +722,7 @@ export class CodeGraph {
           );
         }
 
+        tailMark('changedRefsMs');
         // Whole-file deletion cascades incoming edges from unchanged callers.
         // The extraction layer resurrects stamped edges as pending references;
         // resolve just those source files rather than sweeping the whole table.
@@ -723,17 +737,20 @@ export class CodeGraph {
           });
         }
 
+        tailMark('resurrectedRefsMs');
         // A changed file may introduce a symbol needed by references in files
         // that did not change. Retry only failed rows whose final qualified
         // name segment matches a node contributed by the changed files. Stream
         // every matching name in bounded primary-key batches: popular names
         // must not be skipped wholesale merely because they exceed one batch.
         const retryFailedReferences = async (allowFilter: boolean): Promise<void> => {
+          const planningStarted = performance.now();
           const eligibility = retryState.plan(allowFilter, result.failedRewireSourceFiles);
           const retryPlan = this.queries.getFailedReferenceRetryPlan(
             eligibility.names,
           );
           const started = performance.now();
+          const planningMs = started - planningStarted;
           let visited = 0;
           let attempted = 0;
           if (retryPlan.total > 0) {
@@ -788,7 +805,8 @@ export class CodeGraph {
             console.log(`[sync] failed-ref-retry mode=${eligibility.filtered ? 'safe-comments' : 'full'} ` +
               `proofFiles=${eligibility.proofFiles} safeFiles=${eligibility.safeFiles} ` +
               `names=${eligibility.names.length} scanned=${visited} attempted=${attempted} ` +
-              `skipped=${visited - attempted} durationMs=${Math.round(performance.now() - started)}ms`);
+              `skipped=${visited - attempted} planMs=${Math.round(planningMs)}ms ` +
+              `durationMs=${Math.round(performance.now() - started)}ms`);
           }
         };
         if (retryState.hasWork) {
@@ -796,6 +814,7 @@ export class CodeGraph {
             !result.resurrectedReferenceSourceFiles?.length);
         }
 
+        tailMark('failedRefRetryMs');
         // Edge re-wiring (done inside storeExtractionResult during
         // orchestrator.sync()) already restored incoming cross-file edges
         // from unchanged files to the changed files' new nodes.  Only the
@@ -885,6 +904,7 @@ export class CodeGraph {
           }
         }
 
+        tailMark('coImporterMs');
         // A process killed during reference resolution can leave untouched
         // pending rows behind. Scoped sync normally reads only changed files,
         // so those rows (and their missing call/import edges) would otherwise
@@ -922,6 +942,7 @@ export class CodeGraph {
           }
         }
 
+        tailMark('orphanAndSynthesisMs');
         if (
           hasSuccessfulChangedFiles ||
           retryState.hasWork ||
@@ -932,6 +953,7 @@ export class CodeGraph {
           // co-importer fallback, and the interrupted-run orphan sweep.
           this.resolver.resolveChainedCallsViaConformance();
         }
+        tailMark('chainedCallsMs');
 
         // Refresh planner stats + checkpoint the WAL after bulk writes.
         if (
@@ -943,6 +965,7 @@ export class CodeGraph {
           await this.db.runMaintenance();
         }
 
+        tailMark('maintenanceMs');
         // A successful sync may have replaced (or deleted) files that were
         // previously stored through the base-only fallback. Reconcile those
         // file-scoped diagnostics so `codegraph status` stops reporting stale
@@ -957,6 +980,7 @@ export class CodeGraph {
           throw new SyncIncompleteError(result);
         }
         retryState.complete();
+        tailMark('finalizeMs');
         return result;
       } finally {
         this.orchestrator.setSyncRetryState();
@@ -977,6 +1001,11 @@ export class CodeGraph {
             // The connection may already be closing after a failed sync.
           } finally {
             this.fileLock.release();
+            if (options.verbose && tailCheckpoint !== 0) {
+              tailMark('cleanupMs');
+              console.log('[sync] tail-detail ' + Object.entries(tailTimings)
+                .map(([key, value]) => `${key}=${Math.round(value)}ms`).join(' '));
+            }
           }
         }
       }

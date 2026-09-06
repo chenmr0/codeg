@@ -11,6 +11,7 @@ and adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Diagnostics
 
+- C/C++ macro-context preparation now reports file/byte counts, TS read/name/bodyless/definition/merge timings, native worker timing sums and per-file fallback counts in `macro-detail`. Sync finalization has a separate `tail-detail`, and failed-reference retries report planning separately. An independent, **opt-in** Rust macro-scan prototype (`CODEGRAPH_RUST_MACROS=1`, or `verify` for per-file TS comparison) batches source reads with bounded workers and streaming results; macro conflict selection and parsing stay in TS. There is no persistent macro cache or database migration, and the already validated automatic Rust directory scanner is unchanged. See [macro scanner prototype](docs/rust-macro-scan.md).
 - `codegraph sync -v` now breaks file reconciliation down into enumeration, database-record loading, lookup construction, removal checks, and change checks. It reports the actual Git/walk/scoped route, fallback reason, stat/read/hash timings, and counters for unchanged metadata, same-hash skips, failures, and recovery retries. Diagnostics are per-run and verbose-only; indexing behavior and database format are unchanged, so no re-index is required. See [sync diagnostics](docs/sync-diagnostics.md).
 
 ### Performance

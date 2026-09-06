@@ -13,6 +13,10 @@
     "codegraph-scan/Cargo.toml",
     "codegraph-scan/Cargo.lock",
     "codegraph-scan/src",
+    "codegraph-macros/Cargo.toml",
+    "codegraph-macros/Cargo.lock",
+    "codegraph-macros/src",
+    "docs/rust-macro-scan.md",
     "docs/rust-scan-prototype.md",
     "docs/native-scan-release.md",
     "README.md"
@@ -20,6 +24,8 @@
   "scripts": {
     "build": "tsc && npm run copy-assets && node -e \"require('fs').chmodSync('dist/bin/codegraph.js', 0o755)\"",
     "build:rust-scan": "node scripts/build-rust-scan.mjs",
+    "build:rust-macros": "node scripts/build-rust-macros.mjs",
+    "test:rust-macros": "node --liftoff-only node_modules/vitest/vitest.mjs run --config vitest.rust-macros.config.mts",
     "validate:rust-scan": "node scripts/validate-rust-scan.mjs",
     "check:rust-scan": "node scripts/check-rust-scan-artifacts.mjs",
     "test:rust-scan": "node --liftoff-only node_modules/vitest/vitest.mjs run --config vitest.rust-scan.config.mts",
