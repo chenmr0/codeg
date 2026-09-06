@@ -1,6 +1,6 @@
 /** Verbose-only, per-invocation diagnostics. No source paths or contents. */
 export class ScanDiagnostics {
-  mode: 'unknown' | 'git' | 'hybrid' | 'walk' | 'scoped' = 'unknown';
+  mode: 'unknown' | 'git' | 'hybrid' | 'rust' | 'walk' | 'scoped' = 'unknown';
   fallbackReason: 'none' | 'codegraph-negation' | 'parent-gitignored' | 'git-path-error' | 'hybrid-unsafe' = 'none';
   failureStage = 'none';
   gitCommandMs = 0;
@@ -14,6 +14,11 @@ export class ScanDiagnostics {
   gitDirectories = 0;
   supplementRoots = 0;
   canonicalFromParent = 0;
+  nativeStatus: 'off' | 'used' | 'verified' | 'mismatch' | 'fallback' = 'off';
+  nativeReason = 'none';
+  nativeMs = 0;
+  nativeDirectories = 0;
+  nativeMetadata = 0;
 
   format(): string {
     return `scan-detail mode=${this.mode} fallbackReason=${this.fallbackReason} failureStage=${this.failureStage} ` +
@@ -22,7 +27,9 @@ export class ScanDiagnostics {
       ` gitCommands=${this.gitCommands} gitCandidates=${this.gitCandidates}` +
       ` sourceFiles=${this.sourceFiles} walkDirectories=${this.walkDirectories}` +
       ` gitDirectories=${this.gitDirectories} supplementRoots=${this.supplementRoots}` +
-      ` canonicalFromParent=${this.canonicalFromParent}`;
+      ` canonicalFromParent=${this.canonicalFromParent}` +
+      ` nativeStatus=${this.nativeStatus} nativeReason=${this.nativeReason} nativeMs=${Math.round(this.nativeMs)}ms` +
+      ` nativeDirectories=${this.nativeDirectories} nativeMetadata=${this.nativeMetadata}`;
   }
 }
 
@@ -43,6 +50,7 @@ export class ReconcileDiagnostics {
     currentFiles: 0, trackedFiles: 0,
     // Explicit reconciliation calls only, not calls inside scanner/helpers.
     existsChecks: 0, statChecks: 0, statUnchanged: 0, statErrors: 0,
+    snapshotPresence: 0, snapshotStats: 0,
     hashReadAttempts: 0, hashReadFiles: 0, hashReadErrors: 0,
     sameHashSkipped: 0, recoveryRetryFiles: 0,
     added: 0, modified: 0, removed: 0,

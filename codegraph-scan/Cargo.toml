@@ -1,0 +1,17 @@
+[package]
+name = "codegraph-scan"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+publish = false
+description = "Opt-in read-only directory snapshot prototype for CodeGraph"
+
+[dependencies]
+ignore = "0.4.33"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true

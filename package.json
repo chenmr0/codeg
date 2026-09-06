@@ -10,10 +10,15 @@
   "files": [
     "dist",
     "scripts",
+    "codegraph-scan/Cargo.toml",
+    "codegraph-scan/Cargo.lock",
+    "codegraph-scan/src",
+    "docs/rust-scan-prototype.md",
     "README.md"
   ],
   "scripts": {
     "build": "tsc && npm run copy-assets && node -e \"require('fs').chmodSync('dist/bin/codegraph.js', 0o755)\"",
+    "build:rust-scan": "node scripts/build-rust-scan.mjs",
     "preuninstall": "node dist/bin/uninstall.js",
     "copy-assets": "node -e \"const fs=require('fs');fs.mkdirSync('dist/db',{recursive:true});fs.copyFileSync('src/db/schema.sql','dist/db/schema.sql');fs.mkdirSync('dist/extraction/wasm',{recursive:true});fs.readdirSync('src/extraction/wasm').filter(f=>f.endsWith('.wasm')).forEach(f=>fs.copyFileSync('src/extraction/wasm/'+f,'dist/extraction/wasm/'+f));const sqlWasm=require.resolve('sql.js-fts5/dist/sql-wasm.wasm');fs.copyFileSync(sqlWasm,'dist/db/sql-wasm.wasm')\"",
     "dev": "tsc --watch",

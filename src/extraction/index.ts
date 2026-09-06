@@ -23,7 +23,7 @@ import {
 import { QueryBuilder } from '../db/queries';
 import { extractFromSource } from './tree-sitter';
 import { detectLanguage, isSourceFile, isLanguageSupported, isGrammarLoaded, isFileLevelOnlyLanguage, initGrammars, loadGrammarsForLanguages, readGrammarWasmBytes, EXTENSION_MAP } from './grammars';
-import { isCodeGraphDataDir } from '../directory';
+import { codeGraphDirName, isCodeGraphDataDir } from '../directory';
 import { logDebug, logWarn } from '../errors';
 import { validatePathWithinRoot, normalizePath, canonicalFilePath, clearCanonicalCache } from '../utils';
 import ignore, { Ignore } from 'ignore';
@@ -48,6 +48,7 @@ import {
 import { ReconcileDiagnostics, type ScanDiagnostics } from './sync-diagnostics';
 import type { SyncRetryState } from './sync-retry-state';
 import { collectHybridFiles, HybridScanFallback, planSupplementRoots } from './hybrid-scan';
+import { RUST_SCAN_PROTOCOL, runRustScan, rustScanMode, verifyRustSnapshot, type RustScanCapture } from './rust-scan';
 
 /**
  * Number of files to read in parallel during indexing.
@@ -495,25 +496,30 @@ export function expandAnchoredNegations(patterns: string): string[] {
 export function buildDefaultIgnore(rootDir: string, diagnostics?: ScanDiagnostics): Ignore {
   const started = diagnostics ? performance.now() : 0;
   try {
-    const ig = ignore().add(DEFAULT_IGNORE_PATTERNS);
-    const rootGitignore = path.join(rootDir, '.gitignore');
-    if (fs.existsSync(rootGitignore)) ig.add(readGitignorePatterns(rootGitignore));
-    const gitExclude = path.join(rootDir, '.git', 'info', 'exclude');
-    if (fs.existsSync(gitExclude)) ig.add(readGitignorePatterns(gitExclude));
-    const cgIgnore = path.join(rootDir, '.codegraphignore');
-    if (fs.existsSync(cgIgnore)) {
-      const cgPatterns = readGitignorePatterns(cgIgnore);
-      ig.add(cgPatterns);
-      // Whitelist dialect: a root-anchored negation may re-include a path below
-      // an excluded parent (git's spec forbids this; `.codegraphignore` allows
-      // it). The expansion appends AFTER the raw patterns so it wins.
-      const expanded = expandAnchoredNegations(cgPatterns);
-      if (expanded.length > 0) ig.add(expanded.join('\n'));
-    }
+    const ig = ignore();
+    for (const group of rootIgnoreGroups(rootDir)) ig.add(group);
     return ig;
   } finally {
     if (diagnostics) diagnostics.ignoreBuildMs += performance.now() - started;
   }
+}
+
+/** Shared, ordered policy input for the JS matcher and opt-in Rust prototype. */
+function rootIgnoreGroups(rootDir: string): string[] {
+  const groups = [DEFAULT_IGNORE_PATTERNS.join('\n')];
+  const rootGitignore = path.join(rootDir, '.gitignore');
+  if (fs.existsSync(rootGitignore)) groups.push(readGitignorePatterns(rootGitignore));
+  const gitExclude = path.join(rootDir, '.git', 'info', 'exclude');
+  if (fs.existsSync(gitExclude)) groups.push(readGitignorePatterns(gitExclude));
+  const cgIgnore = path.join(rootDir, '.codegraphignore');
+  if (fs.existsSync(cgIgnore)) {
+    const cgPatterns = readGitignorePatterns(cgIgnore);
+    groups.push(cgPatterns);
+    // Preserve CodeGraph's expanded whitelist dialect and its precedence.
+    const expanded = expandAnchoredNegations(cgPatterns);
+    if (expanded.length > 0) groups.push(expanded.join('\n'));
+  }
+  return groups;
 }
 
 /**
@@ -771,7 +777,14 @@ export function scanDirectory(
   rootDir: string,
   onProgress?: (current: number, file: string) => void,
   diagnostics?: ScanDiagnostics,
+  capture?: RustScanCapture,
 ): string[] {
+  if (capture) capture.snapshot = undefined;
+  const native = tryRustDirectoryScan(rootDir, diagnostics, capture);
+  if (native) {
+    native.forEach((file, i) => onProgress?.(i + 1, file));
+    return native;
+  }
   // Fast path: use git to get all visible files (respects .gitignore everywhere)
   const gitFiles = getGitVisibleFiles(rootDir, diagnostics);
   if (gitFiles) {
@@ -801,7 +814,17 @@ export async function scanDirectoryAsync(
   rootDir: string,
   onProgress?: (current: number, file: string) => void,
   diagnostics?: ScanDiagnostics,
+  capture?: RustScanCapture,
 ): Promise<string[]> {
+  if (capture) capture.snapshot = undefined;
+  const native = tryRustDirectoryScan(rootDir, diagnostics, capture);
+  if (native) {
+    for (let i = 0; i < native.length; i++) {
+      onProgress?.(i + 1, native[i]!);
+      if ((i + 1) % 100 === 0) await new Promise<void>(resolve => setImmediate(resolve));
+    }
+    return native;
+  }
   const gitFiles = getGitVisibleFiles(rootDir, diagnostics);
   if (gitFiles) {
     if (diagnostics && diagnostics.mode !== 'hybrid') diagnostics.mode = 'git';
@@ -823,6 +846,51 @@ export async function scanDirectoryAsync(
   }
 
   return scanDirectoryWalk(rootDir, onProgress, diagnostics);
+}
+
+function tryRustDirectoryScan(rootDir: string, diagnostics?: ScanDiagnostics,
+  capture?: RustScanCapture): string[] | undefined {
+  const mode = rustScanMode();
+  if (mode === 'off') return undefined;
+  const started = performance.now();
+  try {
+    // Initial scope is the established filesystem-walk route. Do not silently
+    // replace Git/global-exclude or hybrid semantics with a Rust filesystem walk.
+    if (!hasCodegraphIgnoreNegation(rootDir) || process.env.CODEGRAPH_HYBRID_SCAN === '1') {
+      throw new Error('requires-walk-negation');
+    }
+    const snapshot = runRustScan({ protocol: RUST_SCAN_PROTOCOL, root: path.resolve(rootDir),
+      rootRules: rootIgnoreGroups(rootDir), extensions: Object.keys(EXTENSION_MAP), dataDir: codeGraphDirName() });
+    if (diagnostics) {
+      diagnostics.nativeDirectories = snapshot.directories;
+      diagnostics.nativeMetadata = snapshot.metadata;
+    }
+    if (mode === 'verify') {
+      const baseline = scanDirectoryWalk(rootDir, undefined, diagnostics);
+      const same = verifyRustSnapshot(rootDir, snapshot, baseline);
+      if (diagnostics) {
+        diagnostics.nativeStatus = same ? 'verified' : 'mismatch';
+        diagnostics.nativeReason = same ? 'none' : 'parity-mismatch';
+      }
+      return baseline; // Always authoritative JS results; never native stats.
+    }
+    if (capture) capture.snapshot = snapshot;
+    if (diagnostics) {
+      diagnostics.mode = 'rust'; diagnostics.nativeStatus = 'used';
+      diagnostics.sourceFiles = snapshot.paths.length;
+    }
+    return snapshot.paths;
+  } catch (error) {
+    if (capture) capture.snapshot = undefined;
+    if (diagnostics) {
+      diagnostics.nativeStatus = 'fallback';
+      const reason = error instanceof Error ? error.message : '';
+      diagnostics.nativeReason = /^[a-z-]+$/.test(reason) ? reason : 'scan-error';
+    }
+    return undefined;
+  } finally {
+    if (diagnostics) diagnostics.nativeMs += performance.now() - started;
+  }
 }
 
 /**
@@ -2437,6 +2505,7 @@ export class ExtractionOrchestrator {
     // watcher paths must never masquerade as the complete macro/framework list.
     // Keep this snapshot local to this sync, not on the orchestrator.
     let fullProjectFiles: string[] | undefined;
+    const nativeCapture: RustScanCapture = {};
     let trackedFiles: FileRecord[];
     let phaseStarted = diagnostics ? performance.now() : 0;
     if (scopedPaths && scopedPaths.length > 0) {
@@ -2483,7 +2552,7 @@ export class ExtractionOrchestrator {
         filesChecked = paths.length;
       } else {
         if (diagnostics) diagnostics.scope = 'full-fallback';
-        currentFiles = await scanDirectoryAsync(this.rootDir, undefined, diagnostics?.scan);
+        currentFiles = await scanDirectoryAsync(this.rootDir, undefined, diagnostics?.scan, nativeCapture);
         fullProjectFiles = currentFiles;
         if (diagnostics) {
           diagnostics.phases.enumerateMs = performance.now() - phaseStarted;
@@ -2493,7 +2562,7 @@ export class ExtractionOrchestrator {
         filesChecked = currentFiles.length;
       }
     } else {
-      currentFiles = await scanDirectoryAsync(this.rootDir, undefined, diagnostics?.scan);
+      currentFiles = await scanDirectoryAsync(this.rootDir, undefined, diagnostics?.scan, nativeCapture);
       fullProjectFiles = currentFiles;
       if (diagnostics) {
         diagnostics.phases.enumerateMs = performance.now() - phaseStarted;
@@ -2526,8 +2595,11 @@ export class ExtractionOrchestrator {
     for (const tracked of trackedFiles) {
       const missingFromScan = !currentSet.has(tracked.path);
       // Preserve the original short circuit: count only actual exists calls.
-      if (!missingFromScan && diagnostics) diagnostics.counts.existsChecks++;
-      if (missingFromScan || !fs.existsSync(path.join(this.rootDir, tracked.path))) {
+      if (!missingFromScan && diagnostics) {
+        if (nativeCapture.snapshot) diagnostics.counts.snapshotPresence++;
+        else diagnostics.counts.existsChecks++;
+      }
+      if (missingFromScan || (!nativeCapture.snapshot && !fs.existsSync(path.join(this.rootDir, tracked.path)))) {
         // Deleting the target cascades its incoming edges even though callers
         // in other files are unchanged. Preserve stamped resolution edges as
         // pending refs so this same sync can rebind them or park them for a
@@ -2577,10 +2649,14 @@ export class ExtractionOrchestrator {
       // A base-only file is intentionally exempt: unchanged source bytes do not
       // mean its graph coverage is complete, so a later sync must retry it.
       if (tracked && !needsDeclarationMacroRecovery) {
-        const statStarted = diagnostics ? performance.now() : 0;
-        if (diagnostics) diagnostics.counts.statChecks++;
+        const nativeStat = nativeCapture.snapshot?.stats.get(filePath);
+        const statStarted = diagnostics && !nativeStat ? performance.now() : 0;
+        if (diagnostics) {
+          if (nativeStat) diagnostics.counts.snapshotStats++;
+          else diagnostics.counts.statChecks++;
+        }
         try {
-          const stat = fs.statSync(fullPath);
+          const stat = nativeStat ?? fs.statSync(fullPath);
           if (stat.size === tracked.size && Math.floor(stat.mtimeMs) === Math.floor(tracked.modifiedAt)) {
             if (diagnostics) diagnostics.counts.statUnchanged++;
             continue;
@@ -2590,7 +2666,7 @@ export class ExtractionOrchestrator {
           logDebug('Skipping unstattable file during sync', { filePath, error: String(error) });
           continue;
         } finally {
-          if (diagnostics) diagnostics.io.statMs += performance.now() - statStarted;
+          if (diagnostics && !nativeStat) diagnostics.io.statMs += performance.now() - statStarted;
         }
       }
 
