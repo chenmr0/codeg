@@ -8,6 +8,7 @@ import { QueryBuilder } from '../src/db/queries';
 import { scanDirectory, scanDirectoryAsync } from '../src/extraction';
 import { ReconcileDiagnostics, ScanDiagnostics } from '../src/extraction/sync-diagnostics';
 import { DECLARATION_MACRO_RECOVERY_SKIPPED_CODE } from '../src/extraction/diagnostics';
+import { ResolutionDiagnostics } from '../src/resolution/diagnostics';
 
 describe('verbose sync reconciliation diagnostics', () => {
   const dirs: string[] = [];
@@ -94,6 +95,24 @@ describe('verbose sync reconciliation diagnostics', () => {
         hashReadFiles: 1, sameHashSkipped: 1, recoveryRetryFiles: 0 });
     }
     expect(queries.getFileByPath('a.c')).toEqual(tracked);
+  });
+
+  it('reports reference load/warm/match/store only for a verbose changed-file pass', async () => {
+    const format = vi.spyOn(ResolutionDiagnostics.prototype, 'format');
+    fs.writeFileSync(path.join(dir, 'b.c'), 'int beta(void) { return alpha(); }\n');
+    await sync({});
+    expect(format).not.toHaveBeenCalled();
+    expect(messages.some(m => m.includes('refs-detail'))).toBe(false);
+    fs.writeFileSync(path.join(dir, 'c.c'), 'int delta(void) { return alpha(); }\n');
+    await sync();
+    expect(fields('refs-detail')).toMatchObject({ scope: 'changed', complete: 'true', failedPhase: 'none', files: '1', cache: 'cold', nameLookup: 'indexed', knownNames: 'not-loaded' });
+    expect(Number(fields('refs-detail').refs)).toBeGreaterThan(0);
+    for (const key of ['loadRefsMs', 'fileNamesLoadMs', 'fileNamesSetMs', 'symbolNamesLoadMs',
+      'symbolNamesSetMs', 'normalizeMs', 'matchMs', 'edgeBuildMs', 'edgeInsertMs',
+      'resolvedCleanupMs', 'failedCleanupMs', 'totalMs']) expect(fields('refs-detail')[key]).toMatch(/^\d+ms$/);
+    format.mockClear(); await sync();
+    expect(format).not.toHaveBeenCalled();
+    expect(messages.some(m => m.includes('refs-detail'))).toBe(false);
   });
 
   it('counts real additions, changes and removals without changing their results', async () => {

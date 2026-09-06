@@ -60,6 +60,8 @@ import {
 import { getCodeGraphDir } from './directory';
 import { deriveProjectNameTokens } from './search/query-utils';
 import { CodeGraphPackageVersion } from './mcp/version';
+import { ResolutionDiagnostics, measureResolution } from './resolution/diagnostics';
+import { syncNameLookupMode } from './resolution/name-lookup';
 
 // Re-export types for consumers
 export * from './types';
@@ -714,12 +716,18 @@ export class CodeGraph {
         // import edges (e.g. `a.c --imports--> a.h`), which the co-importer
         // query in the next step relies on.
         if (referenceFiles.length > 0) {
-          this.resolver.resolveAndPersist(
-            this.queries.getUnresolvedReferencesByFiles(referenceFiles),
-            (current, total) => {
+          const detail = options.verbose ? new ResolutionDiagnostics() : undefined;
+          if (detail) detail.files = referenceFiles.length;
+          try {
+            const refs = measureResolution(detail, 'loadRefsMs',
+              () => this.queries.getUnresolvedReferencesByFiles(referenceFiles));
+            this.resolver.resolveAndPersist(refs, (current, total) => {
               options.onProgress?.({ phase: 'resolving', current, total });
-            }
-          );
+            }, detail, syncNameLookupMode(refs.length));
+            if (detail) detail.complete = true;
+          } finally {
+            if (detail) console.log(`[sync] refs-detail ${detail.format()}`);
+          }
         }
 
         tailMark('changedRefsMs');

@@ -38,6 +38,8 @@ import { logDebug } from '../errors';
 import type { ReExport } from './types';
 import { LRUCache } from './lru-cache';
 import { ResolutionTextCache } from './text-cache';
+import { measureResolution, type ResolutionDiagnostics } from './diagnostics';
+import { IndexedNameLookup, MAX_INDEXED_SYNC_REFS, type NameLookupMode } from './name-lookup';
 import { canonicalFilePath, clearCanonicalCache } from '../utils';
 import {
   ResolverPool,
@@ -249,6 +251,7 @@ export class ReferenceResolver {
   private readonly equivalenceCachesEnabled =
     process.env.CODEGRAPH_NO_RESOLVE_EQUIVALENCE_CACHE !== '1';
   private knownNames: Set<string> | null = null; // all known symbol names for fast pre-filtering
+  private indexedNames: IndexedNameLookup | null = null;
   private knownFiles: Set<string> | null = null;
   private cachesWarmed = false;
   // tsconfig/jsconfig path-alias map. `undefined` = not yet computed,
@@ -338,15 +341,38 @@ export class ReferenceResolver {
    * loading all nodes into memory (which caused OOM on large codebases).
    * We cache the set of known symbol names for fast pre-filtering.
    */
-  warmCaches(): void {
-    if (this.cachesWarmed) return;
+  warmCaches(diagnostics?: ResolutionDiagnostics, nameLookup: NameLookupMode = 'full'): void {
+    // Reuse a complete Set if already available. An indexed epoch must be
+    // promoted before a later bulk call; it is never a partial knownNames Set.
+    const indexed = nameLookup === 'indexed' && this.knownNames === null;
+    const ready = this.cachesWarmed || (indexed && this.indexedNames !== null && this.knownFiles !== null);
+    if (diagnostics) {
+      diagnostics.cache = ready ? 'warm' : 'cold';
+      diagnostics.knownFiles = this.knownFiles?.size ?? 0;
+      diagnostics.knownNames = indexed ? 'not-loaded' : this.knownNames?.size ?? 0;
+      diagnostics.nameLookup = indexed ? 'indexed' : 'full';
+      diagnostics.nameCacheEntries = indexed ? this.indexedNames?.size ?? 0 : 0;
+    }
+    if (ready) return;
 
     // Only cache the set of known file paths (lightweight string set)
-    this.knownFiles = new Set(this.queries.getAllFilePaths());
+    if (this.knownFiles === null) {
+      const files = measureResolution(diagnostics, 'fileNamesLoadMs', () => this.queries.getAllFilePaths());
+      this.knownFiles = measureResolution(diagnostics, 'fileNamesSetMs', () => new Set(files));
+    }
+    if (diagnostics) diagnostics.knownFiles = this.knownFiles.size;
+
+    if (indexed) {
+      this.indexedNames ??= new IndexedNameLookup(name => this.queries.hasNodeName(name));
+      return;
+    }
 
     // Cache all distinct symbol names for fast pre-filtering (just strings, not full nodes)
-    this.knownNames = new Set(this.queries.getAllNodeNames());
+    const names = measureResolution(diagnostics, 'symbolNamesLoadMs', () => this.queries.getAllNodeNames());
+    this.knownNames = measureResolution(diagnostics, 'symbolNamesSetMs', () => new Set(names));
+    if (diagnostics) diagnostics.knownNames = this.knownNames.size;
 
+    this.indexedNames = null;
     this.cachesWarmed = true;
   }
 
@@ -368,6 +394,7 @@ export class ReferenceResolver {
     this.supertypeMemo.clear();
     this.supertypeGeneration++;
     this.knownNames = null;
+    this.indexedNames = null;
     this.knownFiles = null;
     this.cachesWarmed = false;
     // Drop the canonical-path (realpath) cache so a repointed symlink is
@@ -685,10 +712,14 @@ export class ReferenceResolver {
    */
   resolveAll(
     unresolvedRefs: UnresolvedReference[],
-    onProgress?: (current: number, total: number) => void
+    onProgress?: (current: number, total: number) => void,
+    diagnostics?: ResolutionDiagnostics,
+    nameLookup: NameLookupMode = 'full',
   ): ResolutionResult {
-    // Pre-load all nodes into memory for fast lookups
-    this.warmCaches();
+    // Public/bulk callers retain full prewarming. Only an explicit small sync
+    // pass may replace exact Set membership with bounded indexed probes.
+    if (diagnostics) diagnostics.refs = unresolvedRefs.length;
+    this.warmCaches(diagnostics, unresolvedRefs.length <= MAX_INDEXED_SYNC_REFS ? nameLookup : 'full');
     // Implements/extends edges may have advanced since the previous batch.
     // Reuse supertype answers only within this fixed-edge-state call.
     this.supertypeGeneration++;
@@ -699,7 +730,7 @@ export class ReferenceResolver {
     const byMethod: Record<string, number> = {};
 
     // Convert to our internal format, using denormalized fields when available
-    const refs: UnresolvedRef[] = unresolvedRefs.map((ref) => ({
+    const refs: UnresolvedRef[] = measureResolution(diagnostics, 'normalizeMs', () => unresolvedRefs.map((ref) => ({
       rowId: ref.rowId,
       fromNodeId: ref.fromNodeId,
       referenceName: ref.referenceName,
@@ -708,35 +739,43 @@ export class ReferenceResolver {
       column: ref.column,
       filePath: ref.filePath || this.getFilePathFromNodeId(ref.fromNodeId),
       language: ref.language || this.getLanguageFromNodeId(ref.fromNodeId),
-    }));
+    })));
 
     const total = refs.length;
     let lastReportedPercent = -1;
 
-    for (let i = 0; i < refs.length; i++) {
-      const ref = refs[i]!; // Array index is guaranteed to be in bounds
-      const result = this.resolveOne(ref);
+    const match = () => {
+      for (let i = 0; i < refs.length; i++) {
+        const ref = refs[i]!; // Array index is guaranteed to be in bounds
+        const result = this.resolveOne(ref);
 
-      if (result) {
-        resolved.push(result);
-        byMethod[result.resolvedBy] = (byMethod[result.resolvedBy] || 0) + 1;
-      } else {
-        unresolved.push(ref);
-      }
+        if (result) {
+          resolved.push(result);
+          byMethod[result.resolvedBy] = (byMethod[result.resolvedBy] || 0) + 1;
+        } else {
+          unresolved.push(ref);
+        }
 
-      // Report progress every 1% to avoid too many updates
-      if (onProgress) {
-        const currentPercent = Math.floor((i / total) * 100);
-        if (currentPercent > lastReportedPercent) {
-          lastReportedPercent = currentPercent;
-          onProgress(i + 1, total);
+        // Report progress every 1% to avoid too many updates
+        if (onProgress) {
+          const currentPercent = Math.floor((i / total) * 100);
+          if (currentPercent > lastReportedPercent) {
+            lastReportedPercent = currentPercent;
+            onProgress(i + 1, total);
+          }
         }
       }
-    }
 
-    // Final progress report
-    if (onProgress && total > 0) {
-      onProgress(total, total);
+      // Final progress report
+      if (onProgress && total > 0) {
+        onProgress(total, total);
+      }
+    };
+    measureResolution(diagnostics, 'matchMs', () => this.indexedNames
+      ? this.indexedNames.capture(diagnostics, match) : match());
+    if (diagnostics) {
+      diagnostics.resolved = resolved.length;
+      diagnostics.unresolved = unresolved.length;
     }
 
     return {
@@ -770,40 +809,41 @@ export class ReferenceResolver {
     this.deferredChainRefs.push(...refs);
   }
 
-  /**
-   * Check if a reference name has any possible match in the codebase.
-   * Uses the pre-built knownNames set to skip expensive resolution
-   * for names that definitely don't exist as symbols.
-   */
+  /** Exact membership, with the same false result when no lookup is prepared. */
+  private hasKnownName(name: string): boolean {
+    return this.knownNames ? this.knownNames.has(name) : this.indexedNames?.has(name) ?? false;
+  }
+
+  /** Preserve every pre-filter spelling rule; only membership storage varies. */
   private hasAnyPossibleMatch(name: string): boolean {
-    if (!this.knownNames) return true; // no pre-filter available
+    if (!this.knownNames && !this.indexedNames) return true; // no pre-filter available
 
     // Direct name match
-    if (this.knownNames.has(name)) return true;
+    if (this.hasKnownName(name)) return true;
 
     // For qualified names like "obj.method" or "Class::method", check the parts
     const dotIdx = name.indexOf('.');
     if (dotIdx > 0) {
       const receiver = name.substring(0, dotIdx);
       const member = name.substring(dotIdx + 1);
-      if (this.knownNames.has(receiver) || this.knownNames.has(member)) return true;
+      if (this.hasKnownName(receiver) || this.hasKnownName(member)) return true;
       // Also check capitalized receiver (instance-method resolution)
       const capitalized = receiver.charAt(0).toUpperCase() + receiver.slice(1);
-      if (this.knownNames.has(capitalized)) return true;
+      if (this.hasKnownName(capitalized)) return true;
       // JVM FQN: `com.example.foo.Bar` — the only useful segment is the
       // last one (`Bar`); the earlier check finds `example.foo.Bar` which
       // never matches a node name.
       const lastDot = name.lastIndexOf('.');
       if (lastDot > dotIdx) {
         const tail = name.substring(lastDot + 1);
-        if (tail && this.knownNames.has(tail)) return true;
+        if (tail && this.hasKnownName(tail)) return true;
       }
     }
     const colonIdx = name.indexOf('::');
     if (colonIdx > 0) {
       const receiver = name.substring(0, colonIdx);
       const member = name.substring(colonIdx + 2);
-      if (this.knownNames.has(receiver) || this.knownNames.has(member)) return true;
+      if (this.hasKnownName(receiver) || this.hasKnownName(member)) return true;
       // Multi-segment path `a::b::c` (a Rust/C++ module call like
       // `database::profiles::find`) — the only segment that names a symbol is
       // the last (`c`); `member` above is `b::c`, which never matches a node
@@ -812,7 +852,7 @@ export class ReferenceResolver {
       const lastColon = name.lastIndexOf('::');
       if (lastColon > colonIdx) {
         const tail = name.substring(lastColon + 2);
-        if (tail && this.knownNames.has(tail)) return true;
+        if (tail && this.hasKnownName(tail)) return true;
       }
     }
 
@@ -820,7 +860,7 @@ export class ReferenceResolver {
     const slashIdx = name.lastIndexOf('/');
     if (slashIdx > 0) {
       const fileName = name.substring(slashIdx + 1);
-      if (this.knownNames.has(fileName)) return true;
+      if (this.hasKnownName(fileName)) return true;
     }
 
     return false;
@@ -1056,33 +1096,40 @@ export class ReferenceResolver {
    */
   resolveAndPersist(
     unresolvedRefs: UnresolvedReference[],
-    onProgress?: (current: number, total: number) => void
+    onProgress?: (current: number, total: number) => void,
+    diagnostics?: ResolutionDiagnostics,
+    nameLookup: NameLookupMode = 'full',
   ): ResolutionResult {
-    const result = this.resolveAll(unresolvedRefs, onProgress);
+    const result = this.resolveAll(unresolvedRefs, onProgress, diagnostics, nameLookup);
 
     // Create edges from resolved references
-    const edges = this.createEdges(result.resolved);
+    const edges = measureResolution(diagnostics, 'edgeBuildMs', () => this.createEdges(result.resolved));
+    if (diagnostics) diagnostics.edges = edges.length;
 
     // Insert edges into database
     if (edges.length > 0) {
-      this.queries.insertEdges(edges);
+      measureResolution(diagnostics, 'edgeInsertMs', () => this.queries.insertEdges(edges));
     }
 
     // Clean up resolved refs from unresolved_refs table so metrics are accurate
     if (result.resolved.length > 0) {
-      const cleanup = ReferenceResolver.partitionCleanup(
-        result.resolved.map((ref) => ref.original)
-      );
-      this.queries.deleteReferencesByRowIds(cleanup.rowIds);
-      this.queries.deleteSpecificResolvedReferences(cleanup.legacyKeys);
+      measureResolution(diagnostics, 'resolvedCleanupMs', () => {
+        const cleanup = ReferenceResolver.partitionCleanup(
+          result.resolved.map((ref) => ref.original)
+        );
+        this.queries.deleteReferencesByRowIds(cleanup.rowIds);
+        this.queries.deleteSpecificResolvedReferences(cleanup.legacyKeys);
+      });
     }
 
     // A completed pass must also remove failures from the pending set. Keep
     // them parked for a later symbol-driven retry instead of deleting them.
     if (result.unresolved.length > 0) {
-      const cleanup = ReferenceResolver.partitionFailedCleanup(result.unresolved);
-      this.queries.markReferencesFailedByRowIds(cleanup.byRowId);
-      this.queries.markReferencesFailed(cleanup.legacyKeys);
+      measureResolution(diagnostics, 'failedCleanupMs', () => {
+        const cleanup = ReferenceResolver.partitionFailedCleanup(result.unresolved);
+        this.queries.markReferencesFailedByRowIds(cleanup.byRowId);
+        this.queries.markReferencesFailed(cleanup.legacyKeys);
+      });
     }
 
     return result;
@@ -1446,7 +1493,7 @@ export class ReferenceResolver {
         // But allow if the capitalized receiver matches a known codebase class
         if (PYTHON_BUILT_IN_METHODS.has(method)) {
           const capitalized = receiver.charAt(0).toUpperCase() + receiver.slice(1);
-          if (!this.knownNames?.has(capitalized)) {
+          if (!this.hasKnownName(capitalized)) {
             return true;
           }
         }
@@ -1457,7 +1504,7 @@ export class ReferenceResolver {
       // `def get()` — is a real reference target. Mirrors the knownNames guard on
       // the dotted branch above; without it, every handler named after a builtin
       // method silently loses its route→handler edge.
-      if (PYTHON_BUILT_IN_METHODS.has(name) && !this.knownNames?.has(name)) {
+      if (PYTHON_BUILT_IN_METHODS.has(name) && !this.hasKnownName(name)) {
         return true;
       }
     }

@@ -13,6 +13,7 @@ env.PATH = [path.dirname(process.execPath), ...(process.platform === 'win32'
   : ['/usr/bin', '/bin'])].join(path.delimiter);
 for (const key of ['CODEGRAPH_RUST_SCAN', 'CODEGRAPH_RUST_SCAN_PATH', 'CODEGRAPH_DIR', 'CODEGRAPH_HYBRID_SCAN',
   'CODEGRAPH_RUST_MACROS', 'CODEGRAPH_RUST_MACROS_PATH', 'CODEGRAPH_RUST_MACROS_WORKERS', 'CODEGRAPH_RUST_MACROS_TIMEOUT_MS',
+  'CODEGRAPH_SYNC_NAME_LOOKUP',
   'CODEGRAPH_PACK_ALLOW_INCOMPLETE', 'CODEGRAPH_CARGO', 'CODEGRAPH_RUSTC', 'CARGO_HOME', 'RUSTUP_HOME']) delete env[key];
 const run = (command, args, options = {}) => {
   const result = spawnSync(command, args, { cwd: work, env, encoding: 'utf8', windowsHide: true,
@@ -59,6 +60,7 @@ try {
         assert.equal(cg.getNodesByName('added_value').length,0);
         const scans=lines.filter(x=>x.includes('scan-detail'));
         assert.equal(scans.length,3);for(const line of scans)assert.match(line,/nativeStatus=used/);
+        assert.ok(lines.some(x=>x.includes('refs-detail')&&x.includes('nameLookup=indexed')));
       }finally{console.log=log;}
     }finally{cg.close();}})().catch(e=>{console.error(e);process.exitCode=1;});
   `;

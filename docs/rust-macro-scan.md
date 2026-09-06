@@ -57,6 +57,48 @@ node scripts/benchmark-macro-context.mjs /usr1/518C10/HERT_BBU 3
 
 `tail-detail` 记录提取结束之后的连续墙钟区间：准备与 WAL、后处理、变更文件引用、恢复引用、失败引用重试、关联文件重索引、孤立引用与关系补全、链式调用、数据库维护、最终状态及清理。`failed-ref-retry planMs` 是查询规划耗时，原有 `durationMs` 仍表示执行循环时间。两者不再混淆。
 
+### 变更文件引用处理的进一步诊断
+
+后续版本增加 `[sync] refs-detail scope=changed`，进一步拆开 `changedRefsMs`。小批次名称查询优化只替换精确名称存在性的存储方式，不改变名称筛选和引用解析规则：
+
+- `files/refs/resolved/unresolved/edges`：本次处理文件数（含恢复重试文件）、待解析引用数、解析成功/失败数、构造出的待写入边数；`edges` 不保证等于实际新增边数。
+- `cache=cold|warm`、`knownFiles/knownNames`：是否准备缓存及集合大小。按需模式下 `knownNames=not-loaded` 表示没有枚举全局名称，不是数据库中没有符号。
+- `nameLookup=full|indexed`：实际名称查询模式；`nameQueries/nameCacheHits/nameCacheEntries` 分别为本次实际索引查询数、正负缓存命中数、当前缓存条目数。`nameProbeMs` 是实际索引查询耗时，已经包含在 `matchMs` 内，不可重复相加。
+- `loadRefsMs`：读取当前文件的 pending 引用，含查询与行对象转换。
+- `fileNamesLoadMs/fileNamesSetMs`：加载全项目文件路径、构造 Set。
+- `symbolNamesLoadMs/symbolNamesSetMs`：加载全项目不同符号名、构造 Set；Load 包含 SQL 和已有查询方法的数组映射，并非纯 SQLite 执行时间。
+- `normalizeMs/matchMs`：引用字段归一化、逐条匹配。匹配阶段包含原有进度回调，不逐条打点。
+- `edgeBuildMs/edgeInsertMs/resolvedCleanupMs/failedCleanupMs`：构造边、写边、清理已解析引用、将未解析引用标为失败。
+- `complete/failedPhase/totalMs`：仅表示这个引用阶段是否完成、失败位置及总墙钟时间，不表示整个 sync 的最终状态。
+
+诊断仅在 `sync -v` 的该引用阶段开启，诊断自身不额外查询数据库、不输出符号或源码；空同步没有这个阶段，不会输出 `refs-detail`。开启/关闭诊断不改变所选查询策略的查询序列、结果或进度。需要在真实新增/修改文件场景采样，单纯修改 mtime 而内容哈希不变可能不会触发解析。
+
+### 小批次同步的精确名称索引查询
+
+主变更文件引用阶段在引用数不超过 512 时默认采用按需查询，使用既有 `idx_nodes_name` 的 `WHERE name = ? COLLATE BINARY LIMIT 1` 判断存在性，不获取完整节点，也不构造全项目名称 Set。每个未查询名称都会执行真实查询，不能将一个“只加载部分名称的 Set”用于判不存在。
+
+正、负结果共享最多 4096 条的 LRU，随解析器现有 `clearCaches()` 一起失效，不跨进程持久化。遇到查询异常仍抛出，不缓存为“不存在”。大小写、限定名拆分、Python 内置方法判断沿用原逻辑；无效 UTF-16 不得因 UTF-8 替代字符而误匹配另一个名称。
+
+全量索引、普通解析 API、后续重试阶段、大于 512 条的批次仍默认完整预热。若同一缓存周期已有完整名称集合，直接复用；按需模式后进入全量调用会提升为完整集合。全局文件路径集合保持原实现，索引中存在但磁盘缺失的文件语义不变。
+
+```bash
+# 默认：小批次按需查询；Rust 宏开关保持独立
+CODEGRAPH_RUST_MACROS=1 codegraph sync -v
+
+# 对照/回退：恢复本次同步主引用阶段的完整名称预热
+CODEGRAPH_RUST_MACROS=1 CODEGRAPH_SYNC_NAME_LOOKUP=0 codegraph sync -v
+```
+
+`CODEGRAPH_SYNC_NAME_LOOKUP` 未设置、空值、`auto`、`1` 或 `indexed` 都采用上述有界选择；`0`、`full` 或未知值保留完整预热。没有强制超大批次使用按需查询的开关。不新增数据库索引或迁移，不需要重新 init。
+
+也可在 Node 22.5+ 上运行只读阶段基准（不运行 sync，不读业务源码、不改数据库）：
+
+```bash
+node scripts/benchmark-reference-name-lookup.mjs /usr1/518C10/HERT_BBU/.codegraph/codegraph.db 3
+```
+
+该脚本只对比“文件/名称缓存准备 + 3 次精确名称检查”，每轮独立进程，答案哈希必须一致；并非完整引用解析或完整 sync 的测速。请保持数据库不被其他索引进程修改。
+
 ## 正确性与资源边界
 
 - 使用本轮相同的文件清单，保持文件和定义顺序；原来的 `selectUnambiguousCppMacroDefinitions` 在 TS 端执行。

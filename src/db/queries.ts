@@ -348,6 +348,7 @@ export class QueryBuilder {
     deleteRefsByRowIdsFull?: SqliteStatement;
     getAllFilePaths?: SqliteStatement;
     getAllNodeNames?: SqliteStatement;
+    hasNodeName?: SqliteStatement;
     getDominantFile?: SqliteStatement;
     getTopRouteFile?: SqliteStatement;
     getRoutingManifest?: SqliteStatement;
@@ -2382,6 +2383,14 @@ export class QueryBuilder {
     }
     const rows = this.stmts.getAllNodeNames.all() as Array<{ name: string }>;
     return rows.map((r) => r.name);
+  }
+
+  /** Exact Set-like membership using idx_nodes_name; no full node materialization. */
+  hasNodeName(name: string): boolean {
+    if (!this.stmts.hasNodeName) {
+      this.stmts.hasNodeName = this.db.prepare('SELECT 1 FROM nodes WHERE name = ? COLLATE BINARY LIMIT 1');
+    }
+    return Boolean(this.stmts.hasNodeName.get(name));
   }
 
   /**
