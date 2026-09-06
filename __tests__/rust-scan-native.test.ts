@@ -3,9 +3,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import ignore from 'ignore';
 import { scanDirectory, scanDirectoryAsync } from '../src/extraction';
 import { ScanDiagnostics } from '../src/extraction/sync-diagnostics';
-import type { RustScanCapture } from '../src/extraction/rust-scan';
+import { runRustGitFilter, type RustScanCapture } from '../src/extraction/rust-scan';
 import { clearCanonicalCache } from '../src/utils';
 
 const binary = process.env.CODEGRAPH_RUST_SCAN_PATH ?? path.resolve(__dirname, '../dist/native-scan',
@@ -113,5 +114,38 @@ describe.skipIf(!available)('real Rust scanner differential gate', () => {
     expect(await scanDirectoryAsync(dir, undefined, diag, capture)).toEqual(['src/a.c']);
     expect(diag.nativeStatus, diag.nativeReason).toBe('verified');
     expect(capture.snapshot).toBeUndefined();
+  });
+
+  it('filters caller-supplied Git candidates as ordered indexes', () => {
+    const candidates = ['src/a.c', 'build/no.c', 'deep/value.tmp', 'keep.tmp', 'src/b.c'];
+    expect(runRustGitFilter(dir, ['build/\n*.tmp\n!/keep.tmp\n'], candidates)).toMatchObject({
+      included: [0, 3, 4],
+    });
+    expect(() => runRustGitFilter(dir, ['[ab].c\n'], candidates)).toThrow('unsupported-rule');
+    expect(runRustGitFilter(dir, [], [...candidates, '中文.c']).deferred).toEqual([5]);
+  });
+
+  it('matches the JS root matcher across supported glob and negation shapes', () => {
+    const candidates = ['foo', 'foo/a.c', 'deep/foo', 'deep/foo/a.c', 'a/x/b.c', 'a/x/y/b.c',
+      'a/one.c', 'a/deep/two.h', 'root/a.c', 'ROOT/KEEP.C', 'notes.tmp', 'keep.tmp',
+      '.hidden.c', 'dir/a space.c', 'src/test1.c', 'src/testA.c'];
+    const groups = [
+      ['foo\n!deep/foo\n'],
+      ['foo/\n!foo/a.c\n'],
+      ['/root/*\n!/root/keep.c\n'],
+      ['a/**/b.c\n'],
+      ['a/*\n!a/one.c\n'],
+      ['*.tmp\n!/keep.tmp\n'],
+      ['src/test?.c\n'],
+      ['# comment\n.hidden.c\ndir/a space.c\n'],
+      ['missing/\n', '*.tmp\n', '!keep.tmp\n'],
+    ];
+    for (const rootRules of groups) {
+      const matcher = ignore({ ignorecase: true });
+      for (const group of rootRules) matcher.add(group);
+      const expected = candidates.map((candidate, index) => matcher.ignores(candidate) ? -1 : index)
+        .filter(index => index >= 0);
+      expect(runRustGitFilter(dir, rootRules, candidates).included, rootRules.join('|')).toEqual(expected);
+    }
   });
 });

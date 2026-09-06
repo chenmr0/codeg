@@ -43,6 +43,7 @@ import {
   replaceWithDeclarationMacroRecoverySkipped,
 } from './diagnostics';
 import { ReconcileDiagnostics, type ScanDiagnostics } from './sync-diagnostics';
+import { filterGitPaths } from './git-paths';
 import type { SyncRetryState } from './sync-retry-state';
 import { collectHybridFiles, HybridScanFallback, planSupplementRoots } from './hybrid-scan';
 import { RUST_SCAN_PROTOCOL, runRustScan, rustScanMode, automaticRustScanStatus, verifyRustSnapshot, type RustScanCapture } from './rust-scan';
@@ -490,11 +491,12 @@ export function expandAnchoredNegations(patterns: string): string[] {
  * defaults apply to tracked files too (committing a dependency dir doesn't make it
  * project code).
  */
-export function buildDefaultIgnore(rootDir: string, diagnostics?: ScanDiagnostics): Ignore {
+export function buildDefaultIgnore(rootDir: string, diagnostics?: ScanDiagnostics,
+  groups: string[] = rootIgnoreGroups(rootDir)): Ignore {
   const started = diagnostics ? performance.now() : 0;
   try {
     const ig = ignore();
-    for (const group of rootIgnoreGroups(rootDir)) ig.add(group);
+    for (const group of groups) ig.add(group);
     return ig;
   } finally {
     if (diagnostics) diagnostics.ignoreBuildMs += performance.now() - started;
@@ -687,19 +689,10 @@ function getGitVisibleFiles(rootDir: string, diagnostics?: ScanDiagnostics): Set
     // the symlink name they see), THEN canonicalize+dedup so the same physical
     // file reached via its real path or a symlink collapses to one entry.
     failureStage = 'ignore-build';
-    const ig = buildDefaultIgnore(rootDir, diagnostics);
-    const canonical = new Set<string>();
+    const rootRules = rootIgnoreGroups(rootDir);
+    const ig = buildDefaultIgnore(rootDir, diagnostics, rootRules);
     failureStage = 'filter-canonical';
-    const filterStarted = diagnostics ? performance.now() : 0;
-    try {
-      for (const f of files) {
-        if (ig.ignores(f)) continue;
-        canonical.add(canonicalFilePath(rootDir, f));
-      }
-    } finally {
-      if (diagnostics) diagnostics.filterCanonicalMs += performance.now() - filterStarted;
-    }
-    return canonical;
+    return filterGitPaths(rootDir, files, ig, rootRules, diagnostics);
   } catch (error) {
     // This catch also covers ignore/canonicalization failures. Do not
     // mislabel every fallback as a non-git project or run a second probe.

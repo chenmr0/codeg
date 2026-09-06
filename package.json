@@ -17,6 +17,7 @@
     "codegraph-macros/Cargo.lock",
     "codegraph-macros/src",
     "docs/rust-macro-scan.md",
+    "docs/sync-diagnostics.md",
     "docs/rust-scan-prototype.md",
     "docs/native-scan-release.md",
     "README.md"

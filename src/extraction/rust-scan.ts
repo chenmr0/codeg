@@ -25,6 +25,7 @@ export interface RustScanSnapshot {
   kernelMs: number;
 }
 export interface RustScanCapture { snapshot?: RustScanSnapshot }
+export interface RustGitFilterResult { included: number[]; deferred: number[]; kernelMs: number }
 
 export function rustScanMode(): 'off' | 'verify' | 'on' | 'auto' {
   const value = process.env.CODEGRAPH_RUST_SCAN;
@@ -100,6 +101,51 @@ export function runRustScan(request: RustScanRequest): RustScanSnapshot {
   let value: unknown;
   try { value = JSON.parse(output); } catch { throw new Error('response-json'); }
   return decodeRustSnapshot(value);
+}
+
+/** Apply only the validated root matcher to an already-authoritative Git list. */
+export function decodeRustGitFilter(value: unknown, candidateCount: number): RustGitFilterResult {
+  if (!value || typeof value !== 'object') throw new Error('invalid-response');
+  const raw = value as Record<string, unknown>;
+  if (raw.protocol !== RUST_SCAN_PROTOCOL) throw new Error('protocol');
+  if (raw.ok !== true) throw new Error(typeof raw.reason === 'string' && /^[a-z-]+$/.test(raw.reason)
+    ? raw.reason : 'native-rejected');
+  if (raw.operation !== 'filter' || !Array.isArray(raw.included) || !Array.isArray(raw.deferred) ||
+      raw.included.length + raw.deferred.length > candidateCount ||
+      !Array.isArray(raw.files) || raw.files.length !== 0 || typeof raw.elapsedMs !== 'number' ||
+      !Number.isFinite(raw.elapsedMs) || raw.elapsedMs < 0) throw new Error('invalid-filter');
+  const indexes = (rawIndexes: unknown[]): number[] => {
+    let previous = -1;
+    return rawIndexes.map(index => {
+      if (!Number.isSafeInteger(index) || (index as number) < 0 || (index as number) >= candidateCount ||
+          (index as number) <= previous) throw new Error('invalid-filter');
+      previous = index as number;
+      return previous;
+    });
+  };
+  const included = indexes(raw.included), deferred = indexes(raw.deferred);
+  const includedSet = new Set(included);
+  if (deferred.some(index => includedSet.has(index))) throw new Error('invalid-filter');
+  return { included, deferred, kernelMs: raw.elapsedMs };
+}
+
+export function runRustGitFilter(rootDir: string, rootRules: string[], candidates: string[]): RustGitFilterResult {
+  const binary = rustScanBinaryPath();
+  checkRustScanArtifact(binary);
+  const root = path.resolve(rootDir);
+  if (path.relative(fs.realpathSync(root), root) !== '') throw new Error('root-alias');
+  if (candidates.length > 250_000) throw new Error('file-limit');
+  const configured = Number(process.env.CODEGRAPH_RUST_GIT_IGNORE_TIMEOUT_MS);
+  const timeout = Number.isFinite(configured) && configured >= 100 && configured <= 60_000 ? configured : 15_000;
+  let output: string;
+  try {
+    output = execFileSync(binary, [], { input: JSON.stringify({ protocol: RUST_SCAN_PROTOCOL,
+      operation: 'filter', root, rootRules, candidates }), encoding: 'utf8', timeout,
+      maxBuffer: 16 * 1024 * 1024, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
+  } catch { throw new Error('process-failed'); }
+  let value: unknown;
+  try { value = JSON.parse(output); } catch { throw new Error('response-json'); }
+  return decodeRustGitFilter(value, candidates.length);
 }
 
 /** Verification is intentionally read-only and never returns native stats for reuse. */

@@ -61,6 +61,8 @@ describe('verbose sync reconciliation diagnostics', () => {
     for (let i = 0; i < 2; i++) {
       expect(await sync()).toMatchObject({ filesAdded: 0, filesModified: 0, filesRemoved: 0 });
       expect(fields('scan-detail')).toMatchObject({ mode: 'git', fallbackReason: 'none', gitCommands: '3', sourceFiles: '1', walkDirectories: '0' });
+      expect(fields('scan-detail')).toMatchObject({ gitPathMode: 'legacy', gitIgnoreMode: 'legacy',
+        gitIgnoreReason: 'none', gitIgnoreMismatches: '0' });
       expect(counts()).toMatchObject({ currentFiles: 1, trackedFiles: 1, existsChecks: 1,
         statChecks: 1, statUnchanged: 1, hashReadAttempts: 0, hashReadFiles: 0, sameHashSkipped: 0 });
       for (const kind of ['reconcile-detail', 'reconcile-io']) {

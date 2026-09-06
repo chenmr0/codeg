@@ -13,7 +13,8 @@ env.PATH = [path.dirname(process.execPath), ...(process.platform === 'win32'
   : ['/usr/bin', '/bin'])].join(path.delimiter);
 for (const key of ['CODEGRAPH_RUST_SCAN', 'CODEGRAPH_RUST_SCAN_PATH', 'CODEGRAPH_DIR', 'CODEGRAPH_HYBRID_SCAN',
   'CODEGRAPH_RUST_MACROS', 'CODEGRAPH_RUST_MACROS_PATH', 'CODEGRAPH_RUST_MACROS_WORKERS', 'CODEGRAPH_RUST_MACROS_TIMEOUT_MS',
-  'CODEGRAPH_SYNC_NAME_LOOKUP',
+  'CODEGRAPH_SYNC_NAME_LOOKUP', 'CODEGRAPH_GIT_REALPATH', 'CODEGRAPH_RUST_GIT_IGNORE',
+  'CODEGRAPH_RUST_GIT_IGNORE_TIMEOUT_MS',
   'CODEGRAPH_PACK_ALLOW_INCOMPLETE', 'CODEGRAPH_CARGO', 'CODEGRAPH_RUSTC', 'CARGO_HOME', 'RUSTUP_HOME']) delete env[key];
 const run = (command, args, options = {}) => {
   const result = spawnSync(command, args, { cwd: work, env, encoding: 'utf8', windowsHide: true,
@@ -43,9 +44,11 @@ try {
     const fs=require('fs'),path=require('path'),assert=require('assert/strict');
     const installed=process.argv[1],project=process.argv[2];
     const CodeGraph=require(path.join(installed,'dist/index.js')).default;
+    const {runRustGitFilter}=require(path.join(installed,'dist/extraction/rust-scan.js'));
     fs.mkdirSync(path.join(project,'src'));
     fs.writeFileSync(path.join(project,'.codegraphignore'),'/*\\n!/src/\\n');
     fs.writeFileSync(path.join(project,'src/a.c'),'int original_value;\\n');
+    assert.deepEqual(runRustGitFilter(project,['build/\\n'],['src/a.c','build/no.c']).included,[0]);
     (async()=>{const cg=CodeGraph.initSync(project);try{
       await cg.indexAll();
       const lines=[],log=console.log;console.log=(...a)=>lines.push(a.join(' '));

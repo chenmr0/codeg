@@ -4,7 +4,7 @@ import * as path from 'path';
 import { createHash } from 'crypto';
 
 export const RUST_SCAN_PROTOCOL = 1;
-export const RUST_SCAN_VALIDATION_SUITE = 'native-parity-v1';
+export const RUST_SCAN_VALIDATION_SUITE = 'native-parity-v2';
 export const RUST_SCAN_TARGETS = {
   'win32-x64': { target: 'x86_64-pc-windows-msvc', executable: 'codegraph-scan.exe' },
   'linux-x64': { target: 'x86_64-unknown-linux-musl', executable: 'codegraph-scan' },

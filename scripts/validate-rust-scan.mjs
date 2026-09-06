@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
 import { artifactApi, checkExecutable } from './rust-scan-release-lib.mjs';
@@ -26,6 +27,8 @@ const { scanDirectory } = require(path.join(root, 'dist/extraction'));
 const { ScanDiagnostics } = require(path.join(root, 'dist/extraction/sync-diagnostics'));
 const { clearCanonicalCache } = require(path.join(root, 'dist/utils'));
 const { verifyRustSnapshot } = require(path.join(root, 'dist/extraction/rust-scan'));
+const ignoreModule = require('ignore');
+const ignore = ignoreModule.default ?? ignoreModule;
 let count = 0;
 function fixture(name, files, expected = 'used', setup) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cg-native-release-'));
@@ -67,6 +70,30 @@ fixture('complex rule fallback', { '.gitignore': '[ab].c\n', 'src/a.c': '' }, 'f
 fixture('link fallback', { 'real/a.c': '' }, 'fallback', dir => {
   fs.symlinkSync(path.join(dir, 'real'), path.join(dir, 'alias'), process.platform === 'win32' ? 'junction' : 'dir');
 });
+{
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cg-native-filter-release-'));
+  try {
+    const rootRules = ['build/\n*.tmp\n!/keep.tmp\n/ROOT/*\n!/ROOT/keep.c\nlocked/\n!locked/child.c\n'];
+    const candidates = ['src/a.c', 'build/no.c', 'deep/value.tmp', 'keep.tmp',
+      'ROOT/no.c', 'ROOT/keep.c', 'root/KEEP.C', '.hidden.c', 'dir/a space.c', 'locked/child.c', '中文.c'];
+    const matcher = ignore({ ignorecase: true });
+    for (const group of rootRules) matcher.add(group);
+    const expected = candidates.map((candidate, index) => matcher.ignores(candidate) ? -1 : index).filter(index => index >= 0);
+    const response = spawnSync(binary, [], { encoding: 'utf8', windowsHide: true,
+      input: JSON.stringify({ protocol: api.RUST_SCAN_PROTOCOL, operation: 'filter', root: dir,
+        rootRules, candidates }), maxBuffer: 16 * 1024 * 1024, timeout: 30_000 });
+    assert.equal(response.status, 0, response.stderr || response.error?.message);
+    const value = JSON.parse(response.stdout);
+    assert.equal(value.ok, true, value.reason); assert.equal(value.operation, 'filter');
+    assert.deepEqual(value.files, []); assert.deepEqual(value.included, expected.slice(0, -1));
+    assert.deepEqual(value.deferred, [candidates.length - 1]);
+    count++; console.log('[rust-scan] PASS Git candidate root-rule filter');
+  } finally {
+    assert.equal(path.dirname(fs.realpathSync(dir)), fs.realpathSync(os.tmpdir()));
+    assert.ok(path.basename(dir).startsWith('cg-native-filter-release-'));
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
 assert.equal(api.sha256(fs.readFileSync(binary)), manifest.sha256, 'Binary changed during validation');
 manifest.validation = { suite: api.RUST_SCAN_VALIDATION_SUITE, platform: process.platform,
   arch: process.arch, sha256: manifest.sha256, passed: true };

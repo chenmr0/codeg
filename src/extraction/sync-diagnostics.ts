@@ -6,6 +6,28 @@ export class ScanDiagnostics {
   gitCommandMs = 0;
   ignoreBuildMs = 0;
   filterCanonicalMs = 0;
+  // Ordinary Git route only. These are children of filterCanonicalMs;
+  // gitRealpathMs is nested inside gitCanonicalMs, never an extra phase.
+  gitPathMode: 'unused' | 'legacy' | 'native' | 'verify' = 'unused';
+  gitIgnoreMs = 0;
+  gitIgnoreMode: 'legacy' | 'rust' | 'verify' | 'fallback' = 'legacy';
+  gitIgnoreReason = 'none';
+  gitIgnoreNativeMs = 0;
+  gitIgnoreKernelMs = 0;
+  gitIgnoreMismatches = 0;
+  gitIgnoreNativeKept = 0;
+  gitIgnoreDeferred = 0;
+  gitCanonicalMs = 0;
+  gitRealpathMs = 0;
+  gitDedupMs = 0;
+  gitIgnored = 0;
+  gitCanonicalCalls = 0;
+  gitRealpathCalls = 0;
+  gitRealpathErrors = 0;
+  gitNativeCalls = 0;
+  gitNativeFallbacks = 0;
+  gitPathMismatches = 0;
+  gitCanonicalDuplicates = 0;
   walkMs = 0;
   gitCommands = 0;
   gitCandidates = 0;
@@ -29,7 +51,19 @@ export class ScanDiagnostics {
       ` gitDirectories=${this.gitDirectories} supplementRoots=${this.supplementRoots}` +
       ` canonicalFromParent=${this.canonicalFromParent}` +
       ` nativeStatus=${this.nativeStatus} nativeReason=${this.nativeReason} nativeMs=${Math.round(this.nativeMs)}ms` +
-      ` nativeDirectories=${this.nativeDirectories} nativeMetadata=${this.nativeMetadata}`;
+      ` nativeDirectories=${this.nativeDirectories} nativeMetadata=${this.nativeMetadata}` +
+      ` gitPathMode=${this.gitPathMode} ` +
+      formatMs({ gitIgnoreMs: this.gitIgnoreMs, gitCanonicalMs: this.gitCanonicalMs,
+        gitRealpathMs: this.gitRealpathMs, gitDedupMs: this.gitDedupMs }) +
+      ` gitIgnoreMode=${this.gitIgnoreMode} gitIgnoreReason=${this.gitIgnoreReason}` +
+      ` gitIgnoreNativeMs=${Math.round(this.gitIgnoreNativeMs)}ms` +
+      ` gitIgnoreKernelMs=${Math.round(this.gitIgnoreKernelMs)}ms` +
+      ` gitIgnoreMismatches=${this.gitIgnoreMismatches} gitIgnoreNativeKept=${this.gitIgnoreNativeKept}` +
+      ` gitIgnoreDeferred=${this.gitIgnoreDeferred}` +
+      ` gitIgnored=${this.gitIgnored} gitCanonicalCalls=${this.gitCanonicalCalls}` +
+      ` gitRealpathCalls=${this.gitRealpathCalls} gitRealpathErrors=${this.gitRealpathErrors}` +
+      ` gitNativeCalls=${this.gitNativeCalls} gitNativeFallbacks=${this.gitNativeFallbacks}` +
+      ` gitPathMismatches=${this.gitPathMismatches} gitCanonicalDuplicates=${this.gitCanonicalDuplicates}`;
   }
 }
 

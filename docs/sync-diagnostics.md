@@ -45,6 +45,82 @@
 
 ## 空同步扫描优化
 
+### 普通 Git 路径后处理诊断与原生 realpath 实验
+
+对于 `mode=git`，进一步输出以下字段；walk、hybrid、Rust 目录扫描不使用这些实验字段，`gitPathMode=unused`。
+
+- `gitIgnoreMs`：逐候选应用既有根忽略 matcher。
+- `gitCanonicalMs`：规范化、缓存查找、真实路径解析和项目根内判断；`gitRealpathMs` 是其中的真实路径解析子项，不能重复相加。
+- `gitDedupMs`：将规范化路径加入 Set，保持候选首次出现顺序。
+- `gitIgnored/gitCanonicalCalls/gitCanonicalDuplicates`：忽略的候选数、规范化调用数、合并的重复路径数。
+- `gitRealpathCalls/gitRealpathErrors`：缓存未命中等情况下实际调用完整路径解析器的次数、最终失败次数。后者仍沿用逻辑路径回退，不表示丢掉文件。
+- `gitNativeCalls/gitNativeFallbacks/gitPathMismatches`：尝试原生解析的次数、原生异常后回退次数、verify 的精确路径差异数。
+
+计时是已有操作的计时，不另跑扫描或预筛；仅 verbose 时逐候选打点。`filterCanonicalMs` 已包含上述子项以及循环和计时本身的少量开销。`reconcile-counts.statChecks` 不包含这里的内部路径解析调用，不能因为其很小就排除扫描阶段的文件系统成本。
+
+`CODEGRAPH_GIT_REALPATH` 的自动策略：
+
+- 未设置、空或 `auto`：仅 Linux 普通 Git 且候选不少于 50000 时选择 native；其他情况保留 legacy。
+- `0`、`legacy`、`off` 或未知值：强制原来的 `fs.realpathSync`。
+- `native` 或 `1`：仅普通 Git 后处理尝试 Node 自带 `fs.realpathSync.native`，异常则回退旧接口。这不是 Rust 扫描，不需要新的二进制或运行环境。
+- `verify`：旧接口是权威结果；同时调用原生接口逐路径严格比较（含大小写），任何差异计数但始终返回旧值。验证耗时包含两个接口，不是加速测速。
+
+保持 Git 收集 tracked/untracked、子模块和嵌套仓库的原流程；逻辑路径先匹配忽略规则，再按真实路径去重，最后按规范化路径筛源码扩展名。没有更改忽略配置，没有为 Git 候选臆造普通文件的父目录路径提示。缓存仍随 index/sync 清理，不缓存到下一次同步；不改数据库，无须重新 init。
+
+**原生接口不保证所有平台更快，因此只对已实测的大型 Linux 路径自动开启。** Windows open5gs 的三轮只读扫描（11044 个源码候选）中，legacy 中位数约 0.774 秒、native 约 1.382 秒，原生方案反而更慢；路径和顺序哈希一致。小仓和非 Linux 默认不变。
+
+建议在安装目录运行只读基准（不打开数据库、不解析业务源码、不运行 sync）：
+
+```bash
+node scripts/benchmark-git-paths.mjs /5g_build/5g_Main/WN_5G_BTS_L2L3_27B 3
+```
+
+脚本先 verify，然后交错进行各 3 次独立进程扫描；比较返回文件及顺序哈希，输出分阶段中位数和汇总。扫描以稳定工作树为前提，期间不要并行修改/生成文件。若实际不是普通 Git 路径则拒绝测速，不会修改 `.codegraphignore` 强行切换路由。`totalMs` 只含目录枚举，不是完整 sync；子进程启动、模块加载、数据库打开、核对、宏上下文及解析均不计入。
+
+基准确认无差异且 native 更快后，可在项目目录进行整条命令对比：
+
+```bash
+time env CODEGRAPH_RUST_MACROS=1 CODEGRAPH_GIT_REALPATH=legacy codegraph sync -v
+time env CODEGRAPH_RUST_MACROS=1 CODEGRAPH_GIT_REALPATH=native codegraph sync -v
+```
+
+空同步可以直接交错重复；有变更场景需相同源文件和索引基线，不能将第一次有变更和第二次无变更当成 A/B。如 Linux 主要成本不在 `gitRealpathMs` 或原生方案没有收益，再根据 `gitIgnoreMs` 等指标考虑候选批处理，不据此扩大 Rust walker 的选文件范围。
+
+### Git 候选的受控 Rust 忽略过滤
+
+普通 `mode=git` 路径提供批量过滤：Linux 且候选不少于 50000 时自动尝试，其他平台和小仓默认保持 legacy。Git 仍按原逻辑生成 tracked/untracked、子模块和嵌套仓库候选；Rust 仅接收这份有序 logical path 列表和构造 TypeScript matcher 时使用的同一组根规则，返回应保留的候选序号。TypeScript 随后继续执行真实路径解析、软链接身份去重和源码类型筛选。
+
+```bash
+# 强制旧 matcher（独立回退开关）
+CODEGRAPH_RUST_GIT_IGNORE=0
+
+# 使用 Rust；任何失败完整回退旧 matcher
+CODEGRAPH_RUST_GIT_IGNORE=1
+
+# 同时计算两边的每个 keep/drop 决策，始终采用 TypeScript 结果
+CODEGRAPH_RUST_GIT_IGNORE=verify
+```
+
+`scan-detail` 中：
+
+- `gitIgnoreMode=legacy|rust|verify|fallback` 是实际路径；fallback 时看 `gitIgnoreReason`。
+- `gitIgnoreNativeMs` 包含进程启动、请求/响应 JSON 和 Rust 内核；`gitIgnoreKernelMs` 仅为帮助程序内部时间，是前者的子项。
+- `gitIgnoreMismatches` 是 verify 中 keep/drop 不同的候选数；必须为 0 才能考虑启用。
+- `gitIgnoreNativeKept` 是 Rust 直接保留数；`gitIgnoreDeferred` 是交回 TypeScript 单独判断的候选数。最终 `gitCanonicalCalls` 还会包含 deferred 中由 TypeScript 保留的项。
+
+帮助程序将非 ASCII 或不规范的个别候选列为 deferred，仅这些路径由 TypeScript 判断；暂未证明等价的复杂或 Unicode **规则**、超出 25 万候选或 32MiB 请求、非项目真实根目录仍整批回退。缺少、过期或未完成目标平台验收的程序，以及超时、崩溃、响应截断、乱序/重复/越界序号也完整回退；不使用部分结果。Linux/Windows 预编译验收套件同时覆盖目录扫描和此操作，旧验收戳不能启用新版本。
+
+目标机器安装候选包后先在安装目录运行平台差分验收，然后在稳定工作树运行只读基准：
+
+```bash
+npm run validate:rust-scan
+node scripts/benchmark-git-ignore.mjs /5g_build/5g_Main/WN_5G_BTS_L2L3_27B 3
+```
+
+基准固定 `CODEGRAPH_GIT_REALPATH=native`，先执行 `verify`，再交错比较 legacy/Rust 各三次独立进程。它不打开 CodeGraph 数据库、不解析或修改源码；文件及顺序哈希必须相同，Rust 发生回退就拒绝生成成功汇总。若验证一致但 `gitIgnoreMs` 没有明显降低，应保持关闭，避免用进程开销交换没有意义的微小收益。
+
+EulerOS x64 的 122123 个 Git 候选实测中，884 个特殊候选逐项 deferred，路径/顺序哈希与 TypeScript 三轮一致且零决策差异。枚举中位数从 6519ms 降至 2774ms（-57.4%），其中 ignore 从 4250ms 降至 556ms（-86.9%）；这是目标仓只读结果，不外推到小仓或其他平台，也不等同完整 sync。
+
 默认启用的是**普通文件复用父目录真实路径**：目录刚刚完成 `realpath`，`readdir` 又确认条目不是链接时，文件路径可由真实父目录与条目名得到。符号链接仍走原来的完整解析、循环检测与去重；索引前的路径安全校验不变。没有增加跨次文件系统缓存，既有每次 index/sync 的缓存清理仍保留。该优化作用于共用扫描器，不改宏预处理、解析器或数据库格式。
 
 Linux 对照命令（均可用于无变更项目）：
