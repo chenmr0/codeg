@@ -5,9 +5,8 @@
 # NO native build — node:sqlite is built into the bundled Node. One archive per
 # platform.
 #
-# Because dropping better-sqlite3 left zero native addons, the recipe is pure
-# file-packaging (download the target's Node, copy the app, archive) — so any
-# platform's bundle can be built on any OS. No cross-compile, no native runners.
+# Packaging runs on one OS after validated scanner prebuilds are collected
+# from target runners. Unsupported scanner platforms retain TypeScript.
 #
 # Usage:
 #   scripts/build-bundle.sh <target> [node-version]
@@ -58,6 +57,9 @@ fi
 # 2. Build the app (compiled JS + copied wasm/schema assets).
 echo "[bundle] building app"
 ( cd "$ROOT" && npm run build >/dev/null )
+case "$TARGET" in
+  linux-x64|win32-x64) ( cd "$ROOT" && node scripts/check-rust-scan-artifacts.mjs --require "$TARGET" ) ;;
+esac
 
 # 3. Stage: app + production-only deps (pure JS/wasm → portable across platforms).
 STAGE="$WORK/codegraph-${TARGET}"

@@ -1,31 +1,61 @@
 #!/usr/bin/env node
-// Explicit build only. Normal npm install/build never installs Rust or downloads
-// a scanner binary. No cross-target library is silently labeled as the host.
+// Release-time compilation only. npm install never invokes Rust or downloads it.
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { spawnSync } from 'node:child_process';
+import { spawnSync, execFileSync } from 'node:child_process';
+import { artifactApi, nativeSourceHash, checkExecutable } from './rust-scan-release-lib.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const crate = path.join(root, 'codegraph-scan');
+const api = artifactApi(root);
 const cargo = process.env.CODEGRAPH_CARGO ?? 'cargo';
+const rustc = process.env.CODEGRAPH_RUSTC ?? (path.isAbsolute(cargo)
+  ? path.join(path.dirname(cargo), process.platform === 'win32' ? 'rustc.exe' : 'rustc') : 'rustc');
+let target, debug = false;
 const args = process.argv.slice(2);
-if (args.some(arg => arg !== '--debug')) throw new Error('Usage: node scripts/build-rust-scan.mjs [--debug]');
-const debug = args.includes('--debug');
-const build = spawnSync(cargo, ['build', '--manifest-path', path.join(crate, 'Cargo.toml'),
-  ...(debug ? [] : ['--release'])], { cwd: root, stdio: 'inherit', windowsHide: true });
+for (let i = 0; i < args.length; i++) {
+  if (args[i] === '--debug') debug = true;
+  else if (args[i] === '--target' && args[i + 1]) target = args[++i];
+  else throw new Error('Usage: build-rust-scan.mjs [--debug] [--target <Rust triple>]');
+}
+target ??= api.RUST_SCAN_TARGETS[`${process.platform}-${process.arch}`]?.target;
+const selected = Object.entries(api.RUST_SCAN_TARGETS).find(([, spec]) => spec.target === target);
+if (!selected) throw new Error(`Unsupported build target: ${target ?? process.platform + '-' + process.arch}`);
+const [platformKey, spec] = selected;
+const [platform, arch] = platformKey.split('-');
+const env = { ...process.env };
+if (/target-cpu[= ]native/.test(env.RUSTFLAGS ?? '')) throw new Error('Release helpers must use a portable CPU baseline, not target-cpu=native.');
+if (platform === 'win32') env.RUSTFLAGS = `${env.RUSTFLAGS ?? ''} -C target-feature=+crt-static`.trim();
+if (target.endsWith('-linux-musl')) {
+  const host = execFileSync(rustc, ['-vV'], { encoding: 'utf8', windowsHide: true }).match(/^host: (.+)$/m)?.[1]?.trim();
+  const sysroot = execFileSync(rustc, ['--print', 'sysroot'], { encoding: 'utf8', windowsHide: true }).trim();
+  const linker = path.join(sysroot, 'lib/rustlib', host ?? '', 'bin', process.platform === 'win32' ? 'rust-lld.exe' : 'rust-lld');
+  if (!fs.existsSync(linker)) throw new Error('Rust bundled LLD linker is missing; install the build toolchain, not a target-machine compiler.');
+  env.CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER = linker;
+  env.RUSTFLAGS = `${env.RUSTFLAGS ?? ''} -C link-self-contained=yes -C target-feature=+crt-static`.trim();
+}
+console.log(`[rust-scan] Building ${target}; target installation is explicit, never automatic.`);
+const build = spawnSync(cargo, ['build', '--locked', '--manifest-path', path.join(root, 'codegraph-scan/Cargo.toml'),
+  '--target', target, '--message-format=json-render-diagnostics', ...(debug ? [] : ['--release'])],
+{ cwd: root, env, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, windowsHide: true });
+if (build.stderr) process.stderr.write(build.stderr);
+const messages = (build.stdout ?? '').split('\n').filter(Boolean).map(line => { try { return JSON.parse(line); } catch { return {}; } });
+for (const message of messages) if (message.reason === 'compiler-message' && message.message?.rendered) process.stderr.write(message.message.rendered);
 if (build.error || build.status !== 0) {
-  console.error(build.error
-    ? '[rust-scan] Could not start Cargo. Install a host Rust toolchain or set CODEGRAPH_CARGO to its cargo executable.'
-    : '[rust-scan] Cargo build failed; see the compiler or linker diagnostics above.');
+  if (build.error) console.error(build.error.message);
+  console.error('[rust-scan] Build failed; check Cargo diagnostics and installed target. Existing binaries were not relabeled.');
   process.exit(build.status || 1);
 }
-const name = process.platform === 'win32' ? 'codegraph-scan.exe' : 'codegraph-scan';
-const target = process.env.CARGO_TARGET_DIR ? path.resolve(root, process.env.CARGO_TARGET_DIR) : path.join(crate, 'target');
-const source = path.join(target, debug ? 'debug' : 'release', name);
-const destination = path.join(root, 'dist', 'native-scan', `${process.platform}-${process.arch}`, name);
-if (!fs.existsSync(source)) throw new Error(`Host executable not found at ${source}; cross-target staging is not supported by this prototype script.`);
-fs.mkdirSync(path.dirname(destination), { recursive: true });
-fs.copyFileSync(source, destination);
-if (process.platform !== 'win32') fs.chmodSync(destination, 0o755);
-console.log(`[rust-scan] Staged ${destination}`);
+// Use Cargo's true output, not a guessed (possibly stale) host executable.
+const source = messages.find(m => m.reason === 'compiler-artifact' && m.target?.name === 'codegraph-scan' && m.executable)?.executable;
+if (!source || !fs.existsSync(source)) throw new Error('Cargo did not report a scanner executable');
+const bytes = fs.readFileSync(source); checkExecutable(bytes, platform);
+const directory = path.join(root, 'dist/native-scan', platformKey);
+fs.mkdirSync(directory, { recursive: true });
+const binary = path.join(directory, spec.executable);
+fs.copyFileSync(source, binary); if (process.platform !== 'win32') fs.chmodSync(binary, 0o755);
+const manifest = { schema: 1, protocol: api.RUST_SCAN_PROTOCOL, platform, arch, target,
+  executable: spec.executable, packageVersion: api.rustScanPackageVersion(), sourceHash: nativeSourceHash(root),
+  sha256: api.sha256(bytes), profile: debug ? 'debug' : 'release' };
+fs.writeFileSync(path.join(directory, 'manifest.json'), JSON.stringify(manifest, null, 2) + '\n');
+console.log(`[rust-scan] Staged ${binary}; not yet auto-enabled. Validate on ${platformKey} before release.`);

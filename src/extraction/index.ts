@@ -48,7 +48,7 @@ import {
 import { ReconcileDiagnostics, type ScanDiagnostics } from './sync-diagnostics';
 import type { SyncRetryState } from './sync-retry-state';
 import { collectHybridFiles, HybridScanFallback, planSupplementRoots } from './hybrid-scan';
-import { RUST_SCAN_PROTOCOL, runRustScan, rustScanMode, verifyRustSnapshot, type RustScanCapture } from './rust-scan';
+import { RUST_SCAN_PROTOCOL, runRustScan, rustScanMode, automaticRustScanStatus, verifyRustSnapshot, type RustScanCapture } from './rust-scan';
 
 /**
  * Number of files to read in parallel during indexing.
@@ -854,6 +854,10 @@ function tryRustDirectoryScan(rootDir: string, diagnostics?: ScanDiagnostics,
   if (mode === 'off') return undefined;
   const started = performance.now();
   try {
+    if (mode === 'auto') {
+      const status = automaticRustScanStatus();
+      if (!status.ready) throw new Error(status.reason);
+    }
     // Initial scope is the established filesystem-walk route. Do not silently
     // replace Git/global-exclude or hybrid semantics with a Rust filesystem walk.
     if (!hasCodegraphIgnoreNegation(rootDir) || process.env.CODEGRAPH_HYBRID_SCAN === '1') {

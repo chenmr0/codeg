@@ -5,12 +5,12 @@ import * as os from 'os';
 import CodeGraph from '../src/index';
 import { scanDirectory, scanDirectoryAsync } from '../src/extraction';
 import { ScanDiagnostics } from '../src/extraction/sync-diagnostics';
-import { decodeRustSnapshot, runRustScan, rustScanMode, type RustScanCapture } from '../src/extraction/rust-scan';
+import { decodeRustSnapshot, runRustScan, rustScanMode, automaticRustScanStatus, type RustScanCapture } from '../src/extraction/rust-scan';
 import { clearCanonicalCache } from '../src/utils';
 
 vi.mock('../src/extraction/rust-scan', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../src/extraction/rust-scan')>();
-  return { ...actual, runRustScan: vi.fn(actual.runRustScan) };
+  return { ...actual, runRustScan: vi.fn(actual.runRustScan), automaticRustScanStatus: vi.fn(actual.automaticRustScanStatus) };
 });
 
 let dir: string;
@@ -29,6 +29,7 @@ beforeEach(() => {
   vi.stubEnv('CODEGRAPH_RUST_SCAN', '0');
   vi.stubEnv('CODEGRAPH_HYBRID_SCAN', '0');
   vi.mocked(runRustScan).mockReset();
+  vi.mocked(automaticRustScanStatus).mockReset();
   write('.codegraphignore', '/*\n!/src/\n');
   write('src/a.c');
   clearCanonicalCache();
@@ -39,11 +40,32 @@ afterEach(() => {
 });
 
 describe('Rust scan protocol and fail-closed integration', () => {
-  it('defaults off and does not launch a helper', () => {
+  it('honors explicit off without launching or inspecting a helper', () => {
     expect(rustScanMode()).toBe('off');
     expect(scanDirectory(dir)).toEqual(['src/a.c']);
     expect(runRustScan).not.toHaveBeenCalled();
+    expect(automaticRustScanStatus).not.toHaveBeenCalled();
   });
+
+  it('defaults to auto and uses only an available validated helper', () => {
+    vi.stubEnv('CODEGRAPH_RUST_SCAN', undefined);
+    expect(rustScanMode()).toBe('auto');
+    vi.mocked(automaticRustScanStatus).mockReturnValue({ ready: true, reason: 'none' });
+    vi.mocked(runRustScan).mockImplementation(() => decodeRustSnapshot(response(['src/a.c'])));
+    const diag = new ScanDiagnostics();
+    expect(scanDirectory(dir, undefined, diag)).toEqual(['src/a.c']);
+    expect(diag.nativeStatus).toBe('used');
+  });
+
+  it.each(['binary-missing', 'binary-unverified', 'binary-checksum', 'unsupported-platform'])(
+    'auto falls back without executing a helper on %s', reason => {
+      vi.stubEnv('CODEGRAPH_RUST_SCAN', undefined);
+      vi.mocked(automaticRustScanStatus).mockReturnValue({ ready: false, reason });
+      const diag = new ScanDiagnostics();
+      expect(scanDirectory(dir, undefined, diag)).toEqual(['src/a.c']);
+      expect(runRustScan).not.toHaveBeenCalled();
+      expect(diag).toMatchObject({ nativeStatus: 'fallback', nativeReason: reason });
+    });
 
   it.each(['protocol', 'duplicate', 'traversal', 'absolute', 'data-dir', 'negative-size', 'fractional-time', 'partial', 'bad-count'])
     ('rejects invalid native output: %s', shape => {

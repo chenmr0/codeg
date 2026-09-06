@@ -6,8 +6,7 @@ name: Release
 #      CHANGELOG.md (and commits + pushes that change back to main), so
 #      the published release notes are never sparse just because the
 #      maintainer didn't pre-stage the [<version>] block by hand,
-#   3. builds a self-contained bundle for every platform (one runner — there's no
-#      native compilation, so cross-packaging is fine),
+#   3. collects validated Rust scanner prebuilds, then packages the bundles,
 #   4. creates the GitHub Release (tag v<version>) with all archives, using the
 #      release notes from CHANGELOG.md,
 #   5. publishes the npm thin-installer (shim + per-platform packages).
@@ -21,7 +20,12 @@ permissions:
   contents: write   # create the GitHub Release + tag, push the CHANGELOG promote
 
 jobs:
+  rust-scan:
+    uses: ./.github/workflows/rust-scan-prebuilt.yml
+    permissions:
+      contents: read
   release:
+    needs: rust-scan
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -112,6 +116,18 @@ jobs:
             # Push to the branch the workflow was triggered on (main).
             git push origin "HEAD:${GITHUB_REF#refs/heads/}"
           fi
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: rust-scan-prebuilt-*
+          merge-multiple: true
+          path: native-artifacts
+      - name: Collect validated scanner prebuilds
+        run: |
+          mkdir -p dist/native-scan
+          for archive in native-artifacts/*.tar; do tar -xf "$archive" -C dist/native-scan; done
+          npm run build
+          npm run check:rust-scan
 
       - name: Build all platform bundles
         run: |

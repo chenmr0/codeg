@@ -4,8 +4,10 @@ import * as path from 'path';
 import { execFileSync } from 'child_process';
 import { isSourceFile } from './grammars';
 import { codeGraphDirName } from '../directory';
+import { checkRustScanArtifact } from './rust-scan-artifact';
 
-export const RUST_SCAN_PROTOCOL = 1;
+export { RUST_SCAN_PROTOCOL } from './rust-scan-artifact';
+import { RUST_SCAN_PROTOCOL } from './rust-scan-artifact';
 export interface RustScanRequest {
   protocol: number;
   root: string;
@@ -24,9 +26,23 @@ export interface RustScanSnapshot {
 }
 export interface RustScanCapture { snapshot?: RustScanSnapshot }
 
-export function rustScanMode(): 'off' | 'verify' | 'on' {
+export function rustScanMode(): 'off' | 'verify' | 'on' | 'auto' {
   const value = process.env.CODEGRAPH_RUST_SCAN;
+  if (value === undefined || value === '' || value === 'auto') return 'auto';
   return value === '1' ? 'on' : value === 'verify' ? 'verify' : 'off';
+}
+
+export function rustScanBinaryPath(): string {
+  return process.env.CODEGRAPH_RUST_SCAN_PATH ?? path.join(__dirname, '..', 'native-scan',
+    `${process.platform}-${process.arch}`, process.platform === 'win32' ? 'codegraph-scan.exe' : 'codegraph-scan');
+}
+
+export function automaticRustScanStatus(): { ready: boolean; reason: string } {
+  try { checkRustScanArtifact(rustScanBinaryPath()); return { ready: true, reason: 'none' }; }
+  catch (error) {
+    const reason = error instanceof Error ? error.message : '';
+    return { ready: false, reason: /^[a-z-]+$/.test(reason) ? reason : 'artifact-error' };
+  }
 }
 
 /** Strict transport validation: malformed/partial output never becomes deletions. */
@@ -68,8 +84,7 @@ export function decodeRustSnapshot(value: unknown): RustScanSnapshot {
 }
 
 export function runRustScan(request: RustScanRequest): RustScanSnapshot {
-  const binary = process.env.CODEGRAPH_RUST_SCAN_PATH ?? path.join(__dirname, '..', 'native-scan',
-    `${process.platform}-${process.arch}`, process.platform === 'win32' ? 'codegraph-scan.exe' : 'codegraph-scan');
+  const binary = rustScanBinaryPath();
   if (!fs.existsSync(binary)) throw new Error('binary-missing');
   const root = path.resolve(request.root);
   // Root aliases and every link encountered by Rust defer to the existing
