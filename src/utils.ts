@@ -252,7 +252,7 @@ let canonicalCache: Map<string, string> | null = null;
  * keeping string equality with resolver producers that return
  * `path.relative(...).replace(/\\/g,'/')`.
  */
-export function canonicalFilePath(rootDir: string, p: string): string {
+export function canonicalFilePath(rootDir: string, p: string, knownRealPath?: string): string {
   const normalizedLogical = normalizePath(path.normalize(p));
   // The project root itself (`''`, `.`, `./`, `/` after normalization) canonicalizes
   // to `.` — collapse that to `''` so callers that test the result's truthiness
@@ -269,7 +269,10 @@ export function canonicalFilePath(rootDir: string, p: string): string {
 
   let result = normalizedLogical;
   try {
-    const real = fs.realpathSync(abs);
+    // Scanner-only hint: readdir classified this entry as an ordinary file,
+    // and its parent has already been realpathed in this scan. Never supply
+    // a hint for a symlink or for a path obtained only from Git's index.
+    const real = knownRealPath ?? fs.realpathSync(abs);
     const rel = normalizePath(path.relative(rootDir, real));
     if (rel && !rel.startsWith('..') && !path.isAbsolute(rel)) {
       result = rel; // real path inside root → canonical realpath-relative

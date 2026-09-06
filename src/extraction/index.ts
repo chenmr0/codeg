@@ -46,6 +46,8 @@ import {
   replaceWithDeclarationMacroRecoverySkipped,
 } from './diagnostics';
 import { ReconcileDiagnostics, type ScanDiagnostics } from './sync-diagnostics';
+import type { SyncRetryState } from './sync-retry-state';
+import { collectHybridFiles, HybridScanFallback, planSupplementRoots } from './hybrid-scan';
 
 /**
  * Number of files to read in parallel during indexing.
@@ -609,9 +611,13 @@ function collectGitFiles(repoDir: string, prefix: string, files: Set<string>, di
  * (non-git project) so callers can fall back to a filesystem walk.
  */
 function getGitVisibleFiles(rootDir: string, diagnostics?: ScanDiagnostics): Set<string> | null {
-  // .codegraphignore negation rules re-include files git has already excluded,
-  // so `git ls-files` never reports them.  Fall back to a filesystem walk.
-  if (hasCodegraphIgnoreNegation(rootDir)) {
+  const cgIgnore = path.join(rootDir, '.codegraphignore');
+  const roots = fs.existsSync(cgIgnore) ? planSupplementRoots(readGitignorePatterns(cgIgnore)) : undefined;
+  // Only explicit literal-directory supplements can avoid the full walk.
+  // Opt-in until target-platform measurements beat the simpler optimized
+  // walker. Windows OceanBase currently favors parent-path reuse alone.
+  if (roots === null || (roots && (process.env.CODEGRAPH_HYBRID_SCAN !== '1' ||
+      process.env.CODEGRAPH_NO_HYBRID_SCAN === '1'))) {
     if (diagnostics) diagnostics.fallbackReason = 'codegraph-negation';
     return null;
   }
@@ -627,6 +633,10 @@ function getGitVisibleFiles(rootDir: string, diagnostics?: ScanDiagnostics): Set
       diagnostics,
     ).trim();
 
+    if (roots && path.relative(gitRoot, rootDir) !== '') {
+      throw new HybridScanFallback('project-not-repository-root');
+    }
+
     if (path.resolve(gitRoot) !== path.resolve(rootDir)) {
       try {
         // git check-ignore exits 0 if the path IS ignored, 1 if not
@@ -641,6 +651,26 @@ function getGitVisibleFiles(rootDir: string, diagnostics?: ScanDiagnostics): Set
       } catch {
         // Not ignored — safe to use git ls-files
       }
+    }
+
+    if (roots) {
+      failureStage = 'hybrid-scan';
+      const ig = buildDefaultIgnore(rootDir, diagnostics);
+      if (diagnostics) diagnostics.supplementRoots = roots.length;
+      const files = collectHybridFiles(rootDir, roots, {
+        rootIgnore: ig,
+        readPatterns: readGitignorePatterns,
+        git: args => runScanGit(args, {
+          cwd: rootDir, encoding: 'utf-8', timeout: 30000, maxBuffer: 50 * 1024 * 1024,
+          stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true,
+        }, diagnostics),
+        supplement: () => scanDirectoryWalk(rootDir, undefined, diagnostics, {
+          roots, rejectSymlinks: true, rootIgnore: ig,
+        }),
+        diagnostics,
+      });
+      if (diagnostics) diagnostics.mode = 'hybrid';
+      return files;
     }
 
     const files = new Set<string>();
@@ -667,12 +697,12 @@ function getGitVisibleFiles(rootDir: string, diagnostics?: ScanDiagnostics): Set
       if (diagnostics) diagnostics.filterCanonicalMs += performance.now() - filterStarted;
     }
     return canonical;
-  } catch {
+  } catch (error) {
     // This catch also covers ignore/canonicalization failures. Do not
     // mislabel every fallback as a non-git project or run a second probe.
     if (diagnostics) {
-      diagnostics.fallbackReason = 'git-path-error';
-      diagnostics.failureStage = failureStage;
+      diagnostics.fallbackReason = error instanceof HybridScanFallback ? 'hybrid-unsafe' : 'git-path-error';
+      diagnostics.failureStage = error instanceof HybridScanFallback ? error.message : failureStage;
     }
     return null;
   }
@@ -745,7 +775,7 @@ export function scanDirectory(
   // Fast path: use git to get all visible files (respects .gitignore everywhere)
   const gitFiles = getGitVisibleFiles(rootDir, diagnostics);
   if (gitFiles) {
-    if (diagnostics) diagnostics.mode = 'git';
+    if (diagnostics && diagnostics.mode !== 'hybrid') diagnostics.mode = 'git';
     const files: string[] = [];
     let count = 0;
     for (const filePath of gitFiles) {
@@ -774,7 +804,7 @@ export async function scanDirectoryAsync(
 ): Promise<string[]> {
   const gitFiles = getGitVisibleFiles(rootDir, diagnostics);
   if (gitFiles) {
-    if (diagnostics) diagnostics.mode = 'git';
+    if (diagnostics && diagnostics.mode !== 'hybrid') diagnostics.mode = 'git';
     const files: string[] = [];
     let count = 0;
     for (const filePath of gitFiles) {
@@ -802,6 +832,7 @@ function scanDirectoryWalk(
   rootDir: string,
   onProgress?: (current: number, file: string) => void,
   diagnostics?: ScanDiagnostics,
+  supplement?: { roots: string[]; rejectSymlinks: boolean; rootIgnore: Ignore },
 ): string[] {
   const walkStarted = diagnostics ? performance.now() : 0;
   if (diagnostics) diagnostics.mode = 'walk';
@@ -812,8 +843,10 @@ function scanDirectoryWalk(
   // dedups files so a file reachable via its real path and a symlink, or via
   // several symlinks, is emitted once under its canonical realpath-relative path).
   const seenCanonical = new Set<string>();
-  const pushCanonical = (logicalRel: string) => {
-    const c = canonicalFilePath(rootDir, logicalRel);
+  const reuse = process.env.CODEGRAPH_NO_SCAN_PATH_REUSE !== '1';
+  const pushCanonical = (logicalRel: string, knownRealPath?: string) => {
+    const c = canonicalFilePath(rootDir, logicalRel, reuse ? knownRealPath : undefined);
+    if (reuse && knownRealPath && diagnostics) diagnostics.canonicalFromParent++;
     if (seenCanonical.has(c)) return;
     seenCanonical.add(c);
     files.push(c);
@@ -893,6 +926,14 @@ function scanDirectoryWalk(
       const fullPath = path.join(dir, entry.name);
       const relativePath = normalizePath(path.relative(rootDir, fullPath));
 
+      if (supplement) {
+        const lower = relativePath.toLowerCase();
+        const inside = supplement.roots.some(root => lower === root || lower.startsWith(root + '/'));
+        const toward = supplement.roots.some(root => root.startsWith(lower + '/'));
+        if (!inside && !(toward && (entry.isDirectory() || entry.isSymbolicLink()))) continue;
+        if (entry.isSymbolicLink() && supplement.rejectSymlinks) throw new HybridScanFallback('symlink');
+      }
+
       if (entry.isSymbolicLink()) {
         try {
           const realTarget = fs.realpathSync(fullPath);
@@ -918,7 +959,7 @@ function scanDirectoryWalk(
         }
       } else if (entry.isFile()) {
         if (!isIgnored(fullPath, false, active) && isSourceFile(relativePath)) {
-          pushCanonical(relativePath);
+          pushCanonical(relativePath, path.join(realDir, entry.name));
         }
       }
     }
@@ -927,7 +968,7 @@ function scanDirectoryWalk(
   // Seed a base matcher with the built-in default ignores (merged with the root
   // .gitignore so a negation can override). Nested .gitignores still layer per-dir.
   try {
-    walk(rootDir, [{ dir: rootDir, ig: buildDefaultIgnore(rootDir, diagnostics) }]);
+    walk(rootDir, [{ dir: rootDir, ig: supplement?.rootIgnore ?? buildDefaultIgnore(rootDir, diagnostics) }]);
     return files;
   } finally {
     if (diagnostics) {
@@ -941,6 +982,13 @@ function scanDirectoryWalk(
  * Extraction orchestrator
  */
 export class ExtractionOrchestrator {
+  private syncRetryState?: SyncRetryState;
+
+  /** Attached only while CodeGraph.sync holds its indexing mutex. */
+  setSyncRetryState(state?: SyncRetryState): void {
+    this.syncRetryState = state;
+  }
+
   private rootDir: string;
   private queries: QueryBuilder;
   /**
@@ -2191,6 +2239,8 @@ export class ExtractionOrchestrator {
       return; // No changes
     }
 
+    this.syncRetryState?.beforeStore(filePath, contentHash, content, language, result, existingFile);
+
     // Snapshot incoming cross-file edges before deleting old nodes.
     // These are edges from nodes in OTHER files → nodes in THIS file.
     // After re-insertion we'll re-wire them to the new node IDs.
@@ -2492,6 +2542,7 @@ export class ExtractionOrchestrator {
             if (ref.filePath) resurrectedReferenceSourceFiles.add(ref.filePath);
           }
         }
+        this.syncRetryState?.beforeDelete(tracked.path);
         this.queries.deleteFile(tracked.path);
         filesRemoved++;
       }

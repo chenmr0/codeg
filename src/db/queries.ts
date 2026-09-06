@@ -2652,6 +2652,13 @@ WHERE e.kind = 'imports'
     return { groups, total };
   }
 
+  /** Conservative recovery when a sync retry journal cannot be decoded. */
+  getFailedReferenceNames(): string[] {
+    const rows = this.db.prepare("SELECT DISTINCT name_tail FROM unresolved_refs WHERE status = 'failed'")
+      .all() as Array<{ name_tail: string }>;
+    return rows.map(row => row.name_tail);
+  }
+
   /**
    * Read one bounded failed-reference retry batch using primary-key seek.
    * maxRowId fixes the plan's high-water mark, so rows written during a retry
@@ -2815,6 +2822,25 @@ WHERE e.kind = 'imports'
     return result;
   }
 
+  /** Indexed prefix range; do not load every per-file sync proof on a no-op. */
+  getMetadataByPrefix(prefix: string): Array<{ key: string; value: string }> {
+    if (!prefix) throw new Error('Metadata prefix must not be empty');
+    const upper = prefix.slice(0, -1) + String.fromCharCode(prefix.charCodeAt(prefix.length - 1) + 1);
+    return this.db.prepare('SELECT key, value FROM project_metadata WHERE key >= ? AND key < ?')
+      .all(prefix, upper) as Array<{ key: string; value: string }>;
+  }
+
+  /** Atomically promote completed work and remove its write-ahead journal. */
+  applyMetadataChanges(changes: Record<string, string | null>): void {
+    if (Object.keys(changes).length === 0) return;
+    this.db.transaction(() => {
+      for (const [key, value] of Object.entries(changes)) {
+        if (value === null) this.db.prepare('DELETE FROM project_metadata WHERE key = ?').run(key);
+        else this.setMetadata(key, value);
+      }
+    })();
+  }
+
   /**
    * Clear all data from the database
    */
@@ -2825,6 +2851,7 @@ WHERE e.kind = 'imports'
       this.db.exec('DELETE FROM edges');
       this.db.exec('DELETE FROM nodes');
       this.db.exec('DELETE FROM files');
+      this.db.exec("DELETE FROM project_metadata WHERE key GLOB 'sync-retry:*'");
     })();
   }
 }

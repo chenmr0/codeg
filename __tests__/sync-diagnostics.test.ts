@@ -47,6 +47,7 @@ describe('verbose sync reconciliation diagnostics', () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.unstubAllEnvs();
     cg?.destroy();
     for (const created of dirs.splice(0)) {
       if (!created.startsWith(path.join(os.tmpdir(), 'codegraph-sync-diag-'))) throw new Error('Unsafe temp cleanup');
@@ -160,6 +161,7 @@ describe('verbose sync reconciliation diagnostics', () => {
   });
 
   it.each(['sync', 'async'] as const)('keeps whitelist walk results identical with %s scanning diagnostics', async (variant) => {
+    vi.stubEnv('CODEGRAPH_NO_HYBRID_SCAN', '1');
     fs.mkdirSync(path.join(dir, 'keep/nested'), { recursive: true });
     fs.writeFileSync(path.join(dir, 'keep/nested/yes.c'), 'int yes;\n');
     fs.writeFileSync(path.join(dir, '.codegraphignore'), '/*\n!/keep/nested/\n');

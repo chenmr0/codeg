@@ -1,7 +1,7 @@
 /** Verbose-only, per-invocation diagnostics. No source paths or contents. */
 export class ScanDiagnostics {
-  mode: 'unknown' | 'git' | 'walk' | 'scoped' = 'unknown';
-  fallbackReason: 'none' | 'codegraph-negation' | 'parent-gitignored' | 'git-path-error' = 'none';
+  mode: 'unknown' | 'git' | 'hybrid' | 'walk' | 'scoped' = 'unknown';
+  fallbackReason: 'none' | 'codegraph-negation' | 'parent-gitignored' | 'git-path-error' | 'hybrid-unsafe' = 'none';
   failureStage = 'none';
   gitCommandMs = 0;
   ignoreBuildMs = 0;
@@ -11,13 +11,18 @@ export class ScanDiagnostics {
   gitCandidates = 0;
   sourceFiles = 0;
   walkDirectories = 0;
+  gitDirectories = 0;
+  supplementRoots = 0;
+  canonicalFromParent = 0;
 
   format(): string {
     return `scan-detail mode=${this.mode} fallbackReason=${this.fallbackReason} failureStage=${this.failureStage} ` +
       formatMs({ gitCommandMs: this.gitCommandMs, ignoreBuildMs: this.ignoreBuildMs,
         filterCanonicalMs: this.filterCanonicalMs, walkMs: this.walkMs }) +
       ` gitCommands=${this.gitCommands} gitCandidates=${this.gitCandidates}` +
-      ` sourceFiles=${this.sourceFiles} walkDirectories=${this.walkDirectories}`;
+      ` sourceFiles=${this.sourceFiles} walkDirectories=${this.walkDirectories}` +
+      ` gitDirectories=${this.gitDirectories} supplementRoots=${this.supplementRoots}` +
+      ` canonicalFromParent=${this.canonicalFromParent}`;
   }
 }
 

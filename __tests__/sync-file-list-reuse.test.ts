@@ -38,15 +38,15 @@ describe('sync per-invocation full file list reuse', () => {
     vi.mocked(execFileSync).mockClear();
     messages.length = 0;
   };
-  const expectScans = (route: 'git' | 'walk', count: number) => {
+  const expectScans = (route: 'git' | 'walk' | 'hybrid', count: number) => {
     const gitLists = vi.mocked(execFileSync).mock.calls.filter(([cmd, args]) =>
       cmd === 'git' && Array.isArray(args) && args[0] === 'ls-files');
     // Each walk reads the existing .codegraphignore for the negation check
     // and the root matcher. Framework probes do not read this file.
     const ignoreReads = vi.mocked(fs.readFileSync).mock.calls.filter(([file]) =>
       typeof file === 'string' && file === path.join(dir, '.codegraphignore'));
-    expect(gitLists).toHaveLength(route === 'git' ? count * 2 : 0);
-    if (route === 'walk') expect(ignoreReads).toHaveLength(count * 2);
+    expect(gitLists).toHaveLength(route === 'walk' ? 0 : count * 2);
+    if (route !== 'git') expect(ignoreReads).toHaveLength(count * 2);
   };
   const detail = () => messages.find((message) => message.startsWith('[sync] context-files '));
   const addMacroConsumer = (file = 'keep/new.c', name = 'recovered_value') => {
@@ -68,6 +68,7 @@ describe('sync per-invocation full file list reuse', () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.unstubAllEnvs();
     cg?.close();
     if (dir) {
       const resolved = path.resolve(dir);
@@ -77,8 +78,10 @@ describe('sync per-invocation full file list reuse', () => {
     }
   });
 
-  it.each(['git', 'walk'] as const)('enumerates once on a cold full %s sync and preserves cross-file macros', async (route) => {
-    if (route === 'walk') {
+  it.each(['git', 'walk', 'hybrid'] as const)('enumerates once on a cold full %s sync and preserves cross-file macros', async (route) => {
+    if (route === 'hybrid') vi.stubEnv('CODEGRAPH_HYBRID_SCAN', '1');
+    if (route === 'walk') vi.stubEnv('CODEGRAPH_NO_HYBRID_SCAN', '1');
+    if (route !== 'git') {
       write('.codegraphignore', '/*\n!/keep/\n');
       write('excluded/bad.h', '#define DECLARE_GLOBAL(name) double name;\n');
     }
@@ -101,13 +104,14 @@ describe('sync per-invocation full file list reuse', () => {
   });
 
   it('shares one lazy full scan for a cold scoped sync, without indexing outside paths', async () => {
+    vi.stubEnv('CODEGRAPH_HYBRID_SCAN', '1');
     write('.codegraphignore', '/*\n!/keep/\n');
     addMacroConsumer();
     write('keep/pending.c', 'int pending(void) { return 9; }\n');
     const frameworks = vi.spyOn(context(), 'ensureDetectedFrameworks');
     const macros = vi.spyOn(context(), 'ensureGlobalMacroNames');
     expect(await cg.sync({ paths: ['keep/new.c'], verbose: true })).toMatchObject({ filesChecked: 1, filesAdded: 1 });
-    expectScans('walk', 1);
+    expectScans('hybrid', 1);
     const files = frameworks.mock.calls[0]?.[0];
     expect(files?.slice().sort()).toEqual(['keep/a.c', 'keep/defs.h', 'keep/new.c', 'keep/pending.c']);
     expect(macros.mock.calls[0]?.[0]).toBe(files);

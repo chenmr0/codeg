@@ -52,6 +52,7 @@ import { ContextBuilder, createContextBuilder } from './context';
 import { Mutex, FileLock, canonicalFilePath } from './utils';
 import { FileWatcher, WatchOptions, PendingFile, LockUnavailableError } from './sync';
 import { EXTRACTION_VERSION } from './extraction/extraction-version';
+import { SyncRetryState } from './extraction/sync-retry-state';
 import {
   collectPersistedIndexDiagnostics,
   isDeclarationMacroRecoverySkipped,
@@ -665,12 +666,19 @@ export class CodeGraph {
           walValve.start();
         }
 
+        const retryState = new SyncRetryState(this.queries);
+        const recoveredRetryFiles = retryState.filePaths;
+        this.orchestrator.setSyncRetryState(retryState);
         const result = await this.orchestrator.sync(
           options.onProgress,
           options.paths,
           options.verbose,
         );
         const hasSuccessfulChangedFiles = (result.changedFilePaths?.length ?? 0) > 0;
+        retryState.finishPrimaryExtraction();
+        const referenceFiles = [...new Set([
+          ...(result.changedFilePaths ?? []), ...recoveredRetryFiles,
+        ])];
 
         // Fold extraction writes before resolution starts reading the changed
         // graph. Besides bounding the WAL, this avoids making the main thread
@@ -681,7 +689,7 @@ export class CodeGraph {
         // every sync that touched files so edits to `app.module.ts` propagate
         // to controllers in unchanged files. The pass is idempotent and cheap
         // (regex over *.module.ts only).
-        if (hasSuccessfulChangedFiles) {
+        if (referenceFiles.length > 0) {
           this.resolver.runPostExtract();
         } else if (result.filesRemoved > 0) {
           // Pure deletion still resolves resurrected incoming references below.
@@ -692,9 +700,9 @@ export class CodeGraph {
         // Resolve references for changed files first. This restores their
         // import edges (e.g. `a.c --imports--> a.h`), which the co-importer
         // query in the next step relies on.
-        if (hasSuccessfulChangedFiles) {
+        if (referenceFiles.length > 0) {
           this.resolver.resolveAndPersist(
-            this.queries.getUnresolvedReferencesByFiles(result.changedFilePaths!),
+            this.queries.getUnresolvedReferencesByFiles(referenceFiles),
             (current, total) => {
               options.onProgress?.({ phase: 'resolving', current, total });
             }
@@ -720,12 +728,15 @@ export class CodeGraph {
         // name segment matches a node contributed by the changed files. Stream
         // every matching name in bounded primary-key batches: popular names
         // must not be skipped wholesale merely because they exceed one batch.
-        if (result.changedFilePaths?.length) {
+        const retryFailedReferences = async (allowFilter: boolean): Promise<void> => {
+          const eligibility = retryState.plan(allowFilter, result.failedRewireSourceFiles);
           const retryPlan = this.queries.getFailedReferenceRetryPlan(
-            this.queries.getNodeNamesByFiles(result.changedFilePaths)
+            eligibility.names,
           );
+          const started = performance.now();
+          let visited = 0;
+          let attempted = 0;
           if (retryPlan.total > 0) {
-            let attempted = 0;
             options.onProgress?.({
               phase: 'resolving',
               current: 0,
@@ -749,12 +760,14 @@ export class CodeGraph {
                   );
                 }
 
-                this.resolver.resolveAndPersist(batch);
-                attempted += batch.length;
+                const eligible = eligibility.filtered ? batch.filter(eligibility.shouldRetry) : batch;
+                if (eligible.length > 0) this.resolver.resolveAndPersist(eligible);
+                attempted += eligible.length;
+                visited += batch.length;
                 afterRowId = lastRowId;
                 options.onProgress?.({
                   phase: 'resolving',
-                  current: attempted,
+                  current: visited,
                   total: retryPlan.total,
                 });
                 await new Promise<void>((resolve) => setImmediate(resolve));
@@ -764,13 +777,23 @@ export class CodeGraph {
             // With the index mutex held, every row in the snapshot must be
             // visited exactly once. Never turn an unexpected query/cleanup
             // mismatch into another silently incomplete successful sync.
-            if (attempted !== retryPlan.total) {
+            if (visited !== retryPlan.total) {
               throw new Error(
-                `Failed-reference retry incomplete: attempted ${attempted} ` +
+                `Failed-reference retry incomplete: visited ${visited} ` +
                   `of ${retryPlan.total} planned row(s)`
               );
             }
           }
+          if (options.verbose) {
+            console.log(`[sync] failed-ref-retry mode=${eligibility.filtered ? 'safe-comments' : 'full'} ` +
+              `proofFiles=${eligibility.proofFiles} safeFiles=${eligibility.safeFiles} ` +
+              `names=${eligibility.names.length} scanned=${visited} attempted=${attempted} ` +
+              `skipped=${visited - attempted} durationMs=${Math.round(performance.now() - started)}ms`);
+          }
+        };
+        if (retryState.hasWork) {
+          await retryFailedReferences(result.complete !== false && result.filesRemoved === 0 &&
+            !result.resurrectedReferenceSourceFiles?.length);
         }
 
         // Edge re-wiring (done inside storeExtractionResult during
@@ -877,14 +900,16 @@ export class CodeGraph {
           await this.resolveReferencesBatched((current, total) => {
             options.onProgress?.({ phase: 'resolving', current, total });
           });
-        } else if (result.changedFilePaths?.length) {
+        } else if (result.changedFilePaths?.length || recoveredRetryFiles.length > 0) {
           // The normal changed-file path resolves only scoped references and
           // therefore does not enter the full dynamic-synthesis tail. Rebuild
           // just the C/C++ declaration/definition, extern-variable, and
           // override relationships invalidated by replacing these files.
           // If an orphan sweep ran above, its full synthesis already did this.
           try {
-            await this.resolver.synthesizeIncrementalCCpp(result.changedFilePaths);
+            await this.resolver.synthesizeIncrementalCCpp([...new Set([
+              ...(result.changedFilePaths ?? []), ...recoveredRetryFiles,
+            ])]);
           } catch (error) {
             // Match the full synthesis phase's best-effort contract: losing an
             // optional heuristic edge must not discard an otherwise valid
@@ -899,6 +924,7 @@ export class CodeGraph {
 
         if (
           hasSuccessfulChangedFiles ||
+          retryState.hasWork ||
           resurrectedRefs.length > 0 ||
           orphanCount > 0
         ) {
@@ -910,6 +936,7 @@ export class CodeGraph {
         // Refresh planner stats + checkpoint the WAL after bulk writes.
         if (
           hasSuccessfulChangedFiles ||
+          retryState.hasWork ||
           result.filesRemoved > 0 ||
           orphanCount > 0
         ) {
@@ -929,8 +956,10 @@ export class CodeGraph {
         if (result.complete === false) {
           throw new SyncIncompleteError(result);
         }
+        retryState.complete();
         return result;
       } finally {
+        this.orchestrator.setSyncRetryState();
         // Stop checkpoint activity before restoring SQLite's original policy.
         // Keep restoration and lock release nested so even an unexpected valve
         // teardown failure cannot leave later sync/index commands wedged.
