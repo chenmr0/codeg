@@ -1,9 +1,10 @@
-/** Opt-in macro scanner transport; independent of the validated directory helper. */
+/** Validated macro scanner transport; independent of directory scan routing. */
 import * as path from 'path';
 import * as fs from 'fs';
 import { spawn } from 'child_process';
 import { TextDecoder } from 'util';
 import type { MacroContribution } from './macro-scan';
+import { checkRustMacroArtifact, RUST_MACRO_TARGETS } from './rust-macro-artifact';
 
 const MAX_LINE = 32 * 1024 * 1024;
 const utf8 = new TextDecoder('utf-8', { fatal: true });
@@ -11,14 +12,27 @@ export interface NativeMacroRow {
   protocol: number; path: string; status: 'ok' | 'fallback'; reason: string;
   bytes: number; readMs: number; scanMs: number; contribution?: MacroContribution;
 }
-export function rustMacroMode(): 'off' | 'on' | 'verify' {
-  // Prototype is deliberately independent from CODEGRAPH_RUST_SCAN=auto.
-  return process.env.CODEGRAPH_RUST_MACROS === '1' ? 'on'
-    : process.env.CODEGRAPH_RUST_MACROS === 'verify' ? 'verify' : 'off';
+export const AUTO_RUST_MACRO_FILES = 5_000;
+export type RustMacroMode = 'off' | 'on' | 'verify' | 'auto';
+export function rustMacroMode(fileCount = 0, platform = process.platform, arch = process.arch): RustMacroMode {
+  const value = process.env.CODEGRAPH_RUST_MACROS;
+  if (value === '1' || value === 'on') return 'on';
+  if (value === 'verify') return 'verify';
+  if (value === undefined || value === '' || value === 'auto') {
+    return `${platform}-${arch}` in RUST_MACRO_TARGETS && fileCount >= AUTO_RUST_MACRO_FILES ? 'auto' : 'off';
+  }
+  return 'off';
 }
 export function rustMacroBinaryPath(): string {
   return process.env.CODEGRAPH_RUST_MACROS_PATH ?? path.join(__dirname, '..', '..', 'dist', 'native-macros',
     `${process.platform}-${process.arch}`, process.platform === 'win32' ? 'codegraph-macros.exe' : 'codegraph-macros');
+}
+export function automaticRustMacroStatus(): { ready: boolean; reason: string } {
+  try { checkRustMacroArtifact(rustMacroBinaryPath()); return { ready: true, reason: 'none' }; }
+  catch (error) {
+    const reason = error instanceof Error ? error.message : '';
+    return { ready: false, reason: /^[a-z-]+$/.test(reason) ? reason : 'artifact-error' };
+  }
 }
 export function decodeNativeMacroRow(raw: unknown, expectedPath: string): NativeMacroRow {
   const row = raw as NativeMacroRow;

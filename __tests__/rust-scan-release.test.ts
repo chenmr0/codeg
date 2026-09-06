@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { checkExecutable, nativeSourceHash } from '../scripts/rust-scan-release-lib.mjs';
+import { checkExecutable, macroSourceHash, nativeSourceHash } from '../scripts/rust-scan-release-lib.mjs';
 
 const elf = () => {
   const b = Buffer.alloc(256);
@@ -44,5 +44,23 @@ describe('cross-platform source fingerprint', () => {
     const hash = nativeSourceHash(dir);
     fs.writeFileSync(path.join(dir, 'codegraph-scan/src/main.rs'), 'a\r\nb\r\n'); expect(nativeSourceHash(dir)).toBe(hash);
     fs.appendFileSync(path.join(dir, 'codegraph-scan/Cargo.lock'), 'changed'); expect(nativeSourceHash(dir)).not.toBe(hash);
+  });
+});
+describe('macro source fingerprint', () => {
+  let dir: string;
+  beforeEach(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cg-native-macro-source-'));
+    fs.mkdirSync(path.join(dir, 'codegraph-macros/src'), { recursive: true });
+    for (const file of ['Cargo.toml', 'Cargo.lock', 'src/main.rs']) {
+      fs.writeFileSync(path.join(dir, 'codegraph-macros', file), 'a\nb\n');
+    }
+  });
+  afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
+  it('normalizes CRLF and detects macro source changes', () => {
+    const hash = macroSourceHash(dir);
+    fs.writeFileSync(path.join(dir, 'codegraph-macros/src/main.rs'), 'a\r\nb\r\n');
+    expect(macroSourceHash(dir)).toBe(hash);
+    fs.appendFileSync(path.join(dir, 'codegraph-macros/Cargo.toml'), 'changed');
+    expect(macroSourceHash(dir)).not.toBe(hash);
   });
 });

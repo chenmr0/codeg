@@ -77,8 +77,12 @@ try {
       const fs=require('fs'),path=require('path'),assert=require('assert/strict');
       const installed=process.argv[1],project=process.argv[2];
       const {buildMacroContext}=require(path.join(installed,'dist/extraction/macro-scan.js'));
+      const {automaticRustMacroStatus,AUTO_RUST_MACRO_FILES}=require(path.join(installed,'dist/extraction/rust-macros.js'));
       fs.writeFileSync(path.join(project,'src/defs.h'),'#define DECL(name) int name;\\n#define EMPTY /*中文*/\\n');
       (async()=>{
+        assert.deepEqual(automaticRustMacroStatus(),{ready:true,reason:'none'});
+        delete process.env.CODEGRAPH_RUST_MACROS;
+        const small=await buildMacroContext(project,['src/defs.h']);assert.equal(small.metrics.mode,'ts');
         process.env.CODEGRAPH_RUST_MACROS='0';const baseline=await buildMacroContext(project,['src/defs.h']);
         for(const mode of ['1','verify']) {
           process.env.CODEGRAPH_RUST_MACROS=mode;const actual=await buildMacroContext(project,['src/defs.h']);
@@ -86,10 +90,16 @@ try {
           assert.deepEqual(actual.definitions,baseline.definitions);assert.deepEqual([...actual.names],['DECL','EMPTY']);
           assert.deepEqual([...actual.bodyless],['EMPTY']);
         }
+        delete process.env.CODEGRAPH_RUST_MACROS;
+        const automatic=await buildMacroContext(project,Array(AUTO_RUST_MACRO_FILES).fill('src/defs.h'));
+        assert.equal(automatic.metrics.mode,'rust');assert.equal(automatic.metrics.reason,'none');
+        assert.deepEqual(automatic.definitions,baseline.definitions);
+        assert.deepEqual([...automatic.names],[...baseline.names]);
+        assert.deepEqual([...automatic.bodyless],[...baseline.bodyless]);
       })().catch(e=>{console.error(e);process.exitCode=1;});
     `;
     console.log(run(process.execPath, ['-e', macroProgram, installed, project]));
-    console.log('[rust-macros] Installed opt-in prototype PASS: no Rust/Cargo, native and verify modes match TS.');
+    console.log('[rust-macros] Installed package PASS: validated artifact, small-context TS, default auto, native and verify parity.');
   }
 } finally {
   assert.ok(path.basename(work).startsWith('cg-native-npm-smoke-'));

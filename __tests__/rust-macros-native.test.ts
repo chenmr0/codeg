@@ -3,7 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { buildMacroContext, scanMacroContribution } from '../src/extraction/macro-scan';
-import { rustMacroBinaryPath, streamRustMacros } from '../src/extraction/rust-macros';
+import { AUTO_RUST_MACRO_FILES, rustMacroBinaryPath, streamRustMacros } from '../src/extraction/rust-macros';
 
 const binary = rustMacroBinaryPath();
 const available = fs.existsSync(binary);
@@ -62,5 +62,15 @@ describe.skipIf(!available)('native macro scanner differential', () => {
     const c = await buildMacroContext(root, ['bad.h', 'large.h', 'missing.h']);
     expect(c.metrics.mode, c.metrics.reason).toBe('rust'); expect(c.metrics.fallbackFiles).toBe(3);
     expect([...c.names]).toEqual(['N', 'A']); expect(c.metrics.readErrors).toBe(1);
+  });
+  it('automatically uses only a validated helper at the large-context threshold', async () => {
+    fs.writeFileSync(path.join(root, 'auto.h'), '#define AUTO_MACRO 1\n');
+    vi.stubEnv('CODEGRAPH_RUST_MACROS', undefined);
+    const small = await buildMacroContext(root, ['auto.h']);
+    expect(small.metrics).toMatchObject({ mode: 'ts', reason: 'disabled' });
+    const large = await buildMacroContext(root, Array(AUTO_RUST_MACRO_FILES).fill('auto.h'));
+    expect(large.metrics).toMatchObject({ mode: 'rust', reason: 'none', files: AUTO_RUST_MACRO_FILES });
+    expect([...large.names]).toEqual(['AUTO_MACRO']);
+    expect(large.definitions.map(definition => definition.name)).toEqual(['AUTO_MACRO']);
   });
 });

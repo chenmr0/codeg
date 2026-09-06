@@ -503,7 +503,7 @@ export function buildDefaultIgnore(rootDir: string, diagnostics?: ScanDiagnostic
   }
 }
 
-/** Shared, ordered policy input for the JS matcher and opt-in Rust prototype. */
+/** Shared, ordered policy input for JS and validated native matching. */
 function rootIgnoreGroups(rootDir: string): string[] {
   const groups = [DEFAULT_IGNORE_PATTERNS.join('\n')];
   const rootGitignore = path.join(rootDir, '.gitignore');

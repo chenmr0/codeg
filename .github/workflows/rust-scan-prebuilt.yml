@@ -25,6 +25,7 @@ jobs:
     env:
       RUSTUP_TOOLCHAIN: stable
       CODEGRAPH_RUST_SCAN_EXPECT: '1'
+      CODEGRAPH_RUST_MACROS_EXPECT: '1'
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v6
@@ -35,12 +36,17 @@ jobs:
       - run: npm ci
       - run: npm run build
       - run: cargo test --locked --manifest-path codegraph-scan/Cargo.toml
+      - run: cargo test --locked --manifest-path codegraph-macros/Cargo.toml
       - run: npm run build:rust-scan -- --target ${{ matrix.target }}
-      - run: npm run test:rust-scan
+      - run: npm run build:rust-macros -- --target ${{ matrix.target }}
+      # Automatic-mode integration tests require stamps for these exact builds.
       - run: npm run validate:rust-scan
+      - run: npm run validate:rust-macros
+      - run: npm run test:rust-scan
+      - run: npm run test:rust-macros
       - run: node scripts/check-rust-scan-artifacts.mjs --require ${{ matrix.platform }}
       - name: Archive prebuild with executable permissions
-        run: tar -cf rust-scan-${{ matrix.platform }}.tar -C dist/native-scan ${{ matrix.platform }}
+        run: tar -cf rust-scan-${{ matrix.platform }}.tar -C dist native-scan/${{ matrix.platform }} native-macros/${{ matrix.platform }}
       - uses: actions/upload-artifact@v4
         with:
           name: rust-scan-prebuilt-${{ matrix.platform }}
@@ -66,13 +72,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p dist/native-scan release/native-npm
-          for archive in native-artifacts/*.tar; do tar -xf "$archive" -C dist/native-scan; done
-          npm run check:rust-scan
+          mkdir -p dist/native-scan dist/native-macros release/native-npm
+          for archive in native-artifacts/*.tar; do tar -xf "$archive" -C dist; done
+          npm run check:native-artifacts
           npm pack --pack-destination release/native-npm
       - name: Install package with compiler paths removed and exercise default auto mode
         shell: bash
-        run: npm run smoke:native-package -- release/native-npm/*.tgz
+        run: npm run smoke:native-package -- release/native-npm/*.tgz --macros
       - uses: actions/upload-artifact@v4
         with:
           name: codegraph-prebuilt-npm

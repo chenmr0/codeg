@@ -8,11 +8,24 @@ export function artifactApi(root) {
   if (!fs.existsSync(file)) throw new Error('Run npm run build before preparing native release artifacts.');
   return require(file);
 }
+export function macroArtifactApi(root) {
+  const file = path.join(root, 'dist/extraction/rust-macro-artifact.js');
+  if (!fs.existsSync(file)) throw new Error('Run npm run build before preparing native macro release artifacts.');
+  return require(file);
+}
 export function nativeSourceHash(root) {
   const hash = createHash('sha256');
   for (const file of ['Cargo.toml', 'Cargo.lock', 'src/main.rs']) {
     hash.update(file + '\0');
     hash.update(fs.readFileSync(path.join(root, 'codegraph-scan', file), 'utf8').replace(/\r\n/g, '\n'));
+  }
+  return hash.digest('hex');
+}
+export function macroSourceHash(root) {
+  const hash = createHash('sha256');
+  for (const file of ['Cargo.toml', 'Cargo.lock', 'src/main.rs']) {
+    hash.update(file + '\0');
+    hash.update(fs.readFileSync(path.join(root, 'codegraph-macros', file), 'utf8').replace(/\r\n/g, '\n'));
   }
   return hash.digest('hex');
 }

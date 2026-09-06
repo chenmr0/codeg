@@ -1,37 +1,41 @@
-# 全局宏上下文：细分计时与 Rust 原型
+# 全局宏上下文：细分计时与安全 Rust 自动模式
 
 本轮针对 `macroScan`，不是 tree-sitter 解析器，也不替换已验收的 Rust 目录扫描器。
 
 ## 当前状态
 
+- 安全自动模式已在两个 Linux 仓库实测：HERT_BBU（30756 文件）TS 7197.4ms、强制 Rust 3219.2ms、自动 3190.4ms；WN_5G_BTS_L2L3_27B（97311 文件）TS/Rust 三轮中位数分别为 16602.6/4282.7ms，自动单次 4224.6ms。每个仓库内各模式的名称、空宏、定义和顺序哈希一致，读取错误为 0，分别有 808/168 个逐文件回退。这些是宏上下文阶段耗时。
 - 2026-09-06，用户在 EulerOS 2.0 SP15 x64 / Node 22.21.1 上完成 HERT_BBU 真机验证：30743 个相关文件、530963452 字节，三轮宏上下文中位数 TS 7267.175ms → Rust 3210.591ms，减少 55.8%；逐文件 verify 通过，全部上下文哈希一致。807 个特殊文件走 TS 回退、读取错误为 0。这是该项目的宏上下文等价性和性能证据，不是所有 Linux 场景或完整数据库图的等价性证明。
 - 同一新增两文件场景的用户日志显示完整命令由 13.176 秒降至 7.623 秒；该项是前后单次日志对比，不是三轮 A/B。新日志同时将收尾瓶颈定位到 `changedRefsMs=2010ms`，后续单独优化，不与宏扫描混为一项。
-- 普通 `codegraph sync -v` 自动显示新的宏上下文细分计时；宏扫描仍默认使用 TS。
-- 目录扫描器原来的自动启用规则保持不变，可以同时出现 `scan-detail mode=rust` 和 `macro-detail mode=ts`。
-- 新 Rust 宏扫描器为独立的 `codegraph-macros` 程序，Windows / Linux x64 预编译候选产物与目录扫描器分开。新二进制不能沿用此前目录扫描器的验收结论。
+- 普通 `codegraph sync -v` 自动显示宏上下文细分计时。Windows/Linux x64 上，C/C++/ObjC 候选达到 5000 个且随包程序通过独立目标平台验收时，默认自动使用 Rust；小项目仍使用 TS。
+- 目录扫描器的自动启用规则保持独立，可以同时出现任意 `scan-detail` 路由与 `macro-detail mode=rust|ts`。
+- Rust 宏扫描器为独立的 `codegraph-macros` 程序，Windows/Linux x64 的预编译产物、校验和与 `macro-parity-v1` 验收戳均与目录扫描器分开，不能相互沿用结论。
 - 没有持久化缓存、数据库结构变更、tree-sitter 语法更新或宏冲突规则修改；现有数据库可以继续使用，不需要重新 init。
-- 原型保留 TS 宏收集的现有行为，包括三套扫描器并不完全一致的匹配细节，不在性能移植中夹带语义修复。
+- 原生实现保留 TS 宏收集的现有行为，包括三套扫描器并不完全一致的匹配细节，不在性能移植中夹带语义修复。
 
 ## 运行方式
 
 ```bash
-# 默认 TS 宏扫描；Rust 目录扫描仍可自动启用
+# 默认 auto：大上下文使用已验收 Rust，小上下文使用 TS
 codegraph sync -v
 
-# 显式启用新宏扫描原型
+# 强制恢复 TS
+CODEGRAPH_RUST_MACROS=0 codegraph sync -v
+
+# 强制运行开发候选（不绕过传输/结果校验及完整回退）
 CODEGRAPH_RUST_MACROS=1 codegraph sync -v
 
 # 逐文件双跑对比，使用 TS 结果；这是验证模式，不用于测速
 CODEGRAPH_RUST_MACROS=verify codegraph sync -v
 ```
 
-`CODEGRAPH_RUST_MACROS` 未设置、`0` 或 `auto` 都不会开启原型。只在需要构建 C/C++/ObjC 上下文时调用；空同步不启动宏扫描器。
+`CODEGRAPH_RUST_MACROS` 未设置、空值或 `auto` 使用自动策略；`0`、`off` 及未知值强制 TS。自动策略要求受支持平台、至少 5000 个 C-family 候选，以及平台/架构/包版本/二进制校验和/验收套件全部匹配；发布检查还要求宏源码和 lock 文件的指纹与产物一致。任何门槛失败均静默使用 TS，并在 verbose 的 `macro-detail reason` 中说明原因。只在确实需要构建全局宏上下文时调用；空同步不启动程序。
 
 `CODEGRAPH_RUST_MACROS_WORKERS=1..8` 可控制 I/O 工作线程，默认 4；非法值回到默认值。`CODEGRAPH_RUST_MACROS_TIMEOUT_MS=100..120000` 控制整次辅助进程的超时，默认 60000ms。可用 `CODEGRAPH_RUST_MACROS_PATH` 指定开发候选程序。验证模式的时限也包含等待 TS 对照的时间。
 
 ## 不改数据库的实际项目验收
 
-在已安装的新候选包目录执行：
+在安装目录执行，将项目路径替换为当前机器上的实际仓库：
 
 ```bash
 cd "$(npm root -g)/@sdd/codegraph-wx"
@@ -40,7 +44,9 @@ node scripts/benchmark-macro-context.mjs /usr1/518C10/HERT_BBU 3
 
 脚本仅枚举并读取源码，不打开 CodeGraph 数据库，不运行 sync，不修改业务文件。三轮交替 TS/Rust 顺序，每个样本使用独立 Node 进程，避免同一进程的堆/GC/JIT 状态影响另一方案；计时不包含进程启动和目录枚举。要求最终宏集合、定义及顺序哈希相同；末尾再做逐文件对比。源码在测试期间应保持不变。脚本只输出数量、耗时和哈希，不输出源码或宏定义内容。缺少辅助程序、执行失败、结果不一致时以非零状态退出，不把 TS 回退当成 Rust 性能结果。
 
-测速后，再用显式开启宏原型的 sync 验证真实新增文件场景。对图结果应比较符号名称、类型、位置、签名和边，不能只比较节点数量。上述 EulerOS 实测来自用户返回的真机输出；其他平台或重编译后的新程序仍需各自验收，交叉编译成功不等于运行通过。
+路径不存在、传入普通文件或过滤后没有 C-family 候选时，脚本会在采样前退出并说明原因。不会将空清单误判为原生宏扫描失败。正式包已携带目标平台验收记录，日常使用无需再运行验收脚本或设置开启变量。
+
+目标平台安装候选后先运行 `npm run validate:rust-macros`。该脚本只使用临时合成文件，验证有原生结果、逐文件回退、完整上下文与冲突选择、逐文件 verify，然后给当前精确二进制写入验收戳；不读取业务仓库或数据库。测速后，再以不设置 `CODEGRAPH_RUST_MACROS` 的 sync 验证真实新增文件场景。对图结果应比较符号名称、类型、位置、签名和边，不能只比较节点数量。上述 EulerOS 实测来自用户返回的真机输出；其他平台或重编译后的新程序仍需各自验收，交叉编译成功不等于运行通过。
 
 ## 计时口径
 
@@ -82,11 +88,11 @@ node scripts/benchmark-macro-context.mjs /usr1/518C10/HERT_BBU 3
 全量索引、普通解析 API、后续重试阶段、大于 512 条的批次仍默认完整预热。若同一缓存周期已有完整名称集合，直接复用；按需模式后进入全量调用会提升为完整集合。全局文件路径集合保持原实现，索引中存在但磁盘缺失的文件语义不变。
 
 ```bash
-# 默认：小批次按需查询；Rust 宏开关保持独立
-CODEGRAPH_RUST_MACROS=1 codegraph sync -v
+# 默认：小批次按需查询；大项目宏扫描自动选择
+codegraph sync -v
 
 # 对照/回退：恢复本次同步主引用阶段的完整名称预热
-CODEGRAPH_RUST_MACROS=1 CODEGRAPH_SYNC_NAME_LOOKUP=0 codegraph sync -v
+CODEGRAPH_SYNC_NAME_LOOKUP=0 codegraph sync -v
 ```
 
 `CODEGRAPH_SYNC_NAME_LOOKUP` 未设置、空值、`auto`、`1` 或 `indexed` 都采用上述有界选择；`0`、`full` 或未知值保留完整预热。没有强制超大批次使用按需查询的开关。不新增数据库索引或迁移，不需要重新 init。
@@ -117,7 +123,7 @@ npm run build:rust-macros -- --target x86_64-unknown-linux-musl
 npm run test:rust-macros
 ```
 
-构建者需要对应 Rust target；使用 musl 自包含链接、检查 Linux ELF 无动态解释器/共享库依赖，Windows 静态 CRT。业务机器使用随包程序，不需要 Rust/Cargo。安装脚本只校验产物并恢复 Linux 执行权限，不下载、编译或执行宏扫描器。
+构建者需要对应 Rust target；使用 musl 自包含链接、检查 Linux ELF 无动态解释器/共享库依赖，Windows 静态 CRT。业务机器使用随包程序，不需要 Rust/Cargo。安装脚本只检查产物元数据和精确字节并恢复 Linux 执行权限，不下载、编译或执行宏扫描器。发布门槛要求 Windows/Linux 两个平台的宏程序均具有当前验证套件的成功戳。
 
 `CODEGRAPH_RUST_MACROS_EXPECT=1 npm run test:rust-macros` 要求实际二进制存在，不允许通过跳过原生测试宣称验收。测试同时覆盖相关 C 提取、sync 和旧 Rust 目录扫描回归。
 

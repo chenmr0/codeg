@@ -124,10 +124,10 @@ jobs:
           path: native-artifacts
       - name: Collect validated scanner prebuilds
         run: |
-          mkdir -p dist/native-scan
-          for archive in native-artifacts/*.tar; do tar -xf "$archive" -C dist/native-scan; done
+          mkdir -p dist/native-scan dist/native-macros
+          for archive in native-artifacts/*.tar; do tar -xf "$archive" -C dist; done
           npm run build
-          npm run check:rust-scan
+          npm run check:native-artifacts
 
       - name: Build all platform bundles
         run: |

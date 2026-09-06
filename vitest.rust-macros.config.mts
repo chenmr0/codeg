@@ -10,6 +10,7 @@ export default defineConfig({
       '__tests__/c-macro-identifier-suffix-collision.test.ts', '__tests__/enum-bodyless-macro-collision.test.ts',
       '__tests__/sync*.test.ts', '__tests__/rust-scan*.test.ts', '__tests__/resolution*.test.ts',
       '__tests__/git-paths.test.ts', '__tests__/rust-git-ignore.test.ts',
+      '__tests__/rust-macro-artifact.test.ts',
       '__tests__/scan-optimizations.test.ts', '__tests__/symlink-dedup.test.ts'],
     pool: 'forks', minWorkers: 1, maxWorkers: 2,
     poolOptions: { forks: { execArgv: ['--liftoff-only'] } },

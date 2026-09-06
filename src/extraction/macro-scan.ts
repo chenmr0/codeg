@@ -3,7 +3,7 @@ import * as fsp from 'fs/promises';
 import { performance } from 'perf_hooks';
 import { validatePathWithinRoot } from '../utils';
 import { scanCppMacroDefinitions, selectUnambiguousCppMacroDefinitions, type CppMacroDefinition } from './declaration-macros';
-import { rustMacroMode, streamRustMacros } from './rust-macros';
+import { automaticRustMacroStatus, rustMacroMode, streamRustMacros } from './rust-macros';
 
 export interface MacroContribution {
   names: string[];
@@ -77,7 +77,12 @@ export async function buildMacroContext(root: string, files: string[]): Promise<
       for (const source of contents) if (source) add(scanMacroContribution(source, metrics));
     }
   };
-  const mode = rustMacroMode();
+  const requestedMode = rustMacroMode(files.length);
+  let mode: 'off' | 'on' | 'verify' = requestedMode === 'auto' ? 'on' : requestedMode;
+  if (requestedMode === 'auto') {
+    const status = automaticRustMacroStatus();
+    if (!status.ready) { mode = 'off'; metrics.reason = status.reason; }
+  }
   if (mode !== 'off' && files.length) {
     const t = performance.now();
     try {

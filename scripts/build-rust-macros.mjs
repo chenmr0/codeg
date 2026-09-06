@@ -4,18 +4,16 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
-import { checkExecutable } from './rust-scan-release-lib.mjs';
+import { checkExecutable, macroArtifactApi, macroSourceHash } from './rust-scan-release-lib.mjs';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const specs = {
-  'x86_64-pc-windows-msvc': ['win32-x64', 'codegraph-macros.exe'],
-  'x86_64-unknown-linux-musl': ['linux-x64', 'codegraph-macros'],
-};
+const api = macroArtifactApi(root);
 const args = process.argv.slice(2);
 if (args.length && (args.length !== 2 || args[0] !== '--target')) throw new Error('Usage: build-rust-macros.mjs [--target <triple>]');
 const target = args[1] ?? (process.platform === 'win32' ? 'x86_64-pc-windows-msvc' : 'x86_64-unknown-linux-musl');
-if (!specs[target]) throw new Error('Unsupported macro scanner target');
-const [key, executable] = specs[target];
+const selected = Object.entries(api.RUST_MACRO_TARGETS).find(([, spec]) => spec.target === target);
+if (!selected) throw new Error('Unsupported macro scanner target');
+const [key, spec] = selected;
+const { executable } = spec;
 const [platform, arch] = key.split('-');
 const cargo = process.env.CODEGRAPH_CARGO ?? 'cargo';
 const rustc = process.env.CODEGRAPH_RUSTC ?? (path.isAbsolute(cargo)
@@ -42,12 +40,8 @@ const directory = path.join(root, 'dist/native-macros', key);
 fs.mkdirSync(directory, { recursive: true });
 fs.copyFileSync(source, path.join(directory, executable));
 if (process.platform !== 'win32') fs.chmodSync(path.join(directory, executable), 0o755);
-const hash = createHash('sha256');
-for (const file of ['Cargo.toml', 'Cargo.lock', 'src/main.rs']) {
-  hash.update(file + '\0').update(fs.readFileSync(path.join(root, 'codegraph-macros', file), 'utf8').replace(/\r\n/g, '\n'));
-}
-fs.writeFileSync(path.join(directory, 'manifest.json'), JSON.stringify({ schema: 1, protocol: 1, platform, arch,
+fs.writeFileSync(path.join(directory, 'manifest.json'), JSON.stringify({ schema: 1,
+  protocol: api.RUST_MACRO_PROTOCOL, platform, arch,
   target, executable, packageVersion: JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).version,
-  sourceHash: hash.digest('hex'), sha256: createHash('sha256').update(bytes).digest('hex'), profile: 'release',
-  experimental: true }, null, 2) + '\n');
-console.log(`[rust-macros] Built ${key}; prototype remains opt-in. Existing directory helper untouched.`);
+  sourceHash: macroSourceHash(root), sha256: api.macroSha256(bytes), profile: 'release' }, null, 2) + '\n');
+console.log(`[rust-macros] Built ${key}; target validation is required before automatic use.`);

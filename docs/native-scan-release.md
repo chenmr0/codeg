@@ -2,7 +2,7 @@
 
 ## 用户安装体验
 
-正式包的 Windows x64 / Linux x64 预编译程序在发布前完成验收，npm 安装后普通 `codegraph sync` 自动选择可用的 Rust 扫描器。不需要设置开启开关，不需要 Rust/Cargo/C++ 编译工具，也不在用户机器上编译或下载 Rust。
+正式包的 Windows x64 / Linux x64 目录扫描与宏上下文程序均在发布前完成各自验收，npm 安装后普通 `codegraph sync` 按场景自动选择。不需要设置开启开关，不需要 Rust/Cargo/C++ 编译工具，也不在用户机器上编译或下载 Rust。
 
 保留此前 Node/npm 运行要求及 JavaScript 依赖安装流程：这些依赖仍通过既有 npm 镜像或离线缓存提供。内置 Rust 程序不等于把 Node 和全部 npm 依赖都打进这个单一 tgz。
 
@@ -12,6 +12,8 @@
 - `1`：开发/验收用，允许显式尝试尚未盖验收记录的程序，但仍执行扫描协议校验和失败回退。
 
 缺失、损坏、未验证、不可执行或场景不支持时回退 TypeScript。日志的 `nativeStatus=used` 才表示实际使用了 Rust；`nativeReason` 说明为何回退。没有跨轮源码缓存，没有更改数据库结构，不需要重新 init。
+
+宏上下文使用独立门槛：Windows/Linux x64 且 C-family 候选至少 5000 个时，只有 `codegraph-macros` 的版本、源码指纹、SHA-256 和 `macro-parity-v1` 目标平台验收戳都匹配才自动运行。小上下文保持 TypeScript；特殊文件逐项回退，进程/协议错误则丢弃部分结果并由 TypeScript 完整重建。`CODEGRAPH_RUST_MACROS=0` 强制关闭，`1` 强制尝试开发候选，`verify` 双跑并采用 TypeScript。
 
 安装脚本只在 Linux 恢复随包程序的执行权限（解决 Windows 打包导致的 mode 丢失），不执行扫描器，不下载，不编译。若禁止安装脚本且安装文件没有执行位，需要管理员手动修正该程序的权限；无法修正时仍回退。
 
@@ -29,14 +31,16 @@
    ```bash
    npm run build:rust-scan -- --target x86_64-pc-windows-msvc
    npm run build:rust-scan -- --target x86_64-unknown-linux-musl
+   npm run build:rust-macros -- --target x86_64-pc-windows-msvc
+   npm run build:rust-macros -- --target x86_64-unknown-linux-musl
    ```
 
    构建机需要已安装对应 Rust target。Linux 使用 Rust 随附的自包含链接库和 LLD，检查产物没有动态加载器和共享库依赖；Windows 静态链接 CRT。必须保留通用 CPU 基线，不能使用 `target-cpu=native`。
 
-3. **在目标操作系统上**运行 `npm run test:rust-scan` 和 `npm run validate:rust-scan`。后者无需编译器，对独立临时目录执行 14 组真实清单/顺序/元数据及回退差分检查；只有全部通过才给当前二进制的 SHA 写入验收记录。重编译会清除旧记录，不能把 Windows 测试结果冒充 Linux 验收。
-4. 收集两个平台的 `dist/native-scan/<platform>-x64/`，保留二进制和 manifest.json。
-5. `npm run check:rust-scan`，然后普通 `npm pack`。prepack 默认要求两平台齐全、源码指纹一致且均通过验收；缺一不可，不会悄悄生成“声称 Rust、实际缺 Linux 程序”的正式包。
-6. `npm run smoke:native-package -- /path/to/package.tgz`：在隔离 npm prefix 安装，再从 PATH 移除 Rust/Cargo，验证无开关下的新增、修改、删除、空同步和真实 CLI。
+3. **在目标操作系统上**运行目录与宏相关测试，再分别运行 `npm run validate:rust-scan` 和 `npm run validate:rust-macros`。两者均只使用独立临时目录且无需编译器；只有全部通过才给各自精确 SHA 写入验收记录。重编译会清除旧记录，不能把 Windows 测试结果冒充 Linux 验收。
+4. 收集两个平台的 `dist/native-scan/<platform>-x64/` 和 `dist/native-macros/<platform>-x64/`，保留二进制和 manifest.json。
+5. `npm run check:native-artifacts`，然后普通 `npm pack`。prepack 默认要求两个程序的两平台产物齐全、源码指纹一致且分别通过验收；缺一不可。
+6. `npm run smoke:native-package -- /path/to/package.tgz --macros`：在隔离 npm prefix 安装，再从 PATH 移除 Rust/Cargo，验证目录扫描、宏程序、增删改、空同步和真实 CLI。
 
 `manifest.json` 的哈希用于完整性/一致性校验，不是数字签名，不能取代可信的包来源或软件供应链审查。
 
@@ -58,9 +62,10 @@
 nativePackageDir="$(npm root -g)/@sdd/codegraph-wx"
 cd "$nativePackageDir"
 npm run validate:rust-scan
+npm run validate:rust-macros
 npm run smoke:native-package -- --installed "$nativePackageDir"
 ```
 
-需要安装目录可写，以保存验收记录。验收通过后，该安装无需再设置开关即可自动加速；将验证输出及 `dist/native-scan/linux-x64/manifest.json` 返回发布者，后者核对二进制哈希后可组装正式包。正式包的后续用户不需要重复做这个发行验收。
+需要安装目录可写，以保存验收记录。验收通过后，该安装无需再设置开关即可自动加速；将验证输出及两个 Linux manifest 返回发布者，后者核对二进制哈希后可组装正式包。正式包的后续用户不需要重复做发行验收。
 
 业务仓库保持静止、备份索引后再比较 `CODEGRAPH_RUST_SCAN=verify codegraph sync -v` 与普通 `codegraph sync -v`。14 组内置检查不代替真实项目验收；复杂忽略规则、中文源码目录/文件、符号链接等仍可能触发保守回退。
