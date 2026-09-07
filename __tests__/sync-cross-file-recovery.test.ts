@@ -168,7 +168,9 @@ describe('C/C++ sync cross-file reference recovery', () => {
   });
 
   it('streams more than 500 same-name failed refs and heals every unchanged C++ caller', async () => {
-    const callerCount = 251;
+    // Qualified calls no longer emit a duplicate bare-name references row.
+    // Keep the >500 pagination boundary covered with actual call sites.
+    const callerCount = 501;
     fs.writeFileSync(
       path.join(directory, 'defs.h'),
       'namespace cg_retry { inline int cg_popular_target_v1() { return 1; } }\n'
@@ -184,7 +186,7 @@ describe('C/C++ sync cross-file reference recovery', () => {
     cg = CodeGraph.initSync(directory);
     await cg.indexAll();
     expect(incomingEdgeCount(cg, 'cg_popular_target_v1', 'calls')).toBe(callerCount);
-    expect(incomingEdgeCount(cg, 'cg_popular_target_v1', 'references')).toBe(callerCount);
+    expect(incomingEdgeCount(cg, 'cg_popular_target_v1', 'references')).toBe(0);
 
     fs.writeFileSync(
       path.join(directory, 'defs.h'),
@@ -199,7 +201,7 @@ describe('C/C++ sync cross-file reference recovery', () => {
             "WHERE status = 'failed' AND name_tail = 'cg_popular_target_v1'"
         )
         .get().count as number;
-    expect(failedCount()).toBe(callerCount * 2);
+    expect(failedCount()).toBe(callerCount);
 
     // A same-named symbol in an incompatible language makes every row get a
     // real retry attempt but must not bind cross-language or loop forever.
@@ -214,7 +216,7 @@ describe('C/C++ sync cross-file reference recovery', () => {
       onProgress: (progress) => {
         if (
           progress.phase === 'resolving' &&
-          progress.total === callerCount * 2 &&
+          progress.total === callerCount &&
           progress.current === 500
         ) {
           setImmediate(() => {
@@ -223,8 +225,8 @@ describe('C/C++ sync cross-file reference recovery', () => {
         }
         if (
           progress.phase === 'resolving' &&
-          progress.total === callerCount * 2 &&
-          progress.current === callerCount * 2
+          progress.total === callerCount &&
+          progress.current === callerCount
         ) {
           sawSecondRetryBatch = true;
           expect(yieldedBetweenRetryBatches).toBe(true);
@@ -233,7 +235,7 @@ describe('C/C++ sync cross-file reference recovery', () => {
     });
     expect(incompatible.complete).toBe(true);
     expect(sawSecondRetryBatch).toBe(true);
-    expect(failedCount()).toBe(callerCount * 2);
+    expect(failedCount()).toBe(callerCount);
 
     fs.writeFileSync(
       path.join(directory, 'defs.h'),
@@ -244,7 +246,7 @@ describe('C/C++ sync cross-file reference recovery', () => {
     expect(healed.complete).toBe(true);
     expect(failedCount()).toBe(0);
     expect(incomingEdgeCount(cg, 'cg_popular_target_v1', 'calls')).toBe(callerCount);
-    expect(incomingEdgeCount(cg, 'cg_popular_target_v1', 'references')).toBe(callerCount);
+    expect(incomingEdgeCount(cg, 'cg_popular_target_v1', 'references')).toBe(0);
   }, 30_000);
 
   it('does not report an unstored co-importer fallback as successfully modified', async () => {
@@ -265,6 +267,10 @@ describe('C/C++ sync cross-file reference recovery', () => {
     const orchestrator = (cg as any).orchestrator;
     const originalIndexFile = orchestrator.indexFile.bind(orchestrator);
     const fallbackAttempts: string[] = [];
+    // Legacy indexes can contain unstamped edges. These still require the
+    // source re-index fallback; stamped references now survive directly.
+    rawDb(cg).prepare(`UPDATE edges SET metadata = NULL WHERE source IN
+      (SELECT id FROM nodes WHERE name = 'cg_caller') AND kind = 'calls'`).run();
     orchestrator.indexFile = async (
       filePath: string,
       options?: { force?: boolean },

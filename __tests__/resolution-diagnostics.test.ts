@@ -89,4 +89,21 @@ describe('changed-file reference phase diagnostics', () => {
     expect(detail.format()).toMatch(/^scope=changed complete=true failedPhase=none files=2 refs=0 /);
     expect(detail.format()).toMatch(/symbolNamesLoadMs=\d+ms .*totalMs=\d+ms$/);
   });
+  it('aggregates retry batches while keeping promotion, first cache state and additive counters', () => {
+    const detail = new ResolutionDiagnostics('failed-retry');
+    const first = new ResolutionDiagnostics('failed-retry');
+    Object.assign(first, { refs: 500, resolved: 490, unresolved: 10, edges: 490,
+      cache: 'warm', nameLookup: 'indexed', knownNames: 'not-loaded', nameQueries: 3, nameCacheHits: 497 });
+    first.timings.matchMs = 10;
+    detail.add(first);
+    const second = new ResolutionDiagnostics('failed-retry');
+    Object.assign(second, { refs: 100, resolved: 90, unresolved: 10, edges: 90,
+      cache: 'cold', nameLookup: 'full', knownNames: 900_000, namePromotion: 'time-budget', nameQueries: 1 });
+    second.timings.symbolNamesLoadMs = 2000;
+    detail.add(second);
+    expect(detail).toMatchObject({ refs: 600, resolved: 580, unresolved: 20, edges: 580,
+      cache: 'warm', nameLookup: 'full', namePromotion: 'time-budget', nameQueries: 4, nameCacheHits: 497 });
+    expect(detail.timings).toMatchObject({ matchMs: 10, symbolNamesLoadMs: 2000 });
+    expect(detail.format()).toContain('scope=failed-retry');
+  });
 });

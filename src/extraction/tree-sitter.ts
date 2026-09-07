@@ -935,6 +935,10 @@ export class TreeSitterExtractor {
   private originalLineStarts: number[] | null = null;
   private lexicalCompoundEnds: Map<number, number> = new Map();
   private lexicalExecutableRanges: SourceRange[] | null = null;
+  private lexicalNonFileScopeRanges: SourceRange[] | null = null;
+  private lexicalDirectiveRanges: Array<SourceRange & {row:number; endPosition:{row:number; column:number}}> = [];
+  /** Damaged C++ type wrappers can absorb a later, separately written function. */
+  private wrappedCppFunctions: Array<{ start: number; end: number; row: number; endPosition: {row:number; column:number}; declarator: number; macro?:boolean }> = [];
   /** Proven self-including X-macro enum constructs found before parsing. */
   private xMacroConstructs: XMacroConstruct[] = [];
 
@@ -1042,6 +1046,7 @@ export class TreeSitterExtractor {
       this.fileMacroNames.clear();
       this.source = this.originalSource;
       this.xMacroConstructs = [];
+      this.wrappedCppFunctions = [];
 
       // A self-including X-macro enum is recoverable without a filesystem or a
       // full preprocessor because both the macro data list and the enum live in
@@ -1252,6 +1257,7 @@ export class TreeSitterExtractor {
       this.timings.primaryExtractionMs = performance.now() - primaryExtractionStarted;
 
       this.recoverDeclarationMacroNodes();
+      this.recoverWrappedCppFunctions();
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
 
@@ -1290,6 +1296,137 @@ export class TreeSitterExtractor {
     const tree = this.tree;
     this.tree = null;
     tree?.delete();
+  }
+
+  /** Reparse only source-proven file-scope functions swallowed by a type wrapper.
+   * Included ranges retain original offsets. Never keep a primary tree alive
+   * while running this disposable parser; normal parsing/extraction owns calls,
+   * signatures and local-variable filtering for the recovered function too.
+   */
+  private recoverWrappedCppFunctions(): void {
+    if (this.wrappedCppFunctions.length === 0) return;
+    this.releaseTree();
+    const parser = createParser('cpp');
+    if (!parser) throw new Error('Failed to create C++ function recovery parser');
+    const started = performance.now();
+    try {
+      const file = this.nodes.find(n => n.kind === 'file');
+      if (!file) return;
+      for (const range of this.wrappedCppFunctions) {
+        const skipped = (): void => { this.errors.push({
+          filePath: this.filePath, severity: 'warning', code: 'cpp_function_recovery_skipped',
+          message: `Could not validate a wrapped C++ function at line ${range.row + 1}`,
+        }); };
+        const tree = parser.parse(this.source, undefined, { includedRanges: [{
+          startIndex: range.start, endIndex: range.end,
+          startPosition: { row: range.row, column: 0 },
+          endPosition: range.endPosition,
+        }] });
+        if (!tree) { skipped(); continue; }
+        try {
+          const children = tree.rootNode.namedChildren.filter(n => n.type !== 'comment');
+          const fn = children[0];
+          if (range.macro) {
+            if (tree.rootNode.hasError || children.length !== 1 || !fn || !this.extractor!.macroTypes?.includes(fn.type)) {
+              skipped(); continue;
+            }
+            this.nodeStack.push(file.id);
+            try { this.extractMacro(fn); } finally { this.nodeStack.pop(); }
+            continue;
+          }
+          if (tree.rootNode.hasError || children.length !== 1 || fn?.type !== 'function_definition'
+            || fn.childForFieldName('declarator')?.startIndex !== range.declarator) { skipped(); continue; }
+          if (this.nodes.some(n => n.kind === 'function' && n.startLine === fn.startPosition.row + 1
+            && n.startColumn === fn.startPosition.column && n.name === extractName(fn, this.source, this.extractor!))) continue;
+          this.nodeStack.push(file.id);
+          try { this.extractFunction(fn); } finally { this.nodeStack.pop(); }
+        } finally { tree.delete(); }
+      }
+    } finally {
+      parser.delete();
+      this.timings.primaryExtractionMs = (this.timings.primaryExtractionMs ?? 0) + performance.now() - started;
+    }
+  }
+
+  /** A new return type AFTER a complete class/struct cannot belong to the
+   * inline return-type definition syntax. Restrict recovery to a fresh line
+   * proven outside all source braces/directives. Once the wrapper is proven
+   * invalid, rejection must not fall through to normal function extraction:
+   * that would emit a macro body with the preceding class's coordinates.
+   * Returns true when handled (queued OR suppressed), not just when queued.
+   */
+  private handleWrappedCppFunction(node: SyntaxNode): boolean {
+    if (this.language !== 'cpp' || !node.hasError || this.nodeStack.length !== 1) return false;
+    const type = node.childForFieldName('type');
+    const decl = node.childForFieldName('declarator');
+    if (!type || !decl || !['class_specifier', 'struct_specifier', 'enum_specifier'].includes(type.type)
+      || !type.childForFieldName('body') || decl.type !== 'function_declarator') return false;
+    const start = this.originalLineStart(decl.startPosition.row + 1);
+    if (start <= type.endIndex
+      || !node.namedChildren.some(n => n.type === 'ERROR' && n.startIndex >= type.endIndex
+        && n.endIndex > start && n.endIndex <= decl.startIndex)) return false;
+    if (!this.isLexicallyFileScope(start)) {
+      // Preserve the macro declaration as a macro, without walking its body as
+      // executable code. The independent parser validates one logical directive.
+      const directive = this.lexicalDirectiveRanges.find(r => r.start <= decl.startIndex && r.end > decl.startIndex);
+      if (directive && directive.end - directive.start <= 128 * 1024 && this.wrappedCppFunctions.length < 16
+        && /^[ \t]*#[ \t]*define\b/.test(maskCStyleCommentsAndLiterals(this.originalSource.slice(directive.start, directive.end)))) {
+        this.wrappedCppFunctions.push({...directive, declarator:decl.startIndex, macro:true});
+      }
+      return true;
+    }
+    if (node.endIndex - start > 128 * 1024 || this.wrappedCppFunctions.length >= 16) {
+      this.errors.push({filePath:this.filePath, severity:'warning', code:'cpp_function_recovery_skipped',
+        message:`Wrapped C++ function recovery limit at line ${decl.startPosition.row + 1}`});
+      return true;
+    }
+    this.wrappedCppFunctions.push({start, end:node.endIndex, row:decl.startPosition.row,
+      endPosition:node.endPosition, declarator:decl.startIndex});
+    return true;
+  }
+
+  /** Cache outer brace/directive ranges once: many forward declarations in a
+   * damaged header must not cause repeated prefix scans. Unknown/unbalanced
+   * closing braces fail closed. Strings/comments and macro bodies aren't code.
+   */
+  private isLexicallyFileScope(offset: number): boolean {
+    if (this.lexicalNonFileScopeRanges === null) {
+      const ranges: SourceRange[] = [];
+      this.lexicalDirectiveRanges = [];
+      let depth = 0, opening = 0, position = 0, continuation = false, row = 0;
+      for (const line of maskCStyleCommentsAndLiterals(this.originalSource).split('\n')) {
+        const continued = continuation;
+        const directive: boolean = continuation || /^[ \t]*#/.test(line);
+        continuation = directive && /\\\r?$/.test(this.originalSource.slice(position, position + line.length));
+        if (directive) {
+          const end = Math.min(this.originalSource.length, position + line.length + 1);
+          const endPosition = end > position + line.length ? {row:row + 1, column:0} : {row, column:line.length};
+          const previous = this.lexicalDirectiveRanges[this.lexicalDirectiveRanges.length - 1];
+          if (continued && previous) { previous.end = end; previous.endPosition = endPosition; }
+          else this.lexicalDirectiveRanges.push({start:position, end, row, endPosition});
+          if (depth === 0) ranges.push({start:position, end:position + line.length + 1});
+        } else {
+          for (let i = 0; i < line.length; i++) {
+            if (line[i] === '{') { if (depth++ === 0) opening = position + i + 1; }
+            else if (line[i] === '}') {
+              if (depth === 0) { this.lexicalNonFileScopeRanges = [{start:0,end:this.originalSource.length}]; return false; }
+              if (--depth === 0) ranges.push({start:opening,end:position + i});
+            }
+          }
+        }
+        position += line.length + 1;
+        row++;
+      }
+      if (depth > 0) ranges.push({start:opening,end:this.originalSource.length});
+      this.lexicalNonFileScopeRanges = ranges;
+    }
+    let low = 0, high = this.lexicalNonFileScopeRanges.length;
+    while (low < high) {
+      const mid = (low + high) >>> 1;
+      if (this.lexicalNonFileScopeRanges[mid]!.start <= offset) low = mid + 1;
+      else high = mid;
+    }
+    return low === 0 || this.lexicalNonFileScopeRanges[low - 1]!.end <= offset;
   }
 
   /** Parse one transformed declaration source with a disposable Parser. */
@@ -1866,7 +2003,11 @@ export class TreeSitterExtractor {
           this.extractEnum(inlineType);
         }
       }
-      if (this.isInsideClassLikeNode() && this.extractor.methodTypes.includes(nodeType)) {
+      if (this.handleWrappedCppFunction(node)) {
+        // The intact inline type was visited above. Do not emit the wrapper
+        // with the following function's name and the preceding class's line.
+        skipChildren = true;
+      } else if (this.isInsideClassLikeNode() && this.extractor.methodTypes.includes(nodeType)) {
         // Inside a class - treat as method
         this.extractMethod(node);
         skipChildren = true; // extractMethod visits children via visitFunctionBody
@@ -3069,6 +3210,16 @@ export class TreeSitterExtractor {
     if (getChildByField(node, this.extractor?.bodyField ?? 'body')) return false;
     const parent = node.parent;
     if (!parent) return false;
+
+    if (parent.type === 'ERROR') {
+      // Error recovery can flatten a header guard into ERROR. Accept only a
+      // complete standalone forward declaration, not `struct S *p`, typedefs,
+      // parameters, template instantiations, or a declaration inside a body.
+      const start = this.originalLineStart(node.startPosition.row + 1);
+      return /^[ \t]*$/.test(this.originalSource.slice(start, node.startIndex))
+        && /^\s*;/.test(this.originalSource.slice(node.endIndex))
+        && this.isLexicallyFileScope(node.startIndex);
+    }
 
     // tree-sitter-cpp represents `class Foo;`, `struct S;`, and a forward enum
     // as a bare specifier directly under the translation unit/class body; the
@@ -4499,6 +4650,13 @@ export class TreeSitterExtractor {
 
       outer: for (const child of node.namedChildren) {
         if (!DECLARATOR_TYPES.has(child.type)) continue;
+        // A damaged header guard may be flattened into this ERROR alongside
+        // real declarators. Its #ifndef/#define identifier is not a variable.
+        // Keep all existing declarator recovery shapes, including arrays and
+        // function pointers; exclude only tokens written on directive lines.
+        if (node.type === 'ERROR' && /^[ \t]*#/.test(this.originalSource.slice(
+          this.originalLineStart(child.startPosition.row + 1), child.startIndex,
+        ))) continue;
         const declaratorKind: NodeKind = (
           this.extractor.isDeclaratorConst?.(node, child) ?? isConst
         ) ? 'constant' : 'variable';
@@ -6399,11 +6557,19 @@ export class TreeSitterExtractor {
       ) {
         // Skip identifiers that are the function target of a call expression
         // — those are already handled by extractCall.
-        const parent = node.parent;
+        let referenceNode = node;
+        if (this.language === 'cpp' && node.parent?.type === 'qualified_identifier') {
+          const name = getChildByField(node.parent, 'name');
+          // Only the leaf emits the complete qualified name. Namespace/scope
+          // identifiers are not independent variable references.
+          if (name?.id !== node.id) return;
+          referenceNode = node.parent;
+        }
+        const parent = referenceNode.parent;
         if (parent && (parent.type === 'call_expression' || parent.type === 'macro_invocation')) {
           // Inside call_expression — handled by extractCall
         } else {
-          const identName = getNodeText(node, this.source);
+          const identName = getNodeText(referenceNode, this.source);
           if (
             identName &&
             !this.currentLocalNames.has(identName) &&
@@ -6415,8 +6581,8 @@ export class TreeSitterExtractor {
                 fromNodeId: callerId,
                 referenceName: identName,
                 referenceKind: 'references',
-                line: node.startPosition.row + 1,
-                column: node.startPosition.column,
+                line: referenceNode.startPosition.row + 1,
+                column: referenceNode.startPosition.column,
               });
             }
           }
@@ -6669,7 +6835,7 @@ export class TreeSitterExtractor {
 
       // Go struct embedding: field_declaration without field_identifier
       // e.g. `type DB struct { *Head; Queryable }` — no field name means embedded type
-      if (child.type === 'field_declaration') {
+      if (this.language === 'go' && child.type === 'field_declaration') {
         const hasFieldIdentifier = child.namedChildren.some((c: SyntaxNode) => c.type === 'field_identifier');
         if (!hasFieldIdentifier) {
           const typeId = child.namedChildren.find((c: SyntaxNode) => c.type === 'type_identifier');

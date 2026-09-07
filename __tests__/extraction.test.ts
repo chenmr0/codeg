@@ -8740,7 +8740,7 @@ void foo(void) {
     cg = null;
   });
 
-  it('records failed rewire source files when a symbol is renamed', async () => {
+  it('preserves the unchanged caller reference when a symbol is renamed', async () => {
     // Set up: a.h declares foo(), a.c defines foo(), b.c calls foo()
     fs.writeFileSync(
       path.join(tempDir, 'a.h'),
@@ -8795,9 +8795,12 @@ void renamed_foo(void) { return; }
     const renamedDef = cg.getNodesByName('renamed_foo').find((n) => n.kind === 'function' && n.filePath === 'a.c');
     expect(renamedDef).toBeDefined();
 
-    // b.c should be listed as a failed rewire source file
-    expect(result.failedRewireSourceFiles).toBeDefined();
-    expect(result.failedRewireSourceFiles!).toContain('b.c');
+    // Resolver-stamped incoming references are retained directly, without
+    // rebuilding the caller and cascading deletes into further source files.
+    expect(result.failedRewireSourceFiles ?? []).not.toContain('b.c');
+    const raw = (cg as any).db.db;
+    expect(raw.prepare(`SELECT status FROM unresolved_refs
+      WHERE from_node_id=? AND reference_name='foo'`).get(barDef!.id)?.status).toBe('failed');
 
     cg.close();
     cg = null;

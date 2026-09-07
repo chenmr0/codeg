@@ -3,13 +3,16 @@ import { LRUCache } from './lru-cache';
 import type { ResolutionDiagnostics } from './diagnostics';
 
 export type NameLookupMode = 'full' | 'indexed';
-export const MAX_INDEXED_SYNC_REFS = 512;
+// Bound actual SQL work across changed refs AND retry batches in one cache
+// epoch, not the input row count (many references reuse the same names).
+export const MAX_INDEXED_NAME_QUERIES = 8192;
+export const MAX_INDEXED_NAME_QUERY_MS = 250;
 
-/** Only the small changed-file sync pass opts in. Bulk/API callers stay full. */
+/** Only scoped sync passes opt in. Bulk/API callers still default to full. */
 export function syncNameLookupMode(refCount: number): NameLookupMode {
   const setting = process.env.CODEGRAPH_SYNC_NAME_LOOKUP ?? 'auto';
   return ['', 'auto', '1', 'indexed'].includes(setting) &&
-    Number.isInteger(refCount) && refCount >= 0 && refCount <= MAX_INDEXED_SYNC_REFS ? 'indexed' : 'full';
+    Number.isSafeInteger(refCount) && refCount >= 0 ? 'indexed' : 'full';
 }
 
 export class IndexedNameLookup {
@@ -40,6 +43,13 @@ export class IndexedNameLookup {
   }
 
   get size(): number { return this.cache.size; }
+
+  /** Checked between references; a single reference is never interrupted. */
+  get promotionReason(): 'none' | 'query-budget' | 'time-budget' {
+    if (this.queries >= MAX_INDEXED_NAME_QUERIES) return 'query-budget';
+    if (this.queryMs >= MAX_INDEXED_NAME_QUERY_MS) return 'time-budget';
+    return 'none';
+  }
 
   capture<T>(diagnostics: ResolutionDiagnostics | undefined, operation: () => T): T {
     if (!diagnostics) return operation();

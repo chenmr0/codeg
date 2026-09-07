@@ -338,6 +338,7 @@ export class QueryBuilder {
     insertUnresolved?: SqliteStatement;
     deleteUnresolvedByNode?: SqliteStatement;
     getUnresolvedByName?: SqliteStatement;
+    getPendingSupertypes?: SqliteStatement;
     getNodesByName?: SqliteStatement;
     getNodesByQualifiedNameExact?: SqliteStatement;
     getNodesByLowerName?: SqliteStatement;
@@ -976,7 +977,10 @@ export class QueryBuilder {
       this.stmts.getNodesByName = this.db.prepare('SELECT * FROM nodes WHERE name = ?');
     }
     const rows = this.stmts.getNodesByName.all(name) as NodeRow[];
-    return rows.map(rowToNode);
+    // Re-indexing changes SQLite row order. Many resolver strategies retain
+    // the first equally ranked candidate, so use stable symbol order rather
+    // than insertion order (which made comment-only sync change targets).
+    return rows.map(rowToNode).sort(compareNodesDeterministically);
   }
 
   /**
@@ -989,7 +993,7 @@ export class QueryBuilder {
       );
     }
     const rows = this.stmts.getNodesByQualifiedNameExact.all(qualifiedName) as NodeRow[];
-    return rows.map(rowToNode);
+    return rows.map(rowToNode).sort(compareNodesDeterministically);
   }
 
   /**
@@ -1002,7 +1006,7 @@ export class QueryBuilder {
       );
     }
     const rows = this.stmts.getNodesByLowerName.all(lowerName) as NodeRow[];
-    return rows.map(rowToNode);
+    return rows.map(rowToNode).sort(compareNodesDeterministically);
   }
 
   /**
@@ -2385,6 +2389,19 @@ export class QueryBuilder {
     return rows.map((r) => r.name);
   }
 
+  /** Read the unpersisted inheritance of this exact source type. Failed rows
+   * also matter: a newly restored base can be queried before its retry group. */
+  getPendingSupertypes(nodeId: string): UnresolvedReference[] {
+    if (!this.stmts.getPendingSupertypes) this.stmts.getPendingSupertypes = this.db.prepare(
+      "SELECT * FROM unresolved_refs WHERE from_node_id=? AND status IN ('pending','failed') " +
+      "AND reference_kind IN ('extends','implements') ORDER BY line,col,reference_name"
+    );
+    const rows = this.stmts.getPendingSupertypes.all(nodeId) as UnresolvedRefRow[];
+    return rows.map(row => ({rowId:row.id, fromNodeId:row.from_node_id,
+      referenceName:row.reference_name, referenceKind:row.reference_kind as EdgeKind,
+      line:row.line, column:row.col, filePath:row.file_path, language:row.language as Language}));
+  }
+
   /** Exact Set-like membership using idx_nodes_name; no full node materialization. */
   hasNodeName(name: string): boolean {
     if (!this.stmts.hasNodeName) {
@@ -2441,6 +2458,10 @@ export class QueryBuilder {
     const sql = `SELECT e.source, e.kind, e.metadata, e.line, e.col, e.provenance,
        nt.name  AS target_name,
        nt.kind  AS target_kind,
+       nt.id AS target_id,
+       nt.qualified_name AS target_qualified_name,
+       nt.signature AS target_signature,
+       nt.is_declaration AS target_is_declaration,
        ns.file_path AS source_file_path,
        ns.language AS source_language
 FROM nodes nt
@@ -2460,6 +2481,10 @@ WHERE nt.file_path = ?
       provenance: string | null;
       target_name: string;
       target_kind: string;
+      target_id: string;
+      target_qualified_name: string;
+      target_signature: string | null;
+      target_is_declaration: number | null;
       source_file_path: string;
       source_language: string;
     }>;
@@ -2470,6 +2495,10 @@ WHERE nt.file_path = ?
       sourceLanguage: r.source_language as Language,
       targetName: r.target_name,
       targetKind: r.target_kind,
+      targetId: r.target_id,
+      targetQualifiedName: r.target_qualified_name,
+      targetSignature: r.target_signature,
+      targetIsDeclaration: Boolean(r.target_is_declaration),
       edgeKind: r.kind,
       metadata: r.metadata,
       line: r.line,
@@ -2583,12 +2612,13 @@ WHERE e.kind = 'imports'
   ): number {
     if (refs.length === 0) return 0;
     const statement = this.db.prepare(
-      "UPDATE unresolved_refs SET status = 'failed', name_tail = ? WHERE id = ?"
+      "UPDATE unresolved_refs SET status = 'failed', name_tail = CASE " +
+      "WHEN reference_kind = 'imports' AND language IN ('c', 'cpp') THEN ? ELSE ? END WHERE id = ?"
     );
     let changed = 0;
     this.db.transaction(() => {
       for (const ref of refs) {
-        changed += statement.run(referenceNameTail(ref.referenceName), ref.rowId).changes;
+        changed += statement.run(ref.referenceName.split('/').pop()!, referenceNameTail(ref.referenceName), ref.rowId).changes;
       }
     })();
     return changed;
@@ -2600,13 +2630,15 @@ WHERE e.kind = 'imports'
   ): number {
     if (refs.length === 0) return 0;
     const statement = this.db.prepare(
-      "UPDATE unresolved_refs SET status = 'failed', name_tail = ? " +
+      "UPDATE unresolved_refs SET status = 'failed', name_tail = CASE " +
+        "WHEN reference_kind = 'imports' AND language IN ('c', 'cpp') THEN ? ELSE ? END " +
         'WHERE from_node_id = ? AND reference_name = ? AND reference_kind = ?'
     );
     let changed = 0;
     this.db.transaction(() => {
       for (const ref of refs) {
         changed += statement.run(
+          ref.referenceName.split('/').pop()!,
           referenceNameTail(ref.referenceName),
           ref.fromNodeId,
           ref.referenceName,
@@ -2659,6 +2691,44 @@ WHERE e.kind = 'imports'
 
     groups.sort((left, right) => left.nameTail.localeCompare(right.nameTail));
     return { groups, total };
+  }
+
+  /**
+   * One-time, transactional content repair for pre-fix C/C++ include edges.
+   * Recreate only source-stamped references: never guess a lost include path.
+   * The stamp is committed with the pending rows, so an interrupted resolver
+   * is handled by the existing pending-reference recovery on the next sync.
+   * No schema change or per-sync scan of the edge table is required.
+   */
+  repairLegacyCppIncludes(): string[] {
+    const key = 'repair:cpp-include-targets-v1';
+    if (this.getMetadata(key) === 'done') return [];
+    const files = new Set<string>();
+    this.db.transaction(() => {
+      const invalid = this.db.prepare(`SELECT e.id,e.source,e.line,e.col,e.metadata,s.file_path,s.language
+        FROM edges e JOIN nodes s ON s.id=e.source JOIN nodes t ON t.id=e.target
+        WHERE e.kind='imports' AND s.kind='file' AND s.language IN ('c','cpp') AND t.kind!='file'`).all() as Array<{
+        id:number; source:string; line:number|null; col:number|null; metadata:string|null; file_path:string; language:Language;
+      }>;
+      const remove = this.db.prepare('DELETE FROM edges WHERE id=?');
+      for (const edge of invalid) {
+        const metadata = edge.metadata ? safeJsonParse<Record<string, unknown>>(edge.metadata, {}) : {};
+        if (typeof metadata.refName !== 'string' || !metadata.refName) continue;
+        this.insertUnresolvedRefsBatch([{fromNodeId:edge.source, referenceName:metadata.refName,
+          referenceKind:'imports', line:edge.line??0, column:edge.col??0,
+          filePath:edge.file_path, language:edge.language}]);
+        remove.run(edge.id);
+        files.add(edge.file_path);
+      }
+      // The old generic tail key turned "dir/api.h" into "h". Revisit these
+      // rows once; future failures use the basename and stay selectively indexed.
+      const old = this.db.prepare(`SELECT id,file_path FROM unresolved_refs WHERE status='failed'
+        AND reference_kind='imports' AND language IN ('c','cpp')`).all() as Array<{id:number; file_path:string}>;
+      const pending = this.db.prepare("UPDATE unresolved_refs SET status='pending',name_tail='' WHERE id=?");
+      for (const row of old) { pending.run(row.id); files.add(row.file_path); }
+      this.setMetadata(key, 'done');
+    })();
+    return [...files];
   }
 
   /** Conservative recovery when a sync retry journal cannot be decoded. */

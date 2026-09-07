@@ -235,7 +235,7 @@ describe('phase 2 exact unresolved-reference cleanup', () => {
     expect(names.has('idx_unresolved_name')).toBe(true);
   });
 
-  it('memoizes the exact method-owner filter without changing candidate order', () => {
+  it('memoizes the exact method-owner filter without changing stable candidate order', () => {
     const methods: Node[] = [
       {
         ...makeNode('first', 'run'),
@@ -262,10 +262,10 @@ describe('phase 2 exact unresolved-reference cleanup', () => {
 
     expect(
       context.getMethodMatches!('Worker', 'run', 'c').map((node) => node.id)
-    ).toEqual(['first', 'second']);
+    ).toEqual(['second', 'first']);
     expect(
       context.getMethodMatches!('Worker', 'run', 'c').map((node) => node.id)
-    ).toEqual(['first', 'second']);
+    ).toEqual(['second', 'first']);
   });
 
   it('invalidates supertype answers when a later batch adds conformance edges', () => {

@@ -43,6 +43,7 @@ import {
   replaceWithDeclarationMacroRecoverySkipped,
 } from './diagnostics';
 import { ReconcileDiagnostics, type ScanDiagnostics } from './sync-diagnostics';
+import { StoreDiagnostics, measureStore } from './store-diagnostics';
 import { filterGitPaths } from './git-paths';
 import type { SyncRetryState } from './sync-retry-state';
 import { collectHybridFiles, HybridScanFallback, planSupplementRoots } from './hybrid-scan';
@@ -2232,19 +2233,20 @@ export class ExtractionOrchestrator {
     language: Language,
     stats: fs.Stats,
     result: ExtractionResult,
-    options?: { force?: boolean }
+    options?: { force?: boolean; diagnostics?: StoreDiagnostics }
   ): void {
+    const detail = options?.diagnostics;
     // Defensive: callers (scan, indexFile, batch reader) already pass canonical
     // paths, but canonicalize once more so getFileByPath/deleteFile/upsertFile key
     // on the canonical path even if a future caller passes a logical symlink path.
-    filePath = canonicalFilePath(this.rootDir, filePath);
-    const contentHash = hashContent(content);
+    filePath = measureStore(detail, 'canonicalMs', () => canonicalFilePath(this.rootDir, filePath));
+    const contentHash = measureStore(detail, 'hashMs', () => hashContent(content));
 
     // Check if file already exists and hasn't changed. A base-only fallback
     // deliberately stores the current content hash together with an incomplete
     // declaration-macro diagnostic. The next full parse must be allowed to
     // replace that record even though the source bytes are identical.
-    const existingFile = this.queries.getFileByPath(filePath);
+    const existingFile = measureStore(detail, 'lookupMs', () => this.queries.getFileByPath(filePath));
     const needsDeclarationMacroRecovery = hasDeclarationMacroRecoverySkipped(
       existingFile?.errors,
     );
@@ -2254,18 +2256,20 @@ export class ExtractionOrchestrator {
       existingFile.contentHash === contentHash &&
       !needsDeclarationMacroRecovery
     ) {
+      if (detail) detail.skipped++;
       return; // No changes
     }
 
-    this.syncRetryState?.beforeStore(filePath, contentHash, content, language, result, existingFile);
+    measureStore(detail, 'retryStateMs', () =>
+      this.syncRetryState?.beforeStore(filePath, contentHash, content, language, result, existingFile));
 
     // Snapshot incoming cross-file edges before deleting old nodes.
     // These are edges from nodes in OTHER files → nodes in THIS file.
     // After re-insertion we'll re-wire them to the new node IDs.
     let savedEdges: SavedCrossFileEdge[] = [];
     if (existingFile) {
-      savedEdges = this.queries.getIncomingCrossFileEdges(filePath);
-      this.queries.deleteFile(filePath);
+      savedEdges = measureStore(detail, 'snapshotMs', () => this.queries.getIncomingCrossFileEdges(filePath));
+      measureStore(detail, 'deleteMs', () => this.queries.deleteFile(filePath));
     }
 
     // Filter out nodes with missing required fields before insertion.
@@ -2275,7 +2279,8 @@ export class ExtractionOrchestrator {
 
     // Insert nodes
     if (validNodes.length > 0) {
-      this.queries.insertNodes(validNodes);
+      measureStore(detail, 'nodesMs', () => this.queries.insertNodes(validNodes));
+      if (detail) detail.nodeRows += validNodes.length;
     }
 
     // Filter edges to only reference nodes that were actually inserted
@@ -2285,7 +2290,8 @@ export class ExtractionOrchestrator {
         (e) => insertedIds.has(e.source) && insertedIds.has(e.target)
       );
       if (validEdges.length > 0) {
-        this.queries.insertEdges(validEdges);
+        measureStore(detail, 'edgesMs', () => this.queries.insertEdges(validEdges));
+        if (detail) detail.edgeRows += validEdges.length;
       }
     }
 
@@ -2300,19 +2306,14 @@ export class ExtractionOrchestrator {
           language: ref.language ?? language,
         }));
       if (refsWithContext.length > 0) {
-        this.queries.insertUnresolvedRefsBatch(refsWithContext);
+        measureStore(detail, 'refsMs', () => this.queries.insertUnresolvedRefsBatch(refsWithContext));
+        if (detail) detail.refRows += refsWithContext.length;
       }
     }
 
     // Re-wire saved incoming cross-file edges to new node IDs
-    if (savedEdges.length > 0 && validNodes.length > 0) {
-      this.rewireEdges(savedEdges, validNodes);
-    } else if (savedEdges.length > 0) {
-      // File was emptied (all symbols removed) — all incoming edges are
-      // legitimately orphaned. Record source files so they get re-indexed
-      // (which will surface the now-unresolved references).
-      const sourceFiles = [...new Set(savedEdges.map((e) => e.sourceFilePath))];
-      this.syncRewireFailures.push(...sourceFiles);
+    if (savedEdges.length > 0) {
+      measureStore(detail, 'rewireMs', () => this.rewireEdges(savedEdges, validNodes));
     }
 
     // Insert file record
@@ -2326,28 +2327,38 @@ export class ExtractionOrchestrator {
       nodeCount: result.nodes.length,
       errors: result.errors.length > 0 ? result.errors : undefined,
     };
-    this.queries.upsertFile(fileRecord);
+    measureStore(detail, 'fileMs', () => this.queries.upsertFile(fileRecord));
+    if (detail) detail.files++;
   }
 
   /**
    * Re-wire saved incoming cross-file edges to new node IDs by matching
-   * target (name, kind). Edges that can't be matched (symbol removed or
-   * renamed) record their source file so co-importer fallback can run.
+   * target identity. Stable IDs alone are insufficient: IDs include a line,
+   * not the overload signature, and can be reused by a different declaration.
+   * If identity moved, require a unique semantic match. Unmatched stamped
+   * edges become pending references, including during fallback re-indexing,
+   * so deleting a target can never silently discard the caller's reference.
    */
   private rewireEdges(
     savedEdges: SavedCrossFileEdge[],
     newNodes: ExtractionResult['nodes']
   ): void {
-    // Index new nodes by "name|kind" → [nodeId, ...]
-    const nameIndex = new Map<string, string[]>();
-    for (const node of newNodes) {
-      const key = `${node.name}|${node.kind}`;
-      const ids = nameIndex.get(key);
-      if (ids) {
-        ids.push(node.id);
-      } else {
-        nameIndex.set(key, [node.id]);
-      }
+    const identity = (kind: string, name: string, qualifiedName: string,
+      signature: string | null | undefined, declaration: boolean | undefined) =>
+      // Non-callable signatures can contain initializers; changing a variable's
+      // value does not change its identity. Only callables have overloads.
+      JSON.stringify([kind, name, qualifiedName,
+        kind === 'function' || kind === 'method' ? signature ?? null : null,
+        Boolean(declaration)]);
+    const byId = new Map(newNodes.map(node => [node.id, node]));
+    const identityIndex = new Map<string, string[]>();
+    // Deduplicate IDs just as the node table does, not by spelling: distinct
+    // overloads and declarations must remain distinct candidates.
+    for (const node of byId.values()) {
+      const key = identity(node.kind, node.name, node.qualifiedName, node.signature, node.isDeclaration);
+      const ids = identityIndex.get(key);
+      if (ids) ids.push(node.id);
+      else identityIndex.set(key, [node.id]);
     }
 
     const rewired: Array<{
@@ -2360,15 +2371,21 @@ export class ExtractionOrchestrator {
       provenance?: 'tree-sitter' | 'scip' | 'heuristic';
     }> = [];
     const failedSourceFiles = new Set<string>();
+    const resurrected: UnresolvedReference[] = [];
 
     for (const saved of savedEdges) {
-      const key = `${saved.targetName}|${saved.targetKind}`;
-      const matches = nameIndex.get(key);
+      const key = identity(saved.targetKind, saved.targetName, saved.targetQualifiedName,
+        saved.targetSignature, saved.targetIsDeclaration);
+      const matches = identityIndex.get(key);
+      // An unchanged overload wins even when several identical declarations
+      // exist. After a line move, only an unambiguous identity may be rewired.
+      const target = matches?.includes(saved.targetId) ? saved.targetId
+        : matches?.length === 1 ? matches[0] : undefined;
 
-      if (matches && matches.length === 1) {
+      if (target) {
         rewired.push({
           source: saved.sourceId,
-          target: matches[0]!,
+          target,
           kind: saved.edgeKind as import('../types').EdgeKind,
           metadata: saved.metadata
             ? (JSON.parse(saved.metadata) as Record<string, unknown>)
@@ -2378,15 +2395,16 @@ export class ExtractionOrchestrator {
           provenance: (saved.provenance as 'tree-sitter' | 'scip' | 'heuristic') ?? undefined,
         });
       } else {
-        // 0 matches → symbol removed; >1 matches → ambiguous overload, defer
-        // to co-importer fallback (conservative — no wrong edges).
-        failedSourceFiles.add(saved.sourceFilePath);
+        const reference = resurrectReferenceFromEdge(saved);
+        if (reference) resurrected.push(reference);
+        else failedSourceFiles.add(saved.sourceFilePath);
       }
     }
 
     if (rewired.length > 0) {
       this.queries.insertEdges(rewired as import('../types').Edge[]);
     }
+    if (resurrected.length > 0) this.queries.insertUnresolvedRefsBatch(resurrected);
 
     if (failedSourceFiles.size > 0) {
       this.syncRewireFailures.push(...failedSourceFiles);
@@ -2669,6 +2687,7 @@ export class ExtractionOrchestrator {
     let readMs = 0;
     let parseWallMs = 0;
     let storeMs = 0;
+    const storeDetail = verbose ? new StoreDiagnostics() : undefined;
     const extractionTimingTotals: ExtractionTimings = {};
 
     if (total > 0) {
@@ -2872,6 +2891,7 @@ export class ExtractionOrchestrator {
                 language,
                 item.stats,
                 item.result,
+                storeDetail ? { diagnostics: storeDetail } : undefined,
               );
               changedFilePaths.push(item.filePath);
             } else {
@@ -2912,6 +2932,7 @@ export class ExtractionOrchestrator {
       `workerSetup=${Math.round(workerSetupMs)}ms read=${Math.round(readMs)}ms ` +
       `parseWall=${Math.round(parseWallMs)}ms store=${Math.round(storeMs)}ms`,
     );
+    if (storeDetail && total > 0) log(`store-detail ${storeDetail.format()}`);
     const extractionTimingSummary = formatExtractionTimings(extractionTimingTotals);
     if (extractionTimingSummary) log(`extraction totals ${extractionTimingSummary}`);
 

@@ -178,6 +178,39 @@ time env CODEGRAPH_HYBRID_SCAN=1 codegraph sync -v
 
 ## Linux 采样
 
+### 中等批量同步：按需符号名查询与回退
+
+新增文件的引用处理和历史失败引用重试现在共用同一轮 resolver 缓存，不再因为引用数超过 512 就强制读取全库符号名。查询仍是按名称索引执行的精确存在性判断，保留大小写、Unicode、限定名拆分和所有匹配规则；正/负缓存最多 4096 项。
+
+保护预算按缓存生命周期累计，而不是每个 500 条重试批次重置：累计实际 SQL 探测达到 8192 次，或探测耗时达到 250ms 后，在下一条引用前改用完整符号名集合。缓存命中不计作新探测，引用匹配/进度回调耗时不占该预算；一个引用的处理不会被打断，因此预算不是进程硬超时。完整集合加载失败仍正常报错，不把错误当作“名称不存在”。缓存失效规则与此前一致。全量索引、公共解析 API、恢复的批量解析等其他调用仍默认完整预热。
+
+日常直接 `codegraph sync -v`；`CODEGRAPH_SYNC_NAME_LOOKUP=0` 可恢复完整预热做对照，无需设置开启变量。不得将第一次有变更与随后无变更比较；应使用相同数据库起点和同一批代码变化。
+
+日志新增/调整：
+
+- `refs-detail scope=changed`：本次变更文件的引用处理。
+- `refs-detail scope=failed-retry`：本轮实际执行的历史失败引用重试汇总，不逐批刷屏。`files` 是已知来源文件的去重计数，`refs` 是实际尝试行数；安全筛选跳过的行不在其中。
+- `nameLookup=indexed knownNames=not-loaded`：没有加载完整符号名集合。
+- `namePromotion=none|query-budget|time-budget`：本段是否达到保护预算而转向完整预热。若前段已预热，后段可直接复用 full 集合，不再重复加载。
+- `symbolNamesLoadMs/symbolNamesSetMs`：包含本段发生的预算回退成本；该成本已从 `matchMs` 扣除，不能重复相加。`nameProbeMs` 仍是 `matchMs` 子项。
+- 重试 `refs-detail.totalMs` 与 `failed-ref-retry.durationMs`、`tail-detail.failedRefRetryMs` 有包含关系，不应作为额外阶段累加。重试汇总的 `cache` 为首批状态，`nameLookup/knownNames/nameCacheEntries` 为末批状态；发生预算回退的单批 `nameCacheEntries` 可以保留回退前探测缓存的计数。
+
+### 入库细分与完整同步时间
+
+`store-detail` 仅在 verbose 且存在待索引文件时输出，不增加数据库查询、源码读取或事务，不修改入库/FTS 策略：
+
+| 字段 | 所含现有工作 |
+| --- | --- |
+| `canonicalMs/hashMs/lookupMs` | 路径规范化、内容哈希、读取旧文件记录 |
+| `retryStateMs` | 建立安全重试基线和写入恢复日志 |
+| `snapshotMs/deleteMs` | 修改文件的旧入站边快照及旧图删除 |
+| `nodesMs/edgesMs/refsMs` | 节点、文件内部边、待解析引用写入（含数据库内部索引/FTS/事务成本） |
+| `rewireMs/fileMs` | 入站边重连、文件记录写入 |
+
+`files` 为完成写入的文件数；`nodeRows/edgeRows/refRows` 为成功调用各写入方法时提交的有效行数，不是 SQLite 实际修改页数。全部细分均属于 `[sync] phases store=...`，后者还包括结果筛选、进度通知和循环等开销；收尾 WAL 折叠仍在 `tail-detail.prepareAndWalMs`，不应重复算进入库。
+
+CLI 的 `nodes in ...` 现在使用整个 `cg.sync()` 调用耗时，包含引用处理和维护，对应 `command phases.syncPipeline`；不包含命令启动和数据库打开，完整进程仍以 shell 的 `real` 为准。本轮只修正 CLI 摘要口径，没有改动提取结果/API 的 `durationMs` 契约。
+
 ### 历史失败引用重试
 
 有变更或中断遗留任务时，`sync -v` 还会输出：

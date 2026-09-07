@@ -832,7 +832,9 @@ program
         if (result.filesAdded > 0) details.push(`Added: ${result.filesAdded}`);
         if (result.filesModified > 0) details.push(`Modified: ${result.filesModified}`);
         if (result.filesRemoved > 0) details.push(`Removed: ${result.filesRemoved}`);
-        clack.log.info(`${details.join(', ')} ${getGlyphs().dash} ${formatNumber(result.nodesUpdated)} nodes in ${formatDuration(result.durationMs)}`);
+        // The extraction result's duration excludes resolution and maintenance.
+        // Report the entire sync call, matching command phases.syncPipeline.
+        clack.log.info(`${details.join(', ')} ${getGlyphs().dash} ${formatNumber(result.nodesUpdated)} nodes in ${formatDuration(Math.round(syncPipelineMs))}`);
       }
 
       clack.outro('Done');

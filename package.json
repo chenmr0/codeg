@@ -20,6 +20,7 @@
     "docs/sync-diagnostics.md",
     "docs/rust-scan-prototype.md",
     "docs/native-scan-release.md",
+    "docs/grammars/tree-sitter-cpp.md",
     "README.md"
   ],
   "scripts": {
@@ -36,7 +37,7 @@
     "prepack": "npm run check:native-artifacts",
     "postinstall": "node scripts/prepare-native-scan.mjs",
     "preuninstall": "node dist/bin/uninstall.js",
-    "copy-assets": "node -e \"const fs=require('fs');fs.mkdirSync('dist/db',{recursive:true});fs.copyFileSync('src/db/schema.sql','dist/db/schema.sql');fs.mkdirSync('dist/extraction/wasm',{recursive:true});fs.readdirSync('src/extraction/wasm').filter(f=>f.endsWith('.wasm')).forEach(f=>fs.copyFileSync('src/extraction/wasm/'+f,'dist/extraction/wasm/'+f));const sqlWasm=require.resolve('sql.js-fts5/dist/sql-wasm.wasm');fs.copyFileSync(sqlWasm,'dist/db/sql-wasm.wasm')\"",
+    "copy-assets": "node -e \"const fs=require('fs');fs.mkdirSync('dist/db',{recursive:true});fs.copyFileSync('src/db/schema.sql','dist/db/schema.sql');fs.mkdirSync('dist/extraction/wasm',{recursive:true});fs.readdirSync('src/extraction/wasm').filter(f=>f.endsWith('.wasm')||f.endsWith('.LICENSE')).forEach(f=>fs.copyFileSync('src/extraction/wasm/'+f,'dist/extraction/wasm/'+f));const sqlWasm=require.resolve('sql.js-fts5/dist/sql-wasm.wasm');fs.copyFileSync(sqlWasm,'dist/db/sql-wasm.wasm')\"",
     "dev": "tsc --watch",
     "cli": "npm run build && node dist/bin/codegraph.js",
     "test": "vitest run",

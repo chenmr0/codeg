@@ -109,6 +109,10 @@ describe('safe-comment retry integration', () => {
     write('caller.cpp', '#include "defs.h"\nint caller() { return ns::target_v1(); }\n');
     cg = CodeGraph.initSync(directory);
     await cg.indexAll();
+    // Force the legacy unstamped-edge path; stamped refs no longer require
+    // caller re-extraction and therefore intentionally create no caller proof.
+    raw().prepare(`UPDATE edges SET metadata=NULL WHERE kind='calls' AND source IN
+      (SELECT id FROM nodes WHERE name='caller')`).run();
     write('defs.h', 'namespace ns { inline int target_v2() { return 2; } }\n');
     const log = vi.spyOn(console, 'log').mockImplementation(() => {});
     await cg.sync({ paths: ['defs.h'], verbose: true });

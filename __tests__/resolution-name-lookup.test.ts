@@ -7,13 +7,13 @@ import { DatabaseConnection } from '../src/db';
 import { QueryBuilder } from '../src/db/queries';
 import { ReferenceResolver } from '../src/resolution';
 import { ResolutionDiagnostics } from '../src/resolution/diagnostics';
-import { IndexedNameLookup, MAX_INDEXED_SYNC_REFS, syncNameLookupMode, type NameLookupMode } from '../src/resolution/name-lookup';
+import { IndexedNameLookup, MAX_INDEXED_NAME_QUERIES, MAX_INDEXED_NAME_QUERY_MS, syncNameLookupMode, type NameLookupMode } from '../src/resolution/name-lookup';
 import type { Node, UnresolvedReference } from '../src/types';
 import type { ResolutionContext, UnresolvedRef } from '../src/resolution/types';
 const runtimeRequire = createRequire(import.meta.url);
 
 describe('indexed name membership', () => {
-  afterEach(() => vi.unstubAllEnvs());
+  afterEach(() => { vi.unstubAllEnvs(); vi.restoreAllMocks(); });
   it('caches positive and negative answers and evicts within the bound', () => {
     const exists = vi.fn((name: string) => name === 'yes');
     const lookup = new IndexedNameLookup(exists, 2);
@@ -33,13 +33,36 @@ describe('indexed name membership', () => {
     expect(lookup.has('\ud800')).toBe(false); expect(lookup.has('\udfff')).toBe(false);
     expect(exists).not.toHaveBeenCalled(); expect(lookup.has('😀')).toBe(true);
   });
-  it('selects bounded small sync passes and supports an off switch', () => {
+  it('selects scoped sync independently of row count and supports an off switch', () => {
     vi.stubEnv('CODEGRAPH_SYNC_NAME_LOOKUP', 'auto');
-    for (const count of [0, 3, MAX_INDEXED_SYNC_REFS]) expect(syncNameLookupMode(count)).toBe('indexed');
-    for (const count of [MAX_INDEXED_SYNC_REFS + 1, -1, NaN]) expect(syncNameLookupMode(count)).toBe('full');
+    for (const count of [0, 3, 512, 1462, 6262, 100_000]) expect(syncNameLookupMode(count)).toBe('indexed');
+    for (const count of [-1, NaN, Infinity, 1.5, Number.MAX_SAFE_INTEGER + 1]) expect(syncNameLookupMode(count)).toBe('full');
     for (const setting of ['0', 'full', 'typo']) {
       vi.stubEnv('CODEGRAPH_SYNC_NAME_LOOKUP', setting); expect(syncNameLookupMode(3)).toBe('full');
     }
+  });
+
+  it('budgets actual SQL misses, not repeated references or bounded cache entries', () => {
+    vi.spyOn(performance, 'now').mockReturnValue(0);
+    const lookup = new IndexedNameLookup(() => false);
+    for (let i = 0; i < MAX_INDEXED_NAME_QUERIES; i++) lookup.has('same');
+    expect(lookup.promotionReason).toBe('none');
+    for (let i = 1; i < MAX_INDEXED_NAME_QUERIES; i++) lookup.has(`unique_${i}`);
+    expect(lookup.promotionReason).toBe('query-budget');
+    expect(lookup.size).toBe(4096);
+  });
+
+  it('budgets accumulated SQL time independently of reference matching time', () => {
+    let now = 0;
+    vi.spyOn(performance, 'now').mockImplementation(() => now);
+    const lookup = new IndexedNameLookup(() => { now += MAX_INDEXED_NAME_QUERY_MS / 2; return false; });
+    lookup.has('first');
+    expect(lookup.promotionReason).toBe('none');
+    now += 100_000; // Unrelated matching / progress work does not consume budget.
+    lookup.has('first');
+    expect(lookup.promotionReason).toBe('none');
+    lookup.has('second');
+    expect(lookup.promotionReason).toBe('time-budget');
   });
 });
 
@@ -140,15 +163,61 @@ describe('indexed prefilter parity and cache epochs', () => {
     expect(access.context.fileExists('a.c')).toBe(true);
   });
 
-  it('does no symbol work for an empty small pass, but caps indexed requests for large batches', () => {
+  it('does no symbol work for an empty pass and shares probes across medium changed/retry batches', () => {
     const { queries, resolver } = fixture(); const names = vi.spyOn(queries, 'getAllNodeNames');
     const probes = vi.spyOn(queries, 'hasNodeName');
     const empty = new ResolutionDiagnostics(); resolver.resolveAll([], undefined, empty, 'indexed');
     expect(empty).toMatchObject({ nameLookup: 'indexed', knownNames: 'not-loaded', nameQueries: 0 });
     expect(names).not.toHaveBeenCalled(); expect(probes).not.toHaveBeenCalled();
     const large = new ResolutionDiagnostics();
-    resolver.resolveAll(Array.from({ length: MAX_INDEXED_SYNC_REFS + 1 }, () => ref('target')), undefined, large, 'indexed');
-    expect(large.nameLookup).toBe('full'); expect(names).toHaveBeenCalledTimes(1);
+    resolver.resolveAll(Array.from({ length: 1462 }, () => ref('target')), undefined, large, 'indexed');
+    const retry = new ResolutionDiagnostics('failed-retry');
+    resolver.resolveAll(Array.from({ length: 6262 }, () => ref('target')), undefined, retry, 'indexed');
+    expect(large.nameLookup).toBe('indexed'); expect(names).not.toHaveBeenCalled();
+    expect(large.nameQueries).toBe(1); expect(retry.nameQueries).toBe(0);
+    expect(retry.cache).toBe('warm'); expect(retry.knownNames).toBe('not-loaded');
+  });
+
+  it.each(['query-budget', 'time-budget'] as const)('promotes once on %s without changing results, then resets on invalidation', reason => {
+    const { queries, resolver } = fixture();
+    const names = vi.spyOn(queries, 'getAllNodeNames');
+    const refs = [ref('target'), ref('missing'), ref('target')];
+    const baseline = new ReferenceResolver(root, queries).resolveAll(refs);
+    names.mockClear();
+    const promotion = vi.spyOn(IndexedNameLookup.prototype, 'promotionReason', 'get')
+      .mockReturnValueOnce('none').mockReturnValueOnce(reason).mockReturnValue('none');
+    const detail = new ResolutionDiagnostics();
+    expect(resolver.resolveAll(refs, undefined, detail, 'indexed')).toEqual(baseline);
+    expect(detail).toMatchObject({ nameLookup: 'full', namePromotion: reason, nameQueries: 1 });
+    expect(detail.timings.matchMs).toBeGreaterThanOrEqual(0);
+    resolver.resolveAll([ref('target')], undefined, undefined, 'indexed');
+    expect(names).toHaveBeenCalledTimes(1);
+    resolver.clearCaches(); promotion.mockRestore();
+    const next = new ResolutionDiagnostics();
+    resolver.resolveAll(refs, undefined, next, 'indexed');
+    expect(next).toMatchObject({ nameLookup: 'indexed', namePromotion: 'none' });
+    expect(names).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not hide a full-name promotion error behind a false membership answer', () => {
+    const { queries, resolver } = fixture();
+    vi.spyOn(IndexedNameLookup.prototype, 'promotionReason', 'get').mockReturnValue('query-budget');
+    vi.spyOn(queries, 'getAllNodeNames').mockImplementation(() => { throw new Error('promotion failed'); });
+    const detail = new ResolutionDiagnostics();
+    expect(() => resolver.resolveAll([ref('target')], undefined, detail, 'indexed')).toThrow('promotion failed');
+    expect(detail.failedPhase).toBe('symbolNamesLoadMs');
+  });
+
+  it('carries the actual probe budget into the next retry batch instead of resetting it per call', () => {
+    vi.spyOn(performance, 'now').mockReturnValue(0);
+    const { queries, resolver, access } = fixture();
+    const names = vi.spyOn(queries, 'getAllNodeNames');
+    resolver.warmCaches(undefined, 'indexed');
+    for (let i = 0; i < MAX_INDEXED_NAME_QUERIES; i++) access.hasKnownName(`absent_${i}`);
+    const retry = new ResolutionDiagnostics('failed-retry');
+    resolver.resolveAll([ref('target')], undefined, retry, 'indexed');
+    expect(names).toHaveBeenCalledTimes(1);
+    expect(retry).toMatchObject({ nameLookup: 'full', namePromotion: 'query-budget', resolved: 1 });
   });
 
   it('preserves resolved edges, failed rows, progress and repeat-cache diagnostics', () => {

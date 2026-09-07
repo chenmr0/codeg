@@ -340,6 +340,11 @@ export interface SavedCrossFileEdge {
   targetName: string;
   /** Kind of the target node */
   targetKind: string;
+  /** Previous identity, including overload/owner information (not just a name). */
+  targetId: string;
+  targetQualifiedName: string;
+  targetSignature: string | null;
+  targetIsDeclaration: boolean;
   /** Edge relationship kind */
   edgeKind: string;
   /** Edge metadata (JSON string from DB) */

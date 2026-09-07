@@ -678,6 +678,7 @@ export class CodeGraph {
           walValve.start();
         }
 
+        const repairedIncludeFiles = this.queries.repairLegacyCppIncludes();
         const retryState = new SyncRetryState(this.queries);
         const recoveredRetryFiles = retryState.filePaths;
         this.orchestrator.setSyncRetryState(retryState);
@@ -690,7 +691,7 @@ export class CodeGraph {
         if (options.verbose) tailCheckpoint = performance.now();
         retryState.finishPrimaryExtraction();
         const referenceFiles = [...new Set([
-          ...(result.changedFilePaths ?? []), ...recoveredRetryFiles,
+          ...(result.changedFilePaths ?? []), ...recoveredRetryFiles, ...repairedIncludeFiles,
         ])];
 
         // Fold extraction writes before resolution starts reading the changed
@@ -761,6 +762,8 @@ export class CodeGraph {
           const planningMs = started - planningStarted;
           let visited = 0;
           let attempted = 0;
+          const retryDetail = options.verbose ? new ResolutionDiagnostics('failed-retry') : undefined;
+          const retryFiles = retryDetail ? new Set<string>() : undefined;
           if (retryPlan.total > 0) {
             options.onProgress?.({
               phase: 'resolving',
@@ -786,7 +789,18 @@ export class CodeGraph {
                 }
 
                 const eligible = eligibility.filtered ? batch.filter(eligibility.shouldRetry) : batch;
-                if (eligible.length > 0) this.resolver.resolveAndPersist(eligible);
+                if (eligible.length > 0) {
+                  const batchDetail = retryDetail ? new ResolutionDiagnostics('failed-retry') : undefined;
+                  if (retryFiles) for (const ref of eligible) if (ref.filePath) retryFiles.add(ref.filePath);
+                  try {
+                    // Reuse the same indexed epoch as changed refs. A default
+                    // bulk call here would merely move the full-name load into
+                    // the retry tail. Row selection and persistence stay intact.
+                    this.resolver.resolveAndPersist(eligible, undefined, batchDetail, syncNameLookupMode(eligible.length));
+                  } finally {
+                    if (retryDetail && batchDetail) retryDetail.add(batchDetail);
+                  }
+                }
                 attempted += eligible.length;
                 visited += batch.length;
                 afterRowId = lastRowId;
@@ -810,6 +824,11 @@ export class CodeGraph {
             }
           }
           if (options.verbose) {
+            if (retryDetail && attempted > 0) {
+              retryDetail.files = retryFiles?.size ?? 0;
+              retryDetail.complete = true;
+              console.log(`[sync] refs-detail ${retryDetail.format()}`);
+            }
             console.log(`[sync] failed-ref-retry mode=${eligibility.filtered ? 'safe-comments' : 'full'} ` +
               `proofFiles=${eligibility.proofFiles} safeFiles=${eligibility.safeFiles} ` +
               `names=${eligibility.names.length} scanned=${visited} attempted=${attempted} ` +

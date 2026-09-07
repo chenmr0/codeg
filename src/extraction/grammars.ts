@@ -195,7 +195,10 @@ export async function initGrammars(): Promise<void> {
  */
 export function resolveWasmPath(lang: GrammarLanguage): string {
   const wasmFile = WASM_GRAMMAR_FILES[lang];
-  return (lang === 'pascal' || lang === 'scala' || lang === 'lua' || lang === 'luau' || lang === 'csharp')
+  // tree-sitter-wasms' old C++ grammar mistakes member comparisons such as
+  // `a.x < 1 || a.y < 1` for template arguments, swallowing later functions.
+  // Vendor upstream 0.23.4; see docs/grammars/tree-sitter-cpp.md.
+  return (lang === 'cpp' || lang === 'pascal' || lang === 'scala' || lang === 'lua' || lang === 'luau' || lang === 'csharp')
     ? path.join(__dirname, 'wasm', wasmFile)
     : require.resolve(`tree-sitter-wasms/out/${wasmFile}`);
 }

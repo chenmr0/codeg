@@ -247,13 +247,53 @@ export function isValidInstantiationTarget(candidate: Node, ref: UnresolvedRef):
   }
 }
 
+function isCppInheritance(ref: UnresolvedRef): boolean {
+  return (ref.language === 'c' || ref.language === 'cpp') &&
+    (ref.referenceKind === 'extends' || ref.referenceKind === 'implements');
+}
+
 function applyTargetKindGate(candidates: Node[], ref: UnresolvedRef): Node[] {
+  if (isCppInheritance(ref)) {
+    return candidates.filter(n => n.kind === 'class' || n.kind === 'struct' || n.kind === 'type_alias');
+  }
   if (ref.referenceKind !== 'instantiates') return candidates;
   return candidates.filter((candidate) => isValidInstantiationTarget(candidate, ref));
 }
 
 function applyReferenceGates(candidates: Node[], ref: UnresolvedRef): Node[] {
   return applyTargetKindGate(applyLanguageGate(candidates, ref), ref);
+}
+
+/** A bare C/C++ identifier cannot name an unrelated class member in another file. */
+function applyCppMemberScopeGate(candidates: Node[], ref: UnresolvedRef, context: ResolutionContext): Node[] {
+  if ((ref.language !== 'c' && ref.language !== 'cpp') || !/^\w+$/.test(ref.referenceName)
+    || !candidates.some(n => (n.kind === 'field' || n.kind === 'method') && n.filePath !== ref.filePath)) return candidates;
+  const source = context.getNodesInFile(ref.filePath).find(n => n.id === ref.fromNodeId);
+  const qualified = source?.qualifiedName ?? '';
+  const owner = qualified.includes('::') ? qualified.slice(0, qualified.lastIndexOf('::')) : '';
+  let bases: Set<string> | undefined;
+  const inherited = (candidateOwner: string): boolean => {
+    if (!owner || !context.getSupertypes) return false;
+    if (!bases) {
+      bases = new Set<string>();
+      let frontier = [owner];
+      for (let depth = 0; depth < 4 && frontier.length; depth++) {
+        const next: string[] = [];
+        for (const type of frontier) for (const base of context.getSupertypes(type, ref.language)) {
+          if (!bases.has(base)) { bases.add(base); next.push(base); }
+        }
+        frontier = next;
+      }
+    }
+    return bases.has(candidateOwner);
+  };
+  return candidates.filter(candidate => {
+    if ((candidate.kind !== 'field' && candidate.kind !== 'method') || candidate.filePath === ref.filePath) return true;
+    const cut = candidate.qualifiedName.lastIndexOf('::');
+    if (cut < 0) return false;
+    const candidateOwner = candidate.qualifiedName.slice(0, cut);
+    return (!!qualified && qualified.startsWith(candidateOwner + '::')) || inherited(candidateOwner);
+  });
 }
 
 /**
@@ -263,7 +303,7 @@ export function matchByExactName(
   ref: UnresolvedRef,
   context: ResolutionContext
 ): ResolvedRef | null {
-  const candidates = applyReferenceGates(context.getNodesByName(ref.referenceName), ref);
+  const candidates = applyCppMemberScopeGate(applyReferenceGates(context.getNodesByName(ref.referenceName), ref), ref, context);
 
   if (candidates.length === 0) {
     return null;
@@ -310,7 +350,7 @@ export function matchByQualifiedName(
   }
 
   const qualifiedCandidates = context.getNodesByQualifiedName(ref.referenceName);
-  const candidates = ref.referenceKind === 'instantiates'
+  const candidates = ref.referenceKind === 'instantiates' || isCppInheritance(ref)
     ? applyReferenceGates(qualifiedCandidates, ref)
     : qualifiedCandidates;
 
@@ -328,7 +368,7 @@ export function matchByQualifiedName(
   const lastName = parts[parts.length - 1];
   if (lastName) {
     const namedCandidates = context.getNodesByName(lastName);
-    const partialCandidates = ref.referenceKind === 'instantiates'
+    const partialCandidates = ref.referenceKind === 'instantiates' || isCppInheritance(ref)
       ? applyReferenceGates(namedCandidates, ref)
       : namedCandidates;
     for (const candidate of partialCandidates) {
@@ -881,6 +921,14 @@ export function matchMethodCall(
 
   const [, objectOrClass, methodName] = match;
 
+  if (ref.language === 'cpp' && colonMatch &&
+    !context.getNodesByName(objectOrClass!).some(n => n.kind === 'type_alias')) {
+    // An explicit C++ owner is not a variable-name similarity hint. If the
+    // member is missing, keep it unresolved rather than selecting Other::name.
+    // Inheritance remains supported; existing alias heuristics stay unchanged.
+    return resolveMethodOnType(objectOrClass!, methodName!, ref, context, 0.85, 'qualified-name');
+  }
+
   if (ref.language === 'cpp' && dotMatch) {
     const inferredType = inferCppReceiverType(objectOrClass!, ref, context);
     if (inferredType) {
@@ -894,6 +942,20 @@ export function matchMethodCall(
       );
       if (typedMatch) {
         return typedMatch;
+      }
+      // A source-spelled PARAMETER is strong receiver evidence. If its
+      // indexed class has no such method, don't fall back to another class's
+      // same-name member. For value/reference parameters require a literal dot
+      // access: operator-> proxies must keep the existing conservative fallback.
+      const source = context.getNodesInFile(ref.filePath).find(n => n.id === ref.fromNodeId);
+      const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      if (source?.signature && cppClassExists(inferredType, ref, context)) {
+        const type = escape(inferredType), receiver = escape(objectOrClass!);
+        const pointer = new RegExp(`\\b${type}\\s*\\*\\s*(?:const\\s+)?${receiver}\\b`).test(source.signature);
+        const line = context.getFileLines?.(ref.filePath)?.[ref.line - 1];
+        const dot = line !== undefined && new RegExp(`^${receiver}\\s*\\.`).test(line.slice(ref.column));
+        const valueOrReference = dot && new RegExp(`\\b${type}\\s*(?:&\\s*)?(?:const\\s+)?${receiver}\\b`).test(source.signature);
+        if (pointer || valueOrReference) return null;
       }
     }
   }
@@ -1158,10 +1220,10 @@ export function matchFuzzy(
   // the same hard semantic target gate as exact/qualified matching, including
   // structs and type aliases that the historical callable list omitted.
   const callableKinds = new Set(['function', 'method', 'class']);
-  const kindCandidates = ref.referenceKind === 'instantiates'
+  const kindCandidates = ref.referenceKind === 'instantiates' || isCppInheritance(ref)
     ? applyTargetKindGate(candidates, ref)
     : candidates.filter((n) => callableKinds.has(n.kind));
-  const callableCandidates = applyLanguageGate(kindCandidates, ref);
+  const callableCandidates = applyCppMemberScopeGate(applyLanguageGate(kindCandidates, ref), ref, context);
 
   // Prefer same-language matches
   const sameLanguageCandidates = callableCandidates.filter(n => n.language === ref.language);
@@ -1187,12 +1249,20 @@ export function matchReference(
   ref: UnresolvedRef,
   context: ResolutionContext
 ): ResolvedRef | null {
+  // C/C++ imports are #include paths, not symbol bindings. A missing header
+  // must stay unresolved: exact/fuzzy lookup can otherwise select the include's
+  // own import node and persist a "successful" edge that survives restoration.
+  // Keep the existing file-path fallback (include-directory/suffix matches),
+  // and leave symbol imports in all other languages on their normal path.
+  if (ref.referenceKind === 'imports' && (ref.language === 'c' || ref.language === 'cpp')) {
+    return matchByFilePath(ref, context);
+  }
   // Try strategies in order of confidence
   let result: ResolvedRef | null;
 
   // Construction expressions name types. Do not run file/receiver/call-chain
   // strategies: a qualified `new A::B()` must not resolve to method `A::B`.
-  if (ref.referenceKind === 'instantiates') {
+  if (ref.referenceKind === 'instantiates' || isCppInheritance(ref)) {
     result = matchByQualifiedName(ref, context);
     if (result) return result;
     result = matchByExactName(ref, context);

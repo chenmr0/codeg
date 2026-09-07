@@ -39,7 +39,7 @@ import type { ReExport } from './types';
 import { LRUCache } from './lru-cache';
 import { ResolutionTextCache } from './text-cache';
 import { measureResolution, type ResolutionDiagnostics } from './diagnostics';
-import { IndexedNameLookup, MAX_INDEXED_SYNC_REFS, type NameLookupMode } from './name-lookup';
+import { IndexedNameLookup, type NameLookupMode } from './name-lookup';
 import { canonicalFilePath, clearCanonicalCache } from '../utils';
 import {
   ResolverPool,
@@ -247,6 +247,7 @@ export class ReferenceResolver {
   private methodOwnerIndexCache: LRUCache<string, Map<string, Node[]>>;
   private nodesByKindCache = new Map<Node['kind'], Node[]>();
   private supertypeGeneration = 0;
+  private supertypeInProgress = new Set<string>();
   private supertypeMemo = new Map<string, { generation: number; values: string[] }>();
   private readonly equivalenceCachesEnabled =
     process.env.CODEGRAPH_NO_RESOLVE_EQUIVALENCE_CACHE !== '1';
@@ -597,6 +598,7 @@ export class ReferenceResolver {
 
       getSupertypes: (typeName: string, language) => {
         const memoKey = `${language}\0${typeName}`;
+        if (this.supertypeInProgress.has(memoKey)) return [];
         if (this.equivalenceCachesEnabled) {
           const memoized = this.supertypeMemo.get(memoKey);
           if (memoized?.generation === this.supertypeGeneration) {
@@ -607,8 +609,9 @@ export class ReferenceResolver {
         // Matching by simple name (not id) reconciles a type declared in one node
         // (`KF::Builder`) with conformance declared in a separate extension node
         // (`KF.Builder: KFOptionSetter`) — both have name `Builder`.
-        const typeNodes = this.context
-          .getNodesByName(typeName)
+        const typeNodes = (language === 'cpp' && typeName.includes('::')
+          ? this.context.getNodesByQualifiedName(typeName)
+          : this.context.getNodesByName(typeName))
           .filter((n) => SUPERTYPE_BEARING_KINDS.has(n.kind) && n.language === language);
         if (typeNodes.length === 0) {
           if (!this.equivalenceCachesEnabled) return [];
@@ -619,12 +622,27 @@ export class ReferenceResolver {
           return [];
         }
         const supertypes = new Set<string>();
-        for (const tn of typeNodes) {
-          for (const edge of this.queries.getOutgoingEdges(tn.id, ['implements', 'extends'])) {
-            const target = this.queries.getNodeById(edge.target);
-            if (target?.name && target.name !== typeName) supertypes.add(target.name);
+        this.supertypeInProgress.add(memoKey);
+        try {
+          for (const tn of typeNodes) {
+            for (const edge of this.queries.getOutgoingEdges(tn.id, ['implements', 'extends'])) {
+              const target = this.queries.getNodeById(edge.target);
+            if (target?.name && target.name !== typeName) supertypes.add(language === 'cpp' ? target.qualifiedName : target.name);
+            }
+            if (language === 'cpp') {
+              // In a first/full pass the inheritance references are extracted but
+              // their edges may not be persisted yet. Read that same pending
+              // relation instead of making method resolution depend on batch order
+              // (or on a previous sync having already populated the extends edge).
+              for (const pending of this.queries.getPendingSupertypes(tn.id)) {
+                const resolved = this.resolveOne({...pending, filePath:tn.filePath, language:tn.language});
+                const target = resolved && this.queries.getNodeById(resolved.targetNodeId);
+                if (target && SUPERTYPE_BEARING_KINDS.has(target.kind) && target.language === language
+                  && target.name !== typeName) supertypes.add(target.qualifiedName);
+              }
+            }
           }
-        }
+        } finally { this.supertypeInProgress.delete(memoKey); }
         const values = [...supertypes];
         if (this.equivalenceCachesEnabled) {
           this.supertypeMemo.set(memoKey, {
@@ -716,10 +734,10 @@ export class ReferenceResolver {
     diagnostics?: ResolutionDiagnostics,
     nameLookup: NameLookupMode = 'full',
   ): ResolutionResult {
-    // Public/bulk callers retain full prewarming. Only an explicit small sync
-    // pass may replace exact Set membership with bounded indexed probes.
+    // Public/bulk callers retain full prewarming. Explicit scoped sync passes
+    // share bounded indexed probes until their cache epoch is invalidated.
     if (diagnostics) diagnostics.refs = unresolvedRefs.length;
-    this.warmCaches(diagnostics, unresolvedRefs.length <= MAX_INDEXED_SYNC_REFS ? nameLookup : 'full');
+    this.warmCaches(diagnostics, nameLookup);
     // Implements/extends edges may have advanced since the previous batch.
     // Reuse supertype answers only within this fixed-edge-state call.
     this.supertypeGeneration++;
@@ -744,8 +762,16 @@ export class ReferenceResolver {
     const total = refs.length;
     let lastReportedPercent = -1;
 
+    let promotionMs = 0;
     const match = () => {
       for (let i = 0; i < refs.length; i++) {
+        const reason = this.indexedNames?.promotionReason ?? 'none';
+        if (reason !== 'none') {
+          if (diagnostics) diagnostics.namePromotion = reason;
+          const started = diagnostics ? performance.now() : 0;
+          try { this.warmCaches(diagnostics, 'full'); }
+          finally { if (diagnostics) promotionMs += performance.now() - started; }
+        }
         const ref = refs[i]!; // Array index is guaranteed to be in bounds
         const result = this.resolveOne(ref);
 
@@ -771,8 +797,15 @@ export class ReferenceResolver {
         onProgress(total, total);
       }
     };
-    measureResolution(diagnostics, 'matchMs', () => this.indexedNames
-      ? this.indexedNames.capture(diagnostics, match) : match());
+    try {
+      // Capture the original lookup even if promotion drops it mid-pass.
+      const lookup = this.indexedNames;
+      measureResolution(diagnostics, 'matchMs', () => lookup
+        ? lookup.capture(diagnostics, match) : match());
+    } finally {
+      // The full-name warmup already has its own timers; don't count it twice.
+      if (diagnostics) diagnostics.timings.matchMs = Math.max(0, diagnostics.timings.matchMs - promotionMs);
+    }
     if (diagnostics) {
       diagnostics.resolved = resolved.length;
       diagnostics.unresolved = unresolved.length;

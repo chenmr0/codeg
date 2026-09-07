@@ -9,6 +9,7 @@ import { scanDirectory, scanDirectoryAsync } from '../src/extraction';
 import { ReconcileDiagnostics, ScanDiagnostics } from '../src/extraction/sync-diagnostics';
 import { DECLARATION_MACRO_RECOVERY_SKIPPED_CODE } from '../src/extraction/diagnostics';
 import { ResolutionDiagnostics } from '../src/resolution/diagnostics';
+import { StoreDiagnostics } from '../src/extraction/store-diagnostics';
 
 describe('verbose sync reconciliation diagnostics', () => {
   const dirs: string[] = [];
@@ -101,19 +102,27 @@ describe('verbose sync reconciliation diagnostics', () => {
 
   it('reports reference load/warm/match/store only for a verbose changed-file pass', async () => {
     const format = vi.spyOn(ResolutionDiagnostics.prototype, 'format');
+    const storeFormat = vi.spyOn(StoreDiagnostics.prototype, 'format');
+    const storeMeasure = vi.spyOn(StoreDiagnostics.prototype, 'measure');
     fs.writeFileSync(path.join(dir, 'b.c'), 'int beta(void) { return alpha(); }\n');
     await sync({});
     expect(format).not.toHaveBeenCalled();
+    expect(storeFormat).not.toHaveBeenCalled(); expect(storeMeasure).not.toHaveBeenCalled();
     expect(messages.some(m => m.includes('refs-detail'))).toBe(false);
     fs.writeFileSync(path.join(dir, 'c.c'), 'int delta(void) { return alpha(); }\n');
     await sync();
+    expect(fields('store-detail')).toMatchObject({ files: '1', skipped: '0', failedPhase: 'none' });
+    expect(Number(fields('store-detail').nodeRows)).toBeGreaterThan(0);
+    expect(Number(fields('store-detail').refRows)).toBeGreaterThan(0);
+    for (const key of Object.keys(new StoreDiagnostics().timings)) expect(fields('store-detail')[key]).toMatch(/^\d+ms$/);
     expect(fields('refs-detail')).toMatchObject({ scope: 'changed', complete: 'true', failedPhase: 'none', files: '1', cache: 'cold', nameLookup: 'indexed', knownNames: 'not-loaded' });
     expect(Number(fields('refs-detail').refs)).toBeGreaterThan(0);
     for (const key of ['loadRefsMs', 'fileNamesLoadMs', 'fileNamesSetMs', 'symbolNamesLoadMs',
       'symbolNamesSetMs', 'normalizeMs', 'matchMs', 'edgeBuildMs', 'edgeInsertMs',
       'resolvedCleanupMs', 'failedCleanupMs', 'totalMs']) expect(fields('refs-detail')[key]).toMatch(/^\d+ms$/);
-    format.mockClear(); await sync();
+    format.mockClear(); storeFormat.mockClear(); await sync();
     expect(format).not.toHaveBeenCalled();
+    expect(storeFormat).not.toHaveBeenCalled();
     expect(messages.some(m => m.includes('refs-detail'))).toBe(false);
   });
 

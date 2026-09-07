@@ -109,8 +109,9 @@ export interface ResolutionContext {
    * Direct supertypes of the type named `typeName` (same language): the classes
    * it extends and the interfaces / protocols / traits it implements/conforms to,
    * by simple name. Backed by the resolved `implements`/`extends` edges, so it is
-   * EMPTY during the first resolution pass (edges aren't built yet) and populated
-   * afterward — the conformance pass uses it to resolve a chained method defined
+   * normally populated afterward. C++ additionally validates pending inheritance
+   * references so the initial and incremental passes see the same relation.
+   * The conformance pass uses it to resolve a chained method defined
    * on a supertype the receiver type conforms to (e.g. a protocol-extension
    * method). Optional so external/test contexts compile without it.
    */
