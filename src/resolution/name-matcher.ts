@@ -8,6 +8,7 @@ import { Node } from '../types';
 import { UnresolvedRef, ResolvedRef, ResolutionContext } from './types';
 import { canonicalFilePath } from '../utils';
 import { splitNameWords } from './text-cache';
+import { hasSimpleCppLocalReceiver } from './cpp-local-receiver';
 
 /**
  * Try to resolve a path-like reference (e.g., "snippets/drawer-menu.liquid")
@@ -956,6 +957,15 @@ export function matchMethodCall(
         const dot = line !== undefined && new RegExp(`^${receiver}\\s*\\.`).test(line.slice(ref.column));
         const valueOrReference = dot && new RegExp(`\\b${type}\\s*(?:&\\s*)?(?:const\\s+)?${receiver}\\b`).test(source.signature);
         if (pointer || valueOrReference) return null;
+        // The helper is bounded and source-only; run it only on failed typed
+        // lookups. Inherited/template/indirect types keep the old path: a
+        // depth-capped typed lookup is not evidence that their method is absent.
+        const types = context.getNodesByName(inferredType);
+        if (!types.some(n => n.kind === 'type_alias' || n.kind === 'macro' || n.typeParameters?.length) &&
+            context.hasCppInheritance?.(inferredType) === false) {
+          const lines = context.getFileLines?.(ref.filePath);
+          if (lines && hasSimpleCppLocalReceiver(objectOrClass!, inferredType, ref, source, lines)) return null;
+        }
       }
     }
   }

@@ -248,7 +248,7 @@ export class ReferenceResolver {
   private nodesByKindCache = new Map<Node['kind'], Node[]>();
   private supertypeGeneration = 0;
   private supertypeInProgress = new Set<string>();
-  private supertypeMemo = new Map<string, { generation: number; values: string[] }>();
+  private supertypeMemo = new Map<string, { generation: number; values: string[]; declared: boolean }>();
   private readonly equivalenceCachesEnabled =
     process.env.CODEGRAPH_NO_RESOLVE_EQUIVALENCE_CACHE !== '1';
   private knownNames: Set<string> | null = null; // all known symbol names for fast pre-filtering
@@ -618,23 +618,29 @@ export class ReferenceResolver {
           this.supertypeMemo.set(memoKey, {
             generation: this.supertypeGeneration,
             values: [],
+            declared: false,
           });
           return [];
         }
         const supertypes = new Set<string>();
+        let declared = false;
         this.supertypeInProgress.add(memoKey);
         try {
           for (const tn of typeNodes) {
-            for (const edge of this.queries.getOutgoingEdges(tn.id, ['implements', 'extends'])) {
+            const edges = this.queries.getOutgoingEdges(tn.id, ['implements', 'extends']);
+            declared ||= edges.length > 0;
+            for (const edge of edges) {
               const target = this.queries.getNodeById(edge.target);
-            if (target?.name && target.name !== typeName) supertypes.add(language === 'cpp' ? target.qualifiedName : target.name);
+              if (target?.name && target.name !== typeName) supertypes.add(language === 'cpp' ? target.qualifiedName : target.name);
             }
             if (language === 'cpp') {
               // In a first/full pass the inheritance references are extracted but
               // their edges may not be persisted yet. Read that same pending
               // relation instead of making method resolution depend on batch order
               // (or on a previous sync having already populated the extends edge).
-              for (const pending of this.queries.getPendingSupertypes(tn.id)) {
+              const pendingBases = this.queries.getPendingSupertypes(tn.id);
+              declared ||= pendingBases.length > 0;
+              for (const pending of pendingBases) {
                 const resolved = this.resolveOne({...pending, filePath:tn.filePath, language:tn.language});
                 const target = resolved && this.queries.getNodeById(resolved.targetNodeId);
                 if (target && SUPERTYPE_BEARING_KINDS.has(target.kind) && target.language === language
@@ -648,16 +654,32 @@ export class ReferenceResolver {
           this.supertypeMemo.set(memoKey, {
             generation: this.supertypeGeneration,
             values,
+            declared,
           });
           if (this.supertypeMemo.size > 50_000) {
             this.supertypeMemo.clear();
             this.supertypeMemo.set(memoKey, {
               generation: this.supertypeGeneration,
               values,
+              declared,
             });
           }
         }
         return values;
+      },
+
+      hasCppInheritance: (typeName: string) => {
+        const key = `cpp\0${typeName}`;
+        if (this.supertypeInProgress.has(key)) return true; // incomplete recursive evidence
+        this.context.getSupertypes!(typeName, 'cpp');
+        const memoized = this.supertypeMemo.get(key);
+        if (this.equivalenceCachesEnabled && memoized?.generation === this.supertypeGeneration) return memoized.declared;
+        // Debug cache-off mode must give the same answer, without retaining an
+        // extra graph cache. Normally the preceding failed lookup already
+        // supplied both resolved and pending bases to the existing memo.
+        const types = typeName.includes('::') ? this.context.getNodesByQualifiedName(typeName) : this.context.getNodesByName(typeName);
+        return types.some(n => n.language === 'cpp' && SUPERTYPE_BEARING_KINDS.has(n.kind) &&
+          (this.queries.getOutgoingEdges(n.id, ['extends', 'implements']).length > 0 || this.queries.getPendingSupertypes(n.id).length > 0));
       },
 
       getImportMappings: (filePath: string, language) => {

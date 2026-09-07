@@ -116,6 +116,9 @@ export interface ResolutionContext {
    * method). Optional so external/test contexts compile without it.
    */
   getSupertypes?(typeName: string, language: Language): string[];
+  /** Includes unresolved base clauses: an empty resolved list alone is not proof
+   * that a C++ type has no inherited members. Optional contexts keep old fallback. */
+  hasCppInheritance?(typeName: string): boolean;
   /** Get cached import mappings for a file */
   getImportMappings(filePath: string, language: Language): ImportMapping[];
   /**
