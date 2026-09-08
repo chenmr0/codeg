@@ -230,11 +230,14 @@ export class DatabaseConnection {
   }
 
   /**
-   * Sync-oriented unresolved-reference indexes are write-only overhead during
-   * the full batched drain: the loop reads by primary key and deletes by id.
+   * Defer only reference indexes not needed by full-resolution reads. The
+   * drain itself seeks/deletes by id, but getPendingSupertypes also reads by
+   * from_node_id while C++ inheritance edges are not yet persisted. Keep
+   * idx_unresolved_from_node: without it, each lookup can scan every pending
+   * and failed row through idx_unresolved_status. This applies to both the
+   * main resolver and its read-only workers.
    */
   private static readonly BULK_RESOLUTION_REF_INDEX_NAMES = [
-    'idx_unresolved_from_node',
     'idx_unresolved_name',
     'idx_unresolved_file_path',
     'idx_unresolved_from_name',

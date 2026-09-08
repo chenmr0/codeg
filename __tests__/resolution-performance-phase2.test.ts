@@ -147,6 +147,7 @@ describe('phase 2 exact unresolved-reference cleanup', () => {
     );
     expect(namesDuring.has('idx_edges_kind')).toBe(false);
     expect(namesDuring.has('idx_unresolved_name')).toBe(false);
+    expect(namesDuring.has('idx_unresolved_from_node')).toBe(true);
     expect(namesDuring.has('idx_edges_identity')).toBe(true);
 
     queries.insertEdges([
