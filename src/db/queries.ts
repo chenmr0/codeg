@@ -64,6 +64,20 @@ function isLowValueFile(filePath: string): boolean {
 
 const SQLITE_PARAM_CHUNK_SIZE = 500;
 
+/** Bounds rows, not just SQL parameters, for incremental reference resolution. */
+export const SCOPED_REFERENCE_BATCH_SIZE = 10000;
+
+export interface PendingReferenceFileChunk {
+  filePaths: string[];
+  total: number;
+  maxRowId: number;
+}
+
+export interface PendingReferenceCursor {
+  filePath: string;
+  rowId: number;
+}
+
 /**
  * Database row types (snake_case from SQLite)
  */
@@ -359,6 +373,16 @@ export class QueryBuilder {
   // batch of 32 keeps even the 22-column node insert below sql.js's commonly
   // compiled 999-variable limit while removing most JS-to-SQLite call overhead.
   private batchStmts: Map<string, SqliteStatement> = new Map();
+
+  // Keys depend only on query shape and <=500 placeholders, never paths or
+  // page numbers. sql.js retains prepared statements until connection close.
+  private scopedRefStmts: Map<string, SqliteStatement> = new Map();
+
+  private scopedRefStatement(key: string, sql: string): SqliteStatement {
+    let stmt = this.scopedRefStmts.get(key);
+    if (!stmt) { stmt = this.db.prepare(sql); this.scopedRefStmts.set(key, stmt); }
+    return stmt;
+  }
   private static readonly BATCH_SIZES: readonly number[] = [32, 8, 1];
 
   private runBatched(
@@ -2430,7 +2454,10 @@ export class QueryBuilder {
           `SELECT * FROM unresolved_refs WHERE status = 'pending' AND file_path IN (${placeholders})`
         )
         .all(...chunk) as UnresolvedRefRow[];
-      rows.push(...chunkRows);
+      // This compatibility API still materializes the whole result. Never
+      // expand an unbounded SQL result into function arguments; sync uses the
+      // bounded readers below instead.
+      for (const row of chunkRows) rows.push(row);
     }
 
     return rows.map((row) => ({
@@ -2691,6 +2718,82 @@ WHERE e.kind = 'imports'
 
     groups.sort((left, right) => left.nameTail.localeCompare(right.nameTail));
     return { groups, total };
+  }
+
+  /**
+   * Snapshot only counts/high-water marks for a scoped resolution pass. The
+   * caller holds the index mutex; later inserts cannot extend this pass.
+   * Use the existing file index: scanning all pending rows for EVERY group of
+   * 500 files makes a small sync depend on unrelated historical backlog.
+   */
+  planPendingReferencesByFiles(filePaths: readonly string[]): {
+    chunks: PendingReferenceFileChunk[]; total: number;
+  } {
+    const files = [...new Set(filePaths)];
+    const chunks: PendingReferenceFileChunk[] = [];
+    let total = 0;
+    // A recovered journal can contain thousands of files after all pending
+    // refs were already consumed. Do not scan their historical failed rows.
+    if (files.length === 0 || !this.scopedRefStatement('exists',
+      "SELECT 1 FROM unresolved_refs WHERE status='pending' LIMIT 1"
+    ).get()) return { chunks, total };
+    for (let offset = 0; offset < files.length; offset += SQLITE_PARAM_CHUNK_SIZE) {
+      const chunk = files.slice(offset, offset + SQLITE_PARAM_CHUNK_SIZE);
+      const placeholders = chunk.map(() => '?').join(',');
+      const row = this.scopedRefStatement(`count:${chunk.length}`,
+        `SELECT COUNT(*) AS count, MAX(id) AS max_id FROM unresolved_refs ` +
+        `INDEXED BY idx_unresolved_file_path ` +
+        `WHERE status='pending' AND file_path IN (${placeholders})`
+      ).get(...chunk) as { count: number; max_id: number | null };
+      const count = Number(row.count);
+      if (count > 0) {
+        chunks.push({ filePaths: chunk, total: count, maxRowId: Number(row.max_id) });
+        total += count;
+      }
+    }
+    return { chunks, total };
+  }
+
+  /**
+   * At most `limit` rows in (file_path BINARY, id) order within a file chunk.
+   * SQLite's file_path index already orders equal paths by rowid. Finish the
+   * current file with an id seek, then seek later paths; a single OR cursor or
+   * ORDER BY id across many files can repeatedly scan/sort a giant macro file.
+   * No live iterator/read transaction survives a returned page or its writes.
+   */
+  getPendingReferenceFileBatch(
+    chunk: PendingReferenceFileChunk,
+    after?: PendingReferenceCursor,
+    limit: number = SCOPED_REFERENCE_BATCH_SIZE,
+  ): UnresolvedReference[] {
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > SCOPED_REFERENCE_BATCH_SIZE) {
+      throw new Error(`Reference batch size must be between 1 and ${SCOPED_REFERENCE_BATCH_SIZE}`);
+    }
+    if (chunk.filePaths.length === 0) return [];
+    if (chunk.filePaths.length > SQLITE_PARAM_CHUNK_SIZE ||
+        (after && !chunk.filePaths.includes(after.filePath))) {
+      throw new Error('Invalid scoped reference chunk/cursor');
+    }
+    const rows: UnresolvedRefRow[] = after ? this.scopedRefStatement('file',
+      `SELECT * FROM unresolved_refs INDEXED BY idx_unresolved_file_path ` +
+      `WHERE file_path=? AND id>? AND id<=? AND status='pending' ORDER BY id LIMIT ?`
+    ).all(after.filePath, after.rowId, chunk.maxRowId, limit) as UnresolvedRefRow[] : [];
+    if (rows.length < limit) {
+      const placeholders = chunk.filePaths.map(() => '?').join(',');
+      const laterRows = this.scopedRefStatement(`page:${chunk.filePaths.length}:${!!after}`,
+        `SELECT * FROM unresolved_refs INDEXED BY idx_unresolved_file_path ` +
+        `WHERE file_path IN (${placeholders}) ${after ? 'AND file_path>? ' : ''}` +
+        `AND id<=? AND status='pending' ORDER BY file_path,id LIMIT ?`
+      ).all(...chunk.filePaths, ...(after ? [after.filePath] : []),
+        chunk.maxRowId, limit - rows.length) as UnresolvedRefRow[];
+      for (const row of laterRows) rows.push(row);
+    }
+    return rows.map((row) => ({
+      rowId: row.id, fromNodeId: row.from_node_id, referenceName: row.reference_name,
+      referenceKind: row.reference_kind as EdgeKind, line: row.line, column: row.col,
+      candidates: row.candidates ? safeJsonParse(row.candidates, undefined) : undefined,
+      filePath: row.file_path, language: row.language as Language,
+    }));
   }
 
   /**

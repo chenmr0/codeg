@@ -18,6 +18,7 @@
     "codegraph-macros/src",
     "docs/rust-macro-scan.md",
     "docs/sync-diagnostics.md",
+    "docs/scoped-reference-batches.md",
     "docs/rust-scan-prototype.md",
     "docs/native-scan-release.md",
     "docs/grammars/tree-sitter-cpp.md",

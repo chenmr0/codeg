@@ -54,10 +54,13 @@ try {
       const lines=[],log=console.log;console.log=(...a)=>lines.push(a.join(' '));
       try {
         const noop=await cg.sync({verbose:true});assert.equal(noop.filesModified,0);
-        fs.writeFileSync(path.join(project,'src/a.c'),'int changed_value;\\n');
-        fs.writeFileSync(path.join(project,'src/b.c'),'int added_value;\\n');
+        fs.writeFileSync(path.join(project,'src/a.c'),'int changed_value;\\nint package_helper(void) { return 1; }\\n');
+        fs.writeFileSync(path.join(project,'src/b.c'),'int added_value;\\nint package_caller(void) { return package_helper(); }\\n');
         const changed=await cg.sync({verbose:true});assert.equal(changed.filesModified,1);assert.equal(changed.filesAdded,1);
         assert.equal(cg.getNodesByName('changed_value').length,1);assert.equal(cg.getNodesByName('added_value').length,1);
+        const caller=cg.getNodesByName('package_caller')[0],target=cg.getNodesByName('package_helper')[0];
+        assert.ok(caller&&target);
+        assert.ok(cg.getOutgoingEdges(caller.id).some(edge=>edge.kind==='calls'&&edge.target===target.id));
         fs.unlinkSync(path.join(project,'src/b.c'));
         const removed=await cg.sync({verbose:true});assert.equal(removed.filesRemoved,1);
         assert.equal(cg.getNodesByName('added_value').length,0);

@@ -60,7 +60,7 @@ import {
 import { getCodeGraphDir } from './directory';
 import { deriveProjectNameTokens } from './search/query-utils';
 import { CodeGraphPackageVersion } from './mcp/version';
-import { ResolutionDiagnostics, measureResolution } from './resolution/diagnostics';
+import { ResolutionDiagnostics } from './resolution/diagnostics';
 import { syncNameLookupMode } from './resolution/name-lookup';
 
 // Re-export types for consumers
@@ -720,11 +720,9 @@ export class CodeGraph {
           const detail = options.verbose ? new ResolutionDiagnostics() : undefined;
           if (detail) detail.files = referenceFiles.length;
           try {
-            const refs = measureResolution(detail, 'loadRefsMs',
-              () => this.queries.getUnresolvedReferencesByFiles(referenceFiles));
-            this.resolver.resolveAndPersist(refs, (current, total) => {
+            await this.resolver.resolveFilesAndPersist(referenceFiles, (current, total) => {
               options.onProgress?.({ phase: 'resolving', current, total });
-            }, detail, syncNameLookupMode(refs.length));
+            }, { diagnostics: detail, nameLookup: 'sync' });
             if (detail) detail.complete = true;
           } finally {
             if (detail) console.log(`[sync] refs-detail ${detail.format()}`);
@@ -735,16 +733,10 @@ export class CodeGraph {
         // Whole-file deletion cascades incoming edges from unchanged callers.
         // The extraction layer resurrects stamped edges as pending references;
         // resolve just those source files rather than sweeping the whole table.
-        const resurrectedRefs = result.resurrectedReferenceSourceFiles?.length
-          ? this.queries.getUnresolvedReferencesByFiles(
-              result.resurrectedReferenceSourceFiles
-            )
-          : [];
-        if (resurrectedRefs.length > 0) {
-          this.resolver.resolveAndPersist(resurrectedRefs, (current, total) => {
+        const resurrectedRefCount = result.resurrectedReferenceSourceFiles?.length
+          ? await this.resolver.resolveFilesAndPersist(result.resurrectedReferenceSourceFiles, (current, total) => {
             options.onProgress?.({ phase: 'resolving', current, total });
-          });
-        }
+          }) : 0;
 
         tailMark('resurrectedRefsMs');
         // A changed file may introduce a symbol needed by references in files
@@ -913,10 +905,8 @@ export class CodeGraph {
             });
           }
 
-          const coImportRefs =
-            this.queries.getUnresolvedReferencesByFiles(successfullyReindexedFiles);
-          if (coImportRefs.length > 0) {
-            this.resolver.resolveAndPersist(coImportRefs, (current, total) => {
+          if (successfullyReindexedFiles.length > 0) {
+            await this.resolver.resolveFilesAndPersist(successfullyReindexedFiles, (current, total) => {
               options.onProgress?.({ phase: 'resolving', current, total });
             });
           }
@@ -973,7 +963,7 @@ export class CodeGraph {
         if (
           hasSuccessfulChangedFiles ||
           retryState.hasWork ||
-          resurrectedRefs.length > 0 ||
+          resurrectedRefCount > 0 ||
           orphanCount > 0
         ) {
           // Run after every resolution source: scoped refs, resurrected refs,

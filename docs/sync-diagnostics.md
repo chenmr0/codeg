@@ -1,5 +1,11 @@
 # sync 文件核对诊断
 
+密集引用分页修复及内存/耗时验证见 [scoped-reference-batches.md](scoped-reference-batches.md)。
+`refs-detail scope=changed` 新增 `plannedRefs`（计划引用数）、`batches`（已开始处理的批数）、
+`maxBatchRefs`（最大批条数，至多 10,000）。成功时 `refs=plannedRefs`；失败时可能只有部分批次完成。
+`loadRefsMs` 累计计划及分页查询，不再代表一次性装载整个结果。异常时 `tail-detail.cleanupMs`
+可能包含上个阶段计时标记之后尚未结算的失败区间，不能与 `loadRefsMs` 简单相加。
+
 已有索引可以直接使用，无须重新 init 或重建。执行 `codegraph sync -v`，会在文件核对结束后立即输出四行诊断：
 
 ```text

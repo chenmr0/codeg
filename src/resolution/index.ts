@@ -7,7 +7,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { Node, UnresolvedReference, Edge } from '../types';
-import { QueryBuilder } from '../db/queries';
+import { QueryBuilder, SCOPED_REFERENCE_BATCH_SIZE, type PendingReferenceCursor } from '../db/queries';
 import {
   UnresolvedRef,
   ResolvedRef,
@@ -38,8 +38,8 @@ import { logDebug } from '../errors';
 import type { ReExport } from './types';
 import { LRUCache } from './lru-cache';
 import { ResolutionTextCache } from './text-cache';
-import { measureResolution, type ResolutionDiagnostics } from './diagnostics';
-import { IndexedNameLookup, type NameLookupMode } from './name-lookup';
+import { measureResolution, ResolutionDiagnostics } from './diagnostics';
+import { IndexedNameLookup, syncNameLookupMode, type NameLookupMode } from './name-lookup';
 import { canonicalFilePath, clearCanonicalCache } from '../utils';
 import {
   ResolverPool,
@@ -1154,8 +1154,14 @@ export class ReferenceResolver {
     onProgress?: (current: number, total: number) => void,
     diagnostics?: ResolutionDiagnostics,
     nameLookup: NameLookupMode = 'full',
+    requireExactRowCleanup: boolean = false,
   ): ResolutionResult {
+    if (requireExactRowCleanup && unresolvedRefs.some(ref =>
+      !Number.isSafeInteger(ref.rowId) || ref.rowId! <= 0)) {
+      throw new Error('Scoped reference cleanup requires database row IDs');
+    }
     const result = this.resolveAll(unresolvedRefs, onProgress, diagnostics, nameLookup);
+    let removedPending = 0;
 
     // Create edges from resolved references
     const edges = measureResolution(diagnostics, 'edgeBuildMs', () => this.createEdges(result.resolved));
@@ -1172,7 +1178,7 @@ export class ReferenceResolver {
         const cleanup = ReferenceResolver.partitionCleanup(
           result.resolved.map((ref) => ref.original)
         );
-        this.queries.deleteReferencesByRowIds(cleanup.rowIds);
+        removedPending += this.queries.deleteReferencesByRowIds(cleanup.rowIds);
         this.queries.deleteSpecificResolvedReferences(cleanup.legacyKeys);
       });
     }
@@ -1182,12 +1188,91 @@ export class ReferenceResolver {
     if (result.unresolved.length > 0) {
       measureResolution(diagnostics, 'failedCleanupMs', () => {
         const cleanup = ReferenceResolver.partitionFailedCleanup(result.unresolved);
-        this.queries.markReferencesFailedByRowIds(cleanup.byRowId);
+        removedPending += this.queries.markReferencesFailedByRowIds(cleanup.byRowId);
         this.queries.markReferencesFailed(cleanup.legacyKeys);
       });
     }
 
+    if (requireExactRowCleanup) {
+      // Count actual writes, not a full pending-table COUNT per page. A seek
+      // cursor must never hide a failed cleanup by advancing past its rows.
+      measureResolution(diagnostics, 'failedCleanupMs', () => {
+        if (removedPending !== unresolvedRefs.length) {
+          throw new Error(`Scoped reference cleanup incomplete: consumed ${removedPending} of ${unresolvedRefs.length} rows`);
+        }
+      });
+    }
     return result;
+  }
+
+  /**
+   * Bound database reads AND resolution outputs for scoped sync. Keep one
+   * page and scalar counters, sharing the existing cache epoch. Loading all
+   * files before slicing would still retain millions of reference objects.
+   */
+  async resolveFilesAndPersist(
+    filePaths: readonly string[],
+    onProgress?: (current: number, total: number) => void,
+    options: {
+      diagnostics?: ResolutionDiagnostics;
+      nameLookup?: NameLookupMode | 'sync';
+      batchSize?: number;
+    } = {},
+  ): Promise<number> {
+    const size = options.batchSize ?? SCOPED_REFERENCE_BATCH_SIZE;
+    if (!Number.isSafeInteger(size) || size < 1 || size > SCOPED_REFERENCE_BATCH_SIZE) {
+      throw new Error(`Reference batch size must be between 1 and ${SCOPED_REFERENCE_BATCH_SIZE}`);
+    }
+    const detail = options.diagnostics;
+    const plan = measureResolution(detail, 'loadRefsMs',
+      () => this.queries.planPendingReferencesByFiles(filePaths));
+    if (detail) detail.plannedRefs = plan.total;
+    const nameLookup = options.nameLookup === 'sync'
+      ? syncNameLookupMode(plan.total) : options.nameLookup ?? 'full';
+    let processed = 0;
+    let lastPercent = -1;
+    for (const chunk of plan.chunks) {
+      let cursor: PendingReferenceCursor | undefined;
+      let chunkProcessed = 0;
+      while (chunkProcessed < chunk.total) {
+        const batchDetail = detail ? new ResolutionDiagnostics(detail.scope) : undefined;
+        try {
+          const batch = measureResolution(batchDetail, 'loadRefsMs', () => {
+            const refs = this.queries.getPendingReferenceFileBatch(chunk, cursor, size);
+            const last = refs[refs.length - 1];
+            if (!last || last.rowId === undefined || last.filePath === undefined ||
+                (last.filePath === cursor?.filePath && last.rowId <= cursor.rowId) ||
+                chunkProcessed + refs.length > chunk.total) {
+              throw new Error('Scoped reference snapshot changed or cursor made no progress');
+            }
+            cursor = { filePath: last.filePath, rowId: last.rowId };
+            return refs;
+          });
+          if (detail) {
+            detail.batches++;
+            detail.maxBatchRefs = Math.max(detail.maxBatchRefs, batch.length);
+          }
+          // Exact row-ID cleanup leaves the current/unvisited pages pending
+          // on interruption. The caller promotes the journal only on success.
+          this.resolveAndPersist(batch, onProgress ? (current) => {
+            const value = processed + current;
+            const percent = Math.floor(value / plan.total * 100);
+            if (percent > lastPercent) {
+              lastPercent = percent;
+              onProgress(value, plan.total);
+            }
+          } : undefined, batchDetail, nameLookup, true);
+          processed += batch.length;
+          chunkProcessed += batch.length;
+        } finally {
+          if (detail && batchDetail) detail.add(batchDetail);
+        }
+        // Yield only between completed writes, with no open SQLite reader or
+        // transaction. A one-page small sync needs no extra event-loop turn.
+        if (processed < plan.total) await new Promise<void>(resolve => setImmediate(resolve));
+      }
+    }
+    return processed;
   }
 
   /**
