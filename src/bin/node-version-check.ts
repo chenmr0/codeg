@@ -81,10 +81,25 @@ export function buildNodeTooOldBanner(nodeVersion: string): string {
  */
 export function needsWasmFallback(): boolean {
   if (process.env.CODEGRAPH_FORCE_WASM) return true;
+  // The CLI intentionally uses node:sqlite. Suppress only its known startup
+  // notice during this synchronous probe; leave all other warnings intact.
+  // Node emits the warning here, then caches the module for later DB opens.
+  const emitWarning = process.emitWarning;
+  process.emitWarning = (warning: string | Error, ...args: unknown[]): void => {
+    if (
+      warning === 'SQLite is an experimental feature and might change at any time' &&
+      args[0] === 'ExperimentalWarning'
+    ) {
+      return;
+    }
+    Reflect.apply(emitWarning, process, [warning, ...args]);
+  };
   try {
     require('node:sqlite');
     return false;
   } catch {
     return true;
+  } finally {
+    process.emitWarning = emitWarning;
   }
 }

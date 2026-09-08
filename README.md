@@ -358,6 +358,7 @@ AI 助手默认可用的 **7 个 MCP 工具**：
 ## 部署说明
 
 - 优先使用 Node 内置 `node:sqlite`，不可用时回退 `sql.js` WASM；`CODEGRAPH_FORCE_WASM=1` 可强制 WASM。
+- CLI 启动时默认过滤 SQLite 的 `ExperimentalWarning` 提示，其他警告和错误照常输出。
 - 无 `better-sqlite3` 依赖，降低低版本 glibc / 受限环境部署成本。
 - 文件监听不稳定时可用 `codegraph serve --mcp --no-watch`。
 
