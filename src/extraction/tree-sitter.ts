@@ -1519,6 +1519,11 @@ export class TreeSitterExtractor {
       ...this.extractor.structTypes,
       ...this.extractor.enumTypes,
     ]);
+    // Parent lookups can return new JS wrappers for the same native node. Use
+    // its tree-local ID, and retain only row numbers for this recovery pass.
+    // Enumerating a large namespace body for every macro is quadratic in the
+    // number of declarations and repeatedly materializes WASM child wrappers.
+    const accessSectionsByContainer = new Map<number, Array<{ startRow: number; endRow: number }>>();
 
     const keepRows = (startRow: number, endRow: number): void => {
       const start = Math.max(0, Math.min(startRow, lines.length - 1));
@@ -1537,27 +1542,43 @@ export class TreeSitterExtractor {
       let depth = 0;
       while (current && depth++ < 128) {
         if (containerTypes.has(current.type)) {
-          const body = this.extractor.resolveBody?.(current, this.extractor.bodyField)
-            ?? getChildByField(current, this.extractor.bodyField);
-          if (body) {
-            let headerStart = current.startPosition.row;
-            if (current.parent?.type === 'template_declaration') {
-              headerStart = current.parent.startPosition.row;
-            }
-            keepRows(headerStart, body.startPosition.row);
-            keepRows(body.endPosition.row, current.endPosition.row);
-
-            // Visibility is semantic context for generated members. Preserve
-            // the latest access section preceding this invocation.
-            let latestAccess: SyntaxNode | null = null;
-            for (const child of body.namedChildren) {
-              if (child.type === 'access_specifier' && child.startPosition.row <= row) {
-                latestAccess = child;
+          let accessSections = accessSectionsByContainer.get(current.id);
+          if (!accessSections) {
+            accessSections = [];
+            accessSectionsByContainer.set(current.id, accessSections);
+            const body = this.extractor.resolveBody?.(current, this.extractor.bodyField)
+              ?? getChildByField(current, this.extractor.bodyField);
+            if (body) {
+              let headerStart = current.startPosition.row;
+              const parent = current.parent;
+              if (parent?.type === 'template_declaration') {
+                headerStart = parent.startPosition.row;
+              }
+              keepRows(headerStart, body.startPosition.row);
+              keepRows(body.endPosition.row, current.endPosition.row);
+              for (const child of body.namedChildren) {
+                if (child.type === 'access_specifier') {
+                  accessSections.push({
+                    startRow: child.startPosition.row,
+                    endRow: child.endPosition.row,
+                  });
+                }
               }
             }
-            if (latestAccess) {
-              keepRows(latestAccess.startPosition.row, latestAccess.endPosition.row);
-            }
+          }
+
+          // Children are in source order. Preserve the last access section at
+          // or before this invocation, including the last one on the same row.
+          let lo = 0;
+          let hi = accessSections.length;
+          while (lo < hi) {
+            const mid = (lo + hi) >>> 1;
+            if (accessSections[mid]!.startRow <= row) lo = mid + 1;
+            else hi = mid;
+          }
+          const latestAccess = accessSections[lo - 1];
+          if (latestAccess) {
+            keepRows(latestAccess.startRow, latestAccess.endRow);
           }
         }
         current = current.parent;
