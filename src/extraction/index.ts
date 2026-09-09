@@ -9,6 +9,7 @@ import * as fsp from 'fs/promises';
 import * as path from 'path';
 import * as crypto from 'crypto';
 import * as os from 'os';
+import { getHeapStatistics } from 'node:v8';
 import { execFileSync, type ExecFileSyncOptionsWithStringEncoding } from 'child_process';
 import {
   Language,
@@ -30,6 +31,9 @@ import ignore, { Ignore } from 'ignore';
 import { detectFrameworks } from '../resolution/frameworks';
 import type { ResolutionContext } from '../resolution/types';
 import { ParseWorkerPool, resolveParsePoolSize } from './parse-pool';
+import { orderedParallelMap, type WeightedInput, type OrderedPipelineMetrics } from './ordered-pipeline';
+import { estimateExtractionBytes, resolveParseBufferBudget } from './extraction-size';
+import { memoryBudgetBytes } from '../resolution/memory-budget';
 import type { CppMacroDefinition } from './declaration-macros';
 import { buildMacroContext, formatMacroScanMetrics } from './macro-scan';
 import { isRetryableParseWorkerError } from './wasm-errors';
@@ -1245,9 +1249,10 @@ export class ExtractionOrchestrator {
     let totalNodes = 0;
     let totalEdges = 0;
     const extractionTimingTotals: ExtractionTimings = {};
-    let fileReadMs = 0;
-    let parseWallMs = 0;
+    let fileReadSumMs = 0;
+    let parsePipelineMs = 0;
     let storeAdmissionMs = 0;
+    const pipelineMetrics: OrderedPipelineMetrics = { peakPending: 0, peakEstimatedBytes: 0 };
 
     const log = verbose
       ? (msg: string) => { console.log(`[worker] ${msg}`); }
@@ -1637,191 +1642,192 @@ export class ExtractionOrchestrator {
       });
     }
 
-    try {
-    for (let i = 0; i < files.length; i += FILE_IO_BATCH_SIZE) {
-      if (signal?.aborted) {
-        if (storeWriter) await storeWriter.close();
-        if (parsePool) await parsePool.destroy();
-        if (parseWorker) {
-          (parseWorker as import('worker_threads').Worker).terminate().catch(() => {});
+    interface FileInput {
+      filePath: string;
+      fullPath: string | null;
+      stats: fs.Stats | null;
+      error: Error | null;
+    }
+    // Only small stat records are prefetched in batches. File contents are read
+    // after the pipeline reserves their space, not ten unbounded reads ahead.
+    async function* inputs(rootDir: string): AsyncGenerator<WeightedInput<FileInput>> {
+      for (let i = 0; i < files.length && !signal?.aborted; i += FILE_IO_BATCH_SIZE) {
+        const batch = await Promise.all(files.slice(i, i + FILE_IO_BATCH_SIZE).map(async (filePath): Promise<FileInput> => {
+          const started = performance.now();
+          try {
+            const fullPath = validatePathWithinRoot(rootDir, filePath);
+            if (!fullPath) {
+              logWarn('Path traversal blocked in batch reader', { filePath });
+              throw new Error('Path traversal blocked');
+            }
+            const stats = await fsp.stat(fullPath);
+            return { filePath, fullPath, stats, error: null };
+          } catch (error) {
+            return { filePath, fullPath: null, stats: null, error: error as Error };
+          } finally {
+            fileReadSumMs += performance.now() - started;
+          }
+        }));
+        for (const item of batch) {
+          // Reserve for both UTF-16 source and likely graph expansion before
+          // dispatch; completion replaces this with a result-based estimate.
+          yield { value: item, estimatedBytes: Math.max(32 * 1024, (item.stats?.size ?? 0) * 16) };
         }
+      }
+    }
+
+    const parseBufferBudget = resolveParseBufferBudget(
+      memoryBudgetBytes(), getHeapStatistics().heap_size_limit - process.memoryUsage().heapUsed,
+    );
+    const parsedFiles = orderedParallelMap(inputs(this.rootDir), async (item) => {
+      let content: string | null = null;
+      let readError = item.error;
+      if (item.fullPath && !readError && !signal?.aborted) {
+        const started = performance.now();
+        try { content = await fsp.readFile(item.fullPath, 'utf-8'); }
+        catch (error) { readError = error as Error; }
+        finally { fileReadSumMs += performance.now() - started; }
+      }
+      const value = { filePath: item.filePath, content, stats: item.stats, error: readError };
+      if (readError || content === null || item.stats === null || signal?.aborted) {
+        return { ...value, result: null as ExtractionResult | null, parseError: null as unknown };
+      }
+      if (item.stats.size > FILE_SIZE_WARN_THRESHOLD) {
+        logWarn(`Large file may take longer to parse: ${item.filePath} (${(item.stats.size / 1024 / 1024).toFixed(1)}MB)`);
+      }
+      try {
+        const result = await requestParse(item.filePath, content);
+        return { ...value, result, parseError: null as unknown };
+      } catch (parseError) {
+        return { ...value, result: null as ExtractionResult | null, parseError };
+      }
+    }, {
+      maxPending: (parsePool?.size ?? 1) * 4,
+      maxEstimatedBytes: parseBufferBudget,
+      estimateResultBytes: (item) => estimateExtractionBytes(item.content, item.result),
+      signal,
+      metrics: pipelineMetrics,
+    });
+
+    try {
+      const pipelineStarted = performance.now();
+      // The iterator refills lookahead after each write, without a batch-wide
+      // parse barrier. Its output order is independent of worker completion.
+      for await (const { filePath, content, stats, error, result, parseError } of parsedFiles) {
+        if (signal?.aborted) break;
+        const storeAdmissionStarted = performance.now();
+        try {
+          // Report the next file admitted to storage in discovery order.
+          onProgress?.({
+            phase: 'parsing',
+            current: processed,
+            total,
+            currentFile: filePath,
+          });
+
+          if (error || content === null || stats === null) {
+            processed++;
+            filesErrored++;
+            errors.push({
+              message: `Failed to read file: ${error instanceof Error ? error.message : String(error)}`,
+              filePath,
+              severity: 'error',
+              code: 'read_error',
+            });
+            continue;
+          }
+
+          if (parseError || !result) {
+            processed++;
+            filesErrored++;
+            errors.push({
+              message: parseError instanceof Error ? parseError.message : String(parseError),
+              filePath,
+              severity: 'error',
+              code: 'parse_error',
+            });
+            continue;
+          }
+
+          processed++;
+          accumulateExtractionTimings(extractionTimingTotals, result.timings);
+
+          // WAL backpressure: a between-transactions boundary, safe to pause the
+          // writer here if the disk is saturated and the WAL needs a full
+          // backfill (#1231). null = under the hard cap, no wait.
+          const bp = walBackpressure?.();
+          if (bp) await bp;
+          if (signal?.aborted) break;
+
+          // Fresh node:sqlite builds post a pre-filtered bundle to the dedicated
+          // writer. Other paths retain the existing main-connection store.
+          if (result.nodes.length > 0 || result.errors.length === 0) {
+            const language = detectLanguage(filePath, content);
+            if (storeWriter) {
+              storeWriter.send(
+                this.buildFreshStoreBundle(
+                  filePath,
+                  content,
+                  language,
+                  stats,
+                  result
+                )
+              );
+              // The worker owns a structured clone until ack. Bound that queue
+              // too, so releasing parse reservations cannot hide a writer backlog.
+              await storeWriter.waitBelow(STORE_WRITER_WINDOW, parseBufferBudget);
+            } else if (storeWriterOpts) {
+              this.queries.storeFileBundle(
+                this.buildFreshStoreBundle(
+                  filePath,
+                  content,
+                  language,
+                  stats,
+                  result
+                )
+              );
+            } else {
+              this.storeExtractionResult(filePath, content, language, stats, result);
+            }
+          }
+
+          if (result.errors.length > 0) {
+            for (const err of result.errors) {
+              if (!err.filePath) err.filePath = filePath;
+            }
+            errors.push(...result.errors);
+          }
+
+          if (result.nodes.length > 0) {
+            filesIndexed++;
+            totalNodes += result.nodes.length;
+            totalEdges += result.edges.length;
+          } else if (result.errors.some((e) => e.severity === 'error')) {
+            filesErrored++;
+          } else {
+            // Files with no symbols but no errors (yaml, twig, properties) are
+            // tracked at the file level — count them as indexed so the CLI
+            // doesn't misleadingly report "No files found to index".
+            const lang = detectLanguage(filePath, content);
+            if (isFileLevelOnlyLanguage(lang)) {
+              filesIndexed++;
+            } else {
+              filesSkipped++;
+            }
+          }
+        } finally {
+          storeAdmissionMs += performance.now() - storeAdmissionStarted;
+        }
+      }
+      parsePipelineMs = performance.now() - pipelineStarted;
+      if (signal?.aborted) {
         return {
-          success: false,
-          filesIndexed,
-          filesSkipped,
-          filesErrored,
-          nodesCreated: totalNodes,
-          edgesCreated: totalEdges,
+          success: false, filesIndexed, filesSkipped, filesErrored,
+          nodesCreated: totalNodes, edgesCreated: totalEdges,
           errors: [{ message: 'Aborted', severity: 'error' }, ...errors],
           durationMs: Date.now() - startTime,
         };
       }
-
-      const batch = files.slice(i, i + FILE_IO_BATCH_SIZE);
-
-      // Read files in parallel (with path validation before any I/O)
-      const fileReadStarted = performance.now();
-      const fileContents = await Promise.all(
-        batch.map(async (fp) => {
-          try {
-            const fullPath = validatePathWithinRoot(this.rootDir, fp);
-            if (!fullPath) {
-              logWarn('Path traversal blocked in batch reader', { filePath: fp });
-              return { filePath: fp, content: null as string | null, stats: null as fs.Stats | null, error: new Error('Path traversal blocked') };
-            }
-            const content = await fsp.readFile(fullPath, 'utf-8');
-            const stats = await fsp.stat(fullPath);
-            return { filePath: fp, content, stats, error: null as Error | null };
-          } catch (err) {
-            return { filePath: fp, content: null as string | null, stats: null as fs.Stats | null, error: err as Error };
-          }
-        })
-      );
-      fileReadMs += performance.now() - fileReadStarted;
-
-      // Parse the whole I/O batch concurrently across the pool. Promise.all
-      // preserves array order, and the following loop stores in that same
-      // order, so graph insertion/disambiguation stays deterministic.
-      const parseBatchStarted = performance.now();
-      const parsedBatch = await Promise.all(
-        fileContents.map(async (item) => {
-          if (item.error || item.content === null || item.stats === null) {
-            return { ...item, result: null as ExtractionResult | null, parseError: null as unknown };
-          }
-          if (item.stats.size > FILE_SIZE_WARN_THRESHOLD) {
-            logWarn(
-              `Large file may take longer to parse: ${item.filePath} (${(item.stats.size / 1024 / 1024).toFixed(1)}MB)`
-            );
-          }
-          try {
-            const result = await requestParse(item.filePath, item.content);
-            return { ...item, result, parseError: null as unknown };
-          } catch (parseError) {
-            return { ...item, result: null as ExtractionResult | null, parseError };
-          }
-        })
-      );
-      parseWallMs += performance.now() - parseBatchStarted;
-
-      // Admit and store results strictly in file order.
-      const storeAdmissionStarted = performance.now();
-      for (const { filePath, content, stats, error, result, parseError } of parsedBatch) {
-        if (signal?.aborted) {
-          if (storeWriter) await storeWriter.close();
-          if (parsePool) await parsePool.destroy();
-          if (parseWorker) {
-            (parseWorker as import('worker_threads').Worker).terminate().catch(() => {});
-          }
-          return {
-            success: false,
-            filesIndexed,
-            filesSkipped,
-            filesErrored,
-            nodesCreated: totalNodes,
-            edgesCreated: totalEdges,
-            errors: [{ message: 'Aborted', severity: 'error' }, ...errors],
-            durationMs: Date.now() - startTime,
-          };
-        }
-
-        // Report progress before parsing (show current file being worked on)
-        onProgress?.({
-          phase: 'parsing',
-          current: processed,
-          total,
-          currentFile: filePath,
-        });
-
-        if (error || content === null || stats === null) {
-          processed++;
-          filesErrored++;
-          errors.push({
-            message: `Failed to read file: ${error instanceof Error ? error.message : String(error)}`,
-            filePath,
-            severity: 'error',
-            code: 'read_error',
-          });
-          continue;
-        }
-
-        if (parseError || !result) {
-          processed++;
-          filesErrored++;
-          errors.push({
-            message: parseError instanceof Error ? parseError.message : String(parseError),
-            filePath,
-            severity: 'error',
-            code: 'parse_error',
-          });
-          continue;
-        }
-
-        processed++;
-        accumulateExtractionTimings(extractionTimingTotals, result.timings);
-
-        // WAL backpressure: a between-transactions boundary, safe to pause the
-        // writer here if the disk is saturated and the WAL needs a full
-        // backfill (#1231). null = under the hard cap, no wait.
-        const bp = walBackpressure?.();
-        if (bp) await bp;
-
-        // Fresh node:sqlite builds post a pre-filtered bundle to the dedicated
-        // writer. Other paths retain the existing main-connection store.
-        if (result.nodes.length > 0 || result.errors.length === 0) {
-          const language = detectLanguage(filePath, content);
-          if (storeWriter) {
-            storeWriter.send(
-              this.buildFreshStoreBundle(
-                filePath,
-                content,
-                language,
-                stats,
-                result
-              )
-            );
-            await storeWriter.waitBelow(STORE_WRITER_WINDOW);
-          } else if (storeWriterOpts) {
-            this.queries.storeFileBundle(
-              this.buildFreshStoreBundle(
-                filePath,
-                content,
-                language,
-                stats,
-                result
-              )
-            );
-          } else {
-            this.storeExtractionResult(filePath, content, language, stats, result);
-          }
-        }
-
-        if (result.errors.length > 0) {
-          for (const err of result.errors) {
-            if (!err.filePath) err.filePath = filePath;
-          }
-          errors.push(...result.errors);
-        }
-
-        if (result.nodes.length > 0) {
-          filesIndexed++;
-          totalNodes += result.nodes.length;
-          totalEdges += result.edges.length;
-        } else if (result.errors.some((e) => e.severity === 'error')) {
-          filesErrored++;
-        } else {
-          // Files with no symbols but no errors (yaml, twig, properties) are
-          // tracked at the file level — count them as indexed so the CLI
-          // doesn't misleadingly report "No files found to index".
-          const lang = detectLanguage(filePath, content);
-          if (isFileLevelOnlyLanguage(lang)) {
-            filesIndexed++;
-          } else {
-            filesSkipped++;
-          }
-        }
-      }
-      storeAdmissionMs += performance.now() - storeAdmissionStarted;
-    }
 
     // The worker applies queued bundles in message order. Close its connection
     // before retries and resolution return to the main database connection.
@@ -1996,9 +2002,12 @@ export class ExtractionOrchestrator {
       `Index phases: scan=${Math.round(scanMs)}ms ` +
       `framework=${Math.round(frameworkDetectionMs)}ms ` +
       `macroScan=${Math.round(macroScanMs)}ms ` +
-      `read=${Math.round(fileReadMs)}ms ` +
-      `parseWall=${Math.round(parseWallMs)}ms ` +
-      `storeAdmission=${Math.round(storeAdmissionMs)}ms`,
+      `readSum=${Math.round(fileReadSumMs)}ms ` +
+      `parsePipeline=${Math.round(parsePipelineMs)}ms ` +
+      `storeAdmission=${Math.round(storeAdmissionMs)}ms ` +
+      `bufferBudgetMB=${Math.floor(parseBufferBudget / 1024 / 1024)} ` +
+      `peakBufferedFiles=${pipelineMetrics.peakPending} ` +
+      `peakEstimatedBufferMB=${Math.ceil(pipelineMetrics.peakEstimatedBytes / 1024 / 1024)}`,
     );
     const extractionTimingSummary = formatExtractionTimings(extractionTimingTotals);
     if (extractionTimingSummary) log(`Extraction totals: ${extractionTimingSummary}`);

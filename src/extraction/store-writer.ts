@@ -7,6 +7,7 @@
  */
 
 import { Worker } from 'worker_threads';
+import { estimateExtractionBytes } from './extraction-size';
 import type {
   Edge,
   ExtractionResult,
@@ -62,9 +63,11 @@ export class StoreWriter {
     number,
     { resolve: () => void; reject: (error: Error) => void }
   >();
-  private belowWaiters: Array<{ limit: number; resolve: () => void }> = [];
+  private belowWaiters: Array<{ limit: number; maxBytes: number; resolve: () => void }> = [];
   private nextDrainId = 0;
   private outstanding = 0;
+  private outstandingBytes = 0;
+  private readonly bundleBytes: number[] = [];
   private exited = false;
 
   constructor(workerScriptPath: string, dbPath: string, fastInit: boolean) {
@@ -130,20 +133,25 @@ export class StoreWriter {
   send(bundle: StoreBundle): void {
     if (this.firstError) throw this.firstError;
     if (this.exited) throw new Error('store worker already exited');
+    const bytes = estimateExtractionBytes(null, {
+      nodes: bundle.nodes, edges: bundle.edges, unresolvedReferences: bundle.refs,
+    });
     this.outstanding++;
+    this.outstandingBytes += bytes;
+    this.bundleBytes.push(bytes);
     this.worker.postMessage({ type: 'bundle', bundle });
   }
 
-  waitBelow(limit: number): Promise<void> {
+  waitBelow(limit: number, maxBytes = Infinity): Promise<void> {
     if (
       this.firstError ||
       this.exited ||
-      this.outstanding < limit
+      (this.outstanding < limit && this.outstandingBytes < maxBytes)
     ) {
       return Promise.resolve();
     }
     return new Promise<void>((resolve) => {
-      this.belowWaiters.push({ limit, resolve });
+      this.belowWaiters.push({ limit, maxBytes, resolve });
     });
   }
 
@@ -175,10 +183,13 @@ export class StoreWriter {
   }
 
   private settleOne(): void {
-    if (this.outstanding > 0) this.outstanding--;
+    if (this.outstanding > 0) {
+      this.outstanding--;
+      this.outstandingBytes -= this.bundleBytes.shift() ?? 0;
+    }
     const remaining: typeof this.belowWaiters = [];
     for (const waiter of this.belowWaiters) {
-      if (this.outstanding < waiter.limit) waiter.resolve();
+      if (this.outstanding < waiter.limit && this.outstandingBytes < waiter.maxBytes) waiter.resolve();
       else remaining.push(waiter);
     }
     this.belowWaiters = remaining;
@@ -191,6 +202,8 @@ export class StoreWriter {
     }
     this.drainWaiters.clear();
     this.outstanding = 0;
+    this.outstandingBytes = 0;
+    this.bundleBytes.length = 0;
     const waiters = this.belowWaiters;
     this.belowWaiters = [];
     for (const waiter of waiters) waiter.resolve();
