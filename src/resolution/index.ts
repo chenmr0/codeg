@@ -40,9 +40,11 @@ import { LRUCache } from './lru-cache';
 import { canonicalFilePath, clearCanonicalCache } from '../utils';
 import {
   ResolverPool,
+  mergeResolverChunkResults,
   minRefsForResolverPool,
   type ResolverAdmissionResult,
 } from './resolver-pool';
+import type { InitProfileRecorder } from '../performance/init-profile';
 
 /** Node kinds that can declare supertypes (extends/implements). */
 const SUPERTYPE_BEARING_KINDS = new Set<Node['kind']>([
@@ -69,6 +71,16 @@ const CHAIN_SHAPE = /^(.+)\(\)\.(\w+)$/;
  * caches) when tuning for very large or very small projects.
  */
 const DEFAULT_CACHE_LIMIT = 5_000;
+const CPP_SIMPLE_IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+/**
+ * The import resolver's result is independent of the calling node. Store only
+ * the reusable fields here and attach the current reference at the call site.
+ * `null` is intentionally cached as well: repeated unresolved C/C++ calls in
+ * a translation unit must not repeatedly search the same include graph.
+ */
+type CachedImportResolution = Omit<ResolvedRef, 'original'> | null;
+
 function resolveCacheLimit(): number {
   const raw = process.env.CODEGRAPH_RESOLVER_CACHE_SIZE;
   if (!raw) return DEFAULT_CACHE_LIMIT;
@@ -241,11 +253,22 @@ export class ReferenceResolver {
   private qualifiedNameCache: LRUCache<string, Node[]>; // qualified_name → nodes cache
   private methodMatchCache: LRUCache<string, Node[]>;
   private methodOwnerIndexCache: LRUCache<string, Map<string, Node[]>>;
+  private cppImportResolutionCache: LRUCache<string, CachedImportResolution>;
+  private cppImportCacheHits = 0;
+  private cppImportCacheMisses = 0;
   private nodesByKindCache = new Map<Node['kind'], Node[]>();
   private supertypeGeneration = 0;
   private supertypeMemo = new Map<string, { generation: number; values: string[] }>();
   private readonly equivalenceCachesEnabled =
     process.env.CODEGRAPH_NO_RESOLVE_EQUIVALENCE_CACHE !== '1';
+  // A narrowly scoped diagnostic rollback for measuring the edge-promotion
+  // prefetch on the same build. Normal C/C++ initialization remains batched.
+  private readonly batchedEdgePromotion =
+    process.env.CODEGRAPH_NO_BATCHED_EDGE_PROMOTION !== '1';
+  // This only primes the existing name cache. Disabling it restores the
+  // original one-name-at-a-time SQL lookup path for same-build diagnostics.
+  private readonly cppNameBatchPrefetch =
+    process.env.CODEGRAPH_NO_CPP_NAME_BATCH_PREFETCH !== '1';
   private knownNames: Set<string> | null = null; // all known symbol names for fast pre-filtering
   private knownFiles: Set<string> | null = null;
   private cachesWarmed = false;
@@ -275,6 +298,7 @@ export class ReferenceResolver {
     this.qualifiedNameCache = new LRUCache(limit);
     this.methodMatchCache = new LRUCache(limit);
     this.methodOwnerIndexCache = new LRUCache(limit);
+    this.cppImportResolutionCache = new LRUCache(limit);
 
     this.context = this.createContext();
   }
@@ -361,6 +385,7 @@ export class ReferenceResolver {
     this.qualifiedNameCache.clear();
     this.methodMatchCache.clear();
     this.methodOwnerIndexCache.clear();
+    this.cppImportResolutionCache.clear();
     this.nodesByKindCache.clear();
     this.supertypeMemo.clear();
     this.supertypeGeneration++;
@@ -675,8 +700,12 @@ export class ReferenceResolver {
     unresolvedRefs: UnresolvedReference[],
     onProgress?: (current: number, total: number) => void
   ): ResolutionResult {
+    const cppImportCacheHitsStart = this.cppImportCacheHits;
+    const cppImportCacheMissesStart = this.cppImportCacheMisses;
     // Pre-load all nodes into memory for fast lookups
+    const cacheWarmStartedAt = performance.now();
     this.warmCaches();
+    const cacheWarmMs = performance.now() - cacheWarmStartedAt;
     // Implements/extends edges may have advanced since the previous batch.
     // Reuse supertype answers only within this fixed-edge-state call.
     this.supertypeGeneration++;
@@ -697,6 +726,8 @@ export class ReferenceResolver {
       filePath: ref.filePath || this.getFilePathFromNodeId(ref.fromNodeId),
       language: ref.language || this.getLanguageFromNodeId(ref.fromNodeId),
     }));
+
+    this.primeCppSimpleNameCache(refs);
 
     const total = refs.length;
     let lastReportedPercent = -1;
@@ -734,9 +765,46 @@ export class ReferenceResolver {
         total: refs.length,
         resolved: resolved.length,
         unresolved: unresolved.length,
+        cacheWarmMs,
+        cppImportCacheHits: this.cppImportCacheHits - cppImportCacheHitsStart,
+        cppImportCacheMisses: this.cppImportCacheMisses - cppImportCacheMissesStart,
         byMethod,
       },
     };
+  }
+
+  /**
+   * Seed the existing exact-name cache once per resolver-owned list for the
+   * C/C++ names whose matcher lookup is a byte-exact simple identifier. This
+   * does not select a target or skip any resolver strategy: framework, import,
+   * qualified and method matching still execute in their historical order.
+   *
+   * Worker lists are at most 500 refs; a sequential main-thread list can be
+   * larger, but QueryBuilder splits its `IN` probes at the same SQLite
+   * parameter boundary. Empty arrays are deliberately cached too.
+   */
+  private primeCppSimpleNameCache(refs: readonly UnresolvedRef[]): void {
+    if (!this.cppNameBatchPrefetch) return;
+
+    const names = new Set<string>();
+    for (const ref of refs) {
+      if ((ref.language !== 'c' && ref.language !== 'cpp') ||
+          !CPP_SIMPLE_IDENTIFIER.test(ref.referenceName) ||
+          this.nameCache.has(ref.referenceName)) {
+        continue;
+      }
+      names.add(ref.referenceName);
+    }
+    if (names.size === 0) return;
+
+    const candidatesByName = this.queries.getNodesByNames([...names]);
+    for (const name of names) {
+      // Do not replace an entry which became hot through a framework callback
+      // while the database query was being prepared.
+      if (!this.nameCache.has(name)) {
+        this.nameCache.set(name, candidatesByName.get(name) ?? []);
+      }
+    }
   }
 
   /**
@@ -749,6 +817,9 @@ export class ReferenceResolver {
       resolved: result.resolved,
       unresolved: result.unresolved,
       deferredChain: this.deferredChainRefs.splice(0),
+      cacheWarmMs: result.stats.cacheWarmMs,
+      cppImportCacheHits: result.stats.cppImportCacheHits,
+      cppImportCacheMisses: result.stats.cppImportCacheMisses,
       byMethod: result.stats.byMethod,
     };
   }
@@ -888,7 +959,7 @@ export class ReferenceResolver {
     }
 
     // Strategy 2: Try import-based resolution
-    const importResult = this.gateLanguage(resolveViaImport(ref, this.context), ref);
+    const importResult = this.gateLanguage(this.resolveViaImportCached(ref), ref);
     if (importResult) {
       if (importResult.confidence >= 0.9) return importResult;
       candidates.push(importResult);
@@ -933,17 +1004,73 @@ export class ReferenceResolver {
   }
 
   /**
+   * Cache C/C++ import-resolution outcomes by translation unit and reference
+   * shape. `#include` mappings are translation-unit scoped, and the imported
+   * file/symbol lookup uses no caller-specific data. This preserves the
+   * resolver's result while avoiding repeated include-path and export walks
+   * for common calls such as logging, allocation wrappers, and accessors.
+   */
+  private resolveViaImportCached(ref: UnresolvedRef): ResolvedRef | null {
+    if (ref.language !== 'c' && ref.language !== 'cpp') {
+      return resolveViaImport(ref, this.context);
+    }
+
+    const key = `${ref.language}\0${ref.referenceKind}\0${ref.filePath}\0${ref.referenceName}`;
+    const cached = this.cppImportResolutionCache.get(key);
+    if (cached !== undefined) {
+      this.cppImportCacheHits++;
+      return cached ? { ...cached, original: ref } : null;
+    }
+
+    this.cppImportCacheMisses++;
+    const result = resolveViaImport(ref, this.context);
+    this.cppImportResolutionCache.set(
+      key,
+      result
+        ? {
+            targetNodeId: result.targetNodeId,
+            confidence: result.confidence,
+            resolvedBy: result.resolvedBy,
+          }
+        : null,
+    );
+    return result;
+  }
+
+  /**
    * Create edges from resolved references
    */
   createEdges(resolved: ResolvedRef[]): Edge[] {
+    // The two kind promotions below previously did up to two point reads per
+    // resolved reference. C/C++ projects can produce millions of references,
+    // so collect the exact source/target IDs needed for those promotions and
+    // load them in one cache-aware batch. The Map preserves the existing
+    // per-reference decisions and output order.
+    const promotionNodeIds = new Set<string>();
+    for (const ref of resolved) {
+      if (ref.original.referenceKind === 'extends') {
+        promotionNodeIds.add(ref.targetNodeId);
+        promotionNodeIds.add(ref.original.fromNodeId);
+      } else if (ref.original.referenceKind === 'calls') {
+        promotionNodeIds.add(ref.targetNodeId);
+      }
+    }
+    const promotionNodes = this.batchedEdgePromotion
+      ? this.queries.getNodesByIds([...promotionNodeIds])
+      : undefined;
+
     return resolved.map((ref) => {
       let kind = ref.original.referenceKind;
 
       // Promote "extends" to "implements" when a class/struct targets an interface
       if (kind === 'extends') {
-        const targetNode = this.queries.getNodeById(ref.targetNodeId);
+        const targetNode = promotionNodes
+          ? promotionNodes.get(ref.targetNodeId)
+          : this.queries.getNodeById(ref.targetNodeId);
         if (targetNode && (targetNode.kind === 'interface' || targetNode.kind === 'protocol')) {
-          const sourceNode = this.queries.getNodeById(ref.original.fromNodeId);
+          const sourceNode = promotionNodes
+            ? promotionNodes.get(ref.original.fromNodeId)
+            : this.queries.getNodeById(ref.original.fromNodeId);
           if (sourceNode && sourceNode.kind !== 'interface' && sourceNode.kind !== 'protocol') {
             kind = 'implements';
           }
@@ -956,7 +1083,9 @@ export class ReferenceResolver {
       // apart from a function call without symbol info, but resolution
       // can: if `Foo` resolves to a class, the call IS an instantiation.
       if (kind === 'calls') {
-        const targetNode = this.queries.getNodeById(ref.targetNodeId);
+        const targetNode = promotionNodes
+          ? promotionNodes.get(ref.targetNodeId)
+          : this.queries.getNodeById(ref.targetNodeId);
         if (targetNode && (targetNode.kind === 'class' || targetNode.kind === 'struct')) {
           kind = 'instantiates';
         }
@@ -1088,7 +1217,14 @@ export class ReferenceResolver {
     const aggregate: ResolutionResult = {
       resolved: [],
       unresolved: [],
-      stats: { total: 0, resolved: 0, unresolved: 0, byMethod: {} },
+      stats: {
+        total: 0,
+        resolved: 0,
+        unresolved: 0,
+        cppImportCacheHits: 0,
+        cppImportCacheMisses: 0,
+        byMethod: {},
+      },
     };
 
     for (let offset = 0; offset < refs.length; offset += safeBatchSize) {
@@ -1098,6 +1234,8 @@ export class ReferenceResolver {
       aggregate.stats.total += result.stats.total;
       aggregate.stats.resolved += result.stats.resolved;
       aggregate.stats.unresolved += result.stats.unresolved;
+      aggregate.stats.cppImportCacheHits += result.stats.cppImportCacheHits;
+      aggregate.stats.cppImportCacheMisses += result.stats.cppImportCacheMisses;
       for (const [method, count] of Object.entries(result.stats.byMethod)) {
         aggregate.stats.byMethod[method] =
           (aggregate.stats.byMethod[method] ?? 0) + count;
@@ -1179,9 +1317,13 @@ export class ReferenceResolver {
       bulkEdgeLoad?: { begin: () => void; end: () => void | Promise<void> };
       bulkRefLoad?: { begin: () => void; end: () => void | Promise<void> };
       onSynthesisProgress?: (current: number, total: number) => void;
+      profile?: InitProfileRecorder;
     }
   ): Promise<ResolutionResult> {
+    const resolutionStartedAt = performance.now();
+    const cacheWarmStartedAt = performance.now();
     this.warmCaches();
+    const cacheWarmMs = performance.now() - cacheWarmStartedAt;
 
     const total = this.queries.getUnresolvedReferencesCount();
     let processed = 0;
@@ -1189,23 +1331,30 @@ export class ReferenceResolver {
       total: 0,
       resolved: 0,
       unresolved: 0,
+      cppImportCacheHits: 0,
+      cppImportCacheMisses: 0,
       byMethod: {} as Record<string, number>,
     };
-    const resolutionStartedAt = Date.now();
     let sequentialBatches = 0;
     let parallelBatches = 0;
+    let parallelResolverCacheWarmMs = 0;
 
     // Large runs may resolve a fixed database batch on read-only workers. The
     // main thread remains the sole writer and admits worker results in row order.
     let pool: ResolverPool | null = null;
     let poolReady = false;
+    let resolverPoolReadyMs: number | undefined;
     if (options?.dbPath && total >= minRefsForResolverPool()) {
+      const poolStartedAt = performance.now();
       pool = ResolverPool.tryCreate(options.dbPath, this.projectRoot);
       const startingPool = pool;
       if (startingPool) {
         void startingPool.ready().then(
           () => {
-            if (pool === startingPool) poolReady = true;
+            if (pool === startingPool) {
+              poolReady = true;
+              resolverPoolReadyMs = performance.now() - poolStartedAt;
+            }
           },
           () => {
             if (pool === startingPool) pool = null;
@@ -1214,6 +1363,10 @@ export class ReferenceResolver {
         );
       }
     }
+    options?.profile?.recordConfiguration({
+      resolverWorkers: pool?.size ?? 0,
+      batchedEdgePromotion: this.batchedEdgePromotion,
+    });
 
     let bulkEdgesActive = false;
     let bulkRefsActive = false;
@@ -1247,15 +1400,31 @@ export class ReferenceResolver {
           try {
             const parallel = await pool.resolveBatch(batch);
             parallelBatches++;
-            this.appendDeferredFromWorkers(parallel.deferredChain);
+            const merged = mergeResolverChunkResults(
+              parallel,
+              (failedChunk) => this.resolveListForAdmission(failedChunk),
+            );
+            parallelResolverCacheWarmMs += merged.result.cacheWarmMs ?? 0;
+            if (merged.retriedChunks > 0) {
+              // A worker failure invalidates the pool for subsequent batches,
+              // but successful sibling chunks are already safe to admit.
+              sequentialBatches += merged.retriedChunks;
+              const failedPool = pool;
+              pool = null;
+              poolReady = false;
+              if (failedPool) await failedPool.destroy().catch(() => undefined);
+            }
+            this.appendDeferredFromWorkers(merged.result.deferredChain);
             result = {
-              resolved: parallel.resolved,
-              unresolved: parallel.unresolved,
+              resolved: merged.result.resolved,
+              unresolved: merged.result.unresolved,
               stats: {
                 total: batch.length,
-                resolved: parallel.resolved.length,
-                unresolved: parallel.unresolved.length,
-                byMethod: parallel.byMethod,
+                resolved: merged.result.resolved.length,
+                unresolved: merged.result.unresolved.length,
+                cppImportCacheHits: merged.result.cppImportCacheHits,
+                cppImportCacheMisses: merged.result.cppImportCacheMisses,
+                byMethod: merged.result.byMethod,
               },
             };
           } catch (error) {
@@ -1301,6 +1470,8 @@ export class ReferenceResolver {
         aggregateStats.total += result.stats.total;
         aggregateStats.resolved += result.stats.resolved;
         aggregateStats.unresolved += result.stats.unresolved;
+        aggregateStats.cppImportCacheHits += result.stats.cppImportCacheHits;
+        aggregateStats.cppImportCacheMisses += result.stats.cppImportCacheMisses;
         for (const [method, count] of Object.entries(result.stats.byMethod)) {
           aggregateStats.byMethod[method] = (aggregateStats.byMethod[method] || 0) + count;
         }
@@ -1332,9 +1503,24 @@ export class ReferenceResolver {
       }
     }
 
+    const referenceResolutionMs = performance.now() - resolutionStartedAt;
+    options?.profile?.recordPhase('referenceResolution', referenceResolutionMs);
+    options?.profile?.recordResolution({
+      totalReferences: aggregateStats.total,
+      resolvedReferences: aggregateStats.resolved,
+      unresolvedReferences: aggregateStats.unresolved,
+      parallelBatches,
+      sequentialBatches,
+      cacheWarmMs,
+      resolverPoolReadyMs,
+      parallelResolverCacheWarmMs,
+      cppImportCacheHits: aggregateStats.cppImportCacheHits,
+      cppImportCacheMisses: aggregateStats.cppImportCacheMisses,
+      byMethod: aggregateStats.byMethod,
+    });
     if (process.env.CODEGRAPH_SYNTH_TIMINGS) {
       console.error(
-        `[phase-timing] reference-batches=${Date.now() - resolutionStartedAt}ms ` +
+        `[phase-timing] reference-batches=${Math.round(referenceResolutionMs)}ms ` +
           `(parallel=${parallelBatches}, sequential=${sequentialBatches})`
       );
     }
@@ -1348,13 +1534,14 @@ export class ReferenceResolver {
     // post-100% synthesis tail. Any pass-specific lookup is rebuilt lazily.
     this.clearCaches();
     await new Promise(resolve => setImmediate(resolve));
-    const synthesisStartedAt = Date.now();
+    const synthesisStartedAt = performance.now();
     const diagnostics: import('./types').ResolutionDiagnostic[] =
       this.frameworkDiagnostics.splice(0);
     try {
       const synthesis = await synthesizeCallbackEdges(
         this.queries,
-        this.context
+        this.context,
+        options?.profile,
       );
       aggregateStats.byMethod['callback-synthesis'] = synthesis.edgesAdded;
       diagnostics.push(...synthesis.diagnostics);
@@ -1369,9 +1556,11 @@ export class ReferenceResolver {
         message,
       });
     }
+    const synthesisMs = performance.now() - synthesisStartedAt;
+    options?.profile?.recordPhase('synthesis', synthesisMs);
     if (process.env.CODEGRAPH_SYNTH_TIMINGS) {
       console.error(
-        `[phase-timing] callback-synthesis=${Date.now() - synthesisStartedAt}ms`
+        `[phase-timing] callback-synthesis=${Math.round(synthesisMs)}ms`
       );
     }
     options?.onSynthesisProgress?.(1, 1);
@@ -1574,6 +1763,16 @@ export class ReferenceResolver {
 
   private gateLanguage(result: ResolvedRef | null, ref: UnresolvedRef): ResolvedRef | null {
     if (!result) return result;
+    // Calls and other non-type/non-import edges have no language-family or
+    // instantiation rule to enforce. Avoid a target-node point read per
+    // resolved C/C++ call; large projects can have millions of these.
+    if (
+      ref.referenceKind !== 'references' &&
+      ref.referenceKind !== 'imports' &&
+      ref.referenceKind !== 'instantiates'
+    ) {
+      return result;
+    }
     const target = this.queries.getNodeById(result.targetNodeId);
     if (ref.referenceKind === 'instantiates' && target && !isValidInstantiationTarget(target, ref)) {
       return null;

@@ -1,0 +1,59 @@
+{
+  "schemaVersion": 1,
+  "root": ".",
+  "defaults": {
+    "warmups": 1,
+    "runs": 3,
+    "environment": {}
+  },
+  "projects": [
+    {
+      "name": "c-small",
+      "path": "c-small",
+      "languages": ["c"],
+      "size": "small",
+      "layout": "single-package",
+      "storage": "local-ssd"
+    },
+    {
+      "name": "c-macro-heavy",
+      "path": "c-macro-heavy",
+      "languages": ["c"],
+      "size": "medium",
+      "layout": "multi-module",
+      "storage": "local-ssd"
+    },
+    {
+      "name": "cpp-template-heavy",
+      "path": "cpp-template-heavy",
+      "languages": ["cpp"],
+      "size": "medium",
+      "layout": "single-package",
+      "storage": "local-ssd"
+    },
+    {
+      "name": "cpp-header-heavy",
+      "path": "cpp-header-heavy",
+      "languages": ["cpp", "c"],
+      "size": "medium",
+      "layout": "multi-module",
+      "storage": "local-ssd"
+    },
+    {
+      "name": "cpp-generated-heavy",
+      "path": "cpp-generated-heavy",
+      "languages": ["cpp", "c"],
+      "size": "large",
+      "layout": "deep-source-tree",
+      "storage": "local-ssd"
+    },
+    {
+      "name": "c-cpp-mixed-large",
+      "path": "c-cpp-mixed-large",
+      "languages": ["c", "cpp"],
+      "size": "large",
+      "layout": "multi-module",
+      "storage": "local-ssd"
+    }
+  ]
+}

@@ -19,7 +19,57 @@ export interface ResolverAdmissionResult {
   resolved: ResolvedRef[];
   unresolved: UnresolvedRef[];
   deferredChain: UnresolvedRef[];
+  cacheWarmMs?: number;
+  cppImportCacheHits: number;
+  cppImportCacheMisses: number;
   byMethod: Record<string, number>;
+}
+
+/** One original-order worker chunk; a missing result is retried by the caller. */
+export interface ResolverBatchChunkResult {
+  refs: UnresolvedReference[];
+  result?: ResolverAdmissionResult;
+}
+
+export interface ResolverBatchResult {
+  chunks: ResolverBatchChunkResult[];
+}
+
+/**
+ * Combine worker chunk results in their input order, retrying only chunks whose
+ * worker task failed. Read-only workers never persist state, so a retry is
+ * safe; preserving chunk order also preserves edge first-wins semantics.
+ */
+export function mergeResolverChunkResults(
+  batch: ResolverBatchResult,
+  retry: (refs: UnresolvedReference[]) => ResolverAdmissionResult,
+): { result: ResolverAdmissionResult; retriedChunks: number } {
+  const combined: ResolverAdmissionResult = {
+    resolved: [],
+    unresolved: [],
+    deferredChain: [],
+    cacheWarmMs: 0,
+    cppImportCacheHits: 0,
+    cppImportCacheMisses: 0,
+    byMethod: {},
+  };
+  let retriedChunks = 0;
+  for (const chunk of batch.chunks) {
+    const result = chunk.result ?? (() => {
+      retriedChunks++;
+      return retry(chunk.refs);
+    })();
+    combined.resolved.push(...result.resolved);
+    combined.unresolved.push(...result.unresolved);
+    combined.deferredChain.push(...result.deferredChain);
+    combined.cacheWarmMs! += result.cacheWarmMs ?? 0;
+    combined.cppImportCacheHits += result.cppImportCacheHits;
+    combined.cppImportCacheMisses += result.cppImportCacheMisses;
+    for (const [method, count] of Object.entries(result.byMethod)) {
+      combined.byMethod[method] = (combined.byMethod[method] ?? 0) + count;
+    }
+  }
+  return { result: combined, retriedChunks };
 }
 
 interface PoolWorker {
@@ -103,6 +153,10 @@ export class ResolverPool {
   private nextId = 1;
   private failed: Error | null = null;
   private destroying = false;
+
+  get size(): number {
+    return this.workers.length;
+  }
 
   static worthParallel(batchLength: number): boolean {
     return batchLength >= MIN_PARALLEL_BATCH;
@@ -221,10 +275,13 @@ export class ResolverPool {
    * Promise.all preserves the order of the chunk promise array, independent of
    * worker completion order.
    */
-  async resolveBatch(refs: UnresolvedReference[]): Promise<ResolverAdmissionResult> {
+  async resolveBatch(refs: UnresolvedReference[]): Promise<ResolverBatchResult> {
     if (this.failed) throw this.failed;
 
-    const chunks: Promise<ResolverAdmissionResult>[] = [];
+    const chunks: Array<{
+      refs: UnresolvedReference[];
+      promise: Promise<ResolverAdmissionResult>;
+    }> = [];
     for (let offset = 0; offset < refs.length; offset += RESOLUTION_CHUNK_SIZE) {
       const chunk = refs.slice(offset, offset + RESOLUTION_CHUNK_SIZE);
       const id = this.nextId++;
@@ -233,7 +290,7 @@ export class ResolverPool {
       );
       member.busy++;
 
-      chunks.push(new Promise<ResolverAdmissionResult>((resolve, reject) => {
+      const promise = new Promise<ResolverAdmissionResult>((resolve, reject) => {
         const timer = setTimeout(() => {
           if (!this.waiters.delete(id)) return;
           const error = new Error(`resolver worker task timed out after ${resolverTaskTimeoutMs()}ms`);
@@ -243,25 +300,19 @@ export class ResolverPool {
         timer.unref?.();
         this.waiters.set(id, { resolve, reject, timer });
         member.worker.postMessage({ type: 'resolve', id, refs: chunk });
-      }));
+      });
+      chunks.push({ refs: chunk, promise });
     }
 
-    const settled = await Promise.all(chunks);
-    const combined: ResolverAdmissionResult = {
-      resolved: [],
-      unresolved: [],
-      deferredChain: [],
-      byMethod: {},
+    const settled = await Promise.allSettled(chunks.map((chunk) => chunk.promise));
+    return {
+      chunks: chunks.map((chunk, index) => {
+        const outcome = settled[index]!;
+        return outcome.status === 'fulfilled'
+          ? { refs: chunk.refs, result: outcome.value }
+          : { refs: chunk.refs };
+      }),
     };
-    for (const result of settled) {
-      combined.resolved.push(...result.resolved);
-      combined.unresolved.push(...result.unresolved);
-      combined.deferredChain.push(...result.deferredChain);
-      for (const [method, count] of Object.entries(result.byMethod)) {
-        combined.byMethod[method] = (combined.byMethod[method] || 0) + count;
-      }
-    }
-    return combined;
   }
 
   private fail(error: Error): void {

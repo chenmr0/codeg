@@ -26,6 +26,14 @@ export interface ParseTask {
   skipDeclarationMacroRecovery?: boolean;
 }
 
+export interface ParsePoolState {
+  queueDepth: number;
+  inflightWorkers: number;
+  idleWorkers: number;
+  pendingWorkers: number;
+  liveWorkers: number;
+}
+
 const DEFAULT_POOL_CAP = 8;
 const MAX_POOL_SIZE = 16;
 const DEFAULT_RECYCLE_INTERVAL = 250;
@@ -88,6 +96,8 @@ export interface ParseWorkerPoolOptions {
   macroNames?: string[];
   bodylessMacroNames?: string[];
   macroDefinitions?: CppMacroDefinition[];
+  /** Optional profile-only state observer. Exceptions are isolated from parsing. */
+  onStateChange?: (state: ParsePoolState) => void;
 }
 
 export class ParseWorkerPool {
@@ -115,6 +125,7 @@ export class ParseWorkerPool {
   private readonly macroNames: string[];
   private readonly bodylessMacroNames: string[];
   private readonly macroDefinitions: CppMacroDefinition[];
+  private readonly onStateChange?: (state: ParsePoolState) => void;
 
   constructor(options: ParseWorkerPoolOptions) {
     this.languages = options.languages;
@@ -126,6 +137,7 @@ export class ParseWorkerPool {
     this.macroNames = options.macroNames ?? [];
     this.bodylessMacroNames = options.bodylessMacroNames ?? [];
     this.macroDefinitions = options.macroDefinitions ?? [];
+    this.onStateChange = options.onStateChange;
 
     if (options.createWorker) {
       this.createWorker = options.createWorker;
@@ -179,8 +191,24 @@ export class ParseWorkerPool {
         reject,
         settled: false,
       });
+      this.emitState();
       this.drain();
     });
+  }
+
+  private emitState(): void {
+    if (!this.onStateChange) return;
+    try {
+      this.onStateChange({
+        queueDepth: this.queue.length,
+        inflightWorkers: this.inflight.size,
+        idleWorkers: this.idle.length,
+        pendingWorkers: this.pending.size,
+        liveWorkers: this.workers.size,
+      });
+    } catch {
+      // Profiling must never alter parser scheduling or error behavior.
+    }
   }
 
   private spawnOne(): void {
@@ -380,6 +408,7 @@ export class ParseWorkerPool {
         this.settle(job, undefined, new Error(reason));
       }
     }
+    this.emitState();
   }
 
   private recycle(worker: ParsePoolWorker): void {
@@ -444,6 +473,7 @@ export class ParseWorkerPool {
     }
     this.inflight.clear();
     this.queue = [];
+    this.emitState();
     await Promise.all(
       workers.map((worker) =>
         Promise.resolve(worker.terminate()).catch(() => {

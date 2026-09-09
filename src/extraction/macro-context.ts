@@ -114,6 +114,16 @@ export function isCppMacroContributionEmpty(
     contribution.definitions.length === 0;
 }
 
+/**
+ * A C-family macro definition necessarily contains a literal preprocessor
+ * marker. This intentionally accepts false positives (comments, strings and
+ * non-define directives) so callers can skip the more expensive regex scans
+ * only when an empty contribution is certain.
+ */
+export function mayContainCppMacroDirective(source: string): boolean {
+  return source.includes('#');
+}
+
 /** Scan the exact project-wide macro inputs contributed by one C-family file. */
 export function scanCppMacroFileContribution(source: string): CppMacroFileContribution {
   const names = new Set<string>();

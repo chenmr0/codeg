@@ -21,6 +21,9 @@ Thumbs.db
 /coverage/
 .nyc_output/
 
+# Local performance benchmark artifacts
+/benchmark-results/
+
 # Environment
 .env
 .env.local

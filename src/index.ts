@@ -56,6 +56,11 @@ import {
 import { getCodeGraphDir } from './directory';
 import { deriveProjectNameTokens } from './search/query-utils';
 import { CodeGraphPackageVersion } from './mcp/version';
+import {
+  computeGraphFingerprint,
+  createInitProfileRecorder,
+} from './performance/init-profile';
+import type { InitProfileRecorder } from './performance/init-profile';
 
 // Re-export types for consumers
 export * from './types';
@@ -74,6 +79,11 @@ export {
 export { IndexProgress, IndexResult, SyncResult } from './extraction';
 export { detectLanguage, isLanguageSupported, isGrammarLoaded, getSupportedLanguages, initGrammars, loadGrammarsForLanguages, loadAllGrammars } from './extraction';
 export { ResolutionResult } from './resolution';
+export {
+  INIT_PROFILE_SCHEMA_VERSION,
+  writeInitProfileAtomic,
+} from './performance/init-profile';
+export type { InitProfile } from './performance/init-profile';
 export {
   CodeGraphError,
   FileError,
@@ -140,6 +150,9 @@ export interface IndexOptions {
 
   /** Enable verbose logging (worker lifecycle, memory, timeouts) */
   verbose?: boolean;
+
+  /** Collect a structured, graph-fingerprinted initialization profile during indexAll(). */
+  profile?: boolean;
 }
 
 /** Options for incremental synchronization. */
@@ -373,7 +386,21 @@ export class CodeGraph {
    * Uses a mutex to prevent concurrent indexing operations.
    */
   async indexAll(options: IndexOptions = {}): Promise<IndexResult> {
-    return this.indexMutex.withLock(async () => {
+    const profile = options.profile
+      ? createInitProfileRecorder({
+          codegraphVersion: CodeGraphPackageVersion,
+          projectRoot: this.projectRoot,
+          sqliteBackend: this.db.getBackend(),
+          journalMode: this.db.getJournalMode(),
+        })
+      : undefined;
+    const mutexWaitStarted = performance.now();
+    const indexResult = await this.indexMutex.withLock(async () => {
+      profile?.recordPhase(
+        'mutexWait',
+        performance.now() - mutexWaitStarted,
+      );
+      const preflightStarted = performance.now();
       try {
         this.fileLock.acquire();
       } catch {
@@ -430,6 +457,13 @@ export class CodeGraph {
           let parseIndexesDeferred = false;
           let result: IndexResult;
           let resolutionDiagnostics: NonNullable<ResolutionResult['diagnostics']> = [];
+          profile?.recordConfiguration({
+            freshDatabase: freshDb,
+            fastInit,
+            walDeferred: deferWal,
+            parseIndexesDeferred: deferParseIndexes,
+            bulkFts,
+          });
           try {
             if (bulkFts) {
               this.db.beginBulkNodeLoad();
@@ -439,27 +473,56 @@ export class CodeGraph {
               this.db.beginBulkParseLoad();
               parseIndexesDeferred = true;
             }
-            result = await this.orchestrator.indexAll(
-              options.onProgress,
-              options.signal,
-              options.verbose,
-              walValve ? () => walValve.backpressure() : undefined,
-              freshDb
-                ? {
-                    dbPath: this.db.getPath(),
-                    fastInit,
-                    useWorker: this.db.getBackend() === 'node-sqlite',
-                  }
-                : null
+            profile?.recordPhase(
+              'preflight',
+              performance.now() - preflightStarted,
             );
+            const extractionStarted = performance.now();
+            try {
+              result = await this.orchestrator.indexAll(
+                options.onProgress,
+                options.signal,
+                options.verbose,
+                walValve ? () => walValve.backpressure() : undefined,
+                freshDb
+                  ? {
+                      dbPath: this.db.getPath(),
+                      fastInit,
+                      useWorker: this.db.getBackend() === 'node-sqlite',
+                    }
+                  : null,
+                profile,
+              );
+            } finally {
+              profile?.recordPhase(
+                'extraction',
+                performance.now() - extractionStarted,
+              );
+            }
           } finally {
             try {
               if (parseIndexesDeferred) {
-                await this.db.endBulkParseLoad();
+                const parseIndexStarted = performance.now();
+                try {
+                  await this.db.endBulkParseLoad();
+                } finally {
+                  profile?.recordPhase(
+                    'parseIndexRebuild',
+                    performance.now() - parseIndexStarted,
+                  );
+                }
               }
             } finally {
               if (bulkFtsStarted) {
-                this.db.endBulkNodeLoad();
+                const ftsStarted = performance.now();
+                try {
+                  this.db.endBulkNodeLoad();
+                } finally {
+                  profile?.recordPhase(
+                    'ftsRebuild',
+                    performance.now() - ftsStarted,
+                  );
+                }
               }
             }
           }
@@ -468,7 +531,17 @@ export class CodeGraph {
           // read, so the next phase never pages a bulk-write-sized WAL on the main
           // thread (the post-parse read against a multi-GB WAL is what blew the
           // #850 watchdog's 60s window in the #1231 repro).
-          if (walValve) await walValve.foldNow();
+          if (walValve) {
+            const walFoldStarted = performance.now();
+            try {
+              await walValve.foldNow();
+            } finally {
+              profile?.recordPhase(
+                'walFold',
+                performance.now() - walFoldStarted,
+              );
+            }
+          }
 
           // Re-detect frameworks now that the index is populated. The resolver
           // is constructed with createResolver() before any files exist, so
@@ -478,10 +551,18 @@ export class CodeGraph {
           // and silently drop themselves. Re-initializing here gives them a
           // chance to see the actual project before resolution runs.
           if (result.success && result.filesIndexed > 0) {
-            this.resolver.initialize();
-            // Cross-file finalization (e.g. NestJS RouterModule prefixes). Runs
-            // before resolution so updated names show up in subsequent reads.
-            this.resolver.runPostExtract();
+            const postExtractStarted = performance.now();
+            try {
+              this.resolver.initialize();
+              // Cross-file finalization (e.g. NestJS RouterModule prefixes). Runs
+              // before resolution so updated names show up in subsequent reads.
+              this.resolver.runPostExtract();
+            } finally {
+              profile?.recordPhase(
+                'postExtract',
+                performance.now() - postExtractStarted,
+              );
+            }
           }
 
           // Resolve references to create call/import/extends edges
@@ -509,7 +590,8 @@ export class CodeGraph {
                   current,
                   total,
                 });
-              }
+              },
+              profile,
             );
             resolutionDiagnostics = resolution.diagnostics ?? [];
 
@@ -517,17 +599,46 @@ export class CodeGraph {
             // receiver conforms to (protocol-extension / inherited / default-
             // interface). Needs the implements/extends edges the main pass just
             // built, so it runs after resolution (#750).
-            this.resolver.resolveChainedCallsViaConformance();
+            const chainedStarted = performance.now();
+            try {
+              this.resolver.resolveChainedCallsViaConformance();
+            } finally {
+              profile?.recordPhase(
+                'chainedResolution',
+                performance.now() - chainedStarted,
+              );
+            }
           }
 
           // Stop the valve and drain any in-flight/backpressure, then refresh
           // planner stats + checkpoint the WAL after bulk writes. runMaintenance
           // now runs the checkpoint off-thread so a multi-GB WAL can't block the
           // main thread past the watchdog window. Best-effort; never load-bearing.
-          if (walValve) { walValve.stop(); await walValve.drain(); }
-          if (result.success && result.filesIndexed > 0) {
-            await this.db.runMaintenance();
+          if (walValve) {
+            const walDrainStarted = performance.now();
+            try {
+              walValve.stop();
+              await walValve.drain();
+            } finally {
+              profile?.recordPhase(
+                'walDrain',
+                performance.now() - walDrainStarted,
+              );
+            }
           }
+          if (result.success && result.filesIndexed > 0) {
+            const maintenanceStarted = performance.now();
+            try {
+              await this.db.runMaintenance();
+            } finally {
+              profile?.recordPhase(
+                'maintenance',
+                performance.now() - maintenanceStarted,
+              );
+            }
+          }
+
+          const finalizationStarted = performance.now();
 
           // The orchestrator only sees extraction-phase counts; resolution and
           // synthesizer edges (often >50% of the graph on JVM repos) come later.
@@ -581,20 +692,42 @@ export class CodeGraph {
             );
           } catch { /* the returned diagnostics remain authoritative */ }
 
+          profile?.recordPhase(
+            'finalization',
+            performance.now() - finalizationStarted,
+          );
+
           return result;
         } finally {
           // Restore auto-checkpointing even on error/abort so subsequent syncs
           // don't keep running with it disabled.
-          if (walValve) { walValve.stop(); await walValve.drain(); }
+          if (walValve) {
+            const walDrainStarted = performance.now();
+            try {
+              walValve.stop();
+              await walValve.drain();
+            } finally {
+              profile?.recordPhase(
+                'walDrain',
+                performance.now() - walDrainStarted,
+              );
+            }
+          }
           if (deferWal) {
             try { this.db.setWalAutocheckpoint(priorAutocheckpoint); } catch { /* best-effort */ }
           }
           if (fastInit) {
+            const restoreStarted = performance.now();
             try {
               this.db.getDb().pragma('synchronous = NORMAL');
               this.db.getDb().pragma('journal_mode = WAL');
             } catch {
               // connection may be closing after a failed index
+            } finally {
+              profile?.recordPhase(
+                'restoreDatabaseMode',
+                performance.now() - restoreStarted,
+              );
             }
           }
         }
@@ -602,6 +735,39 @@ export class CodeGraph {
         this.fileLock.release();
       }
     });
+
+    if (!profile) return indexResult;
+
+    profile.markIndexingFinished();
+    let graphFingerprint: string | undefined;
+    const fingerprintStarted = performance.now();
+    try {
+      graphFingerprint = computeGraphFingerprint(this.db.getDb());
+    } catch {
+      // Profiling is diagnostic and must never invalidate a completed index.
+    } finally {
+      profile.recordPhase(
+        'graphFingerprint',
+        performance.now() - fingerprintStarted,
+      );
+    }
+
+    const graph = this.getStats();
+    indexResult.profile = profile.finish({
+      success: indexResult.success,
+      complete: indexResult.complete,
+      filesIndexed: indexResult.filesIndexed,
+      filesSkipped: indexResult.filesSkipped,
+      filesErrored: indexResult.filesErrored,
+      nodesCreated: indexResult.nodesCreated,
+      edgesCreated: indexResult.edgesCreated,
+      pendingReferences: this.queries.getUnresolvedReferencesCount(),
+      databaseSizeBytes: graph.dbSizeBytes,
+      graph,
+      graphFingerprint,
+      diagnostics: indexResult.errors.length,
+    });
+    return indexResult;
   }
 
   /**
@@ -1051,7 +1217,8 @@ export class CodeGraph {
    */
   async resolveReferencesBatched(
     onProgress?: (current: number, total: number) => void,
-    onSynthesisProgress?: (current: number, total: number) => void
+    onSynthesisProgress?: (current: number, total: number) => void,
+    profile?: InitProfileRecorder,
   ): Promise<ResolutionResult> {
     const deferResolutionIndexes =
       process.env.CODEGRAPH_NO_RESOLVE_INDEX_DEFER !== '1';
@@ -1073,6 +1240,7 @@ export class CodeGraph {
           }
         : undefined,
       onSynthesisProgress,
+      profile,
     });
   }
 

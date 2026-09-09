@@ -60,6 +60,10 @@ export interface ResolutionResult {
     total: number;
     resolved: number;
     unresolved: number;
+    /** Cache warm-up time incurred by this resolver-owned list. */
+    cacheWarmMs?: number;
+    cppImportCacheHits: number;
+    cppImportCacheMisses: number;
     byMethod: Record<string, number>;
   };
   /** Non-file diagnostics from resolution/synthesis that callers must surface. */

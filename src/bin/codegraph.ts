@@ -41,6 +41,10 @@ import {
   isDeclarationMacroRecoverySkipped,
 } from '../extraction/diagnostics';
 import { buildNodeView } from '../cli/node-view';
+import {
+  writeInitProfileAtomic,
+  type InitProfile,
+} from '../performance/init-profile';
 
 // Lazy-load heavy modules (CodeGraph, runInstaller) to keep CLI startup fast.
 async function loadCodeGraph(): Promise<typeof import('../index')> {
@@ -313,6 +317,7 @@ type IndexResult = {
   edgesCreated: number;
   errors: Array<{ message: string; filePath?: string; severity: string; code?: string }>;
   durationMs: number;
+  profile?: InitProfile;
 };
 
 type IndexDiagnostic = IndexResult['errors'][number];
@@ -545,8 +550,13 @@ program
   .description('Initialize CodeGraph in a project directory and build the initial index')
   .option('-i, --index', 'Deprecated: indexing now runs by default; flag accepted for backward compatibility')
   .option('-v, --verbose', 'Show detailed worker lifecycle and memory info')
-  .action(async (pathArg: string | undefined, options: { index?: boolean; verbose?: boolean }) => {
+  .option('--profile <file>', 'Write a structured initialization performance profile as JSON')
+  .action(async (
+    pathArg: string | undefined,
+    options: { index?: boolean; verbose?: boolean; profile?: string },
+  ) => {
     const projectPath = path.resolve(pathArg || process.cwd());
+    const profilePath = options.profile ? path.resolve(options.profile) : null;
     const clack = await importESM('@clack/prompts');
 
     clack.intro('Initializing CodeGraph');
@@ -575,14 +585,32 @@ program
         result = await cg.indexAll({
           onProgress: createVerboseProgress(),
           verbose: true,
+          profile: profilePath !== null,
         });
       } else {
         process.stdout.write(`${colors.dim}${getGlyphs().rail}${colors.reset}\n`);
         const progress = createShimmerProgress();
         result = await cg.indexAll({
           onProgress: progress.onProgress,
+          profile: profilePath !== null,
         });
         await progress.stop();
+      }
+
+      if (profilePath) {
+        if (result.profile) {
+          try {
+            const writtenPath = writeInitProfileAtomic(profilePath, result.profile);
+            clack.log.info(`Initialization profile written to ${writtenPath}`);
+          } catch (error) {
+            clack.log.warn(
+              `Could not write initialization profile: ` +
+              `${error instanceof Error ? error.message : String(error)}`,
+            );
+          }
+        } else {
+          clack.log.warn('Initialization profile was requested but no profile was produced');
+        }
       }
       printIndexResult(clack, result, projectPath);
 

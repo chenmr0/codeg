@@ -33,6 +33,7 @@ import {
   cppParameterKeysMatch,
 } from './cpp-signature';
 import { getHeapStatistics } from 'node:v8';
+import type { InitProfileRecorder } from '../performance/init-profile';
 
 const REGISTRAR_NAME = /^(on[A-Z]\w*|subscribe|addListener|addEventListener|register|watch|listen|addCallback)$/;
 const DISPATCHER_NAME = /(emit|trigger|notify|dispatch|fire|publish|flush)/i;
@@ -506,28 +507,62 @@ function flutterBuildEdges(queries: QueryBuilder, ctx: ResolutionContext): Edge[
  * implementation(s). Over-approximation accepted (reachability-correct); capped
  * per class and gated to C++ to avoid touching other languages' dispatch.
  */
-function* cppOverrideEdges(
+export function* cppOverrideEdges(
   queries: QueryBuilder,
   subclassIds?: ReadonlySet<string>
 ): IterableIterator<Edge> {
   const seen = new Set<string>();
-  const methodsOf = (classId: string): Node[] =>
-    queries
-      .getOutgoingEdges(classId, ['contains'])
-      .map((e) => queries.getNodeById(e.target))
-      .filter((n): n is Node => !!n && n.kind === 'method');
-  const classes: Iterable<Node> = subclassIds
-    ? [...subclassIds]
-        .map((id) => queries.getNodeById(id))
-        .filter((node): node is Node => !!node && node.kind === 'class')
-    : queries.iterateNodesByKind('class');
+  const classes: Node[] = subclassIds
+    ? [...queries.getNodesByIds([...subclassIds]).values()]
+        .filter((node) => node.kind === 'class')
+    : [...queries.iterateNodesByKind('class')];
+  const cppClasses = classes.filter((node) => node.language === 'cpp');
+  if (cppClasses.length === 0) return;
+
+  // Project both relations for all candidate subclasses at once. The former
+  // implementation issued contains/extends queries for every class and point
+  // reads for every method/base, which becomes a graph-size N+1 on C++ trees.
+  const classIds = cppClasses.map((node) => node.id);
+  const relations = queries.getOutgoingEdgesBySources(classIds, ['contains', 'extends']);
+  const relationTargets = [...relations.values()].flatMap((edges) =>
+    edges.map((edge) => edge.target),
+  );
+  const nodesById = queries.getNodesByIds(relationTargets);
+  const methodsByOwner = new Map<string, Node[]>();
+  const addMethods = (ownerId: string, edges: readonly Edge[]) => {
+    const methods = edges
+      .filter((edge) => edge.kind === 'contains')
+      .map((edge) => nodesById.get(edge.target))
+      .filter((node): node is Node => !!node && node.kind === 'method' && node.language === 'cpp');
+    methodsByOwner.set(ownerId, methods);
+  };
+  for (const cls of cppClasses) addMethods(cls.id, relations.get(cls.id) ?? []);
+
+  // A C++ class may derive from a struct, which is not in the subclass scan.
+  // Load only those base `contains` relations missing from the first projection.
+  const baseIds = [...new Set(
+    cppClasses.flatMap((cls) =>
+      (relations.get(cls.id) ?? [])
+        .filter((edge) => edge.kind === 'extends')
+        .map((edge) => edge.target),
+    ),
+  )];
+  const missingBaseIds = baseIds.filter((id) => !relations.has(id));
+  if (missingBaseIds.length > 0) {
+    const baseRelations = queries.getOutgoingEdgesBySources(missingBaseIds, ['contains']);
+    const baseTargets = [...baseRelations.values()].flatMap((edges) => edges.map((edge) => edge.target));
+    for (const [id, node] of queries.getNodesByIds(baseTargets)) nodesById.set(id, node);
+    for (const baseId of missingBaseIds) addMethods(baseId, baseRelations.get(baseId) ?? []);
+  }
+
   for (const cls of classes) {
-    const subMethods = methodsOf(cls.id).filter((n) => n.language === 'cpp');
+    if (cls.language !== 'cpp') continue;
+    const subMethods = methodsByOwner.get(cls.id) ?? [];
     if (subMethods.length === 0) continue;
-    for (const ext of queries.getOutgoingEdges(cls.id, ['extends'])) {
-      const base = queries.getNodeById(ext.target);
+    for (const ext of (relations.get(cls.id) ?? []).filter((edge) => edge.kind === 'extends')) {
+      const base = nodesById.get(ext.target);
       if (!base || base.language !== 'cpp' || base.id === cls.id) continue;
-      const baseMethods = new Map(methodsOf(base.id).map((m) => [m.name, m]));
+      const baseMethods = new Map((methodsByOwner.get(base.id) ?? []).map((m) => [m.name, m]));
       let added = 0;
       for (const m of subMethods) {
         if (added >= MAX_CALLBACKS_PER_CHANNEL) break;
@@ -2181,7 +2216,8 @@ export async function synthesizeIncrementalCCppEdges(
  */
 export async function synthesizeCallbackEdges(
   queries: QueryBuilder,
-  ctx: ResolutionContext
+  ctx: ResolutionContext,
+  profile?: InitProfileRecorder,
 ): Promise<SynthesisResult> {
   const graphNodes = queries.getNodeAndEdgeCount().nodes;
   const diagnostics: ResolutionDiagnostic[] = [];
@@ -2201,6 +2237,11 @@ export async function synthesizeCallbackEdges(
     });
   };
   const initialAdmission = admissionNow();
+  profile?.recordSynthesisAdmission({
+    run: initialAdmission.run,
+    requiredHeadroomBytes: initialAdmission.requiredHeadroomBytes,
+    reason: initialAdmission.reason,
+  });
   if (!initialAdmission.run) {
     const explicitlyDisabled = initialAdmission.reason === 'disabled';
     report({
@@ -2230,7 +2271,18 @@ export async function synthesizeCallbackEdges(
   // struct's method set from its `contains` edges — so without this it would
   // under-count the interfaces a cross-file struct satisfies. (#583)
   if (has('go')) {
-    totalAdded += await persistSynthEdges(queries, goCrossFileMethodContainsEdges(queries));
+    const startedAt = performance.now();
+    const edgesAdded = await persistSynthEdges(
+      queries,
+      goCrossFileMethodContainsEdges(queries),
+    );
+    totalAdded += edgesAdded;
+    profile?.recordSynthesisPass({
+      name: 'goCrossFileMethodContains',
+      durationMs: performance.now() - startedAt,
+      edgesAdded,
+      status: 'completed',
+    });
   }
 
   // Go implicit `implements` edges must be synthesized AND persisted next: the
@@ -2238,7 +2290,15 @@ export async function synthesizeCallbackEdges(
   // Go has none statically. (Other languages already have static implements
   // edges from extraction, so they don't need this pre-pass.)
   if (has('go')) {
-    totalAdded += await persistSynthEdges(queries, goImplementsEdges(queries));
+    const startedAt = performance.now();
+    const edgesAdded = await persistSynthEdges(queries, goImplementsEdges(queries));
+    totalAdded += edgesAdded;
+    profile?.recordSynthesisPass({
+      name: 'goImplements',
+      durationMs: performance.now() - startedAt,
+      edgesAdded,
+      status: 'completed',
+    });
   }
 
   interface SynthPass {
@@ -2296,11 +2356,24 @@ export async function synthesizeCallbackEdges(
   queries.beginSynthesisEdgeStaging();
   try {
     for (const pass of passes) {
-      if (!pass.enabled) continue;
-      const startedAt = Date.now();
+      if (!pass.enabled) {
+        profile?.recordSynthesisPass({
+          name: pass.name,
+          durationMs: 0,
+          edgesAdded: 0,
+          status: 'skipped',
+          reason: 'language-prerequisite',
+        });
+        continue;
+      }
+      const startedAt = performance.now();
+      let edgesAdded = 0;
+      let status: 'completed' | 'failed' = 'completed';
       try {
-        totalAdded += await persistSynthEdges(queries, pass.run(), true);
+        edgesAdded = await persistSynthEdges(queries, pass.run(), true);
+        totalAdded += edgesAdded;
       } catch (error) {
+        status = 'failed';
         // Keep the base index usable, but never report a complete index when a
         // synthesis pass failed or only produced a partial staged result.
         report({
@@ -2311,8 +2384,15 @@ export async function synthesizeCallbackEdges(
             `The index is incomplete.`,
         });
       }
+      const durationMs = performance.now() - startedAt;
+      profile?.recordSynthesisPass({
+        name: pass.name,
+        durationMs,
+        edgesAdded,
+        status,
+      });
       if (process.env.CODEGRAPH_SYNTH_TIMINGS) {
-        console.error(`[synth-timing] ${pass.name}: ${Date.now() - startedAt}ms`);
+        console.error(`[synth-timing] ${pass.name}: ${Math.round(durationMs)}ms`);
       }
 
       const admission = admissionNow();

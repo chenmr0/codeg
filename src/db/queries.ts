@@ -5,6 +5,7 @@
  */
 
 import { SqliteDatabase, SqliteStatement } from './sqlite-adapter';
+import { performance } from 'perf_hooks';
 import picomatch from 'picomatch';
 import {
   Node,
@@ -29,6 +30,19 @@ import {
   matchesSymbol,
 } from '../search/symbol-match';
 import { isGeneratedFile } from '../extraction/generated-detection';
+
+export const DEFAULT_WRITE_BATCH_SIZES: readonly number[] = [32, 8, 1];
+export const NATIVE_STORE_WRITE_BATCH_SIZES: readonly number[] = [512, 128, 32, 8, 1];
+
+export interface StoreFileBundlesTiming {
+  transactionMs: number;
+  rowAggregationMs: number;
+  duplicateNodeRowsElided: number;
+  nodeWriteMs: number;
+  edgeWriteMs: number;
+  unresolvedRefWriteMs: number;
+  fileWriteMs: number;
+}
 
 /**
  * Path-only heuristic for files that should not be candidates for
@@ -332,11 +346,12 @@ export class QueryBuilder {
     getRoutingManifest?: SqliteStatement;
   } = {};
 
-  // Multi-row INSERT statements cached by operation and row count. A maximum
-  // batch of 32 keeps even the 22-column node insert below sql.js's commonly
-  // compiled 999-variable limit while removing most JS-to-SQLite call overhead.
+  // Multi-row INSERT statements cached by operation and row count. The
+  // conservative default keeps even the 22-column node insert below sql.js's
+  // commonly compiled 999-variable limit. The native fresh-index writer opts
+  // into a larger set that remains below SQLite's 32,766 variable default.
   private batchStmts: Map<string, SqliteStatement> = new Map();
-  private static readonly BATCH_SIZES: readonly number[] = [32, 8, 1];
+  private readonly batchSizes: readonly number[];
 
   private runBatched(
     kind: string,
@@ -349,7 +364,7 @@ export class QueryBuilder {
     const batchSizes =
       process.env.CODEGRAPH_NO_BATCH_WRITES === '1'
         ? ([1] as const)
-        : QueryBuilder.BATCH_SIZES;
+        : this.batchSizes;
     for (const size of batchSizes) {
       while (rows.length - offset >= size) {
         const key = `${kind}:${size}`;
@@ -372,8 +387,17 @@ export class QueryBuilder {
     }
   }
 
-  constructor(db: SqliteDatabase) {
+  constructor(
+    db: SqliteDatabase,
+    options: { batchSizes?: readonly number[] } = {},
+  ) {
     this.db = db;
+    const configured = options.batchSizes ?? DEFAULT_WRITE_BATCH_SIZES;
+    const normalized = [...new Set(configured)]
+      .filter((size) => Number.isInteger(size) && size > 0)
+      .sort((left, right) => right - left);
+    if (!normalized.includes(1)) normalized.push(1);
+    this.batchSizes = normalized;
   }
 
   /** Set the normalized project-name tokens used to down-weight non-discriminative
@@ -524,13 +548,77 @@ export class QueryBuilder {
     edges: Edge[];
     refs: UnresolvedReference[];
     file: FileRecord;
-  }): void {
+  }): StoreFileBundlesTiming {
+    return this.storeFileBundles([bundle]);
+  }
+
+  /** Store multiple ordered fresh-index files in one bounded transaction. */
+  storeFileBundles(bundles: Array<{
+    nodes: Node[];
+    edges: Edge[];
+    refs: UnresolvedReference[];
+    file: FileRecord;
+  }>): StoreFileBundlesTiming {
+    const timing: StoreFileBundlesTiming = {
+      transactionMs: 0,
+      rowAggregationMs: 0,
+      duplicateNodeRowsElided: 0,
+      nodeWriteMs: 0,
+      edgeWriteMs: 0,
+      unresolvedRefWriteMs: 0,
+      fileWriteMs: 0,
+    };
+    if (bundles.length === 0) return timing;
+    const transactionStarted = performance.now();
     this.db.transaction(() => {
-      this.insertNodes(bundle.nodes);
-      this.insertEdgesUnchecked(bundle.edges);
-      this.insertUnresolvedRefsBatch(bundle.refs);
-      this.upsertFile(bundle.file);
+      let phaseStarted = performance.now();
+      const nodes: Node[] = [];
+      const edges: Edge[] = [];
+      const refs: UnresolvedReference[] = [];
+      for (const bundle of bundles) {
+        for (const node of bundle.nodes) nodes.push(node);
+        for (const edge of bundle.edges) edges.push(edge);
+        for (const ref of bundle.refs) refs.push(ref);
+      }
+      // INSERT OR REPLACE preserves the last occurrence of a node id. Because
+      // fresh-store transactions insert every node before any edge/ref in this
+      // batch, collapsing same-transaction duplicates to that last occurrence
+      // has the same final state and cascade behavior. It also avoids repeated
+      // FK child-table scans while their lookup indexes are deferred.
+      let nodesToWrite = nodes;
+      if (process.env.CODEGRAPH_NO_STORE_NODE_DEDUPE !== '1') {
+        const seenNodeIds = new Set<string>();
+        const uniqueNodesReversed: Node[] = [];
+        for (let index = nodes.length - 1; index >= 0; index--) {
+          const node = nodes[index]!;
+          if (seenNodeIds.has(node.id)) continue;
+          seenNodeIds.add(node.id);
+          uniqueNodesReversed.push(node);
+        }
+        uniqueNodesReversed.reverse();
+        timing.duplicateNodeRowsElided = nodes.length - uniqueNodesReversed.length;
+        nodesToWrite = uniqueNodesReversed;
+      }
+      timing.rowAggregationMs += performance.now() - phaseStarted;
+      // Each table retains bundle/file order. Grouping the rows across the
+      // transaction lets the native writer use its larger prepared INSERTs.
+      phaseStarted = performance.now();
+      this.insertNodes(nodesToWrite);
+      timing.nodeWriteMs += performance.now() - phaseStarted;
+      phaseStarted = performance.now();
+      this.insertEdgesUnchecked(edges);
+      timing.edgeWriteMs += performance.now() - phaseStarted;
+      phaseStarted = performance.now();
+      this.insertUnresolvedRefsBatch(refs);
+      timing.unresolvedRefWriteMs += performance.now() - phaseStarted;
+      phaseStarted = performance.now();
+      for (const bundle of bundles) {
+        this.upsertFile(bundle.file);
+      }
+      timing.fileWriteMs += performance.now() - phaseStarted;
     })();
+    timing.transactionMs = performance.now() - transactionStarted;
+    return timing;
   }
 
   /**
@@ -955,6 +1043,33 @@ export class QueryBuilder {
     }
     const rows = this.stmts.getNodesByName.all(name) as NodeRow[];
     return rows.map(rowToNode);
+  }
+
+  /**
+   * Load exact-name candidates for several names in a bounded number of
+   * indexed probes. Callers retain ownership of negative entries and cache
+   * admission, so this helper only changes how candidate rows are fetched.
+   *
+   * Rows for each name are ordered by rowid, matching SQLite's equality-index
+   * traversal for getNodesByName() while making the grouped result explicit.
+   */
+  getNodesByNames(names: readonly string[]): Map<string, Node[]> {
+    const uniqueNames = [...new Set(names)].filter((name) => name.length > 0);
+    const byName = new Map<string, Node[]>();
+    for (let offset = 0; offset < uniqueNames.length; offset += SQLITE_PARAM_CHUNK_SIZE) {
+      const chunk = uniqueNames.slice(offset, offset + SQLITE_PARAM_CHUNK_SIZE);
+      const placeholders = chunk.map(() => '?').join(', ');
+      const rows = this.db.prepare(
+        `SELECT * FROM nodes WHERE name IN (${placeholders}) ORDER BY name, rowid`
+      ).all(...chunk) as NodeRow[];
+      for (const row of rows) {
+        const node = rowToNode(row);
+        const nodes = byName.get(node.name);
+        if (nodes) nodes.push(node);
+        else byName.set(node.name, [node]);
+      }
+    }
+    return byName;
   }
 
   /**
@@ -1959,6 +2074,42 @@ export class QueryBuilder {
     }
     const rows = this.stmts.getEdgesBySource.all(sourceId) as EdgeRow[];
     return rows.map(rowToEdge);
+  }
+
+  /**
+   * Batch projection of outgoing edges for a set of sources.
+   *
+   * Graph synthesis often starts from every node of one kind. Repeating
+   * getOutgoingEdges() in that loop turns a linear graph walk into thousands
+   * of SQLite round-trips, even though the required relation is a simple
+   * source-id projection. Keep the grouping at the query boundary so callers
+   * retain their own source traversal order without materialising all edges.
+   */
+  getOutgoingEdgesBySources(
+    sourceIds: readonly string[],
+    kinds?: EdgeKind[],
+  ): Map<string, Edge[]> {
+    const grouped = new Map<string, Edge[]>();
+    const uniqueIds = [...new Set(sourceIds)];
+    if (uniqueIds.length === 0) return grouped;
+
+    for (let offset = 0; offset < uniqueIds.length; offset += SQLITE_PARAM_CHUNK_SIZE) {
+      const ids = uniqueIds.slice(offset, offset + SQLITE_PARAM_CHUNK_SIZE);
+      const params: string[] = [...ids];
+      let sql = `SELECT * FROM edges WHERE source IN (${ids.map(() => '?').join(',')})`;
+      if (kinds && kinds.length > 0) {
+        sql += ` AND kind IN (${kinds.map(() => '?').join(',')})`;
+        params.push(...kinds);
+      }
+      const rows = this.db.prepare(sql).all(...params) as EdgeRow[];
+      for (const row of rows) {
+        const edge = rowToEdge(row);
+        const edges = grouped.get(edge.source);
+        if (edges) edges.push(edge);
+        else grouped.set(edge.source, [edge]);
+      }
+    }
+    return grouped;
   }
 
   /**
