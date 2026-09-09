@@ -1574,7 +1574,7 @@ function preprocessStatementMacros(source: string, macroNames?: Set<string>, bod
 function cCppIsMacroInvocationMisparse(
   name: string,
   node: SyntaxNode,
-  macroNames?: Set<string>
+  macroNames?: Pick<ReadonlySet<string>, 'has'>
 ): boolean {
   if (!macroNames || !macroNames.has(name)) return false;
   // Declaration macros followed by a user-written body (`DEFINE_FOO(T) {}`)
@@ -1602,12 +1602,24 @@ function cCppIsMacroInvocationMisparse(
   return false;
 }
 
+// All declarators of a declaration share its qualifiers. Key by the immutable
+// AST wrapper (never a numeric node ID, which can be reused by another tree),
+// and let parsed trees be collected after extraction.
+const directTypeQualifiers = new WeakMap<SyntaxNode, ReadonlySet<string>>();
+
 function hasDirectTypeQualifier(node: SyntaxNode, qualifier: string): boolean {
-  for (let index = 0; index < node.namedChildCount; index++) {
-    const child = node.namedChild(index);
-    if (child?.type === 'type_qualifier' && child.text === qualifier) return true;
+  let qualifiers = directTypeQualifiers.get(node);
+  if (!qualifiers) {
+    const found = new Set<string>();
+    // The bulk getter avoids one WASM child lookup per sibling, which is
+    // especially expensive for generated declarations with thousands of names.
+    for (const child of node.namedChildren) {
+      if (child.type === 'type_qualifier') found.add(child.text);
+    }
+    qualifiers = found;
+    directTypeQualifiers.set(node, qualifiers);
   }
-  return false;
+  return qualifiers.has(qualifier);
 }
 
 /**

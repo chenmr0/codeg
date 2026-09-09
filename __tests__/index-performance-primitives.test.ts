@@ -4,7 +4,8 @@ import * as os from 'os';
 import * as path from 'path';
 import { DatabaseConnection } from '../src/db';
 import { QueryBuilder } from '../src/db/queries';
-import type { Edge, Node } from '../src/types';
+import { finalizeStoreBundle } from '../src/extraction/store-writer';
+import type { Edge, FileRecord, Node } from '../src/types';
 
 const node = (id: string, name: string): Node => ({
   id,
@@ -32,6 +33,52 @@ describe('fresh-index database primitives', () => {
 
   afterEach(() => {
     fs.rmSync(directory, { recursive: true, force: true });
+  });
+
+  it('collapses duplicate IDs in last-valid-occurrence order before a bulk write', () => {
+    const connection = DatabaseConnection.initialize(dbPath);
+    const queries = new QueryBuilder(connection.getDb());
+    const file: FileRecord = { path: 'sample.cpp', language: 'cpp', contentHash: 'hash',
+      size: 1, modifiedAt: 1, indexedAt: 1, nodeCount: 3 };
+    const edges: Edge[] = [
+      { source: 'a', target: 'b', kind: 'calls', line: 1 },
+      { source: 'b', target: 'a', kind: 'references', line: 2 },
+    ];
+    const refs = [{ fromNodeId: 'a', referenceName: 'external', referenceKind: 'calls' as const,
+      line: 3, column: 1 }];
+    const input = { nodes: [node('a', 'old'), node('b', 'b'), node('a', 'final'),
+      node('c', 'c'), node('a', '')], edges, unresolvedReferences: refs };
+    const bundle = finalizeStoreBundle(input, file.path, file.language, file);
+    expect(bundle.nodes.map(n => [n.id, n.name])).toEqual([['b', 'b'], ['a', 'final'], ['c', 'c']]);
+    expect(bundle.edges).toEqual(edges);
+    expect(bundle.refs).toEqual([{ ...refs[0], filePath: file.path, language: file.language }]);
+    expect(input.nodes).toHaveLength(5);
+
+    try {
+      connection.beginBulkNodeLoad();
+      connection.beginBulkParseLoad();
+      queries.insertNodes([node('previous-a', 'previous-a'), node('previous-b', 'previous-b')]);
+      queries.insertEdgesUnchecked([{ source: 'previous-a', target: 'previous-b', kind: 'calls' }]);
+      queries.insertUnresolvedRefsBatch([{ ...refs[0]!, fromNodeId: 'previous-a',
+        filePath: 'previous.cpp', language: 'cpp' }]);
+      // Observe actual SQLite deletions, including REPLACE's implicit deletes.
+      // No wall-clock threshold: a duplicate write must never reach SQLite.
+      connection.getDb().exec(`PRAGMA recursive_triggers = ON;
+        CREATE TABLE deleted_nodes(id TEXT);
+        CREATE TRIGGER record_node_delete AFTER DELETE ON nodes BEGIN
+          INSERT INTO deleted_nodes VALUES (old.id);
+        END;`);
+      queries.storeFileBundle(bundle);
+      expect(connection.getDb().prepare('SELECT * FROM deleted_nodes').all()).toEqual([]);
+      expect(queries.getNodeById('a')?.name).toBe('final');
+      expect(queries.getOutgoingEdges('a')).toHaveLength(1);
+      expect(queries.getIncomingEdges('a')).toHaveLength(1);
+      expect(queries.getOutgoingEdges('previous-a')).toHaveLength(1);
+      expect(queries.getUnresolvedReferences()).toHaveLength(2);
+      expect(connection.getDb().prepare('PRAGMA foreign_key_check').all()).toEqual([]);
+    } finally {
+      connection.close();
+    }
   });
 
   it('batches fork node fields and deduplicates identical edges', () => {

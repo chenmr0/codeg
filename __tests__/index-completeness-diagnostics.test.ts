@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -15,8 +15,41 @@ describe('base-only index completeness diagnostics', () => {
   const tempDirs: string[] = [];
 
   afterEach(() => {
+    vi.restoreAllMocks();
     for (const dir of tempDirs.splice(0)) {
       fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('reports full index wall time through maintenance and lock release', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'codegraph-index-duration-'));
+    tempDirs.push(dir);
+    const cg = CodeGraph.initSync(dir);
+    const internal = cg as any;
+    let now = 100;
+    vi.spyOn(performance, 'now').mockImplementation(() => now);
+    vi.spyOn(internal.orchestrator, 'indexAll').mockImplementation(async () => {
+      now = 110;
+      return { success: true, filesIndexed: 1, filesSkipped: 0, filesErrored: 0,
+        nodesCreated: 0, edgesCreated: 0, errors: [], durationMs: 10 };
+    });
+    const maintenance = internal.db.runMaintenance.bind(internal.db);
+    vi.spyOn(internal.db, 'runMaintenance').mockImplementation(async () => {
+      await maintenance();
+      now = 200;
+    });
+    const release = internal.fileLock.release.bind(internal.fileLock);
+    vi.spyOn(internal.fileLock, 'release').mockImplementation(() => {
+      release();
+      now = 250;
+    });
+    try {
+      const result = await cg.indexAll();
+      expect(internal.db.runMaintenance).toHaveBeenCalled();
+      expect(result.durationMs).toBe(150);
+    } finally {
+      vi.restoreAllMocks();
+      cg.close();
     }
   });
 

@@ -29,10 +29,16 @@ export function finalizeStoreBundle(
   language: Language,
   file: FileRecord
 ): StoreBundle {
-  const nodes = result.nodes.filter(
+  const validNodes = result.nodes.filter(
     (node) =>
       node.id && node.kind && node.name && node.filePath && node.language
   );
+  // INSERT OR REPLACE keeps the last valid value and moves that row to the
+  // end. Preserve both semantics without replacing same-file IDs: with bulk
+  // indexes deferred, every replacement scans prior edges/refs for FK deletes.
+  const lastPosition = new Map<string, number>();
+  validNodes.forEach((node, index) => lastPosition.set(node.id, index));
+  const nodes = validNodes.filter((node, index) => lastPosition.get(node.id) === index);
   const insertedIds = new Set(nodes.map((node) => node.id));
   const edges = result.edges.filter(
     (edge) =>

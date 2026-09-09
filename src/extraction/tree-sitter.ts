@@ -913,9 +913,15 @@ export class TreeSitterExtractor {
   // (NAME(params) { body }) matches the function_definition grammar rule.
   private fileMacroNames: Set<string> = new Set();
 
+  // Misparse detection only needs membership. Keep project names shared instead
+  // of copying tens of thousands of entries into a new Set for every file.
+  private readonly macroNameLookup: Pick<ReadonlySet<string>, 'has'> = {
+    has: (name) => this.fileMacroNames.has(name) || this.globalMacroNames?.has(name) === true,
+  };
+
   // Project-wide `#define` names collected by the orchestrator's pre-scan
-  // (regex over all C/C++/ObjC files). Merged into `fileMacroNames` during
-  // collectMacroNames() so `isMisparsedFunction` can suppress spurious
+  // (regex over all C/C++/ObjC files). Consulted alongside `fileMacroNames`
+  // so `isMisparsedFunction` can suppress spurious
   // function nodes caused by macros defined in OTHER files (via #include).
   private globalMacroNames: Set<string> | null = null;
 
@@ -2714,17 +2720,6 @@ export class TreeSitterExtractor {
     };
 
     walk(this.tree.rootNode);
-
-    // Merge project-wide macro names collected by the orchestrator's
-    // pre-scan. This catches macros defined in other files (via #include)
-    // that tree-sitter can't see in this file's AST — without it, a macro
-    // invocation MACRO(args){body} in file B, where the macro is defined
-    // in header A, would produce a spurious function node in file B.
-    if (this.globalMacroNames) {
-      for (const name of this.globalMacroNames) {
-        this.fileMacroNames.add(name);
-      }
-    }
   }
 
   /**
@@ -3082,7 +3077,7 @@ export class TreeSitterExtractor {
 
     // Check for misparse artifacts (e.g. C++ macros causing "namespace detail" functions)
     // Skip the node but still visit the body for calls and structural nodes
-    if (this.extractor.isMisparsedFunction?.(name, node, this.fileMacroNames)) {
+    if (this.extractor.isMisparsedFunction?.(name, node, this.macroNameLookup)) {
       const body = this.extractor.resolveBody?.(node, this.extractor.bodyField)
         ?? getChildByField(node, this.extractor.bodyField);
       if (body) {
@@ -3402,7 +3397,7 @@ export class TreeSitterExtractor {
     }
 
     // Check for misparse artifacts (e.g. C++ "switch" inside macro-confused class body)
-    if (this.extractor.isMisparsedFunction?.(name, node, this.fileMacroNames)) {
+    if (this.extractor.isMisparsedFunction?.(name, node, this.macroNameLookup)) {
       const body = this.extractor.resolveBody?.(node, this.extractor.bodyField)
         ?? getChildByField(node, this.extractor.bodyField);
       if (body) {
@@ -4061,7 +4056,7 @@ export class TreeSitterExtractor {
         }
         if (funcDecl) {
           const fnName = extractName(funcDecl);
-          if (fnName && !this.extractor!.isMisparsedFunction?.(fnName, innerFd, this.fileMacroNames)) {
+          if (fnName && !this.extractor!.isMisparsedFunction?.(fnName, innerFd, this.macroNameLookup)) {
             this.createNode('function', fnName, innerFd, {
               signature: this.source.substring(innerFd.startIndex, innerFd.endIndex),
               isDeclaration: true,
@@ -4707,7 +4702,7 @@ export class TreeSitterExtractor {
                 )
                 : rawFnName;
               if (fnName && !C_CPP_KEYWORD_NAMES.has(fnName)
-                && !this.extractor.isMisparsedFunction?.(fnName, node, this.fileMacroNames)) {
+                && !this.extractor.isMisparsedFunction?.(fnName, node, this.macroNameLookup)) {
                 // Guard against tree-sitter error-recovery `declaration` nodes
                 // that span an entire namespace/file (caused by macro
                 // replacement erasing braces, or by the Most Vexing Parse

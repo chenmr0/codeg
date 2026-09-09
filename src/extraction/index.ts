@@ -1178,8 +1178,8 @@ export class ExtractionOrchestrator {
    * parse and catches macros inside `#if` blocks (the regex is
    * context-blind, which is the conservative direction for filtering).
    *
-   * The resulting set is passed to extractFromSource and merged into each
-   * file's fileMacroNames so isMisparsedFunction can suppress spurious
+   * The resulting set is passed to extractFromSource and queried alongside
+   * file-local macro names so isMisparsedFunction can suppress spurious
    * function nodes from macros defined in OTHER files (via #include) —
    * tree-sitter has no preprocessor, so a macro invocation
    * `MACRO(args){body}` in file B, where MACRO is defined in header A,

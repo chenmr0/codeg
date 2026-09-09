@@ -278,14 +278,14 @@ export interface LanguageExtractor {
    *
    * @param name - The extracted function/method name
    * @param node - The syntax node
-   * @param macroNames - Set of `#define` macro names collected from the file's
-   *   `preproc_def` / `preproc_function_def` nodes. Tree-sitter C/C++ parsers
+   * @param macroNames - Membership lookup over project-wide and file-local
+   *   `#define` macro names. Tree-sitter C/C++ parsers
    *   lack a preprocessor: when a macro invocation has the shape
    *   `MACRO_NAME(params) { body }`, it matches the function_definition
    *   grammar rule and produces a spurious function node for each call site.
    *   Checking against this set lets extractors suppress those false positives.
    */
-  isMisparsedFunction?: (name: string, node: SyntaxNode, macroNames?: Set<string>) => boolean;
+  isMisparsedFunction?: (name: string, node: SyntaxNode, macroNames?: Pick<ReadonlySet<string>, 'has'>) => boolean;
 
   /**
    * Detect bare method calls that don't use call expression syntax.

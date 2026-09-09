@@ -379,7 +379,8 @@ export class CodeGraph {
    * Uses a mutex to prevent concurrent indexing operations.
    */
   async indexAll(options: IndexOptions = {}): Promise<IndexResult> {
-    return this.indexMutex.withLock(async () => {
+    const startedAt = performance.now();
+    const result = await this.indexMutex.withLock(async () => {
       try {
         this.fileLock.acquire();
       } catch {
@@ -608,6 +609,10 @@ export class CodeGraph {
         this.fileLock.release();
       }
     });
+    // The orchestrator measures extraction only. CLI/API callers need the full
+    // operation, including resolution, synthesis, maintenance and WAL restore.
+    result.durationMs = performance.now() - startedAt;
+    return result;
   }
 
   /**

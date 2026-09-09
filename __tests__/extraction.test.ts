@@ -2865,6 +2865,28 @@ void foo() {
       expect(realFunc).toBeDefined();
     });
 
+    it('queries shared macro names without copying them or leaking file-local definitions', () => {
+      const shared = new Set(['FOREACH_X', ...Array.from({ length: 1024 }, (_, i) => `HEADER_MACRO_${i}`)]);
+      let iterations = 0;
+      const iterate = shared[Symbol.iterator].bind(shared);
+      shared[Symbol.iterator] = () => { iterations++; return iterate(); };
+      const result = extractFromSource('local.cpp', `
+#define LOCAL_LOOP(a,b,c) for (int a = 0; a < b; ++a)
+void foo() {
+  FOREACH_X(it, items, true) { doWork(*it); }
+  LOCAL_LOOP(i, size, true) { doWork(i); }
+}`, undefined, undefined, shared);
+      const functions = result.nodes.filter(n => n.kind === 'function').map(n => n.name);
+      expect(functions).toContain('foo');
+      expect(functions).not.toContain('FOREACH_X');
+      expect(functions).not.toContain('LOCAL_LOOP');
+      expect(shared.size).toBe(1025);
+      expect(shared.has('LOCAL_LOOP')).toBe(false);
+      expect(iterations).toBe(0);
+      const next = extractFromSource('other.cpp', 'void LOCAL_LOOP() {}', undefined, undefined, shared);
+      expect(next.nodes.some(n => n.kind === 'function' && n.name === 'LOCAL_LOOP')).toBe(true);
+    });
+
     it('filters cross-file macro misparsed as function declaration', () => {
       // When tree-sitter parses SWITCH(args) CASE(args) {body} as a
       // declaration with a function_declarator (not a function_definition),

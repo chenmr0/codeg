@@ -129,6 +129,9 @@ const SETSTATE_RE = /this\.setState\s*\(/;
 const FLUTTER_SETSTATE_RE = /\bsetState\s*\(/; // Flutter: setState((){…}) / this.setState
 const JSX_TAG_RE = /<([A-Z][A-Za-z0-9_]*)[\s/>]/g;
 const MAX_JSX_CHILDREN = 30;
+const JS_FAMILY = ['typescript', 'javascript', 'tsx', 'jsx'];
+// SFC component nodes can cover their template, including PascalCase tags.
+const JSX_PARENT_LANGUAGES = new Set([...JS_FAMILY, 'vue', 'svelte']);
 // Vue SFC templates: kebab-case child components (<el-button> → ElButton) and
 // event bindings (@click="fn" / v-on:click="fn"). PascalCase children (<VPNav/>)
 // are already caught by JSX_TAG_RE via the SFC component node.
@@ -142,7 +145,7 @@ const VUE_HANDLER_RE = /(?:@|v-on:)([a-zA-Z][\w-]*)(?:\.[\w]+)*\s*=\s*"([^"]+)"/
 // Captures the destructure body + the called composable; only `use*` calls qualify.
 const VUE_DESTRUCTURE_RE = /(?:const|let|var)\s*\{([^}]+)\}\s*=\s*(\w+)\s*\(/g;
 
-// Closure-collection dynamic dispatch (language-agnostic, Swift-first). A method
+// Closure-collection dynamic dispatch (Swift/Kotlin trailing closures). A method
 // appends a closure to a collection property; another method iterates that
 // property *invoking each element* (`coll.forEach { $0() }` / `{ it() }`). The
 // element-invoke (`$0(` / `it(`) PROVES the collection holds closures, so pairing
@@ -154,6 +157,7 @@ const CC_DISPATCH_RE = /(\w+)\.forEach\s*\{\s*(?:\$0|it)\s*\(/g;
 const CC_APPEND_WRITE_RE = /(\w+)\.write\s*\{\s*\$0(?:\.(\w+))?\.(?:append|add|push|insert)\s*\(/g;
 const CC_APPEND_DIRECT_RE = /(\w+)\.(?:append|add|push|insert)\s*\(/g;
 const CC_FANOUT_CAP = 8; // skip a field name with more dispatchers/registrars than this (too generic to pair confidently)
+const CC_LANGUAGES = new Set(['swift', 'kotlin']);
 
 function kebabToPascal(s: string): string {
   return s.split('-').map((p) => p.charAt(0).toUpperCase() + p.slice(1)).join('');
@@ -311,6 +315,7 @@ function closureCollectionEdges(queries: QueryBuilder, ctx: ResolutionContext): 
   };
 
   for (const m of methodAndFunctionNodes(queries)) {
+    if (!CC_LANGUAGES.has(m.language)) continue;
     const content = ctx.readFile(m.filePath);
     const src = content && sliceLines(content, m.startLine, m.endLine);
     if (!src) continue;
@@ -1266,7 +1271,9 @@ function reactJsxChildEdges(ctx: ResolutionContext): Edge[] {
   for (const file of ctx.getAllFiles()) {
     const content = ctx.readFile(file);
     if (!content || (!content.includes('</') && !content.includes('/>'))) continue; // JSX-file gate
-    const parents = ctx.getNodesInFile(file).filter((n) => PARENT_KINDS.has(n.kind));
+    const parents = ctx.getNodesInFile(file).filter(
+      (n) => PARENT_KINDS.has(n.kind) && JSX_PARENT_LANGUAGES.has(n.language)
+    );
     for (const parent of parents) {
       const src = sliceLines(content, parent.startLine, parent.endLine);
       if (!src || (!src.includes('</') && !src.includes('/>'))) continue;
@@ -2221,7 +2228,6 @@ export async function synthesizeCallbackEdges(
   // used here; language-agnostic callback passes continue to run unchanged.
   const languages = queries.getDistinctFileLanguages();
   const has = (...values: string[]): boolean => values.some((value) => languages.has(value));
-  const jsFamily = ['typescript', 'javascript', 'tsx', 'jsx'];
   let totalAdded = 0;
 
   // Cross-file Go method→type `contains` edges must be synthesized AND persisted
@@ -2255,10 +2261,9 @@ export async function synthesizeCallbackEdges(
       run: () => closureCollectionEdges(queries, ctx),
     },
     { name: 'emitterEdges', enabled: true, run: () => eventEmitterEdges(ctx) },
-    // These are intentionally not JS-gated: existing Java/Litho-style source
-    // can satisfy their source-shape predicates too.
+    // Java/Litho-style source can satisfy the setState/render predicates too.
     { name: 'renderEdges', enabled: true, run: () => reactRenderEdges(queries, ctx) },
-    { name: 'jsxEdges', enabled: true, run: () => reactJsxChildEdges(ctx) },
+    { name: 'jsxEdges', enabled: has(...JSX_PARENT_LANGUAGES), run: () => reactJsxChildEdges(ctx) },
     { name: 'vueEdges', enabled: has('vue'), run: () => vueTemplateEdges(ctx) },
     { name: 'svelteKitEdges', enabled: has('svelte'), run: () => svelteKitLoadEdges(ctx) },
     { name: 'pascalEdges', enabled: true, run: () => pascalFormEdges(ctx) },
@@ -2277,14 +2282,14 @@ export async function synthesizeCallbackEdges(
     },
     { name: 'kotlinExpectActual', enabled: has('kotlin'), run: () => kotlinExpectActualEdges(queries) },
     { name: 'goGrpcEdges', enabled: has('go'), run: () => goGrpcStubImplEdges(queries) },
-    { name: 'rnEventEdgesList', enabled: has(...jsFamily), run: () => rnEventEdges(ctx) },
+    { name: 'rnEventEdgesList', enabled: has(...JS_FAMILY), run: () => rnEventEdges(ctx) },
     { name: 'fabricNativeEdges', enabled: true, run: () => fabricNativeImplEdges(ctx) },
     {
       name: 'expoXPlatEdges',
       enabled: has('swift') && has('kotlin'),
       run: () => expoCrossPlatformEdges(queries),
     },
-    { name: 'rnXPlatEdges', enabled: has(...jsFamily), run: () => rnCrossPlatformEdges(queries) },
+    { name: 'rnXPlatEdges', enabled: has(...JS_FAMILY), run: () => rnCrossPlatformEdges(queries) },
     {
       name: 'mybatisEdges',
       enabled: has('java', 'kotlin') && has('xml'),

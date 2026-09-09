@@ -1,6 +1,7 @@
-import { beforeAll, describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { extractFromSource } from '../src/extraction';
-import { initGrammars, loadGrammarsForLanguages } from '../src/extraction/grammars';
+import { getParser, initGrammars, loadGrammarsForLanguages } from '../src/extraction/grammars';
+import { cppExtractor } from '../src/extraction/languages/c-cpp';
 
 beforeAll(async () => {
   await initGrammars();
@@ -16,6 +17,28 @@ function kinds(source: string, filePath = 'const-matrix.cpp'): Record<string, st
 }
 
 describe('C/C++ declarator-level top-level const classification', () => {
+  it('scans a wide declaration once and keeps qualifiers isolated between trees', () => {
+    const names = Array.from({ length: 512 }, (_, i) => `value_${i}`);
+    for (const qualifier of ['const ', '', 'constexpr ']) {
+      const tree = getParser('cpp')!.parse(`${qualifier}int ${names.map(n => `${n}=1`).join(', ')};`)!;
+      try {
+        const declaration = tree.rootNode.namedChild(0)!;
+        const declarators = declaration.namedChildren.filter(n => n.type === 'init_declarator');
+        expect(declarators).toHaveLength(names.length);
+        const indexedLookup = vi.spyOn(declaration, 'namedChild');
+        const bulkLookup = vi.spyOn(declaration, 'namedChildren', 'get');
+        for (const declarator of declarators) {
+          expect(cppExtractor.isDeclaratorConst!(declaration, declarator)).toBe(qualifier !== '');
+        }
+        expect(indexedLookup).not.toHaveBeenCalled();
+        expect(bulkLookup).toHaveBeenCalledTimes(1);
+      } finally {
+        vi.restoreAllMocks();
+        tree.delete();
+      }
+    }
+  });
+
   it('classifies each C++ declarator by object constness', () => {
     expect(kinds([
       'const int value = 1;',
