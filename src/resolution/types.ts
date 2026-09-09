@@ -97,6 +97,8 @@ export interface ResolutionContext {
   readFile(filePath: string): string | null;
   /** Optional read-only lines of the same content readFile would return. */
   getFileLines?(filePath: string): readonly string[] | null;
+  /** Pure declaration evidence for large C++ sources; null uses the ordinary line scan. */
+  getCppReceiverDeclarations?(filePath: string, receiver: string): import('./cpp-receiver-index').CppReceiverDeclarations | null;
   /** Optional pure name tokenization cache; callers must not mutate results. */
   getNameWords?(name: string): readonly string[];
   /** Get project root */

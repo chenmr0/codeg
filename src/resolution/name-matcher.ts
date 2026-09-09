@@ -9,6 +9,7 @@ import { UnresolvedRef, ResolvedRef, ResolutionContext } from './types';
 import { canonicalFilePath } from '../utils';
 import { splitNameWords } from './text-cache';
 import { hasSimpleCppLocalReceiver } from './cpp-local-receiver';
+import { cppDeclaratorRegex as buildDeclaratorRegex, lastDeclarationBefore } from './cpp-receiver-index';
 
 /**
  * Try to resolve a path-like reference (e.g., "snippets/drawer-menu.liquid")
@@ -496,39 +497,37 @@ function normalizeCppTypeName(typeName: string): string | null {
   return last;
 }
 
-// Declarator regex: matches `Type receiver`, `Type* receiver`, `Type *receiver`,
-// `Type*receiver`, `Type<X> receiver`, etc., REQUIRING a declarator terminator
-// (`;`, `=`, `,`, `)`, `[`, `{`, `(`, or end-of-line) after the receiver. The
-// terminator rules out uses like `return receiver->m()` where the preceding
-// token is a keyword, not a type.
-function buildDeclaratorRegex(escapedReceiver: string): RegExp {
-  return new RegExp(
-    `([A-Za-z_][\\w:]*(?:\\s*<[^;=(){}]+>)?(?:\\s*[*&]+)?)\\s*\\b${escapedReceiver}\\b\\s*(?=[;=,)\\[{(]|$)`,
-  );
-}
-
+// Large sources use compact declaration evidence. Small sources and external
+// contexts retain the same backward scan and forward header fallback.
 function inferCppReceiverType(
   receiverName: string,
   ref: UnresolvedRef,
   context: ResolutionContext,
   depth = 0,
 ): string | null {
-  const lines = context.getFileLines
+  const indexed = context.getCppReceiverDeclarations?.(ref.filePath, receiverName);
+  const lines = indexed ? null : context.getFileLines
     ? context.getFileLines(ref.filePath)
     : context.readFile(ref.filePath)?.split(/\r?\n/);
-  if (!lines || lines.length === 0 || (lines.length === 1 && lines[0] === '')) return null;
-  const callLineIndex = Math.max(0, Math.min(lines.length - 1, ref.line - 1));
+  if (!indexed && (!lines || lines.length === 0 || (lines.length === 1 && lines[0] === ''))) return null;
+  const lineCount = indexed?.lineCount ?? lines!.length;
+  if (indexed && lineCount === 1 && indexed.lineText(0) === '') return null;
+  const callLineIndex = Math.max(0, Math.min(lineCount - 1, ref.line - 1));
   const escapedReceiver = receiverName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const receiverPattern = new RegExp(`\\b${escapedReceiver}\\b`);
   const declaratorRegex = buildDeclaratorRegex(escapedReceiver);
 
-  for (let i = callLineIndex; i >= 0; i--) {
-    const line = lines[i];
-    if (!line || !receiverPattern.test(line)) continue;
+  // Only source-spelled evidence is reused. In particular, an auto initializer
+  // is evaluated against the CURRENT graph, even when its line is cached.
+  const start = indexed ? lastDeclarationBefore(indexed.declarations, callLineIndex) : callLineIndex;
+  for (let i = start; i >= 0; i--) {
+    const declaration = indexed?.declarations[i];
+    const line = indexed ? indexed.lineText(declaration!.line) : lines![i];
+    if (!line || (!indexed && !receiverPattern.test(line))) continue;
 
-    const declaratorMatch = line.match(declaratorRegex);
-    if (declaratorMatch) {
-      const normalized = normalizeCppTypeName(declaratorMatch[1] ?? '');
+    const rawType = declaration ? declaration.rawType : line.match(declaratorRegex)?.[1];
+    if (rawType !== undefined) {
+      const normalized = normalizeCppTypeName(rawType);
       if (normalized === 'auto') {
         // `auto x = Foo::instance();` — the declared type is deduced; recover it
         // from the initializer (call return type / construction) (#645).
@@ -549,6 +548,15 @@ function inferCppReceiverType(
 
   for (const headerPath of headerCandidates) {
     if (!context.fileExists(headerPath)) continue;
+    const headerIndex = context.getCppReceiverDeclarations?.(headerPath, receiverName);
+    if (headerIndex) {
+      // Headers retain the original FORWARD scan and skip auto declarations.
+      for (const declaration of headerIndex.declarations) {
+        const normalized = normalizeCppTypeName(declaration.rawType);
+        if (normalized && normalized !== 'auto') return normalized;
+      }
+      continue;
+    }
     const headerLines = context.getFileLines
       ? context.getFileLines(headerPath)
       : context.readFile(headerPath)?.split(/\r?\n/);

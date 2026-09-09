@@ -38,6 +38,7 @@ import { logDebug } from '../errors';
 import type { ReExport } from './types';
 import { LRUCache } from './lru-cache';
 import { ResolutionTextCache } from './text-cache';
+import { CppReceiverDeclarationCache } from './cpp-receiver-index';
 import { measureResolution, ResolutionDiagnostics } from './diagnostics';
 import { IndexedNameLookup, syncNameLookupMode, type NameLookupMode } from './name-lookup';
 import { canonicalFilePath, clearCanonicalCache } from '../utils';
@@ -238,6 +239,7 @@ export class ReferenceResolver {
   private nodeCache: LRUCache<string, Node[]>; // per-file node cache
   private fileCache: LRUCache<string, string | null>; // per-file content cache
   private readonly textCache = new ResolutionTextCache();
+  private readonly cppReceiverCache = new CppReceiverDeclarationCache();
   private importMappingCache: LRUCache<string, ImportMapping[]>;
   private reExportCache: LRUCache<string, ReExport[]>;
   private nameCache: LRUCache<string, Node[]>; // name → nodes cache
@@ -384,6 +386,7 @@ export class ReferenceResolver {
     this.nodeCache.clear();
     this.fileCache.clear();
     this.textCache.clear();
+    this.cppReceiverCache.clear();
     this.importMappingCache.clear();
     this.reExportCache.clear();
     this.nameCache.clear();
@@ -560,6 +563,11 @@ export class ReferenceResolver {
         // cache was evicted/refilled, a same-path edit cannot hit stale lines.
         const source = this.context.readFile(filePath);
         return source === null ? null : this.textCache.fileLines(source);
+      },
+
+      getCppReceiverDeclarations: (filePath: string, receiver: string) => {
+        const source = this.context.readFile(filePath);
+        return source === null ? null : this.cppReceiverCache.get(source, receiver);
       },
 
       getNameWords: (name: string) => this.textCache.nameWords(name),
