@@ -15,12 +15,74 @@ import type {
   Node,
   UnresolvedReference,
 } from '../types';
+import type { InitProfileWriter } from '../performance/init-profile';
 
 export interface StoreBundle {
   nodes: Node[];
   edges: Edge[];
   refs: UnresolvedReference[];
   file: FileRecord;
+}
+
+export interface StoreBatchLimits {
+  maxBundles: number;
+  maxRows: number;
+  maxSourceBytes: number;
+}
+
+export interface StoreWorkerTransactionStats {
+  transactionMs: number;
+  rowAggregationMs: number;
+  duplicateNodeRowsElided: number;
+  nodeWriteMs: number;
+  edgeWriteMs: number;
+  unresolvedRefWriteMs: number;
+  fileWriteMs: number;
+  filesStored: number;
+  nodesStored: number;
+  edgesStored: number;
+  unresolvedRefsStored: number;
+}
+
+export const DEFAULT_STORE_BATCH_LIMITS: StoreBatchLimits = {
+  maxBundles: 10,
+  maxRows: 50_000,
+  maxSourceBytes: 16 * 1024 * 1024,
+};
+
+function storeBundleRows(bundle: StoreBundle): number {
+  return bundle.nodes.length + bundle.edges.length + bundle.refs.length + 1;
+}
+
+export function batchStoreBundles(
+  bundles: readonly StoreBundle[],
+  limits: StoreBatchLimits = DEFAULT_STORE_BATCH_LIMITS,
+): StoreBundle[][] {
+  const batches: StoreBundle[][] = [];
+  let current: StoreBundle[] = [];
+  let currentRows = 0;
+  let currentSourceBytes = 0;
+
+  for (const bundle of bundles) {
+    const rows = storeBundleRows(bundle);
+    const sourceBytes = Math.max(0, bundle.file.size);
+    const exceedsCurrent = current.length > 0 && (
+      current.length + 1 > limits.maxBundles ||
+      currentRows + rows > limits.maxRows ||
+      currentSourceBytes + sourceBytes > limits.maxSourceBytes
+    );
+    if (exceedsCurrent) {
+      batches.push(current);
+      current = [];
+      currentRows = 0;
+      currentSourceBytes = 0;
+    }
+    current.push(bundle);
+    currentRows += rows;
+    currentSourceBytes += sourceBytes;
+  }
+  if (current.length > 0) batches.push(current);
+  return batches;
 }
 
 export function finalizeStoreBundle(
@@ -60,6 +122,30 @@ export class StoreWriter {
   private nextDrainId = 0;
   private outstanding = 0;
   private exited = false;
+  private readonly stats: InitProfileWriter = {
+    bundlesSent: 0,
+    messagesSent: 0,
+    sourceBytes: 0,
+    nodesSent: 0,
+    edgesSent: 0,
+    unresolvedRefsSent: 0,
+    maxOutstandingBundles: 0,
+    walBackpressureCount: 0,
+    windowWaitCount: 0,
+    windowWaitMs: 0,
+    transactions: 0,
+    transactionMs: 0,
+    rowAggregationMs: 0,
+    duplicateNodeRowsElided: 0,
+    nodeWriteMs: 0,
+    edgeWriteMs: 0,
+    unresolvedRefWriteMs: 0,
+    fileWriteMs: 0,
+    filesStored: 0,
+    nodesStored: 0,
+    edgesStored: 0,
+    unresolvedRefsStored: 0,
+  };
 
   constructor(workerScriptPath: string, dbPath: string, fastInit: boolean) {
     this.worker = new Worker(workerScriptPath);
@@ -76,11 +162,18 @@ export class StoreWriter {
 
     this.worker.on(
       'message',
-      (message: { type: string; id?: number; message?: string }) => {
+      (message: {
+        type: string;
+        id?: number;
+        message?: string;
+        bundleCount?: number;
+        stats?: StoreWorkerTransactionStats;
+      }) => {
         if (message.type === 'ready') {
           readyResolve();
         } else if (message.type === 'ack') {
-          this.settleOne();
+          if (message.stats) this.recordTransaction(message.stats);
+          this.settle(message.bundleCount ?? message.stats?.filesStored ?? 1);
         } else if (message.type === 'drained' && message.id !== undefined) {
           const waiter = this.drainWaiters.get(message.id);
           this.drainWaiters.delete(message.id);
@@ -91,7 +184,7 @@ export class StoreWriter {
           if (!this.firstError) {
             this.firstError = new Error(`store worker: ${message.message}`);
           }
-          this.settleOne();
+          this.settle(message.bundleCount ?? 1);
         }
       }
     );
@@ -122,23 +215,49 @@ export class StoreWriter {
   }
 
   send(bundle: StoreBundle): void {
-    if (this.firstError) throw this.firstError;
-    if (this.exited) throw new Error('store worker already exited');
-    this.outstanding++;
-    this.worker.postMessage({ type: 'bundle', bundle });
+    this.sendMany([bundle]);
   }
 
-  waitBelow(limit: number): Promise<void> {
+  sendMany(bundles: readonly StoreBundle[]): void {
+    if (bundles.length === 0) return;
+    if (this.firstError) throw this.firstError;
+    if (this.exited) throw new Error('store worker already exited');
+    this.worker.postMessage({ type: 'batch', bundles });
+    this.outstanding += bundles.length;
+    this.stats.messagesSent++;
+    this.stats.bundlesSent += bundles.length;
+    for (const bundle of bundles) {
+      this.stats.sourceBytes += Math.max(0, bundle.file.size);
+      this.stats.nodesSent += bundle.nodes.length;
+      this.stats.edgesSent += bundle.edges.length;
+      this.stats.unresolvedRefsSent += bundle.refs.length;
+    }
+    this.stats.maxOutstandingBundles = Math.max(
+      this.stats.maxOutstandingBundles,
+      this.outstanding,
+    );
+  }
+
+  async waitBelow(limit: number): Promise<number> {
     if (
       this.firstError ||
       this.exited ||
       this.outstanding < limit
     ) {
-      return Promise.resolve();
+      return 0;
     }
-    return new Promise<void>((resolve) => {
+    const started = performance.now();
+    this.stats.windowWaitCount++;
+    await new Promise<void>((resolve) => {
       this.belowWaiters.push({ limit, resolve });
     });
+    const durationMs = performance.now() - started;
+    this.stats.windowWaitMs += durationMs;
+    return durationMs;
+  }
+
+  getStats(): InitProfileWriter {
+    return { ...this.stats };
   }
 
   drain(): Promise<void> {
@@ -168,8 +287,26 @@ export class StoreWriter {
     });
   }
 
-  private settleOne(): void {
-    if (this.outstanding > 0) this.outstanding--;
+  private recordTransaction(stats: StoreWorkerTransactionStats): void {
+    this.stats.transactions++;
+    this.stats.transactionMs += Math.max(0, stats.transactionMs);
+    this.stats.rowAggregationMs += Math.max(0, stats.rowAggregationMs);
+    this.stats.duplicateNodeRowsElided += Math.max(
+      0,
+      stats.duplicateNodeRowsElided,
+    );
+    this.stats.nodeWriteMs += Math.max(0, stats.nodeWriteMs);
+    this.stats.edgeWriteMs += Math.max(0, stats.edgeWriteMs);
+    this.stats.unresolvedRefWriteMs += Math.max(0, stats.unresolvedRefWriteMs);
+    this.stats.fileWriteMs += Math.max(0, stats.fileWriteMs);
+    this.stats.filesStored += stats.filesStored;
+    this.stats.nodesStored += stats.nodesStored;
+    this.stats.edgesStored += stats.edgesStored;
+    this.stats.unresolvedRefsStored += stats.unresolvedRefsStored;
+  }
+
+  private settle(bundleCount: number): void {
+    this.outstanding = Math.max(0, this.outstanding - Math.max(1, bundleCount));
     const remaining: typeof this.belowWaiters = [];
     for (const waiter of this.belowWaiters) {
       if (this.outstanding < waiter.limit) waiter.resolve();

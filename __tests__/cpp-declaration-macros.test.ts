@@ -363,6 +363,56 @@ describe('C/C++ declaration macro expansion', () => {
     ]));
   });
 
+  it('shards large declaration-macro recovery without changing recovered symbols', () => {
+    const commentPadding = 'x'.repeat(4_096);
+    const definitions = selectUnambiguousCppMacroDefinitions(
+      scanCppMacroDefinitions(
+        `#define DECLARE_RECORD(Name) struct Name {}; /* ${commentPadding} */`,
+      ),
+    );
+    const source = Array.from(
+      { length: 65 },
+      (_, index) => `DECLARE_RECORD(Recovered${index})`,
+    ).join('\n');
+    const previous = process.env.CODEGRAPH_NO_DECLARATION_MACRO_SHARDING;
+    const extract = () => extractFromSource(
+      'sharded-generated.cpp',
+      source,
+      'cpp',
+      undefined,
+      new Set(['DECLARE_RECORD']),
+      new Set(),
+      definitions,
+    );
+    let unsharded;
+    let sharded;
+    try {
+      process.env.CODEGRAPH_NO_DECLARATION_MACRO_SHARDING = '1';
+      unsharded = extract();
+      delete process.env.CODEGRAPH_NO_DECLARATION_MACRO_SHARDING;
+      sharded = extract();
+    } finally {
+      if (previous === undefined) delete process.env.CODEGRAPH_NO_DECLARATION_MACRO_SHARDING;
+      else process.env.CODEGRAPH_NO_DECLARATION_MACRO_SHARDING = previous;
+    }
+
+    const recoveredSymbols = (result: ReturnType<typeof extract>) => result.nodes
+      .filter((node) => node.name.startsWith('Recovered'))
+      .map((node) => ({
+        id: node.id,
+        kind: node.kind,
+        name: node.name,
+        qualifiedName: node.qualifiedName,
+        startLine: node.startLine,
+        startColumn: node.startColumn,
+      }))
+      .sort((left, right) => left.name.localeCompare(right.name));
+
+    expect(unsharded!.timings?.declarationMacroAuxParseAttempts).toBe(1);
+    expect(sharded!.timings?.declarationMacroAuxParseAttempts).toBe(2);
+    expect(recoveredSymbols(sharded!)).toEqual(recoveredSymbols(unsharded!));
+  });
+
   it('recovers split function-definition signatures without a semicolon', () => {
     const definitions = selectUnambiguousCppMacroDefinitions(
       scanCppMacroDefinitions('#define DEFINE_SERIALIZE(T) int T::serialize() const'),

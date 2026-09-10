@@ -300,6 +300,14 @@ export interface ExtractionTimings {
   declarationMacroAuxParseMs?: number;
   /** Filtering and merging recovered nodes/contains edges. */
   declarationMacroMergeMs?: number;
+  /** Declaration-scope macro invocations considered for recovery. */
+  declarationMacroInvocationCount?: number;
+  /** UTF-8 bytes in sparse recovery sources sent to auxiliary parsers. */
+  declarationMacroRecoverySourceBytes?: number;
+  /** Number of isolated declaration-macro auxiliary parses attempted. */
+  declarationMacroAuxParseAttempts?: number;
+  /** New declaration nodes actually retained from auxiliary parse output. */
+  declarationMacroRecoveredNodes?: number;
 }
 
 /**

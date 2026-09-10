@@ -1538,6 +1538,11 @@ export class ReferenceResolver {
       );
     }
 
+    // Keep this boundary explicit: aggregate resolver work is often reported as
+    // a sum across millions of refs, whereas init optimization needs wall time
+    // separate from the whole-graph synthesis tail.
+    const referenceBatchesMs = Date.now() - resolutionStartedAt;
+
     // Dynamic-edge synthesis: now that all base `calls` edges are persisted,
     // synthesize observer/callback dispatch edges (dispatcher → registered
     // callbacks) that static parsing leaves out. Best-effort — never fail the
@@ -1548,6 +1553,7 @@ export class ReferenceResolver {
     this.clearCaches();
     await new Promise(resolve => setImmediate(resolve));
     const synthesisStartedAt = Date.now();
+    let synthesisPasses: ResolutionResult['synthesisPasses'];
     const diagnostics: import('./types').ResolutionDiagnostic[] =
       this.frameworkDiagnostics.splice(0);
     try {
@@ -1556,6 +1562,7 @@ export class ReferenceResolver {
         this.context
       );
       aggregateStats.byMethod['callback-synthesis'] = synthesis.edgesAdded;
+      synthesisPasses = synthesis.passes;
       diagnostics.push(...synthesis.diagnostics);
     } catch (error) {
       const message = `Dynamic-edge synthesis failed: ` +
@@ -1578,7 +1585,16 @@ export class ReferenceResolver {
     return {
       resolved: [],
       unresolved: [],
-      stats: aggregateStats,
+      stats: {
+        ...aggregateStats,
+        parallelBatches,
+        sequentialBatches,
+      },
+      timings: {
+        referenceBatchesMs,
+        synthesisMs: Date.now() - synthesisStartedAt,
+      },
+      synthesisPasses,
       diagnostics: diagnostics.length > 0 ? diagnostics : undefined,
     };
   }

@@ -88,6 +88,14 @@ export interface ParseWorkerPoolOptions {
   macroNames?: string[];
   bodylessMacroNames?: string[];
   macroDefinitions?: CppMacroDefinition[];
+  /** Opt-in profile hook; omitted on the production indexing path. */
+  onStateChange?: (state: {
+    queueDepth: number;
+    inflightWorkers: number;
+    idleWorkers: number;
+    pendingWorkers: number;
+    liveWorkers: number;
+  }) => void;
 }
 
 export class ParseWorkerPool {
@@ -115,6 +123,7 @@ export class ParseWorkerPool {
   private readonly macroNames: string[];
   private readonly bodylessMacroNames: string[];
   private readonly macroDefinitions: CppMacroDefinition[];
+  private readonly onStateChange?: ParseWorkerPoolOptions['onStateChange'];
 
   constructor(options: ParseWorkerPoolOptions) {
     this.languages = options.languages;
@@ -126,6 +135,7 @@ export class ParseWorkerPool {
     this.macroNames = options.macroNames ?? [];
     this.bodylessMacroNames = options.bodylessMacroNames ?? [];
     this.macroDefinitions = options.macroDefinitions ?? [];
+    this.onStateChange = options.onStateChange;
 
     if (options.createWorker) {
       this.createWorker = options.createWorker;
@@ -179,6 +189,7 @@ export class ParseWorkerPool {
         reject,
         settled: false,
       });
+      this.reportState();
       this.drain();
     });
   }
@@ -232,6 +243,7 @@ export class ParseWorkerPool {
       if (!this.workers.has(worker)) return;
       this.pending.delete(worker);
       this.idle.push(worker);
+      this.reportState();
       this.settleReadyWaiters();
       this.drain();
       return;
@@ -259,6 +271,7 @@ export class ParseWorkerPool {
     } else {
       this.idle.push(worker);
     }
+    this.reportState();
     this.settle(job, message.result);
     this.drain();
   }
@@ -268,6 +281,7 @@ export class ParseWorkerPool {
     const job = this.inflight.get(worker);
     this.inflight.delete(worker);
     this.removeWorker(worker);
+    this.reportState();
     this.crashCount++;
     try {
       void worker.terminate();
@@ -282,6 +296,7 @@ export class ParseWorkerPool {
 
   private dispatch(worker: ParsePoolWorker, job: ParseJob): void {
     this.inflight.set(worker, job);
+    this.reportState();
     this.parseCounts.set(worker, (this.parseCounts.get(worker) ?? 0) + 1);
     const timeoutMs = Math.min(
       this.parseTimeoutMs +
@@ -336,6 +351,7 @@ export class ParseWorkerPool {
     if (job.settled || !this.workers.has(worker)) return;
     this.removeWorker(worker);
     this.inflight.delete(worker);
+    this.reportState();
     try {
       void worker.terminate();
     } catch {
@@ -388,6 +404,7 @@ export class ParseWorkerPool {
         `(heap: ${Math.round(process.memoryUsage().rss / 1024 / 1024)}MB RSS)`
     );
     this.removeWorker(worker);
+    this.reportState();
     try {
       void worker.terminate();
     } catch {
@@ -425,6 +442,16 @@ export class ParseWorkerPool {
     }
   }
 
+  private reportState(): void {
+    this.onStateChange?.({
+      queueDepth: this.queue.length,
+      inflightWorkers: this.inflight.size,
+      idleWorkers: this.idle.length,
+      pendingWorkers: this.pending.size,
+      liveWorkers: this.workers.size,
+    });
+  }
+
   /** Give retry attempts fresh WASM heaps. */
   recycleAll(): void {
     for (const worker of [...this.idle]) this.recycle(worker);
@@ -444,6 +471,7 @@ export class ParseWorkerPool {
     }
     this.inflight.clear();
     this.queue = [];
+    this.reportState();
     await Promise.all(
       workers.map((worker) =>
         Promise.resolve(worker.terminate()).catch(() => {

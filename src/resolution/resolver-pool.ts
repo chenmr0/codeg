@@ -218,50 +218,85 @@ export class ResolverPool {
   /**
    * Resolve one database batch without side effects.
    *
-   * Promise.all preserves the order of the chunk promise array, independent of
-   * worker completion order.
+   * A worker receives its next chunk only after completing the current one.
+   * Resolution cost is data-dependent (template-heavy C++ names can be much
+   * slower than ordinary exact matches), so pre-assigning all chunks makes the
+   * tail depend on the initial round-robin assignment. Results remain merged in
+   * original chunk order, independent of worker completion order.
    */
   async resolveBatch(refs: UnresolvedReference[]): Promise<ResolverAdmissionResult> {
     if (this.failed) throw this.failed;
 
-    const chunks: Promise<ResolverAdmissionResult>[] = [];
+    const inputs: UnresolvedReference[][] = [];
     for (let offset = 0; offset < refs.length; offset += RESOLUTION_CHUNK_SIZE) {
-      const chunk = refs.slice(offset, offset + RESOLUTION_CHUNK_SIZE);
-      const id = this.nextId++;
-      const member = this.workers.reduce((best, candidate) =>
-        candidate.busy < best.busy ? candidate : best
-      );
-      member.busy++;
+      inputs.push(refs.slice(offset, offset + RESOLUTION_CHUNK_SIZE));
+    }
+    if (inputs.length === 0) {
+      return { resolved: [], unresolved: [], deferredChain: [], byMethod: {} };
+    }
 
-      chunks.push(new Promise<ResolverAdmissionResult>((resolve, reject) => {
+    return new Promise<ResolverAdmissionResult>((resolve, reject) => {
+      const results = new Array<ResolverAdmissionResult>(inputs.length);
+      let nextInput = 0;
+      let completed = 0;
+      let settled = false;
+
+      const fail = (error: Error): void => {
+        if (settled) return;
+        settled = true;
+        reject(error);
+      };
+      const finish = (): void => {
+        if (settled || completed !== inputs.length) return;
+        settled = true;
+        const combined: ResolverAdmissionResult = {
+          resolved: [],
+          unresolved: [],
+          deferredChain: [],
+          byMethod: {},
+        };
+        for (const result of results) {
+          combined.resolved.push(...result.resolved);
+          combined.unresolved.push(...result.unresolved);
+          combined.deferredChain.push(...result.deferredChain);
+          for (const [method, count] of Object.entries(result.byMethod)) {
+            combined.byMethod[method] = (combined.byMethod[method] || 0) + count;
+          }
+        }
+        resolve(combined);
+      };
+      const dispatch = (member: PoolWorker): void => {
+        if (settled || nextInput >= inputs.length) {
+          finish();
+          return;
+        }
+        const inputIndex = nextInput++;
+        const refsForWorker = inputs[inputIndex]!;
+        const id = this.nextId++;
+        member.busy++;
         const timer = setTimeout(() => {
           if (!this.waiters.delete(id)) return;
           const error = new Error(`resolver worker task timed out after ${resolverTaskTimeoutMs()}ms`);
           this.fail(error);
-          reject(error);
+          fail(error);
         }, resolverTaskTimeoutMs());
         timer.unref?.();
-        this.waiters.set(id, { resolve, reject, timer });
-        member.worker.postMessage({ type: 'resolve', id, refs: chunk });
-      }));
-    }
+        this.waiters.set(id, {
+          resolve: (result) => {
+            if (settled) return;
+            results[inputIndex] = result;
+            completed++;
+            dispatch(member);
+            finish();
+          },
+          reject: fail,
+          timer,
+        });
+        member.worker.postMessage({ type: 'resolve', id, refs: refsForWorker });
+      };
 
-    const settled = await Promise.all(chunks);
-    const combined: ResolverAdmissionResult = {
-      resolved: [],
-      unresolved: [],
-      deferredChain: [],
-      byMethod: {},
-    };
-    for (const result of settled) {
-      combined.resolved.push(...result.resolved);
-      combined.unresolved.push(...result.unresolved);
-      combined.deferredChain.push(...result.deferredChain);
-      for (const [method, count] of Object.entries(result.byMethod)) {
-        combined.byMethod[method] = (combined.byMethod[method] || 0) + count;
-      }
-    }
-    return combined;
+      for (const member of this.workers) dispatch(member);
+    });
   }
 
   private fail(error: Error): void {

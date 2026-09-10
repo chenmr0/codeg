@@ -5,6 +5,7 @@
  */
 
 import { SqliteDatabase, SqliteStatement } from './sqlite-adapter';
+import { performance } from 'perf_hooks';
 import picomatch from 'picomatch';
 import {
   Node,
@@ -36,6 +37,21 @@ import {
   matchesSymbol,
 } from '../search/symbol-match';
 import { isGeneratedFile } from '../extraction/generated-detection';
+
+/** Conservative multi-row INSERT sizes valid for every backend. */
+export const DEFAULT_WRITE_BATCH_SIZES: readonly number[] = [32, 8, 1];
+/** Native SQLite writer sizes, kept below the default 32,766 parameter limit. */
+export const NATIVE_STORE_WRITE_BATCH_SIZES: readonly number[] = [512, 128, 32, 8, 1];
+
+export interface StoreFileBundlesTiming {
+  transactionMs: number;
+  rowAggregationMs: number;
+  duplicateNodeRowsElided: number;
+  nodeWriteMs: number;
+  edgeWriteMs: number;
+  unresolvedRefWriteMs: number;
+  fileWriteMs: number;
+}
 
 /**
  * Path-only heuristic for files that should not be candidates for
@@ -369,10 +385,9 @@ export class QueryBuilder {
     getRoutingManifest?: SqliteStatement;
   } = {};
 
-  // Multi-row INSERT statements cached by operation and row count. A maximum
-  // batch of 32 keeps even the 22-column node insert below sql.js's commonly
-  // compiled 999-variable limit while removing most JS-to-SQLite call overhead.
+  // Multi-row INSERT statements cached by operation and row count.
   private batchStmts: Map<string, SqliteStatement> = new Map();
+  private readonly batchSizes: readonly number[];
 
   // Keys depend only on query shape and <=500 placeholders, never paths or
   // page numbers. sql.js retains prepared statements until connection close.
@@ -383,8 +398,6 @@ export class QueryBuilder {
     if (!stmt) { stmt = this.db.prepare(sql); this.scopedRefStmts.set(key, stmt); }
     return stmt;
   }
-  private static readonly BATCH_SIZES: readonly number[] = [32, 8, 1];
-
   private runBatched(
     kind: string,
     head: string,
@@ -396,7 +409,7 @@ export class QueryBuilder {
     const batchSizes =
       process.env.CODEGRAPH_NO_BATCH_WRITES === '1'
         ? ([1] as const)
-        : QueryBuilder.BATCH_SIZES;
+        : this.batchSizes;
     for (const size of batchSizes) {
       while (rows.length - offset >= size) {
         const key = `${kind}:${size}`;
@@ -419,8 +432,17 @@ export class QueryBuilder {
     }
   }
 
-  constructor(db: SqliteDatabase) {
+  constructor(
+    db: SqliteDatabase,
+    options: { batchSizes?: readonly number[] } = {},
+  ) {
     this.db = db;
+    const configured = options.batchSizes ?? DEFAULT_WRITE_BATCH_SIZES;
+    const normalized = [...new Set(configured)]
+      .filter((size) => Number.isInteger(size) && size > 0)
+      .sort((left, right) => right - left);
+    if (!normalized.includes(1)) normalized.push(1);
+    this.batchSizes = normalized;
   }
 
   /** Set the normalized project-name tokens used to down-weight non-discriminative
@@ -571,13 +593,71 @@ export class QueryBuilder {
     edges: Edge[];
     refs: UnresolvedReference[];
     file: FileRecord;
-  }): void {
+  }): StoreFileBundlesTiming {
+    return this.storeFileBundles([bundle]);
+  }
+
+  /** Store ordered fresh-index files in one bounded transaction. */
+  storeFileBundles(bundles: Array<{
+    nodes: Node[];
+    edges: Edge[];
+    refs: UnresolvedReference[];
+    file: FileRecord;
+  }>): StoreFileBundlesTiming {
+    const timing: StoreFileBundlesTiming = {
+      transactionMs: 0,
+      rowAggregationMs: 0,
+      duplicateNodeRowsElided: 0,
+      nodeWriteMs: 0,
+      edgeWriteMs: 0,
+      unresolvedRefWriteMs: 0,
+      fileWriteMs: 0,
+    };
+    if (bundles.length === 0) return timing;
+    const transactionStarted = performance.now();
     this.db.transaction(() => {
-      this.insertNodes(bundle.nodes);
-      this.insertEdgesUnchecked(bundle.edges);
-      this.insertUnresolvedRefsBatch(bundle.refs);
-      this.upsertFile(bundle.file);
+      let phaseStarted = performance.now();
+      const nodes: Node[] = [];
+      const edges: Edge[] = [];
+      const refs: UnresolvedReference[] = [];
+      for (const bundle of bundles) {
+        nodes.push(...bundle.nodes);
+        edges.push(...bundle.edges);
+        refs.push(...bundle.refs);
+      }
+      // INSERT OR REPLACE has last-write-wins semantics. Collapsing duplicate
+      // ids inside this transaction preserves its final graph state while
+      // avoiding repeated FK and index work during fresh index construction.
+      let nodesToWrite = nodes;
+      if (process.env.CODEGRAPH_NO_STORE_NODE_DEDUPE !== '1') {
+        const seen = new Set<string>();
+        const reversed: Node[] = [];
+        for (let index = nodes.length - 1; index >= 0; index--) {
+          const node = nodes[index]!;
+          if (seen.has(node.id)) continue;
+          seen.add(node.id);
+          reversed.push(node);
+        }
+        reversed.reverse();
+        timing.duplicateNodeRowsElided = nodes.length - reversed.length;
+        nodesToWrite = reversed;
+      }
+      timing.rowAggregationMs += performance.now() - phaseStarted;
+      phaseStarted = performance.now();
+      this.insertNodes(nodesToWrite);
+      timing.nodeWriteMs += performance.now() - phaseStarted;
+      phaseStarted = performance.now();
+      this.insertEdgesUnchecked(edges);
+      timing.edgeWriteMs += performance.now() - phaseStarted;
+      phaseStarted = performance.now();
+      this.insertUnresolvedRefsBatch(refs);
+      timing.unresolvedRefWriteMs += performance.now() - phaseStarted;
+      phaseStarted = performance.now();
+      for (const bundle of bundles) this.upsertFile(bundle.file);
+      timing.fileWriteMs += performance.now() - phaseStarted;
     })();
+    timing.transactionMs = performance.now() - transactionStarted;
+    return timing;
   }
 
   /**
@@ -981,6 +1061,25 @@ export class QueryBuilder {
     // cursor, so a shared statement would conflict across overlapping scans.
     const stmt = this.db.prepare('SELECT * FROM nodes WHERE kind = ?');
     for (const row of stmt.iterate(kind)) {
+      yield rowToNode(row as NodeRow);
+    }
+  }
+
+  /**
+   * Stream nodes narrowed by both kind and language. Synthesizers use this
+   * when their source recognizer is language-specific, avoiding hydration of
+   * unrelated C/C++ nodes in a mixed repository.
+   */
+  *iterateNodesByKindAndLanguage(
+    kind: NodeKind,
+    language: Language,
+  ): IterableIterator<Node> {
+    // As above, keep the cursor statement local: overlapping synthesizer
+    // iterators must never share a SQLite statement.
+    const stmt = this.db.prepare(
+      'SELECT * FROM nodes WHERE kind = ? AND language = ?',
+    );
+    for (const row of stmt.iterate(kind, language)) {
       yield rowToNode(row as NodeRow);
     }
   }

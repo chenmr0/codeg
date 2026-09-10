@@ -21,7 +21,7 @@
  * need receiver-type matching, deferred to Phase 3). All synthesized edges are
  * tagged `provenance:'heuristic'`. See docs/design/callback-edge-synthesis.md.
  */
-import type { Edge, Node, NodeKind } from '../types';
+import type { Edge, Language, Node, NodeKind } from '../types';
 import type { QueryBuilder } from '../db/queries';
 import type { ResolutionContext, ResolutionDiagnostic } from './types';
 import { isGeneratedFile } from '../extraction/generated-detection';
@@ -59,6 +59,13 @@ export interface SynthesisResult {
   edgesAdded: number;
   complete: boolean;
   diagnostics: ResolutionDiagnostic[];
+  passes: Array<{
+    name: string;
+    durationMs: number;
+    edgesAdded: number;
+    status: 'completed' | 'failed' | 'skipped';
+    reason?: string;
+  }>;
 }
 
 /**
@@ -155,6 +162,21 @@ const CC_APPEND_WRITE_RE = /(\w+)\.write\s*\{\s*\$0(?:\.(\w+))?\.(?:append|add|p
 const CC_APPEND_DIRECT_RE = /(\w+)\.(?:append|add|push|insert)\s*\(/g;
 const CC_FANOUT_CAP = 8; // skip a field name with more dispatchers/registrars than this (too generic to pair confidently)
 
+// These recognizers deliberately cover only the syntax families that their
+// passes are admitted for below. Keeping the filter inside the pass matters on
+// mixed repositories: a single Swift/Kotlin or Java/JS file used to make the
+// pass read every C/C++ method/class in the graph before rejecting it.
+const CLOSURE_COLLECTION_LANGUAGES: ReadonlySet<Language> = new Set(['swift', 'kotlin']);
+const FIELD_CHANNEL_LANGUAGES: ReadonlySet<Language> = new Set([
+  // `registrarField` / `dispatcherField` require executable `this.` syntax.
+  // C/C++ uses `this->`, so excluding it cannot remove a valid match.
+  'java', 'typescript', 'javascript', 'tsx', 'jsx', 'csharp', 'kotlin',
+  'scala', 'dart',
+]);
+const REACT_RENDER_LANGUAGES: ReadonlySet<Language> = new Set([
+  'java', 'typescript', 'javascript', 'tsx', 'jsx',
+]);
+
 function kebabToPascal(s: string): string {
   return s.split('-').map((p) => p.charAt(0).toUpperCase() + p.slice(1)).join('');
 }
@@ -222,9 +244,19 @@ function enclosingFn(nodesInFile: Node[], line: number): Node | null {
  * is gigabytes on a symbol-dense project) just to iterate it once is what OOM'd
  * #610. Iterating keeps memory O(1) in the node count.
  */
-function* methodAndFunctionNodes(queries: QueryBuilder): IterableIterator<Node> {
-  yield* queries.iterateNodesByKind('method');
-  yield* queries.iterateNodesByKind('function');
+function* methodAndFunctionNodes(
+  queries: QueryBuilder,
+  languages?: ReadonlySet<Language>,
+): IterableIterator<Node> {
+  if (!languages) {
+    yield* queries.iterateNodesByKind('method');
+    yield* queries.iterateNodesByKind('function');
+    return;
+  }
+  for (const language of languages) {
+    yield* queries.iterateNodesByKindAndLanguage('method', language);
+    yield* queries.iterateNodesByKindAndLanguage('function', language);
+  }
 }
 
 /** Phase 1: field-backed observer channels (registrar/dispatcher share a store). */
@@ -232,7 +264,7 @@ function fieldChannelEdges(queries: QueryBuilder, ctx: ResolutionContext): Edge[
   const registrars: Array<{ node: Node; field: string }> = [];
   const dispatchers: Array<{ node: Node; field: string }> = [];
 
-  for (const m of methodAndFunctionNodes(queries)) {
+  for (const m of methodAndFunctionNodes(queries, FIELD_CHANNEL_LANGUAGES)) {
     const isReg = REGISTRAR_NAME.test(m.name);
     const isDisp = DISPATCHER_NAME.test(m.name);
     if (!isReg && !isDisp) continue;
@@ -310,7 +342,11 @@ function closureCollectionEdges(queries: QueryBuilder, ctx: ResolutionContext): 
     registrars.set(field, arr);
   };
 
-  for (const m of methodAndFunctionNodes(queries)) {
+  for (const m of methodAndFunctionNodes(queries, CLOSURE_COLLECTION_LANGUAGES)) {
+    // `closureCollEdges` is admitted only for Swift/Kotlin. Do not let the
+    // presence of one such file turn this into a whole mixed-language graph
+    // scan; the recognizers below cannot produce a valid edge from C/C++ (or
+    // any other language) source.
     const content = ctx.readFile(m.filePath);
     const src = content && sliceLines(content, m.startLine, m.endLine);
     if (!src) continue;
@@ -430,7 +466,11 @@ function eventEmitterEdges(ctx: ResolutionContext): Edge[] {
 function reactRenderEdges(queries: QueryBuilder, ctx: ResolutionContext): Edge[] {
   const edges: Edge[] = [];
   const seen = new Set<string>();
-  for (const cls of queries.getNodesByKind('class')) {
+  for (const language of REACT_RENDER_LANGUAGES) {
+  for (const cls of queries.iterateNodesByKindAndLanguage('class', language)) {
+    // This pass is only defined for React JS/TS and Java/Litho. In a C/C++
+    // dominant repository with a small JavaScript utility, avoid opening every
+    // native class merely because the project also contains JS.
     const children = queries.getOutgoingEdges(cls.id, ['contains'])
       .map((e) => queries.getNodeById(e.target))
       .filter((n): n is Node => !!n && n.kind === 'method');
@@ -453,6 +493,7 @@ function reactRenderEdges(queries: QueryBuilder, ctx: ResolutionContext): Edge[]
       });
       added++;
     }
+  }
   }
   return edges;
 }
@@ -2213,7 +2254,7 @@ export async function synthesizeCallbackEdges(
           `requiredHeadroomMB=${Math.ceil(initialAdmission.requiredHeadroomBytes / MIB)}). ` +
           `The index is incomplete.`,
     });
-    return { edgesAdded: 0, complete: false, diagnostics };
+    return { edgesAdded: 0, complete: false, diagnostics, passes: [] };
   }
 
   // A single indexed DISTINCT lets language-specific passes short-circuit
@@ -2223,6 +2264,7 @@ export async function synthesizeCallbackEdges(
   const has = (...values: string[]): boolean => values.some((value) => languages.has(value));
   const jsFamily = ['typescript', 'javascript', 'tsx', 'jsx'];
   let totalAdded = 0;
+  const passResults: SynthesisResult['passes'] = [];
 
   // Cross-file Go method→type `contains` edges must be synthesized AND persisted
   // FIRST: a method declared in a different file from its receiver type is
@@ -2255,13 +2297,14 @@ export async function synthesizeCallbackEdges(
       run: () => closureCollectionEdges(queries, ctx),
     },
     { name: 'emitterEdges', enabled: true, run: () => eventEmitterEdges(ctx) },
-    // These are intentionally not JS-gated: existing Java/Litho-style source
-    // can satisfy their source-shape predicates too.
-    { name: 'renderEdges', enabled: true, run: () => reactRenderEdges(queries, ctx) },
-    { name: 'jsxEdges', enabled: true, run: () => reactJsxChildEdges(ctx) },
+    // React render links also cover Java/Litho source, but cannot be produced
+    // by a pure C/C++ graph. Avoid its whole-graph scan in the C/C++ init hot
+    // path while retaining the Java and JS-family coverage it was designed for.
+    { name: 'renderEdges', enabled: has('java', ...jsFamily), run: () => reactRenderEdges(queries, ctx) },
+    { name: 'jsxEdges', enabled: has(...jsFamily), run: () => reactJsxChildEdges(ctx) },
     { name: 'vueEdges', enabled: has('vue'), run: () => vueTemplateEdges(ctx) },
     { name: 'svelteKitEdges', enabled: has('svelte'), run: () => svelteKitLoadEdges(ctx) },
-    { name: 'pascalEdges', enabled: true, run: () => pascalFormEdges(ctx) },
+    { name: 'pascalEdges', enabled: has('pascal'), run: () => pascalFormEdges(ctx) },
     { name: 'flutterEdges', enabled: has('dart'), run: () => flutterBuildEdges(queries, ctx) },
     { name: 'cppEdges', enabled: has('cpp'), run: () => cppOverrideEdges(queries) },
     { name: 'cppDeclDef', enabled: has('cpp'), run: () => cppDeclDefEdges(queries) },
@@ -2296,11 +2339,17 @@ export async function synthesizeCallbackEdges(
   queries.beginSynthesisEdgeStaging();
   try {
     for (const pass of passes) {
-      if (!pass.enabled) continue;
+      if (!pass.enabled) {
+        passResults.push({ name: pass.name, durationMs: 0, edgesAdded: 0, status: 'skipped', reason: 'language-not-present' });
+        continue;
+      }
       const startedAt = Date.now();
+      const addedBefore = totalAdded;
+      let failed = false;
       try {
         totalAdded += await persistSynthEdges(queries, pass.run(), true);
       } catch (error) {
+        failed = true;
         // Keep the base index usable, but never report a complete index when a
         // synthesis pass failed or only produced a partial staged result.
         report({
@@ -2311,6 +2360,12 @@ export async function synthesizeCallbackEdges(
             `The index is incomplete.`,
         });
       }
+      passResults.push({
+        name: pass.name,
+        durationMs: Date.now() - startedAt,
+        edgesAdded: totalAdded - addedBefore,
+        status: failed ? 'failed' : 'completed',
+      });
       if (process.env.CODEGRAPH_SYNTH_TIMINGS) {
         console.error(`[synth-timing] ${pass.name}: ${Date.now() - startedAt}ms`);
       }
@@ -2337,5 +2392,6 @@ export async function synthesizeCallbackEdges(
     edgesAdded: totalAdded,
     complete: diagnostics.length === 0,
     diagnostics,
+    passes: passResults,
   };
 }

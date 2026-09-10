@@ -1563,6 +1563,41 @@ export class TreeSitterExtractor {
     return lines.map((text, index) => kept.has(index + 1) ? text : '').join('\n');
   }
 
+  /**
+   * Large expanded macro sources are expensive for tree-sitter even though the
+   * declaration output is independent per invocation. Preserve line numbers
+   * and lexical container context, but parse bounded groups of invocation
+   * lines so one generated test translation unit cannot monopolize a worker.
+   */
+  private buildDeclarationMacroRecoverySources(
+    expandedSource: string,
+    invocationLines: ReadonlySet<number>,
+  ): string[] {
+    const fullSource = this.buildDeclarationMacroRecoverySource(
+      expandedSource,
+      invocationLines,
+    );
+    const shardThresholdBytes = 256 * 1024;
+    const maxInvocationsPerShard = 64;
+    if (
+      process.env.CODEGRAPH_NO_DECLARATION_MACRO_SHARDING === '1' ||
+      Buffer.byteLength(fullSource, 'utf8') <= shardThresholdBytes ||
+      invocationLines.size <= maxInvocationsPerShard
+    ) {
+      return [fullSource];
+    }
+
+    const orderedLines = [...invocationLines].sort((left, right) => left - right);
+    const sources: string[] = [];
+    for (let offset = 0; offset < orderedLines.length; offset += maxInvocationsPerShard) {
+      const shardLines = new Set(
+        orderedLines.slice(offset, offset + maxInvocationsPerShard),
+      );
+      sources.push(this.buildDeclarationMacroRecoverySource(expandedSource, shardLines));
+    }
+    return sources;
+  }
+
   /** Keep a split declaration/function body following an expanded invocation. */
   private keepDeclarationContinuationLines(
     lines: readonly string[],
@@ -1850,15 +1885,20 @@ export class TreeSitterExtractor {
     );
     this.timings.declarationMacroExpansionMs =
       performance.now() - expansionStarted;
+    this.timings.declarationMacroInvocationCount = expanded.invocationLines.size;
     if (expanded.source === this.originalSource || expanded.invocationLines.size === 0) return;
 
     const recoverySourceStarted = performance.now();
-    const recoverySource = this.buildDeclarationMacroRecoverySource(
+    const recoverySources = this.buildDeclarationMacroRecoverySources(
       expanded.source,
       expanded.invocationLines,
     );
     this.timings.declarationMacroRecoverySourceMs =
       performance.now() - recoverySourceStarted;
+    this.timings.declarationMacroRecoverySourceBytes = recoverySources.reduce(
+      (total, source) => total + Buffer.byteLength(source, 'utf8'),
+      0,
+    );
 
     // All primary-tree work is complete at this point. Release it before any
     // auxiliary parse so no nested extraction shares a live tree with another
@@ -1867,12 +1907,18 @@ export class TreeSitterExtractor {
 
     // Deliberately omit macroDefinitions to prevent recursive auxiliary parses.
     // A one-shot Parser is never shared with the worker's long-lived parser.
-    const auxiliaryParseStarted = performance.now();
-    const recovered = this.extractDeclarationRecoverySource(recoverySource);
-    this.timings.declarationMacroAuxParseMs =
-      performance.now() - auxiliaryParseStarted;
-    const recoveredNodes = recovered.nodes;
-    const recoveredEdges = recovered.edges;
+    const recoveredNodes: Node[] = [];
+    const recoveredEdges: Edge[] = [];
+    let auxiliaryParseMs = 0;
+    for (const recoverySource of recoverySources) {
+      const auxiliaryParseStarted = performance.now();
+      const recovered = this.extractDeclarationRecoverySource(recoverySource);
+      auxiliaryParseMs += performance.now() - auxiliaryParseStarted;
+      recoveredNodes.push(...recovered.nodes);
+      recoveredEdges.push(...recovered.edges);
+    }
+    this.timings.declarationMacroAuxParseAttempts = recoverySources.length;
+    this.timings.declarationMacroAuxParseMs = auxiliaryParseMs;
 
     const mergeStarted = performance.now();
 
@@ -1941,6 +1987,7 @@ export class TreeSitterExtractor {
       existingIds.add(node.id);
       generatedIds.add(node.id);
     }
+    this.timings.declarationMacroRecoveredNodes = generatedIds.size;
     if (generatedIds.size === 0) {
       this.timings.declarationMacroMergeMs = performance.now() - mergeStarted;
       return;

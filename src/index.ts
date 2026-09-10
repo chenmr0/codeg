@@ -62,6 +62,10 @@ import { deriveProjectNameTokens } from './search/query-utils';
 import { CodeGraphPackageVersion } from './mcp/version';
 import { ResolutionDiagnostics } from './resolution/diagnostics';
 import { syncNameLookupMode } from './resolution/name-lookup';
+import {
+  computeGraphFingerprint,
+  createInitProfileRecorder,
+} from './performance/init-profile';
 
 // Re-export types for consumers
 export * from './types';
@@ -80,6 +84,11 @@ export {
 export { IndexProgress, IndexResult, SyncResult } from './extraction';
 export { detectLanguage, isLanguageSupported, isGrammarLoaded, getSupportedLanguages, initGrammars, loadGrammarsForLanguages, loadAllGrammars } from './extraction';
 export { ResolutionResult } from './resolution';
+export {
+  INIT_PROFILE_SCHEMA_VERSION,
+  writeInitProfileAtomic,
+} from './performance/init-profile';
+export type { InitProfile } from './performance/init-profile';
 export {
   CodeGraphError,
   FileError,
@@ -146,6 +155,9 @@ export interface IndexOptions {
 
   /** Enable verbose logging (worker lifecycle, memory, timeouts) */
   verbose?: boolean;
+
+  /** Collect a structured diagnostic profile. Disabled by default. */
+  profile?: boolean;
 }
 
 /** Options for incremental synchronization. */
@@ -379,7 +391,20 @@ export class CodeGraph {
    * Uses a mutex to prevent concurrent indexing operations.
    */
   async indexAll(options: IndexOptions = {}): Promise<IndexResult> {
-    return this.indexMutex.withLock(async () => {
+    // Profiling is explicitly opt-in. The recorder and final graph hash are
+    // intentionally outside the normal init path so they cannot add work to
+    // production indexing.
+    const profile = options.profile
+      ? createInitProfileRecorder({
+          codegraphVersion: CodeGraphPackageVersion,
+          projectRoot: this.projectRoot,
+          sqliteBackend: this.db.getBackend(),
+          journalMode: this.db.getJournalMode(),
+        })
+      : undefined;
+    const mutexWaitStarted = performance.now();
+    const indexResult = await this.indexMutex.withLock(async () => {
+      profile?.recordPhase('mutexWait', performance.now() - mutexWaitStarted);
       try {
         this.fileLock.acquire();
       } catch {
@@ -456,7 +481,8 @@ export class CodeGraph {
                     fastInit,
                     useWorker: this.db.getBackend() === 'node-sqlite',
                   }
-                : null
+                : null,
+              profile,
             );
           } finally {
             try {
@@ -518,6 +544,29 @@ export class CodeGraph {
               }
             );
             resolutionDiagnostics = resolution.diagnostics ?? [];
+            if (profile) {
+              profile.recordPhase(
+                'referenceResolution',
+                resolution.timings?.referenceBatchesMs ?? 0,
+              );
+              profile.recordPhase(
+                'synthesis',
+                resolution.timings?.synthesisMs ?? 0,
+              );
+              profile.recordResolution({
+                totalReferences: resolution.stats.total,
+                resolvedReferences: resolution.stats.resolved,
+                unresolvedReferences: resolution.stats.unresolved,
+                parallelBatches: resolution.stats.parallelBatches ?? 0,
+                sequentialBatches: resolution.stats.sequentialBatches ?? 0,
+                cppImportCacheHits: 0,
+                cppImportCacheMisses: 0,
+                byMethod: resolution.stats.byMethod,
+              });
+              for (const pass of resolution.synthesisPasses ?? []) {
+                profile.recordSynthesisPass(pass);
+              }
+            }
 
             // Second pass: chained calls whose method lives on a supertype the
             // receiver conforms to (protocol-extension / inherited / default-
@@ -608,6 +657,42 @@ export class CodeGraph {
         this.fileLock.release();
       }
     });
+
+    if (!profile) return indexResult;
+
+    // Graph hashing is diagnostic only: an unsupported/partially closed
+    // backend must never turn a successful index into a failed one.
+    profile.markIndexingFinished();
+    const fingerprintStarted = performance.now();
+    let graphFingerprint: string | undefined;
+    try {
+      graphFingerprint = computeGraphFingerprint(this.db.getDb());
+    } catch {
+      // Best effort; the rest of the profile remains useful without a hash.
+    } finally {
+      profile.recordPhase('graphFingerprint', performance.now() - fingerprintStarted);
+    }
+
+    try {
+      const graph = this.getStats();
+      indexResult.profile = profile.finish({
+        success: indexResult.success,
+        complete: indexResult.complete,
+        filesIndexed: indexResult.filesIndexed,
+        filesSkipped: indexResult.filesSkipped,
+        filesErrored: indexResult.filesErrored,
+        nodesCreated: indexResult.nodesCreated,
+        edgesCreated: indexResult.edgesCreated,
+        pendingReferences: this.queries.getUnresolvedReferencesCount(),
+        databaseSizeBytes: graph.dbSizeBytes,
+        graph,
+        graphFingerprint,
+        diagnostics: indexResult.errors.length,
+      });
+    } catch {
+      // Profile finalization is non-load-bearing by design.
+    }
+    return indexResult;
   }
 
   /**

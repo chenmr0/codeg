@@ -61,7 +61,21 @@ export interface ResolutionResult {
     resolved: number;
     unresolved: number;
     byMethod: Record<string, number>;
+    parallelBatches?: number;
+    sequentialBatches?: number;
   };
+  /** Optional phase timings for an explicit init profile. */
+  timings?: {
+    referenceBatchesMs: number;
+    synthesisMs: number;
+  };
+  synthesisPasses?: Array<{
+    name: string;
+    durationMs: number;
+    edgesAdded: number;
+    status: 'completed' | 'failed' | 'skipped';
+    reason?: string;
+  }>;
   /** Non-file diagnostics from resolution/synthesis that callers must surface. */
   diagnostics?: ResolutionDiagnostic[];
 }

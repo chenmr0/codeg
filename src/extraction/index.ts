@@ -8,6 +8,7 @@ import * as fs from 'fs';
 import * as fsp from 'fs/promises';
 import * as path from 'path';
 import * as crypto from 'crypto';
+import type { InitProfile, InitProfileRecorder } from '../performance/init-profile';
 import * as os from 'os';
 import { execFileSync, type ExecFileSyncOptionsWithStringEncoding } from 'child_process';
 import {
@@ -33,7 +34,10 @@ import { ParseWorkerPool, resolveParsePoolSize } from './parse-pool';
 import type { CppMacroDefinition } from './declaration-macros';
 import { buildMacroContext, formatMacroScanMetrics } from './macro-scan';
 import { isRetryableParseWorkerError } from './wasm-errors';
+import { runOrderedTaskWindow } from './ordered-task-window';
 import {
+  DEFAULT_STORE_BATCH_LIMITS,
+  batchStoreBundles,
   StoreWriter,
   type StoreBundle,
   finalizeStoreBundle,
@@ -54,6 +58,15 @@ import { RUST_SCAN_PROTOCOL, runRustScan, rustScanMode, automaticRustScanStatus,
  * File reads are I/O-bound; batching overlaps I/O wait with CPU parse work.
  */
 const FILE_IO_BATCH_SIZE = 10;
+// Stream C/C++ extraction through a bounded, source-ordered window. This
+// removes the fixed ten-file parse barrier without allowing completed ASTs to
+// accumulate without bound behind a slow source file.
+const STREAMING_TASK_MULTIPLIER = 8;
+const STREAMING_TASK_MIN = 16;
+const STREAMING_TASK_MAX = 64;
+const STREAMING_SOURCE_BYTE_LIMIT = 64 * 1024 * 1024;
+const STREAMING_C_CPP_RESULT_ROW_LIMIT = 256 * 1024;
+const STREAMING_METADATA_BATCH_SIZE = 128;
 
 /**
  * Number of filesystem reconciliation checks between cooperative event-loop
@@ -72,6 +85,13 @@ const EXTRACTION_TIMING_KEYS: ReadonlyArray<keyof ExtractionTimings> = [
   'declarationMacroMergeMs',
 ];
 
+const EXTRACTION_COUNTER_KEYS: ReadonlyArray<keyof ExtractionTimings> = [
+  'declarationMacroInvocationCount',
+  'declarationMacroRecoverySourceBytes',
+  'declarationMacroAuxParseAttempts',
+  'declarationMacroRecoveredNodes',
+];
+
 function accumulateExtractionTimings(
   totals: ExtractionTimings,
   timings: ExtractionTimings | undefined,
@@ -81,12 +101,21 @@ function accumulateExtractionTimings(
     const value = timings[key];
     if (value !== undefined) totals[key] = (totals[key] ?? 0) + value;
   }
+  for (const key of EXTRACTION_COUNTER_KEYS) {
+    const value = timings[key];
+    if (value !== undefined) totals[key] = (totals[key] ?? 0) + value;
+  }
 }
 
 function formatExtractionTimings(timings: ExtractionTimings): string {
   return EXTRACTION_TIMING_KEYS
     .filter((key) => timings[key] !== undefined)
     .map((key) => `${key}=${Math.round(timings[key] ?? 0)}ms`)
+    .concat(
+      EXTRACTION_COUNTER_KEYS
+        .filter((key) => timings[key] !== undefined)
+        .map((key) => `${key}=${Math.round(timings[key] ?? 0)}`),
+    )
     .join(' ');
 }
 
@@ -158,6 +187,8 @@ export interface IndexResult {
   edgesCreated: number;
   errors: ExtractionError[];
   durationMs: number;
+  /** Present only when CodeGraph.indexAll() was called with profile enabled. */
+  profile?: InitProfile;
 }
 
 /** Result of a main-process single-file index attempt. */
@@ -1231,7 +1262,8 @@ export class ExtractionOrchestrator {
       dbPath: string;
       fastInit: boolean;
       useWorker: boolean;
-    } | null
+    } | null,
+    profile?: InitProfileRecorder,
   ): Promise<IndexResult> {
     await initGrammars();
     // A fresh full index must not reuse a stale canonical-path cache from a
@@ -1270,6 +1302,8 @@ export class ExtractionOrchestrator {
       });
     });
     const scanMs = performance.now() - scanStarted;
+    profile?.recordPhase('scan', scanMs);
+    profile?.recordSourceManifest(files.length);
 
     // Detect frameworks once per indexAll run using the scanned file list.
     // Names are passed to each parse call so framework-specific extractors
@@ -1281,6 +1315,7 @@ export class ExtractionOrchestrator {
     const frameworkNames = this.ensureDetectedFrameworks(files);
     errors.push(...this.frameworkDetectionErrors);
     const frameworkDetectionMs = performance.now() - frameworkDetectionStarted;
+    profile?.recordPhase('frameworkDetection', frameworkDetectionMs);
 
     // Pre-scan C/C++/ObjC files for project-wide #define macro names so
     // isMisparsedFunction can filter cross-file macro misparses (macro
@@ -1294,6 +1329,7 @@ export class ExtractionOrchestrator {
     const globalBodylessMacroNames = this.globalBodylessMacroNames!;
     const globalMacroDefinitions = this.globalMacroDefinitions!;
     const macroScanMs = performance.now() - macroScanStarted;
+    profile?.recordPhase('macroScan', macroScanMs);
 
     if (signal?.aborted) {
       return {
@@ -1387,7 +1423,10 @@ export class ExtractionOrchestrator {
         grammarBuffers,
         macroNames: [...globalMacroNames],
         bodylessMacroNames: [...globalBodylessMacroNames],
-        macroDefinitions: globalMacroDefinitions,
+      macroDefinitions: globalMacroDefinitions,
+        onStateChange: profile
+          ? (state) => profile.recordParsePoolState(state)
+          : undefined,
       });
       parsePool.prewarm();
       log(`Parse worker pool: ${poolSize} worker(s)`);
@@ -1409,6 +1448,8 @@ export class ExtractionOrchestrator {
       log('Store writer thread active');
     }
     const STORE_WRITER_WINDOW = 64;
+    const storeBatching =
+      process.env.CODEGRAPH_NO_STORE_BATCHING !== '1';
 
     // --- Worker lifecycle management ---
     // The worker can crash (OOM in WASM) or hang on pathological files.
@@ -1637,7 +1678,286 @@ export class ExtractionOrchestrator {
       });
     }
 
+    type ParsedFileItem = {
+      filePath: string;
+      content: string | null;
+      stats: fs.Stats | null;
+      error: unknown;
+      result: ExtractionResult | null;
+      parseError: unknown;
+      resultRows: number;
+    };
+
+    const abortedResult = (): IndexResult => ({
+      success: false,
+      filesIndexed,
+      filesSkipped,
+      filesErrored,
+      nodesCreated: totalNodes,
+      edgesCreated: totalEdges,
+      errors: [{ message: 'Aborted', severity: 'error' }, ...errors],
+      durationMs: Date.now() - startTime,
+    });
+
+    const admitParsedBatch = async (
+      parsedBatch: readonly ParsedFileItem[],
+    ): Promise<boolean> => {
+      const storeAdmissionStarted = performance.now();
+      const pendingStoreBundles: StoreBundle[] = [];
+      for (const { filePath, content, stats, error, result, parseError } of parsedBatch) {
+        if (signal?.aborted) return false;
+        onProgress?.({ phase: 'parsing', current: processed, total, currentFile: filePath });
+        if (error || content === null || stats === null) {
+          processed++;
+          filesErrored++;
+          errors.push({
+            message: `Failed to read file: ${error instanceof Error ? error.message : String(error)}`,
+            filePath, severity: 'error', code: 'read_error',
+          });
+          continue;
+        }
+        if (parseError || !result) {
+          processed++;
+          filesErrored++;
+          errors.push({
+            message: parseError instanceof Error ? parseError.message : String(parseError),
+            filePath, severity: 'error', code: 'parse_error',
+          });
+          continue;
+        }
+        processed++;
+        accumulateExtractionTimings(extractionTimingTotals, result.timings);
+        const bp = walBackpressure?.();
+        if (bp) await bp;
+        if (result.nodes.length > 0 || result.errors.length === 0) {
+          const language = detectLanguage(filePath, content);
+          const bundle = this.buildFreshStoreBundle(filePath, content, language, stats, result);
+          if (storeWriter) pendingStoreBundles.push(bundle);
+          else if (storeWriterOpts) this.queries.storeFileBundle(bundle);
+          else this.storeExtractionResult(filePath, content, language, stats, result);
+        }
+        if (result.errors.length > 0) {
+          for (const extractionError of result.errors) {
+            if (!extractionError.filePath) extractionError.filePath = filePath;
+          }
+          errors.push(...result.errors);
+        }
+        if (result.nodes.length > 0) {
+          filesIndexed++;
+          totalNodes += result.nodes.length;
+          totalEdges += result.edges.length;
+        } else if (result.errors.some((extractionError) => extractionError.severity === 'error')) {
+          filesErrored++;
+        } else if (isFileLevelOnlyLanguage(detectLanguage(filePath, content))) {
+          filesIndexed++;
+        } else {
+          filesSkipped++;
+        }
+      }
+      if (storeWriter && pendingStoreBundles.length > 0) {
+        const storeBatches = storeBatching
+          ? batchStoreBundles(pendingStoreBundles)
+          : pendingStoreBundles.map((bundle) => [bundle]);
+        for (const storeBatch of storeBatches) {
+          storeWriter.sendMany(storeBatch);
+          await storeWriter.waitBelow(STORE_WRITER_WINDOW);
+        }
+      }
+      storeAdmissionMs += performance.now() - storeAdmissionStarted;
+      return true;
+    };
+
+    const streamingExtraction =
+      storeWriter !== null &&
+      process.env.CODEGRAPH_NO_STREAMING_EXTRACTION !== '1' &&
+      neededLanguages.some((language) => language === 'c' || language === 'cpp');
+    const streamingTaskLimit = Math.min(
+      STREAMING_TASK_MAX,
+      Math.max(STREAMING_TASK_MIN, (parsePool?.size ?? 1) * STREAMING_TASK_MULTIPLIER),
+    );
+    const streamingResultRowLimit = streamingExtraction
+      ? STREAMING_C_CPP_RESULT_ROW_LIMIT
+      : undefined;
+    profile?.recordConfiguration({
+      storeBatching,
+      streamingExtraction,
+      streamingTaskLimit: streamingExtraction ? streamingTaskLimit : undefined,
+      streamingSourceByteLimit: streamingExtraction
+        ? STREAMING_SOURCE_BYTE_LIMIT
+        : undefined,
+      streamingResultRowLimit,
+      parseWorkers: parsePool?.size ?? (WorkerClass ? 1 : 0),
+    });
+    const extractionStarted = performance.now();
+
     try {
+    if (streamingExtraction) {
+      // Stat in coarse batches before scheduling reads. The window below then
+      // bounds both queued source bytes and completed parse results.
+      const scannedFiles: Array<{
+        filePath: string;
+        fullPath: string | null;
+        stats: fs.Stats | null;
+        error: unknown;
+      }> = [];
+      for (let offset = 0; offset < files.length; offset += STREAMING_METADATA_BATCH_SIZE) {
+        const metadataBatch = files.slice(offset, offset + STREAMING_METADATA_BATCH_SIZE);
+        scannedFiles.push(...await Promise.all(metadataBatch.map(async (filePath) => {
+          const fullPath = validatePathWithinRoot(this.rootDir, filePath);
+          if (!fullPath) {
+            logWarn('Path traversal blocked in streaming reader', { filePath });
+            return {
+              filePath,
+              fullPath: null,
+              stats: null,
+              error: new Error('Path traversal blocked'),
+            };
+          }
+          try {
+            return { filePath, fullPath, stats: await fsp.stat(fullPath), error: null };
+          } catch (error) {
+            return { filePath, fullPath, stats: null, error };
+          }
+        })));
+      }
+
+      const tasks = scannedFiles.map((scanned) => ({
+        weight: scanned.stats?.size ?? 0,
+        run: async (): Promise<ParsedFileItem> => {
+          if (scanned.error || scanned.fullPath === null || scanned.stats === null) {
+            return {
+              filePath: scanned.filePath,
+              content: null,
+              stats: null,
+              error: scanned.error,
+              result: null,
+              parseError: null,
+              resultRows: 0,
+            };
+          }
+
+          let content: string;
+          const fileReadStarted = performance.now();
+          try {
+            content = await fsp.readFile(scanned.fullPath, 'utf-8');
+          } catch (error) {
+            fileReadMs += performance.now() - fileReadStarted;
+            return {
+              filePath: scanned.filePath,
+              content: null,
+              stats: scanned.stats,
+              error,
+              result: null,
+              parseError: null,
+              resultRows: 0,
+            };
+          }
+          fileReadMs += performance.now() - fileReadStarted;
+          const language = detectLanguage(scanned.filePath, content);
+          profile?.recordSourceFile(language, scanned.stats.size);
+
+          if (scanned.stats.size > FILE_SIZE_WARN_THRESHOLD) {
+            logWarn(
+              `Large file may take longer to parse: ${scanned.filePath} (${(scanned.stats.size / 1024 / 1024).toFixed(1)}MB)`,
+            );
+          }
+          const parseStarted = performance.now();
+          try {
+            const result = await requestParse(scanned.filePath, content);
+            profile?.recordParseFiles([{
+              filePath: scanned.filePath,
+              language,
+              sizeBytes: scanned.stats.size,
+              turnaroundMs: performance.now() - parseStarted,
+              extractorDurationMs: result.durationMs,
+              macroRecovery:
+                result.timings?.declarationMacroAuxParseAttempts === undefined
+                  ? undefined
+                  : {
+                    invocationCount:
+                      result.timings.declarationMacroInvocationCount ?? 0,
+                    recoverySourceBytes:
+                      result.timings.declarationMacroRecoverySourceBytes ?? 0,
+                    auxiliaryParseAttempts:
+                      result.timings.declarationMacroAuxParseAttempts,
+                    auxiliaryParseMs:
+                      result.timings.declarationMacroAuxParseMs ?? 0,
+                    recoveredNodes:
+                      result.timings.declarationMacroRecoveredNodes ?? 0,
+                  },
+              success: true,
+            }]);
+            return {
+              filePath: scanned.filePath,
+              content,
+              stats: scanned.stats,
+              error: null,
+              result,
+              parseError: null,
+              resultRows: result.nodes.length + result.edges.length + result.unresolvedReferences.length + 1,
+            };
+          } catch (parseError) {
+            profile?.recordParseFiles([{
+              filePath: scanned.filePath,
+              language,
+              sizeBytes: scanned.stats.size,
+              turnaroundMs: performance.now() - parseStarted,
+              success: false,
+            }]);
+            return {
+              filePath: scanned.filePath,
+              content,
+              stats: scanned.stats,
+              error: null,
+              result: null,
+              parseError,
+              resultRows: 0,
+            };
+          } finally {
+            parseWallMs += performance.now() - parseStarted;
+          }
+        },
+      }));
+
+      const iterator = runOrderedTaskWindow(tasks, {
+        maxTasks: streamingTaskLimit,
+        maxWeight: STREAMING_SOURCE_BYTE_LIMIT,
+        getResultWeight: (item) => item.resultRows,
+        maxResultWeight: streamingResultRowLimit,
+        onStateChange: profile
+          ? (state) => profile.recordParseWindowState(state)
+          : undefined,
+      })[Symbol.asyncIterator]();
+      let commitGroup: ParsedFileItem[] = [];
+      let commitGroupSourceBytes = 0;
+      try {
+        while (true) {
+          if (signal?.aborted) return abortedResult();
+          const next = await iterator.next();
+          if (next.done) break;
+          const item = next.value.value;
+          const itemSourceBytes = item.stats?.size ?? 0;
+          if (
+            commitGroup.length > 0 &&
+            (commitGroup.length >= DEFAULT_STORE_BATCH_LIMITS.maxBundles ||
+              commitGroupSourceBytes + itemSourceBytes > DEFAULT_STORE_BATCH_LIMITS.maxSourceBytes)
+          ) {
+            if (!(await admitParsedBatch(commitGroup))) return abortedResult();
+            commitGroup = [];
+            commitGroupSourceBytes = 0;
+          }
+          commitGroup.push(item);
+          commitGroupSourceBytes += itemSourceBytes;
+        }
+        if (commitGroup.length > 0 && !(await admitParsedBatch(commitGroup))) {
+          return abortedResult();
+        }
+      } finally {
+        // On cancellation, explicitly release any completed results still
+        // retained by the ordered window.
+        await iterator.return?.();
+      }
+    } else {
     for (let i = 0; i < files.length; i += FILE_IO_BATCH_SIZE) {
       if (signal?.aborted) {
         if (storeWriter) await storeWriter.close();
@@ -1705,6 +2025,11 @@ export class ExtractionOrchestrator {
 
       // Admit and store results strictly in file order.
       const storeAdmissionStarted = performance.now();
+      // Keep the existing per-file validation, diagnostics and accounting in
+      // order, but coalesce only the fresh-worker writes after that work is
+      // complete. This leaves main-connection storage and retry recovery
+      // unchanged, while letting the native worker amortize transactions.
+      const pendingStoreBundles: StoreBundle[] = [];
       for (const { filePath, content, stats, error, result, parseError } of parsedBatch) {
         if (signal?.aborted) {
           if (storeWriter) await storeWriter.close();
@@ -1770,7 +2095,7 @@ export class ExtractionOrchestrator {
         if (result.nodes.length > 0 || result.errors.length === 0) {
           const language = detectLanguage(filePath, content);
           if (storeWriter) {
-            storeWriter.send(
+            pendingStoreBundles.push(
               this.buildFreshStoreBundle(
                 filePath,
                 content,
@@ -1779,7 +2104,6 @@ export class ExtractionOrchestrator {
                 result
               )
             );
-            await storeWriter.waitBelow(STORE_WRITER_WINDOW);
           } else if (storeWriterOpts) {
             this.queries.storeFileBundle(
               this.buildFreshStoreBundle(
@@ -1820,7 +2144,17 @@ export class ExtractionOrchestrator {
           }
         }
       }
+      if (storeWriter && pendingStoreBundles.length > 0) {
+        const storeBatches = storeBatching
+          ? batchStoreBundles(pendingStoreBundles)
+          : pendingStoreBundles.map((bundle) => [bundle]);
+        for (const storeBatch of storeBatches) {
+          storeWriter.sendMany(storeBatch);
+          await storeWriter.waitBelow(STORE_WRITER_WINDOW);
+        }
+      }
       storeAdmissionMs += performance.now() - storeAdmissionStarted;
+    }
     }
 
     // The worker applies queued bundles in message order. Close its connection
@@ -2002,6 +2336,10 @@ export class ExtractionOrchestrator {
     );
     const extractionTimingSummary = formatExtractionTimings(extractionTimingTotals);
     if (extractionTimingSummary) log(`Extraction totals: ${extractionTimingSummary}`);
+    profile?.recordPhase('extraction', performance.now() - extractionStarted);
+    profile?.recordPhase('fileRead', fileReadMs);
+    profile?.recordPhase('storeAdmission', storeAdmissionMs);
+    profile?.recordExtractorTimings(extractionTimingTotals);
 
     return {
       success: filesIndexed > 0 || errors.filter((e) => e.severity === 'error').length === 0,
