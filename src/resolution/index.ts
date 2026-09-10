@@ -571,6 +571,7 @@ export class ReferenceResolver {
       },
 
       getNameWords: (name: string) => this.textCache.nameWords(name),
+      getLowerNameWords: (name: string) => this.textCache.lowerNameWords(name),
 
       getProjectRoot: () => this.projectRoot,
 

@@ -101,6 +101,8 @@ export interface ResolutionContext {
   getCppReceiverDeclarations?(filePath: string, receiver: string): import('./cpp-receiver-index').CppReceiverDeclarations | null;
   /** Optional pure name tokenization cache; callers must not mutate results. */
   getNameWords?(name: string): readonly string[];
+  /** Pure case-insensitive scoring tokens; preserves token order and duplicates. */
+  getLowerNameWords?(name: string): readonly string[];
   /** Get project root */
   getProjectRoot(): string;
   /** Get all files */

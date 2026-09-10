@@ -1068,40 +1068,58 @@ export function matchMethodCall(
   // names like permissionEngine → PermissionRuleEngine.
   if (methodName) {
     const methodCandidates = context.getNodesByName(methodName!);
-    const methods = methodCandidates.filter(
-      (n) => n.kind === 'method' && n.name === methodName
-    );
-
-    // Filter to same-language candidates first
-    const sameLanguageMethods = methods.filter(m => m.language === ref.language);
-    const targetMethods = sameLanguageMethods.length > 0 ? sameLanguageMethods : methods;
+    let methodCount = 0;
+    let sameLanguageCount = 0;
+    let singleSameLanguage: Node | undefined;
+    // Count without allocating two filtered arrays for every reference. The
+    // scoring pass below keeps the exact original candidate order.
+    for (const candidate of methodCandidates) {
+      if (candidate.kind !== 'method' || candidate.name !== methodName) continue;
+      methodCount++;
+      if (candidate.language === ref.language) {
+        sameLanguageCount++;
+        singleSameLanguage = candidate;
+      }
+    }
+    const targetCount = sameLanguageCount || methodCount;
 
     // If only one same-language method with this name exists, use it
-    if (targetMethods.length === 1 && targetMethods[0]!.language === ref.language) {
+    if (sameLanguageCount === 1) {
       return {
         original: ref,
-        targetNodeId: targetMethods[0]!.id,
+        targetNodeId: singleSameLanguage!.id,
         confidence: 0.7,
         resolvedBy: 'instance-method',
       };
     }
 
     // Multiple methods: score by receiver name word overlap with class name
-    if (targetMethods.length > 1) {
-      const receiverWords = context.getNameWords?.(objectOrClass!) ?? splitNameWords(objectOrClass!);
-      let bestMatch: typeof targetMethods[0] | undefined;
+    if (targetCount > 1) {
+      const receiverWords = context.getLowerNameWords?.(objectOrClass!) ??
+        (context.getNameWords?.(objectOrClass!) ?? splitNameWords(objectOrClass!)).map(word => word.toLowerCase());
+      const maxScore = receiverWords.length + (sameLanguageCount > 0 ? 1 : 0);
+      if (maxScore < 2) return null;
+      let bestMatch: Node | undefined;
       let bestScore = 0;
 
-      for (const method of targetMethods) {
-        const classWords = context.getNameWords?.(method.qualifiedName) ?? splitNameWords(method.qualifiedName);
-        let score = receiverWords.filter(w =>
-          classWords.some(cw => cw.toLowerCase() === w.toLowerCase())
-        ).length;
+      for (const method of methodCandidates) {
+        if (method.kind !== 'method' || method.name !== methodName ||
+            (sameLanguageCount > 0 && method.language !== ref.language)) continue;
+        const classWords = context.getLowerNameWords?.(method.qualifiedName) ??
+          (context.getNameWords?.(method.qualifiedName) ?? splitNameWords(method.qualifiedName)).map(word => word.toLowerCase());
+        let score = 0;
+        // Duplicate receiver words each contribute, but a class word matches
+        // only once per receiver word, exactly as filter(...some(...)) did.
+        for (const word of receiverWords) {
+          if (classWords.includes(word)) score++;
+        }
         // Bonus for same language
         if (method.language === ref.language) score += 1;
         if (score > bestScore) {
           bestScore = score;
           bestMatch = method;
+          // No later candidate can beat this score; ties keep the first match.
+          if (score === maxScore) break;
         }
       }
 

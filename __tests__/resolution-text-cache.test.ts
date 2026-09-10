@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { BoundedTextCache, ResolutionTextCache, splitNameWords } from '../src/resolution/text-cache';
+import { BoundedTextCache, ResolutionTextCache, splitNameWords, splitLowerNameWords } from '../src/resolution/text-cache';
 import { ReferenceResolver } from '../src/resolution';
 import { matchMethodCall } from '../src/resolution/name-matcher';
 import type { ResolutionContext, UnresolvedRef } from '../src/resolution/types';
@@ -73,6 +73,32 @@ describe('bounded pure resolution text results', () => {
     }
     expect(disabled.nameWords('AudioWriter::flush')).toEqual(enabled.nameWords('AudioWriter::flush'));
     expect(disabled.nameWords('AudioWriter::flush')).not.toBe(disabled.nameWords('AudioWriter::flush'));
+    expect(disabled.lowerNameWords('AudioWriter::flush')).toEqual(enabled.lowerNameWords('AudioWriter::flush'));
+    expect(disabled.lowerNameWords('AudioWriter::flush')).not.toBe(disabled.lowerNameWords('AudioWriter::flush'));
+  });
+
+  it('normalizes after splitting, preserving duplicate words and Unicode lowercasing', () => {
+    const cache = new ResolutionTextCache();
+    for (const name of ['HTTPServer::fooBar', 'AudioAudio::write', 'İİ::ΣΣ::中文😀/XMLWriter', '', 'x']) {
+      expect(cache.lowerNameWords(name)).toEqual(splitNameWords(name).map(word => word.toLowerCase()));
+      expect(cache.lowerNameWords(name)).toBe(cache.lowerNameWords(name));
+    }
+    expect(splitLowerNameWords('HTTPServer::fooBar')).toEqual(['http', 'server', 'foo', 'bar']);
+    expect(cache.lowerNameWords('AudioAudio')).toEqual(['audio', 'audio']);
+    expect(cache.nameWords('HTTPServer')).toEqual(['HTTP', 'Server']);
+    expect(cache.lowerNameWords('HTTPServer')).toEqual(['http', 'server']);
+    const words = cache.lowerNameWords('HTTPServer');
+    cache.clear();
+    expect(cache.lowerNameWords('HTTPServer')).toEqual(words);
+    expect(cache.lowerNameWords('HTTPServer')).not.toBe(words);
+  });
+
+  it('retains the working set of a large same-name method candidate sweep', () => {
+    const cache = new ResolutionTextCache();
+    const names = Array.from({ length: 15_000 }, (_, i) => `oceanbase::common::Record${i}::assign`);
+    const tokens = names.map(name => cache.lowerNameWords(name));
+    // The old 8K/4MiB cache evicted the start of this sweep before it ended.
+    for (let i = 0; i < names.length; i++) expect(cache.lowerNameWords(names[i]!)).toBe(tokens[i]);
   });
 });
 
@@ -173,9 +199,12 @@ describe('resolver text-cache lifecycle', () => {
       internal.fileCache.clear(); // A read cache eviction must not leave stale derived lines.
       expect(internal.context.getFileLines!('main.cpp')).toEqual(['Beta obj;', '']);
       const words = internal.context.getNameWords!('AudioWriter');
+      const lowerWords = internal.context.getLowerNameWords!('AudioWriter');
       resolver.clearCaches();
       expect(internal.context.getNameWords!('AudioWriter')).toEqual(words);
       expect(internal.context.getNameWords!('AudioWriter')).not.toBe(words);
+      expect(internal.context.getLowerNameWords!('AudioWriter')).toEqual(lowerWords);
+      expect(internal.context.getLowerNameWords!('AudioWriter')).not.toBe(lowerWords);
       fs.unlinkSync(file);
       resolver.clearCaches();
       expect(internal.context.getFileLines!('main.cpp')).toBeNull();

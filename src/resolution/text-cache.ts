@@ -65,6 +65,11 @@ export function splitNameWords(name: string): string[] {
     .filter(word => word.length > 1);
 }
 
+/** Split before lowercasing: lowercasing first would erase camel-case boundaries. */
+export function splitLowerNameWords(name: string): string[] {
+  return splitNameWords(name).map(word => word.toLowerCase());
+}
+
 /**
  * Per-resolver caches. Keys are actual immutable text, never just paths or
  * symbol names standing in for mutable graph results. The switch is captured
@@ -74,6 +79,10 @@ export class ResolutionTextCache {
   private readonly enabled = process.env.CODEGRAPH_NO_RESOLVE_TEXT_CACHE !== '1';
   private readonly lines = new BoundedTextCache(64, 16 * 1024 * 1024);
   private readonly words = new BoundedTextCache(8192, 4 * 1024 * 1024);
+  // Large method-name candidate sets can exceed the old 8K working set in a
+  // single scoring pass. Keep normalized scoring words separately so the
+  // case-preserving API remains unchanged, with both caches still bounded.
+  private readonly lowerWords = new BoundedTextCache(65_536, 32 * 1024 * 1024);
 
   fileLines(source: string): readonly string[] {
     return this.enabled ? this.lines.getOrCompute(source, splitLines) : splitLines(source);
@@ -83,8 +92,13 @@ export class ResolutionTextCache {
     return this.enabled ? this.words.getOrCompute(name, splitNameWords) : splitNameWords(name);
   }
 
+  lowerNameWords(name: string): readonly string[] {
+    return this.enabled ? this.lowerWords.getOrCompute(name, splitLowerNameWords) : splitLowerNameWords(name);
+  }
+
   clear(): void {
     this.lines.clear();
     this.words.clear();
+    this.lowerWords.clear();
   }
 }
