@@ -2823,12 +2823,22 @@ WHERE e.kind = 'imports'
         remove.run(edge.id);
         files.add(edge.file_path);
       }
-      // The old generic tail key turned "dir/api.h" into "h". Revisit these
-      // rows once; future failures use the basename and stay selectively indexed.
-      const old = this.db.prepare(`SELECT id,file_path FROM unresolved_refs WHERE status='failed'
-        AND reference_kind='imports' AND language IN ('c','cpp')`).all() as Array<{id:number; file_path:string}>;
+      // The old generic tail key turned "dir/api.h" into "h". Only replay
+      // stale keys: a fresh index already stores basenames, so replaying all
+      // failed includes would make its first no-change sync resolve them again.
+      const old = this.db.prepare(`SELECT id,file_path,reference_name,name_tail FROM unresolved_refs WHERE status='failed'
+        AND reference_kind='imports' AND language IN ('c','cpp')`).all() as Array<{
+          id:number; file_path:string; reference_name:string; name_tail:string;
+        }>;
       const pending = this.db.prepare("UPDATE unresolved_refs SET status='pending',name_tail='' WHERE id=?");
-      for (const row of old) { pending.run(row.id); files.add(row.file_path); }
+      for (const row of old) {
+        // Match both markReferencesFailed entry points exactly, including
+        // extensionless headers and case. The normal sync retry path still
+        // handles a missing header added after this repair has been stamped.
+        if (row.name_tail === row.reference_name.split('/').pop()!) continue;
+        pending.run(row.id);
+        files.add(row.file_path);
+      }
       this.setMetadata(key, 'done');
     })();
     return [...files];

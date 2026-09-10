@@ -173,20 +173,75 @@ describe('extended sync graph integrity scenarios', () => {
     healthy();
   });
 
+  it.each(['c', 'cpp'])('leaves current-format failed %s includes untouched on first sync and heals later additions', async (language) => {
+    await setup({ [`caller.${language}`]: '#include "nested/api.h"\n#include "absent.h"\nint invoke(void) { return 1; }\n' });
+    const before = db().prepare('SELECT * FROM unresolved_refs ORDER BY id').all();
+    expect(before.map((row: any) => row.name_tail).sort()).toEqual(['absent.h', 'api.h']);
+    reopen();
+    const resolveFiles = vi.spyOn((cg as any).resolver, 'resolveFilesAndPersist');
+    const result = await cg!.sync();
+    expect(result.complete).toBe(true);
+    expect(result.filesModified).toBe(0);
+    expect(resolveFiles).not.toHaveBeenCalled();
+    expect(db().prepare('SELECT * FROM unresolved_refs ORDER BY id').all()).toEqual(before);
+    expect(db().prepare("SELECT value FROM project_metadata WHERE key='repair:cpp-include-targets-v1'").get().value).toBe('done');
+
+    // Skipping the migration replay must not suppress normal symbol-driven recovery.
+    reopen();
+    write('nested/api.h', 'int declared_api(void);\n');
+    await cg!.sync();
+    expect(db().prepare(`SELECT t.kind,t.file_path FROM edges e JOIN nodes t ON t.id=e.target
+      WHERE e.kind='imports'`).all()).toEqual([{ kind: 'file', file_path: 'nested/api.h' }]);
+    expect(db().prepare("SELECT reference_name,status,name_tail FROM unresolved_refs WHERE reference_kind='imports'").all()).toEqual([
+      { reference_name: 'absent.h', status: 'failed', name_tail: 'absent.h' },
+    ]);
+    healthy();
+  });
+
+  it('repairs only stale include keys in a mixed file and recovers after interruption', async () => {
+    await setup({ 'caller.cpp': '#include "nested/legacy.h"\n#include "vendor/vector"\n#include "nested/current.hpp"\n' });
+    db().prepare("UPDATE unresolved_refs SET name_tail='h' WHERE reference_name='nested/legacy.h'").run();
+    db().prepare("UPDATE unresolved_refs SET name_tail='vendor/vector' WHERE reference_name='vendor/vector'").run();
+    const current = db().prepare("SELECT * FROM unresolved_refs WHERE reference_name='nested/current.hpp'").get();
+    const queries = (cg as any).queries;
+    expect(queries.repairLegacyCppIncludes()).toEqual(['caller.cpp']);
+    expect(db().prepare('SELECT reference_name,status,name_tail FROM unresolved_refs ORDER BY reference_name').all()).toEqual([
+      { reference_name: 'nested/current.hpp', status: 'failed', name_tail: 'current.hpp' },
+      { reference_name: 'nested/legacy.h', status: 'pending', name_tail: '' },
+      { reference_name: 'vendor/vector', status: 'pending', name_tail: '' },
+    ]);
+    expect(queries.repairLegacyCppIncludes()).toEqual([]);
+
+    // Simulate an exit after committing the repair stamp but before resolution.
+    reopen();
+    await cg!.sync();
+    expect(db().prepare("SELECT * FROM unresolved_refs WHERE reference_name='nested/current.hpp'").get()).toEqual(current);
+    expect(db().prepare('SELECT name_tail,status FROM unresolved_refs ORDER BY name_tail').all()).toEqual([
+      { name_tail: 'current.hpp', status: 'failed' },
+      { name_tail: 'legacy.h', status: 'failed' },
+      { name_tail: 'vector', status: 'failed' },
+    ]);
+    healthy();
+  });
+
   it('rolls back legacy include repair if its completion stamp cannot be committed', async () => {
-    await setup({'api.h':'int declared_api(void);\n','caller.cpp':'#include "api.h"\n'});
+    await setup({'api.h':'int declared_api(void);\n','caller.cpp':'#include "api.h"\n#include "missing.h"\n'});
     const correct = edges();
     const placeholder = cg!.getNodesByName('api.h').find(n => n.kind === 'import')!;
     db().prepare("UPDATE edges SET target=?,metadata=? WHERE kind='imports'").run(placeholder.id,
       JSON.stringify({confidence:0.7,resolvedBy:'exact-match',refName:'api.h'}));
+    db().prepare("UPDATE unresolved_refs SET name_tail='h' WHERE reference_name='missing.h'").run();
+    const failedBefore = db().prepare('SELECT * FROM unresolved_refs ORDER BY id').all();
     const damaged = edges();
     const stamp = vi.spyOn((cg as any).queries, 'setMetadata').mockImplementationOnce(() => {throw new Error('repair-stamp-failure');});
     await expect(cg!.sync()).rejects.toThrow('repair-stamp-failure');
     expect(edges()).toEqual(damaged);
+    expect(db().prepare('SELECT * FROM unresolved_refs ORDER BY id').all()).toEqual(failedBefore);
     expect(db().prepare("SELECT value FROM project_metadata WHERE key='repair:cpp-include-targets-v1'").get()).toBeUndefined();
     stamp.mockRestore();
     await cg!.sync();
     expect(edges()).toEqual(correct);
+    expect(db().prepare("SELECT name_tail,status FROM unresolved_refs WHERE reference_name='missing.h'").get()).toEqual({ name_tail: 'missing.h', status: 'failed' });
     healthy();
   });
 
