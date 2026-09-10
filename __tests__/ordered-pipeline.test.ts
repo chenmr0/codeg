@@ -20,6 +20,79 @@ async function collect<T>(iterator: AsyncIterable<T>, consume = (_value: T) => P
 }
 
 describe('ordered parse lookahead', () => {
+  it('refills execution slots behind a slow head while bounding buffered results', async () => {
+    const head = deferred();
+    const started: number[] = [], written: number[] = [];
+    let running = 0, peakRunning = 0;
+    const metrics = { peakPending: 0, peakEstimatedBytes: 0 };
+    const run = collect(orderedParallelMap(inputs(Array(10).fill(1)), async id => {
+      started.push(id); peakRunning = Math.max(peakRunning, ++running);
+      try { if (id === 0) await head.promise; else await tick(); return id; }
+      finally { running--; }
+    }, { maxPending: 2, maxBuffered: 6, maxEstimatedBytes: 100, estimateResultBytes: () => 1, metrics }), async id => {
+      written.push(id);
+    });
+    for (let i = 0; i < 12; i++) await tick();
+    expect(started).toEqual([0, 1, 2, 3, 4, 5]);
+    expect(written).toEqual([]);
+    expect(peakRunning).toBe(2);
+    expect(metrics.peakPending).toBe(6);
+    head.resolve();
+    expect(await run).toEqual(Array.from({ length: 10 }, (_, i) => i));
+    expect(written).toEqual(Array.from({ length: 10 }, (_, i) => i));
+  });
+
+  it('charges completed results against the byte budget during adaptive refill', async () => {
+    const head = deferred();
+    const started: number[] = [];
+    const run = collect(orderedParallelMap(inputs([1, 1, 2, 2]), async id => {
+      started.push(id); if (id === 0) await head.promise; return id;
+    }, { maxPending: 2, maxBuffered: 10, maxEstimatedBytes: 10,
+      estimateResultBytes: id => id === 1 ? 8 : id === 0 ? 1 : 2 }));
+    for (let i = 0; i < 5; i++) await tick();
+    expect(started).toEqual([0, 1]);
+    head.resolve();
+    expect(await run).toEqual([0, 1, 2, 3]);
+  });
+
+  it('does not delay a ready output until a large adaptive lookahead fills', async () => {
+    let started = 0;
+    const iterator = orderedParallelMap(inputs(Array(1000).fill(1)), async id => {
+      started++; return id;
+    }, { maxPending: 2, maxBuffered: 1000, maxEstimatedBytes: 10000, estimateResultBytes: () => 1 });
+    expect(await iterator.next()).toEqual({ done: false, value: 0 });
+    expect(started).toBeLessThan(10);
+    await iterator.return(undefined);
+  });
+
+  it('cancels while an adaptive buffer is full behind a stuck head', async () => {
+    const abort = new AbortController(), head = deferred<number>();
+    const started: number[] = [];
+    const run = collect(orderedParallelMap(inputs(Array(10).fill(1)), async id => {
+      started.push(id); return id === 0 ? head.promise : id;
+    }, { maxPending: 2, maxBuffered: 4, maxEstimatedBytes: 100, estimateResultBytes: () => 1, signal: abort.signal }));
+    for (let i = 0; i < 5; i++) await tick();
+    expect(started).toEqual([0, 1, 2, 3]);
+    abort.abort(); expect(await run).toEqual([]);
+    head.reject(new Error('late parser failure'));
+    await tick();
+  });
+
+  it('preserves ordered failure when a later adaptive task rejects', async () => {
+    const head = deferred(), failure = new Error('later failure');
+    const written: number[] = [];
+    const run = collect(orderedParallelMap(inputs(Array(6).fill(1)), async id => {
+      if (id === 0) await head.promise;
+      if (id === 2) throw failure;
+      return id;
+    }, { maxPending: 2, maxBuffered: 5, maxEstimatedBytes: 100, estimateResultBytes: () => 1 }), async id => { written.push(id); });
+    const rejected = expect(run).rejects.toBe(failure);
+    for (let i = 0; i < 5; i++) await tick();
+    expect(written).toEqual([]);
+    head.resolve(); await rejected;
+    expect(written).toEqual([0, 1]);
+  });
+
   it('scales the buffer within system and main-thread heap headroom', () => {
     const mib = 1024 * 1024;
     expect(resolveParseBufferBudget(16_384 * mib, 3_072 * mib)).toBe(512 * mib);
@@ -61,7 +134,7 @@ describe('ordered parse lookahead', () => {
     expect(written).toEqual(Array.from({ length: 12 }, (_, i) => i));
   });
 
-  it('reserves source bytes before invoking another reader/parser', async () => {
+  it.each([undefined, 8])('reserves source bytes before another reader/parser (buffered=%s)', async maxBuffered => {
     const gate = deferred();
     const started: number[] = [];
     const metrics = { peakPending: 0, peakEstimatedBytes: 0 };
@@ -69,7 +142,7 @@ describe('ordered parse lookahead', () => {
       started.push(id);
       if (id === 0) await gate.promise;
       return id;
-    }, { maxPending: 4, maxEstimatedBytes: 10, estimateResultBytes: () => 6, metrics }));
+    }, { maxPending: 4, maxBuffered, maxEstimatedBytes: 10, estimateResultBytes: () => 6, metrics }));
     await tick();
     expect(started).toEqual([0]);
     gate.resolve();
@@ -77,7 +150,7 @@ describe('ordered parse lookahead', () => {
     expect(metrics).toEqual({ peakPending: 1, peakEstimatedBytes: 6 });
   });
 
-  it('charges expanded results through an asynchronous write before admitting more work', async () => {
+  it.each([undefined, 8])('charges expanded results through asynchronous writes (buffered=%s)', async maxBuffered => {
     const head = deferred(), nextMetadata = deferred(), write = deferred();
     const started: number[] = [], writing: number[] = [];
     async function* source() {
@@ -91,7 +164,7 @@ describe('ordered parse lookahead', () => {
       started.push(id);
       if (id === 0) await head.promise;
       return id;
-    }, { maxPending: 4, maxEstimatedBytes: 10, estimateResultBytes: id => id === 1 ? 12 : 1, metrics }), async id => {
+    }, { maxPending: 4, maxBuffered, maxEstimatedBytes: 10, estimateResultBytes: id => id === 1 ? 12 : 1, metrics }), async id => {
       writing.push(id);
       if (id === 1) await write.promise;
     });
@@ -108,13 +181,13 @@ describe('ordered parse lookahead', () => {
     expect(await run).toEqual([0, 1, 2]);
   });
 
-  it('runs an oversized file alone without dropping it or deadlocking', async () => {
+  it.each([undefined, 8])('runs an oversized file alone without dropping it (buffered=%s)', async maxBuffered => {
     const write = deferred();
     const started: number[] = [];
     const run = collect(orderedParallelMap(inputs([30, 1]), async id => {
       started.push(id);
       return id;
-    }, { maxPending: 4, maxEstimatedBytes: 10, estimateResultBytes: id => id === 0 ? 30 : 1 }), async id => {
+    }, { maxPending: 4, maxBuffered, maxEstimatedBytes: 10, estimateResultBytes: id => id === 0 ? 30 : 1 }), async id => {
       if (id === 0) await write.promise;
     });
     await tick();

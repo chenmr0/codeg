@@ -1703,6 +1703,7 @@ export class ExtractionOrchestrator {
       }
     }, {
       maxPending: (parsePool?.size ?? 1) * 4,
+      maxBuffered: parsePool && parsePool.size > 1 ? parsePool.size * 128 : undefined,
       maxEstimatedBytes: parseBufferBudget,
       estimateResultBytes: (item) => estimateExtractionBytes(item.content, item.result),
       signal,
