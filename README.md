@@ -4,6 +4,8 @@
 
 CodeGraph-CPP 基于开源 [CodeGraph](https://github.com/colbymchenry/codegraph) 演进，重点增强 C/C++ 大型代码仓的静态解析能力。项目针对宏、全局变量、结构体字段、`typedef`、头文件原型、`#include` 关系以及 `compile_commands.json` 编译信息等常见难点进行了专项适配，尽可能减少符号丢失、类型误判和跨文件关系断裂。所有数据 100% 留在本地，一个 `.codegraph/` 目录搞定。
 
+默认索引 **C/C++、Objective-C/Objective-C++、Python、Lua**。设置 `CODEGRAPH_ALL_LANGUAGES=1` 可恢复全部已有语言和格式支持（包括 JS/TS、Vue/Svelte、Java、Rust 等）；`init`、`index`、`sync` 和文件监听使用同一范围。已有索引切换范围后，下一次索引或同步会执行一次完整重建，此后的 `sync` 继续增量更新。环境变量用法及 MCP 注意事项见[语言范围配置](docs/manual/03-core-commands.md#语言范围配置)。
+
 ---
 
 ## 它能为你做什么？

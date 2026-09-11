@@ -338,6 +338,7 @@ export class QueryBuilder {
     getNodeById?: SqliteStatement;
     getNodesByFile?: SqliteStatement;
     getNodesByKind?: SqliteStatement;
+    getClassesContainingMethod?: SqliteStatement;
     insertEdge?: SqliteStatement;
     upsertFile?: SqliteStatement;
     deleteEdgesBySource?: SqliteStatement;
@@ -966,6 +967,23 @@ export class QueryBuilder {
       this.stmts.getNodesByKind = this.db.prepare('SELECT * FROM nodes WHERE kind = ?');
     }
     const rows = this.stmts.getNodesByKind.all(kind) as NodeRow[];
+    return rows.map(rowToNode);
+  }
+
+  /** Find render/build-style owners without materializing every class. */
+  getClassesContainingMethod(name: string): Node[] {
+    if (!this.stmts.getClassesContainingMethod) {
+      // Fix the traversal at the selective name lookup. Without statistics,
+      // SQLite can otherwise start at every class and test an IN subquery.
+      this.stmts.getClassesContainingMethod = this.db.prepare(`
+        SELECT DISTINCT owner.* FROM nodes AS method INDEXED BY idx_nodes_name
+        CROSS JOIN edges AS edge ON edge.target = method.id AND edge.kind = 'contains'
+        CROSS JOIN nodes AS owner ON owner.id = edge.source
+        WHERE method.name = ? AND method.kind = 'method' AND owner.kind = 'class'
+        ORDER BY owner.rowid
+      `);
+    }
+    const rows = this.stmts.getClassesContainingMethod.all(name) as NodeRow[];
     return rows.map(rowToNode);
   }
 

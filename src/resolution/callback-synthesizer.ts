@@ -25,6 +25,7 @@ import type { Edge, Node, NodeKind } from '../types';
 import type { QueryBuilder } from '../db/queries';
 import type { ResolutionContext, ResolutionDiagnostic } from './types';
 import { isGeneratedFile } from '../extraction/generated-detection';
+import { isLanguageEnabled } from '../extraction/language-scope';
 import { memoryBudgetBytes } from './memory-budget';
 import { stripCommentsForRegex } from './strip-comments';
 import {
@@ -435,7 +436,10 @@ function eventEmitterEdges(ctx: ResolutionContext): Edge[] {
 function reactRenderEdges(queries: QueryBuilder, ctx: ResolutionContext): Edge[] {
   const edges: Edge[] = [];
   const seen = new Set<string>();
-  for (const cls of queries.getNodesByKind('class')) {
+  // A class without a contained method named render cannot produce an edge.
+  // Start at the name index, keeping owner row order and the existing child
+  // order below. This also preserves custom Python/Java setState conventions.
+  for (const cls of queries.getClassesContainingMethod('render')) {
     const children = queries.getOutgoingEdges(cls.id, ['contains'])
       .map((e) => queries.getNodeById(e.target))
       .filter((n): n is Node => !!n && n.kind === 'method');
@@ -2227,7 +2231,9 @@ export async function synthesizeCallbackEdges(
   // without scanning the graph. Only gates whose result is provably empty are
   // used here; language-agnostic callback passes continue to run unchanged.
   const languages = queries.getDistinctFileLanguages();
-  const has = (...values: string[]): boolean => values.some((value) => languages.has(value));
+  const has = (...values: string[]): boolean => values.some(
+    (value) => languages.has(value) && isLanguageEnabled(value as Node['language']),
+  );
   let totalAdded = 0;
 
   // Cross-file Go method→type `contains` edges must be synthesized AND persisted
@@ -2266,7 +2272,9 @@ export async function synthesizeCallbackEdges(
     { name: 'jsxEdges', enabled: has(...JSX_PARENT_LANGUAGES), run: () => reactJsxChildEdges(ctx) },
     { name: 'vueEdges', enabled: has('vue'), run: () => vueTemplateEdges(ctx) },
     { name: 'svelteKitEdges', enabled: has('svelte'), run: () => svelteKitLoadEdges(ctx) },
-    { name: 'pascalEdges', enabled: true, run: () => pascalFormEdges(ctx) },
+    // The form convention is unavailable in the default scope. In all mode
+    // retain the extension-based behavior, including sidecar file languages.
+    { name: 'pascalEdges', enabled: isLanguageEnabled('pascal'), run: () => pascalFormEdges(ctx) },
     { name: 'flutterEdges', enabled: has('dart'), run: () => flutterBuildEdges(queries, ctx) },
     { name: 'cppEdges', enabled: has('cpp'), run: () => cppOverrideEdges(queries) },
     { name: 'cppDeclDef', enabled: has('cpp'), run: () => cppDeclDefEdges(queries) },

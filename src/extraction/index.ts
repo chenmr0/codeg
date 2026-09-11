@@ -24,6 +24,7 @@ import {
 import { QueryBuilder } from '../db/queries';
 import { extractFromSource } from './tree-sitter';
 import { detectLanguage, isSourceFile, isLanguageSupported, isGrammarLoaded, isFileLevelOnlyLanguage, initGrammars, loadGrammarsForLanguages, readGrammarWasmBytes, EXTENSION_MAP } from './grammars';
+import { isLanguageEnabled, languageScopeWorkerEnv, withLanguageScope } from './language-scope';
 import { codeGraphDirName, isCodeGraphDataDir } from '../directory';
 import { logDebug, logWarn } from '../errors';
 import { validatePathWithinRoot, normalizePath, canonicalFilePath, clearCanonicalCache } from '../utils';
@@ -774,6 +775,15 @@ export function scanDirectory(
   diagnostics?: ScanDiagnostics,
   capture?: RustScanCapture,
 ): string[] {
+  return withLanguageScope(() => scanDirectoryInScope(rootDir, onProgress, diagnostics, capture));
+}
+
+function scanDirectoryInScope(
+  rootDir: string,
+  onProgress?: (current: number, file: string) => void,
+  diagnostics?: ScanDiagnostics,
+  capture?: RustScanCapture,
+): string[] {
   if (capture) capture.snapshot = undefined;
   const native = tryRustDirectoryScan(rootDir, diagnostics, capture);
   if (native) {
@@ -806,6 +816,15 @@ export function scanDirectory(
  * allowing worker threads to receive and render progress messages.
  */
 export async function scanDirectoryAsync(
+  rootDir: string,
+  onProgress?: (current: number, file: string) => void,
+  diagnostics?: ScanDiagnostics,
+  capture?: RustScanCapture,
+): Promise<string[]> {
+  return withLanguageScope(() => scanDirectoryAsyncInScope(rootDir, onProgress, diagnostics, capture));
+}
+
+async function scanDirectoryAsyncInScope(
   rootDir: string,
   onProgress?: (current: number, file: string) => void,
   diagnostics?: ScanDiagnostics,
@@ -859,7 +878,9 @@ function tryRustDirectoryScan(rootDir: string, diagnostics?: ScanDiagnostics,
       throw new Error('requires-walk-negation');
     }
     const snapshot = runRustScan({ protocol: RUST_SCAN_PROTOCOL, root: path.resolve(rootDir),
-      rootRules: rootIgnoreGroups(rootDir), extensions: Object.keys(EXTENSION_MAP), dataDir: codeGraphDirName() });
+      rootRules: rootIgnoreGroups(rootDir),
+      extensions: Object.entries(EXTENSION_MAP).filter(([, language]) => isLanguageEnabled(language)).map(([extension]) => extension),
+      dataDir: codeGraphDirName() });
     if (diagnostics) {
       diagnostics.nativeDirectories = snapshot.directories;
       diagnostics.nativeMetadata = snapshot.metadata;
@@ -914,7 +935,7 @@ function scanDirectoryWalk(
   const pushCanonical = (logicalRel: string, knownRealPath?: string) => {
     const c = canonicalFilePath(rootDir, logicalRel, reuse ? knownRealPath : undefined);
     if (reuse && knownRealPath && diagnostics) diagnostics.canonicalFromParent++;
-    if (seenCanonical.has(c)) return;
+    if (!isSourceFile(c) || seenCanonical.has(c)) return;
     seenCanonical.add(c);
     files.push(c);
     count++;
@@ -1098,6 +1119,15 @@ export class ExtractionOrchestrator {
     this.queries = queries;
   }
 
+  /** Discard project context when the facade switches indexing scope. */
+  resetLanguageScopeCaches(): void {
+    this.detectedFrameworkNames = null;
+    this.frameworkDetectionErrors = [];
+    this.globalMacroNames = null;
+    this.globalBodylessMacroNames = null;
+    this.globalMacroDefinitions = null;
+  }
+
   /**
    * Build a filesystem-backed ResolutionContext sufficient for framework
    * detection. Graph-query methods (getNodesByName etc.) return empty because
@@ -1235,7 +1265,19 @@ export class ExtractionOrchestrator {
       dbPath: string;
       fastInit: boolean;
       useWorker: boolean;
-    } | null
+    } | null,
+    options?: { force?: boolean; reconcile?: boolean },
+  ): Promise<IndexResult> {
+    return withLanguageScope(() => this.indexAllInScope(onProgress, signal, verbose, walBackpressure, storeWriterOpts, options));
+  }
+
+  private async indexAllInScope(
+    onProgress?: (progress: IndexProgress) => void,
+    signal?: AbortSignal,
+    verbose?: boolean,
+    walBackpressure?: () => Promise<void> | null,
+    storeWriterOpts?: { dbPath: string; fastInit: boolean; useWorker: boolean } | null,
+    options?: { force?: boolean; reconcile?: boolean },
   ): Promise<IndexResult> {
     await initGrammars();
     // A fresh full index must not reuse a stale canonical-path cache from a
@@ -1498,7 +1540,7 @@ export class ExtractionOrchestrator {
     async function ensureWorker(): Promise<import('worker_threads').Worker> {
       if (parseWorker) return parseWorker;
       log('Spawning new parse worker...');
-      parseWorker = new WorkerClass!(parseWorkerPath);
+      parseWorker = new WorkerClass!(parseWorkerPath, { env: languageScopeWorkerEnv() });
       attachWorkerHandlers(parseWorker);
 
       // Load grammars in the new worker. grammarBuffers (pre-read above) make
@@ -1788,7 +1830,7 @@ export class ExtractionOrchestrator {
                 )
               );
             } else {
-              this.storeExtractionResult(filePath, content, language, stats, result);
+              this.storeExtractionResult(filePath, content, language, stats, result, options);
             }
           }
 
@@ -1913,7 +1955,7 @@ export class ExtractionOrchestrator {
               this.buildFreshStoreBundle(filePath, content, language, stats, result)
             );
           } else {
-            this.storeExtractionResult(filePath, content, language, stats, result);
+            this.storeExtractionResult(filePath, content, language, stats, result, options);
           }
 
           filesErrored--;
@@ -1981,7 +2023,7 @@ export class ExtractionOrchestrator {
                 this.buildFreshStoreBundle(filePath, fullContent, language, stats, result)
               );
             } else {
-              this.storeExtractionResult(filePath, fullContent, language, stats, result);
+              this.storeExtractionResult(filePath, fullContent, language, stats, result, options);
             }
 
             filesErrored--;
@@ -2013,6 +2055,13 @@ export class ExtractionOrchestrator {
     const extractionTimingSummary = formatExtractionTimings(extractionTimingTotals);
     if (extractionTimingSummary) log(`Extraction totals: ${extractionTimingSummary}`);
 
+    if (options?.reconcile && !signal?.aborted) {
+      const currentFiles = new Set(files);
+      for (const tracked of this.queries.getAllFiles()) {
+        if (!currentFiles.has(tracked.path)) this.queries.deleteFile(tracked.path);
+      }
+    }
+
     return {
       success: filesIndexed > 0 || errors.filter((e) => e.severity === 'error').length === 0,
       filesIndexed,
@@ -2041,6 +2090,10 @@ export class ExtractionOrchestrator {
    * Index specific files
    */
   async indexFiles(filePaths: string[]): Promise<IndexResult> {
+    return withLanguageScope(() => this.indexFilesInScope(filePaths));
+  }
+
+  private async indexFilesInScope(filePaths: string[]): Promise<IndexResult> {
     const startTime = Date.now();
     const errors: ExtractionError[] = [];
     let filesIndexed = 0;
@@ -2050,6 +2103,10 @@ export class ExtractionOrchestrator {
     let totalEdges = 0;
 
     for (const filePath of filePaths) {
+      if (!isSourceFile(filePath)) {
+        filesSkipped++;
+        continue;
+      }
       const result = await this.indexFile(filePath);
 
       if (result.errors.length > 0) {
@@ -2088,6 +2145,10 @@ export class ExtractionOrchestrator {
    * Index a single file
    */
   async indexFile(relativePath: string, options?: { force?: boolean }): Promise<SingleFileIndexResult> {
+    return withLanguageScope(() => this.indexFileInScope(relativePath, options));
+  }
+
+  private async indexFileInScope(relativePath: string, options?: { force?: boolean }): Promise<SingleFileIndexResult> {
     // Canonicalize at the public entry: CLI/watcher/sync callers may pass a
     // logical symlink path. The file is stored under its canonical
     // (realpath-relative) path so the same physical file is indexed once.
@@ -2103,6 +2164,10 @@ export class ExtractionOrchestrator {
         durationMs: 0,
         stored: false,
       };
+    }
+
+    if (!isSourceFile(relativePath)) {
+      return { nodes: [], edges: [], unresolvedReferences: [], errors: [], durationMs: 0, stored: false };
     }
 
     // Read file content and stats
@@ -2142,6 +2207,16 @@ export class ExtractionOrchestrator {
     stats: fs.Stats,
     options?: { force?: boolean }
   ): Promise<SingleFileIndexResult> {
+    return withLanguageScope(() => this.indexFileWithContentInScope(relativePath, content, stats, options));
+  }
+
+  private async indexFileWithContentInScope(
+    relativePath: string,
+    content: string,
+    stats: fs.Stats,
+    options?: { force?: boolean },
+  ): Promise<SingleFileIndexResult> {
+    relativePath = canonicalFilePath(this.rootDir, relativePath);
     // Prevent path traversal
     const fullPath = validatePathWithinRoot(this.rootDir, relativePath);
     if (!fullPath) {
@@ -2162,7 +2237,7 @@ export class ExtractionOrchestrator {
 
     // Detect language
     const language = detectLanguage(relativePath, content);
-    if (!isLanguageSupported(language)) {
+    if (!isLanguageSupported(language) || !isLanguageEnabled(language)) {
       return {
         nodes: [],
         edges: [],
@@ -2438,6 +2513,14 @@ export class ExtractionOrchestrator {
     scopedPaths?: string[],
     verbose?: boolean,
   ): Promise<SyncResult> {
+    return withLanguageScope(() => this.syncInScope(onProgress, scopedPaths, verbose));
+  }
+
+  private async syncInScope(
+    onProgress?: (progress: IndexProgress) => void,
+    scopedPaths?: string[],
+    verbose?: boolean,
+  ): Promise<SyncResult> {
     await initGrammars(); // Initialize WASM runtime (grammars loaded lazily below)
     // Sync rescans; clear the canonical-path cache so repointed symlinks are seen.
     clearCanonicalCache();
@@ -2512,6 +2595,7 @@ export class ExtractionOrchestrator {
         }
         const paths = [...unique];
         currentFiles = paths.filter((filePath) => {
+          if (!isSourceFile(filePath)) return false;
           if (diagnostics) diagnostics.counts.existsChecks++;
           return fs.existsSync(path.join(this.rootDir, filePath));
         });

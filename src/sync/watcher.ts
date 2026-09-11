@@ -39,6 +39,7 @@ import { logDebug, logWarn } from '../errors';
 import { normalizePath, canonicalFilePath } from '../utils';
 import { isCodeGraphDataDir } from '../directory';
 import { watchDisabledReason } from './watch-policy';
+import { withoutLanguageScope } from '../extraction/language-scope';
 
 /**
  * Native recursive `fs.watch` is only reliable on macOS and Windows; on Linux
@@ -409,6 +410,10 @@ export class FileWatcher {
    * — it drops node_modules/dist/.git churn before any sync is scheduled.
    */
   private handleChange(rel: string): void {
+    withoutLanguageScope(() => this.handleChangeOutsideScope(rel));
+  }
+
+  private handleChangeOutsideScope(rel: string): void {
     if (!rel || rel === '.' || rel.startsWith('..')) return;
     if (this.isAlwaysIgnored(rel)) return;
     if (this.ignoreMatcher && this.ignoreMatcher.ignores(rel)) return;
@@ -422,6 +427,7 @@ export class FileWatcher {
     // made through a symlink. The filter checks above stay on the logical `rel`
     // so an ignore rule targeting the symlink name the user sees still applies.
     const canon = canonicalFilePath(this.projectRoot, rel);
+    if (!isSourceFile(canon)) return;
     logDebug('File change detected', { file: canon });
     if (this.ready) {
       const now = Date.now();
@@ -642,7 +648,7 @@ export class FileWatcher {
         : undefined;
 
     try {
-      const result = await this.syncFn(scopedPaths);
+      const result = await withoutLanguageScope(() => this.syncFn(scopedPaths));
       if (!scopedPaths) this.needsFullScan = false;
       this.syncRetryCount = 0;
       // Remove entries whose most recent event predates this sync — those

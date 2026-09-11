@@ -26,7 +26,8 @@ import {
   isValidInstantiationTarget,
 } from './name-matcher';
 import { resolveViaImport, resolveJvmImport, extractImportMappings, extractReExports, loadCppIncludeDirs, isPhpIncludePathRef } from './import-resolver';
-import { detectFrameworks } from './frameworks';
+import { detectFrameworks, isFrameworkEnabled } from './frameworks';
+import { getLanguageScopeKey, isLanguageEnabled } from '../extraction/language-scope';
 import {
   synthesizeCallbackEdges,
   synthesizeIncrementalCCppEdges,
@@ -222,6 +223,7 @@ export class ReferenceResolver {
   private queries: QueryBuilder;
   private context: ResolutionContext;
   private frameworks: FrameworkResolver[] = [];
+  private frameworkScopeKey = getLanguageScopeKey();
   private frameworkDiagnostics: import('./types').ResolutionDiagnostic[] = [];
   // Chained static-factory/fluent call refs the first pass couldn't resolve,
   // collected in-memory (the batched resolver deletes unresolved refs from the
@@ -291,6 +293,11 @@ export class ReferenceResolver {
    * Initialize the resolver (detect frameworks, etc.)
    */
   initialize(): void {
+    this.clearCaches();
+    // Frameworks keep WeakMap caches keyed by context (RN, Swift/ObjC, Rust).
+    // A new context prevents a scope switch or reindex from reusing old maps.
+    this.context = this.createContext();
+    this.frameworkScopeKey = getLanguageScopeKey();
     this.frameworkDiagnostics = [];
     this.frameworks = detectFrameworks(this.context, (framework, error) => {
       this.frameworkDiagnostics.push({
@@ -304,6 +311,10 @@ export class ReferenceResolver {
     this.clearCaches();
   }
 
+  private ensureFrameworkScope(): void {
+    if (this.frameworkScopeKey !== getLanguageScopeKey()) this.initialize();
+  }
+
   /**
    * Run each framework resolver's cross-file finalization pass and persist
    * the returned node updates. Idempotent — safe to call after every indexAll
@@ -313,13 +324,15 @@ export class ReferenceResolver {
    * state and downstream queries see the updated names.
    */
   runPostExtract(): number {
+    this.ensureFrameworkScope();
     let updated = 0;
     this.clearCaches();
     for (const fw of this.frameworks) {
-      if (!fw.postExtract) continue;
+      if (!fw.postExtract || !isFrameworkEnabled(fw)) continue;
       try {
         const nodes = fw.postExtract(this.context);
         for (const node of nodes) {
+          if (!isLanguageEnabled(node.language)) continue;
           this.queries.updateNode(node);
           updated++;
         }
@@ -345,6 +358,7 @@ export class ReferenceResolver {
    * We cache the set of known symbol names for fast pre-filtering.
    */
   warmCaches(diagnostics?: ResolutionDiagnostics, nameLookup: NameLookupMode = 'full'): void {
+    this.ensureFrameworkScope();
     // Reuse a complete Set if already available. An indexed epoch must be
     // promoted before a later bulk call; it is never a partial knownNames Set.
     const indexed = nameLookup === 'indexed' && this.knownNames === null;
@@ -1596,6 +1610,7 @@ export class ReferenceResolver {
    * Get detected frameworks
    */
   getDetectedFrameworks(): string[] {
+    this.ensureFrameworkScope();
     return this.frameworks.map((f) => f.name);
   }
 

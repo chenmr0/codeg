@@ -60,6 +60,33 @@ codegraph upgrade 0.9.9           # 升级到指定版本
 
 ## 三、索引类
 
+### 语言范围配置
+
+默认索引 C/C++、Objective-C/Objective-C++（`.m`、`.mm`）、Python 和 Lua。未启用其他语言时，不扫描其源文件、不加载其语法，也跳过只适用于这些语言的框架检测和关系合成；C/C++ 宏、继承、声明/定义关系和通用回调分析继续保留。
+
+设置 `CODEGRAPH_ALL_LANGUAGES=1` 恢复全部已有语言与格式支持。只有字符串 `1` 启用完整模式，未设置、`0` 或其他值均使用默认范围。PowerShell 示例：
+
+```powershell
+# 当前终端及从它启动的子进程启用全部语言
+$env:CODEGRAPH_ALL_LANGUAGES = '1'
+codegraph init D:\my-project
+
+# 已初始化的项目：同步时自动迁移到当前语言范围
+codegraph sync D:\my-project
+
+# 恢复默认范围
+Remove-Item Env:CODEGRAPH_ALL_LANGUAGES -ErrorAction SilentlyContinue
+codegraph sync D:\my-project
+```
+
+Bash/zsh 可用 `export CODEGRAPH_ALL_LANGUAGES=1`，恢复默认用 `unset CODEGRAPH_ALL_LANGUAGES`。完整模式包括 JS/TS（含 JSX/TSX）、Go、Rust、Java、C#、PHP、Ruby、Swift、Kotlin、Dart、Pascal、Scala、Luau，以及 Vue、Svelte、Liquid、Razor、YAML、Twig、XML、Properties 等既有格式；`.gitignore` 和 `.codegraphignore` 仍然生效。
+
+语言范围由启动进程的环境决定，数据库只记录上次使用的范围，不会替代环境变量配置。使用完整模式时，后续 `sync`、文件监听和 MCP 进程也需要同样设置。MCP 用户应在所用客户端的 CodeGraph 服务配置中添加 `"env": { "CODEGRAPH_ALL_LANGUAGES": "1" }`（TOML 配置使用对应的环境变量表），并重启 MCP 服务及已运行的 CodeGraph 守护进程，使新环境生效。
+
+范围切换会在下一次 `index`、`sync` 或 SDK `indexFiles` 时触发一次完整重建，重新提取保留文件并删除退出范围的旧数据，即使此次 `sync` 只传入少量文件也一样。大项目的这一次同步会比普通增量同步慢；中断或失败会保留未完成标记，下一次继续重建。已应用范围但存在宏恢复降级告警的文件继续按文件重试，不会因此反复全量重建。范围不变时保留原有增量路径。打开索引仅查询不会触发迁移。
+
+本设置沿用已有扩展名识别规则：`.h` 根据内容区分 C/C++/Objective-C；`.inc` 目前仍按 PHP 识别，默认排除，并不会自动识别其中的 C++ 或 SQL 片段；`.luau` 与 `.lua` 是不同标签，前者需要完整模式。
+
 ### `codegraph init` —— 初始化并构建索引（最常用）
 
 ```bash

@@ -9,6 +9,10 @@ and adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Breaking Changes
+
+- 默认索引 C/C++、Objective-C/Objective-C++、Python 和 Lua，可通过 `CODEGRAPH_ALL_LANGUAGES=1` 恢复全部语言支持；切换范围后的首次索引或同步会重建图谱，之后继续增量更新。
+
 ### Fixes
 
 - 减少大型项目索引时长文件造成的解析等待，在原有内存预算内持续补充任务并保持写入顺序。

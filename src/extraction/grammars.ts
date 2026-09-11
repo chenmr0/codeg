@@ -10,6 +10,7 @@ import * as path from 'path';
 import * as fsp from 'fs/promises';
 import { Parser, Language as WasmLanguage } from 'web-tree-sitter';
 import { Language } from '../types';
+import { getLanguageScope, isLanguageEnabled, type LanguageScope } from './language-scope';
 
 export type GrammarLanguage = Exclude<Language, 'svelte' | 'vue' | 'liquid' | 'razor' | 'yaml' | 'twig' | 'xml' | 'properties' | 'unknown'>;
 
@@ -122,16 +123,16 @@ export const EXTENSION_MAP: Record<string, Language> = {
 };
 
 /**
- * Whether a file is one CodeGraph can parse, based purely on its extension.
- * This is the single source of truth for "should we index this file" — derived
- * from EXTENSION_MAP so parser support and indexing selection never drift.
+ * Whether a recognized source file belongs to the current indexing scope.
+ * Grammar availability and explicit low-level extraction stay independent.
  */
-export function isSourceFile(filePath: string): boolean {
-  if (isPlayRoutesFile(filePath)) return true; // Play `conf/routes` is extensionless
-  if (isShopifyLiquidJson(filePath)) return true; // Shopify OS 2.0 JSON templates / section groups
+export function isSourceFile(filePath: string, scope: LanguageScope = getLanguageScope()): boolean {
+  if (isPlayRoutesFile(filePath)) return isLanguageEnabled('yaml', scope);
+  if (isShopifyLiquidJson(filePath)) return isLanguageEnabled('liquid', scope);
   const dot = filePath.lastIndexOf('.');
   if (dot < 0) return false;
-  return filePath.slice(dot).toLowerCase() in EXTENSION_MAP;
+  const language = EXTENSION_MAP[filePath.slice(dot).toLowerCase()];
+  return language !== undefined && isLanguageEnabled(language, scope);
 }
 
 /**

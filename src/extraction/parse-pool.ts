@@ -8,6 +8,7 @@
 import { Worker } from 'worker_threads';
 import type { ExtractionResult, Language } from '../types';
 import type { CppMacroDefinition } from './declaration-macros';
+import { languageScopeWorkerEnv } from './language-scope';
 
 export interface ParsePoolWorker {
   postMessage(message: unknown): void;
@@ -131,7 +132,8 @@ export class ParseWorkerPool {
       this.createWorker = options.createWorker;
     } else if (options.workerScriptPath) {
       const scriptPath = options.workerScriptPath;
-      this.createWorker = () => new Worker(scriptPath);
+      const env = languageScopeWorkerEnv();
+      this.createWorker = () => new Worker(scriptPath, { env });
     } else {
       throw new Error('ParseWorkerPool requires workerScriptPath or createWorker');
     }

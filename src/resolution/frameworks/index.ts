@@ -6,6 +6,7 @@
 
 import { FrameworkResolver, ResolutionContext } from '../types';
 import type { Language } from '../../types';
+import { getLanguageScope, isLanguageEnabled } from '../../extraction/language-scope';
 import { drupalResolver } from './drupal';
 import { laravelResolver } from './laravel';
 import { expressResolver } from './express';
@@ -82,6 +83,18 @@ export function getFrameworkResolver(name: string): FrameworkResolver | undefine
   return FRAMEWORK_RESOLVERS.find((r) => r.name === name);
 }
 
+/** Keep cross-language bridges when at least one of their inputs is enabled. */
+export function isFrameworkEnabled(resolver: FrameworkResolver): boolean {
+  if (getLanguageScope() === 'all') return true;
+  // Vue intentionally has no extraction-language restriction in the legacy
+  // registry. Preserve that behavior in all-language mode while keeping its
+  // package probing and sidecar extraction out of the default language scope.
+  const languages = resolver.languages ?? (resolver === vueResolver
+    ? ['vue', 'javascript', 'typescript', 'jsx', 'tsx'] as Language[]
+    : undefined);
+  return !languages || languages.some((language) => isLanguageEnabled(language));
+}
+
 /**
  * Detect which frameworks are used in a project
  */
@@ -90,6 +103,7 @@ export function detectFrameworks(
   onError?: (framework: string, error: unknown) => void
 ): FrameworkResolver[] {
   return FRAMEWORK_RESOLVERS.filter((resolver) => {
+    if (!isFrameworkEnabled(resolver)) return false;
     try {
       return resolver.detect(context);
     } catch (error) {
@@ -108,7 +122,8 @@ export function getApplicableFrameworks(
   language: Language
 ): FrameworkResolver[] {
   return detected.filter(
-    (fw) => !fw.languages || fw.languages.includes(language)
+    (fw) => isLanguageEnabled(language) && isFrameworkEnabled(fw) &&
+      (!fw.languages || fw.languages.includes(language))
   );
 }
 

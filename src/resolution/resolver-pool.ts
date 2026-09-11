@@ -14,6 +14,7 @@ import * as path from 'path';
 import type { UnresolvedReference } from '../types';
 import { memoryBudgetBytes } from './memory-budget';
 import type { ResolvedRef, UnresolvedRef } from './types';
+import { languageScopeWorkerEnv } from '../extraction/language-scope';
 
 export interface ResolverAdmissionResult {
   resolved: ResolvedRef[];
@@ -157,7 +158,7 @@ export class ResolverPool {
     size: number
   ) {
     for (let i = 0; i < size; i++) {
-      const worker = new Worker(workerScript);
+      const worker = new Worker(workerScript, { env: languageScopeWorkerEnv() });
       let readyResolve!: () => void;
       let readyReject!: (error: Error) => void;
       const ready = new Promise<void>((resolve, reject) => {

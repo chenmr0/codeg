@@ -162,7 +162,9 @@ export function collectHybridFiles(rootDir: string, roots: string[], options: Hy
     if (diagnostics) diagnostics.filterCanonicalMs += performance.now() - started;
   }
 
-  for (const file of options.supplement()) add(file);
+  for (const file of options.supplement()) {
+    if (isSourceFile(file)) add(file);
+  }
   // Preserve readdir depth-first order, not Git's order or locale sorting:
   // candidate insertion order can affect existing equal-score heuristics.
   const result = new Set<string>();

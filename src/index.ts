@@ -52,6 +52,7 @@ import { ContextBuilder, createContextBuilder } from './context';
 import { Mutex, FileLock, canonicalFilePath } from './utils';
 import { FileWatcher, WatchOptions, PendingFile, LockUnavailableError } from './sync';
 import { EXTRACTION_VERSION } from './extraction/extraction-version';
+import { getLanguageScopeKey, withLanguageScope } from './extraction/language-scope';
 import { SyncRetryState } from './extraction/sync-retry-state';
 import {
   collectPersistedIndexDiagnostics,
@@ -382,13 +383,31 @@ export class CodeGraph {
    */
   async indexAll(options: IndexOptions = {}): Promise<IndexResult> {
     const startedAt = performance.now();
-    const result = await this.indexMutex.withLock(async () => {
+    const result = await withLanguageScope(() => this.indexMutex.withLock(() => this.indexAllLocked(options)));
+    result.durationMs = performance.now() - startedAt;
+    return result;
+  }
+
+  /** The caller holds indexMutex; scope migration can also reuse its file lock. */
+  private async indexAllLocked(options: IndexOptions, fileLockHeld = false): Promise<IndexResult> {
+    const startedAt = performance.now();
+    const result = await (async () => {
       try {
-        this.fileLock.acquire();
+        if (!fileLockHeld) this.fileLock.acquire();
       } catch {
         return { success: false, filesIndexed: 0, filesSkipped: 0, filesErrored: 0, nodesCreated: 0, edgesCreated: 0, errors: [{ message: 'Could not acquire file lock - another process may be indexing', severity: 'error' as const }], durationMs: 0 };
       }
       try {
+        const scopeChanged = this.needsLanguageScopeRebuild();
+        if (scopeChanged) {
+          // Persist before changing graph data. An interrupted transition must
+          // retry even if the next process switches back to the original scope.
+          this.queries.applyMetadataChanges({
+            language_scope_pending: getLanguageScopeKey(),
+            index_completeness: 'incomplete',
+          });
+          this.orchestrator.resetLanguageScopeCaches();
+        }
         const before = this.queries.getNodeAndEdgeCount();
         const freshDb = before.nodes === 0;
 
@@ -459,7 +478,8 @@ export class CodeGraph {
                     fastInit,
                     useWorker: this.db.getBackend() === 'node-sqlite',
                   }
-                : null
+                : null,
+              { force: scopeChanged, reconcile: scopeChanged },
             );
           } finally {
             try {
@@ -486,7 +506,7 @@ export class CodeGraph {
           // for both Swift and ObjC files) all return false on that initial pass
           // and silently drop themselves. Re-initializing here gives them a
           // chance to see the actual project before resolution runs.
-          if (result.success && result.filesIndexed > 0) {
+          if (result.success && (result.filesIndexed > 0 || scopeChanged)) {
             this.resolver.initialize();
             // Cross-file finalization (e.g. NestJS RouterModule prefixes). Runs
             // before resolution so updated names show up in subsequent reads.
@@ -494,7 +514,7 @@ export class CodeGraph {
           }
 
           // Resolve references to create call/import/extends edges
-          if (result.success && result.filesIndexed > 0) {
+          if (result.success && (result.filesIndexed > 0 || scopeChanged)) {
             // Get count without loading all refs into memory
             const unresolvedCount = this.queries.getUnresolvedReferencesCount();
 
@@ -572,9 +592,28 @@ export class CodeGraph {
           const hasDeclarationMacroRecoverySkip = result.errors.some(
             isDeclarationMacroRecoverySkipped
           );
-          result.complete =
-            result.success && result.filesErrored === 0 && !hasIncompleteGlobalError &&
-            !hasDeclarationMacroRecoverySkip && resolutionDiagnostics.length === 0;
+          const scopeApplied = result.success && !options.signal?.aborted &&
+            result.filesErrored === 0 && !hasIncompleteGlobalError && resolutionDiagnostics.length === 0;
+          result.complete = scopeApplied && !hasDeclarationMacroRecoverySkip;
+          // A base-only macro fallback still applied the language selection.
+          // Its file diagnostic drives the existing targeted sync retry; do
+          // not turn that recoverable warning into a whole-project rebuild
+          // on every future sync.
+          if (scopeApplied) {
+            const metadata: Record<string, string | null> = {
+              indexed_language_scope: getLanguageScopeKey(),
+              language_scope_pending: null,
+            };
+            if (scopeChanged) {
+              // These proofs describe the previous extraction policy. A full
+              // rebuild has resolved every retained file, so retire its retry
+              // journal and conservatively rebuild proofs on the next edit.
+              for (const { key } of this.queries.getMetadataByPrefix('sync-retry:')) {
+                metadata[key] = null;
+              }
+            }
+            this.queries.applyMetadataChanges(metadata);
+          }
           try {
             this.queries.setMetadata(
               'index_completeness',
@@ -608,9 +647,9 @@ export class CodeGraph {
           }
         }
       } finally {
-        this.fileLock.release();
+        if (!fileLockHeld) this.fileLock.release();
       }
-    });
+    })();
     // The orchestrator measures extraction only. CLI/API callers need the full
     // operation, including resolution, synthesis, maintenance and WAL restore.
     result.durationMs = performance.now() - startedAt;
@@ -623,18 +662,58 @@ export class CodeGraph {
    * Uses a mutex to prevent concurrent indexing operations.
    */
   async indexFiles(filePaths: string[]): Promise<IndexResult> {
-    return this.indexMutex.withLock(async () => {
+    return withLanguageScope(() => this.indexMutex.withLock(async () => {
       try {
         this.fileLock.acquire();
       } catch {
         return { success: false, filesIndexed: 0, filesSkipped: 0, filesErrored: 0, nodesCreated: 0, edgesCreated: 0, errors: [{ message: 'Could not acquire file lock - another process may be indexing', severity: 'error' as const }], durationMs: 0 };
       }
       try {
-        return this.orchestrator.indexFiles(filePaths);
+        if (this.needsLanguageScopeRebuild()) {
+          return await this.indexAllLocked({}, true);
+        }
+        const result = await this.orchestrator.indexFiles(filePaths);
+        if (result.success && this.queries.getMetadata('indexed_language_scope') !== getLanguageScopeKey()) {
+          this.queries.setMetadata('indexed_language_scope', getLanguageScopeKey());
+        }
+        return result;
       } finally {
         this.fileLock.release();
       }
-    });
+    }));
+  }
+
+  private needsLanguageScopeRebuild(): boolean {
+    // Pre-policy indexes contain all languages. Preserve their old behavior
+    // under the escape hatch, but reconcile them once under the new default.
+    const indexed = this.queries.getMetadata('indexed_language_scope') ??
+      (this.queries.getAllFiles().length > 0 ? 'all' : getLanguageScopeKey());
+    return !!this.queries.getMetadata('language_scope_pending') || indexed !== getLanguageScopeKey();
+  }
+
+  private async rebuildLanguageScopeForSync(options: SyncOptions): Promise<SyncResult> {
+    const before = new Set(this.queries.getAllFiles().map(file => file.path));
+    if (options.verbose) console.log(`[sync] Language scope changed to ${getLanguageScopeKey()}; rebuilding the index`);
+    const index = await this.indexAllLocked(options, true);
+    const after = this.queries.getAllFiles();
+    const afterPaths = new Set(after.map(file => file.path));
+    const failed = new Set(index.errors.filter(error => error.filePath &&
+      (error.severity === 'error' || isDeclarationMacroRecoverySkipped(error))).map(error => error.filePath!));
+    const result: SyncResult = {
+      complete: index.complete,
+      filesChecked: new Set([...before, ...afterPaths]).size,
+      filesAdded: after.filter(file => !before.has(file.path)).length,
+      filesModified: after.filter(file => before.has(file.path) && !failed.has(file.path)).length,
+      filesRemoved: [...before].filter(file => !afterPaths.has(file)).length,
+      filesErrored: index.filesErrored,
+      nodesUpdated: after.reduce((count, file) => count + file.nodeCount, 0),
+      durationMs: index.durationMs,
+      errors: index.errors,
+      failedFilePaths: [...failed],
+      changedFilePaths: after.filter(file => !failed.has(file.path)).map(file => file.path),
+    };
+    if (!index.success || !index.complete) throw new SyncIncompleteError(result);
+    return result;
   }
 
   /**
@@ -643,11 +722,25 @@ export class CodeGraph {
    * Uses a mutex to prevent concurrent indexing operations.
    */
   async sync(options: SyncOptions = {}): Promise<SyncResult> {
-    return this.indexMutex.withLock(async () => {
+    return withLanguageScope(() => this.indexMutex.withLock(async () => {
       try {
         this.fileLock.acquire();
       } catch {
         return { filesChecked: 0, filesAdded: 0, filesModified: 0, filesRemoved: 0, nodesUpdated: 0, durationMs: 0 };
+      }
+      let scopeChanged: boolean;
+      try {
+        scopeChanged = this.needsLanguageScopeRebuild();
+      } catch (error) {
+        this.fileLock.release();
+        throw error;
+      }
+      if (scopeChanged) {
+        try {
+          return await this.rebuildLanguageScopeForSync(options);
+        } finally {
+          this.fileLock.release();
+        }
       }
       // Sync updates the same FTS and secondary-index pages as a full index.
       // On a large existing database, SQLite's default 1000-page automatic
@@ -1004,6 +1097,9 @@ export class CodeGraph {
           throw new SyncIncompleteError(result);
         }
         retryState.complete();
+        if (this.queries.getMetadata('indexed_language_scope') !== getLanguageScopeKey()) {
+          this.queries.setMetadata('indexed_language_scope', getLanguageScopeKey());
+        }
         tailMark('finalizeMs');
         return result;
       } finally {
@@ -1033,7 +1129,7 @@ export class CodeGraph {
           }
         }
       }
-    });
+    }));
   }
 
   /**

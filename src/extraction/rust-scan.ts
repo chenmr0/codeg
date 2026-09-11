@@ -65,7 +65,7 @@ export function decodeRustSnapshot(value: unknown): RustScanSnapshot {
         file.path.includes('\\') || path.isAbsolute(file.path) || file.path.includes(':') ||
         file.path.split('/').some(part => !part || part === '.' || part === '..' || part === '.git' ||
           part === '.codegraph' || part.startsWith('.codegraph-') || part === dataDir) ||
-        !isSourceFile(file.path) || stats.has(file.path) ||
+        !isSourceFile(file.path, 'all') || stats.has(file.path) ||
         !Number.isSafeInteger(file.size) || file.size < 0 ||
         !Number.isSafeInteger(file.mtimeMs) || file.mtimeMs < 0) throw new Error('invalid-file');
     const identity = process.platform === 'win32' ? file.path.toLowerCase() : file.path;
@@ -80,7 +80,12 @@ export function decodeRustSnapshot(value: unknown): RustScanSnapshot {
     (counters.directories as number) < 1 || (counters.entries as number) < paths.length ||
     counters.metadata !== paths.length || typeof raw.elapsedMs !== 'number' ||
     !Number.isFinite(raw.elapsedMs) || raw.elapsedMs < 0) throw new Error('invalid-counters');
-  return { paths, stats, directories: counters.directories as number, entries: counters.entries as number,
+  // The helper also emits legacy extensionless/routes/Shopify special cases.
+  // Validate its entire response before filtering; excluded rows must still
+  // participate in duplicate, identity and counter validation.
+  const selectedPaths = paths.filter(file => isSourceFile(file));
+  const selectedStats = new Map(selectedPaths.map(file => [file, stats.get(file)!]));
+  return { paths: selectedPaths, stats: selectedStats, directories: counters.directories as number, entries: counters.entries as number,
     metadata: counters.metadata as number, kernelMs: raw.elapsedMs };
 }
 
