@@ -107,10 +107,19 @@ describe('MCP initialize handshake (issue #172)', () => {
     tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'codegraph-mcp-init-'));
   });
 
-  afterEach(() => {
-    if (child && !child.killed) {
-      child.kill('SIGKILL');
+  afterEach(async () => {
+    if (child) {
+      const server = child;
       child = null;
+      if (server.exitCode === null && server.signalCode === null) {
+        // Closing stdin also reaches the CLI's optional runtime re-exec.
+        // Wait for all stdio handles to close before removing its cwd on Windows.
+        await new Promise<void>((resolve) => {
+          const timer = setTimeout(() => server.kill('SIGKILL'), 3000);
+          server.once('close', () => { clearTimeout(timer); resolve(); });
+          server.stdin.end();
+        });
+      }
     }
     fs.rmSync(tempDir, { recursive: true, force: true });
   });

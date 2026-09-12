@@ -60,6 +60,7 @@ import {
 import { getCodeGraphDir } from './directory';
 import { deriveProjectNameTokens } from './search/query-utils';
 import { CodeGraphPackageVersion } from './mcp/version';
+import { cancelRawEvidenceScans } from './mcp/raw-source-worker-client';
 import { ResolutionDiagnostics } from './resolution/diagnostics';
 import { syncNameLookupMode } from './resolution/name-lookup';
 
@@ -356,6 +357,7 @@ export class CodeGraph {
    * Close the CodeGraph instance and release resources
    */
   close(): void {
+    cancelRawEvidenceScans(this);
     this.unwatch();
     // Release file lock if held
     this.fileLock.release();

@@ -20,47 +20,25 @@ const RAW_EVIDENCE_MAX_RG_OUTPUT_BYTES = 64 * 1024 * 1024;
 const RAW_EVIDENCE_MAX_RG_TARGETS_PER_BATCH = 256;
 const RAW_EVIDENCE_MAX_RG_TARGET_CHARS = 24_000;
 
-export interface RawEvidenceSpec {
-  /** Label shown to the agent; normally the original symbol/signature. */
-  label: string;
-  /** Existing identifier or literal to search in current on-disk source. */
-  needle: string;
-  /** Optional case-insensitive indexed path substring. */
-  path?: string;
-  /** Identifier mode enforces code-identifier boundaries. */
-  mode?: 'identifier' | 'literal';
-  /** Structured reason that requested the raw evidence. */
-  purpose?: 'generic' | 'declaration_only';
-}
+export type { RawEvidenceSpec, RawEvidenceReport } from './raw-source-types';
+import {
+  createRawEvidenceStates,
+  normalizedEvidencePath as normalizedPath,
+  type RawEvidenceSpec,
+  type RawEvidenceReport,
+  type RawEvidenceState,
+  type RawEvidenceSnippet,
+  type RawEvidenceFile,
+  type RawEvidenceTask,
+  type RawEvidenceProgress,
+} from './raw-source-types';
+import { runRawEvidenceWorker } from './raw-source-worker-client';
 
-interface RawEvidenceSnippet {
-  file: string;
-  line: number;
-  text: string;
-}
-
-interface RawEvidenceState {
-  spec: RawEvidenceSpec;
-  normalizedPath?: string;
-  eligibleFiles: number;
-  scannedFiles: number;
-  scannedBytes: number;
-  unreadableFiles: number;
-  matchingLines: number;
-  snippets: RawEvidenceSnippet[];
-}
-
-export interface RawEvidenceReport {
-  states: RawEvidenceState[];
-  totalScannedFiles: number;
-  totalScannedBytes: number;
-  budgetReached: boolean;
-  timeBudgetReached: boolean;
-  cancelled: boolean;
-  omittedQueries: number;
-  backend: 'ripgrep' | 'hybrid' | 'node';
-  /** True when an unchanged, actively-watched source epoch reused this scan. */
-  cacheHit: boolean;
+interface RawEvidenceSource {
+  projectRoot: string;
+  backend?: string;
+  rgPath?: string;
+  onProgress?: (progress: RawEvidenceProgress) => void;
 }
 
 interface RawEvidenceCacheBucket {
@@ -70,11 +48,6 @@ interface RawEvidenceCacheBucket {
 
 const RAW_EVIDENCE_CACHE_MAX_ENTRIES = 32;
 const rawEvidenceCache = new WeakMap<CodeGraph, RawEvidenceCacheBucket>();
-
-function normalizedPath(value: string | undefined): string | undefined {
-  const normalized = value?.trim().replace(/\\/g, '/').replace(/^\.\//, '').replace(/\/$/, '').toLowerCase();
-  return normalized || undefined;
-}
 
 function normalizedSpecs(inputSpecs: RawEvidenceSpec[]): RawEvidenceSpec[] {
   return inputSpecs
@@ -181,7 +154,7 @@ interface ScanProgress {
 }
 
 export interface RawEvidenceScanOptions {
-  /** Wall-clock budget for inventory, ripgrep, and the Node fallback together. */
+  /** Worker scan budget; excludes queueing, startup and main-thread delivery. */
   timeoutMs?: number;
   /** Optional caller cancellation; the active ripgrep child is terminated. */
   signal?: AbortSignal;
@@ -196,8 +169,8 @@ function scanExpired(deadline: number, signal: AbortSignal | undefined): boolean
 }
 
 async function scanFilesWithNode(
-  cg: CodeGraph,
-  files: ReturnType<CodeGraph['getFiles']>,
+  source: RawEvidenceSource,
+  files: RawEvidenceFile[],
   states: RawEvidenceState[],
   maxScannedBytes: number,
   deadline: number,
@@ -222,15 +195,19 @@ async function scanFilesWithNode(
       progress.budgetReached = true;
       break;
     }
-    const abs = validatePathWithinRoot(cg.getProjectRoot(), file.path);
+    const abs = validatePathWithinRoot(source.projectRoot, file.path);
     if (!abs) {
       for (const state of applicable) state.unreadableFiles++;
       continue;
     }
     let content: string;
     try {
-      content = await readFile(abs, 'utf-8');
+      content = await readFile(abs, { encoding: 'utf-8', signal });
     } catch {
+      if (signal?.aborted) {
+        progress.cancelled = true;
+        break;
+      }
       for (const state of applicable) state.unreadableFiles++;
       continue;
     }
@@ -252,7 +229,7 @@ async function scanFilesWithNode(
   return progress;
 }
 
-function rgGlobArgs(files: ReturnType<CodeGraph['getFiles']>): string[] | null {
+function rgGlobArgs(files: RawEvidenceFile[]): string[] | null {
   const extensions = new Set<string>();
   const extensionless = new Set<string>();
   for (const file of files) {
@@ -287,6 +264,7 @@ function runRipgrep(
   cwd: string,
   deadline: number,
   signal?: AbortSignal,
+  onProgress?: (progress: RawEvidenceProgress) => void,
 ): Promise<RipgrepResult> {
   if (scanExpired(deadline, signal)) {
     return Promise.resolve({
@@ -296,17 +274,21 @@ function runRipgrep(
     });
   }
   return new Promise((resolve) => {
+    const startedAt = performance.now();
+    const stage = args.includes('--files') ? 'inventory' : 'search';
     let stdout = '';
     let stdoutBytes = 0;
     let interruption: RipgrepResult['interruption'];
     let settled = false;
     let processError: Error | undefined;
     const child = spawn(executable, args, { cwd, windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] });
+    onProgress?.({ stage, event: 'start', pid: child.pid });
     const finish = (status: number | null) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
       signal?.removeEventListener('abort', abort);
+      onProgress?.({ stage, event: 'end', pid: child.pid, elapsedMs: performance.now() - startedAt, status });
       resolve({ stdout, status, error: processError, interruption });
     };
     const stop = (reason: NonNullable<RipgrepResult['interruption']>) => {
@@ -318,6 +300,7 @@ function runRipgrep(
     const timer = setTimeout(() => stop('timeout'), Math.max(1, deadline - Date.now()));
     timer.unref?.();
     signal?.addEventListener('abort', abort, { once: true });
+    if (signal?.aborted) abort();
     child.stdout?.setEncoding('utf8');
     child.stdout?.on('data', (chunk: string) => {
       if (interruption) return;
@@ -343,7 +326,7 @@ function runRipgrep(
  * a 374 MiB repository scan.
  */
 function rgTargetBatches(
-  files: ReturnType<CodeGraph['getFiles']>,
+  files: RawEvidenceFile[],
   states: RawEvidenceState[],
 ): string[][] {
   if (states.some((state) => !state.normalizedPath)) return [['.']];
@@ -371,7 +354,7 @@ function rgTargetBatches(
 function recordRipgrepOutput(
   output: string,
   visible: Set<string>,
-  byPath: Map<string, ReturnType<CodeGraph['getFiles']>[number]>,
+  byPath: Map<string, RawEvidenceFile>,
   states: RawEvidenceState[],
 ): void {
   for (const rawLine of output.split(/\r?\n/)) {
@@ -396,31 +379,31 @@ function recordRipgrepOutput(
  * files are read by the Node fallback before absence can be claimed.
  */
 async function scanWithRipgrep(
-  cg: CodeGraph,
-  files: ReturnType<CodeGraph['getFiles']>,
+  source: RawEvidenceSource,
+  files: RawEvidenceFile[],
   states: RawEvidenceState[],
   maxScannedBytes: number,
   deadline: number,
   signal?: AbortSignal,
 ): Promise<{ progress: ScanProgress; backend: 'ripgrep' | 'hybrid' } | null> {
-  if (process.env.CODEGRAPH_RAW_EVIDENCE_BACKEND === 'node') return null;
+  if (source.backend === 'node') return null;
   if (files.length === 0) return null;
   const indexedBytes = files.reduce((sum, file) => sum + file.size, 0);
-  const forceRipgrep = process.env.CODEGRAPH_RAW_EVIDENCE_BACKEND === 'ripgrep';
+  const forceRipgrep = source.backend === 'ripgrep';
   // Process startup dominates tiny repositories. Keep the zero-dependency
   // in-process scan there; rg becomes the clear win once file count or bytes
   // are material (the OceanBase case is 14k files / 374 MiB).
   if (!forceRipgrep && files.length < 200 && indexedBytes < 4 * 1024 * 1024) return null;
   const globArgs = rgGlobArgs(files);
   if (!globArgs) return null;
-  const executable = process.env.CODEGRAPH_RG_PATH?.trim() || bundledRgPath;
-  const cwd = cg.getProjectRoot();
+  const executable = source.rgPath?.trim() || bundledRgPath;
+  const cwd = source.projectRoot;
   const common = ['--hidden', '--no-messages', ...globArgs];
   const targetBatches = rgTargetBatches(files, states);
   if (targetBatches.length === 0) return null;
   const visible = new Set<string>();
   for (const targets of targetBatches) {
-    const inventory = await runRipgrep(executable, ['--files', '--null', ...common, '--', ...targets], cwd, deadline, signal);
+    const inventory = await runRipgrep(executable, ['--files', '--null', ...common, '--', ...targets], cwd, deadline, signal, source.onProgress);
     if (inventory.interruption) {
       return {
         progress: {
@@ -448,7 +431,7 @@ async function scanWithRipgrep(
       '--json', '--fixed-strings', '--case-sensitive', '--text', ...common,
       ...patterns.flatMap((pattern) => ['--regexp', pattern]),
       '--', ...targets,
-    ], cwd, deadline, signal);
+    ], cwd, deadline, signal, source.onProgress);
     searchOutputs.push(search.stdout);
     if (search.interruption) {
       for (const output of searchOutputs) recordRipgrepOutput(output, visible, byPath, states);
@@ -483,9 +466,38 @@ async function scanWithRipgrep(
   for (const output of searchOutputs) recordRipgrepOutput(output, visible, byPath, states);
 
   if (missing.length > 0) {
-    await scanFilesWithNode(cg, missing, states, maxScannedBytes, deadline, signal, progress);
+    await scanFilesWithNode(source, missing, states, maxScannedBytes, deadline, signal, progress);
   }
   return { progress, backend: missing.length > 0 ? 'hybrid' : 'ripgrep' };
+}
+
+/** Worker entry: all scope preparation, I/O, parsing and deadlines stay here. */
+export async function scanRawSourceSnapshot(
+  task: RawEvidenceTask,
+  signal?: AbortSignal,
+  onProgress?: (progress: RawEvidenceProgress) => void,
+): Promise<RawEvidenceReport> {
+  const deadline = scanDeadline(task.timeoutMs);
+  const source: RawEvidenceSource = {
+    projectRoot: task.projectRoot, backend: task.backend, rgPath: task.rgPath, onProgress,
+  };
+  const states = createRawEvidenceStates(task);
+  const files = task.files.filter((file) => applicableStates(states, file.path).length > 0);
+  const accelerated = await scanWithRipgrep(source, files, states, task.maxScannedBytes, deadline, signal);
+  const progress = accelerated?.progress ?? await scanFilesWithNode(
+    source, files, states, task.maxScannedBytes, deadline, signal,
+  );
+  return {
+    states,
+    totalScannedFiles: progress.totalScannedFiles,
+    totalScannedBytes: progress.totalScannedBytes,
+    budgetReached: progress.budgetReached,
+    timeBudgetReached: progress.timeBudgetReached,
+    cancelled: progress.cancelled,
+    omittedQueries: task.omittedQueries,
+    backend: accelerated?.backend ?? 'node',
+    cacheHit: false,
+  };
 }
 
 /**
@@ -507,7 +519,6 @@ export async function scanRawSourceEvidence(
       ? configuredTimeout
       : RAW_EVIDENCE_DEFAULT_TIMEOUT_MS
   );
-  const deadline = scanDeadline(timeoutMs);
   const pending = cg.getPendingFiles();
   const cacheable = cg.isWatching() && pending.length === 0;
   const epoch = cg.getLastIndexedAt();
@@ -521,52 +532,24 @@ export async function scanRawSourceEvidence(
       rawEvidenceCache.set(cg, bucket);
     }
     const cached = bucket.entries.get(cacheKey);
-    if (cached) {
+    if (cached && !options.signal?.aborted) {
       bucket.entries.delete(cacheKey);
       bucket.entries.set(cacheKey, cached);
       return cloneReportForSpecs(cached, specs, true);
     }
   }
-  const allFiles = cg.getFiles().filter((file) => !CONFIG_LEAF_LANGUAGES.has(file.language));
-  const states: RawEvidenceState[] = specs.map((spec) => {
-    const path = normalizedPath(spec.path);
-    return {
-      spec,
-      normalizedPath: path,
-      eligibleFiles: allFiles.filter((file) => !path || file.path.replace(/\\/g, '/').toLowerCase().includes(path)).length,
-      scannedFiles: 0,
-      scannedBytes: 0,
-      unreadableFiles: 0,
-      matchingLines: 0,
-      snippets: [],
-    };
-  });
-  // This union is the authoritative search scope. Passing it into both rg and
-  // the fallback ensures path-constrained misses never enumerate or read the
-  // rest of the repository merely to discard those results afterward.
-  const files = allFiles.filter((file) => applicableStates(states, file.path).length > 0);
-
-  const accelerated = await scanWithRipgrep(cg, files, states, maxScannedBytes, deadline, options.signal);
-  const progress = accelerated?.progress ?? await scanFilesWithNode(
-    cg,
-    files,
-    states,
-    maxScannedBytes,
-    deadline,
-    options.signal,
-  );
-
-  const report: RawEvidenceReport = {
-    states,
-    totalScannedFiles: progress.totalScannedFiles,
-    totalScannedBytes: progress.totalScannedBytes,
-    budgetReached: progress.budgetReached,
-    timeBudgetReached: progress.timeBudgetReached,
-    cancelled: progress.cancelled,
+  const task: RawEvidenceTask = {
+    projectRoot: cg.getProjectRoot(),
+    files: cg.getFiles().filter((file) => !CONFIG_LEAF_LANGUAGES.has(file.language))
+      .map(({ path, size }) => ({ path, size })),
+    specs,
     omittedQueries: Math.max(0, inputSpecs.length - specs.length),
-    backend: accelerated?.backend ?? 'node',
-    cacheHit: false,
+    maxScannedBytes,
+    timeoutMs,
+    backend: process.env.CODEGRAPH_RAW_EVIDENCE_BACKEND,
+    rgPath: process.env.CODEGRAPH_RG_PATH,
   };
+  const report = await runRawEvidenceWorker(cg, task, options.signal);
   // A file event or sync that landed during the scan invalidates the snapshot;
   // do not cache it. With no active watcher we deliberately trade speed for
   // current-source correctness.
