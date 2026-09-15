@@ -623,7 +623,7 @@ export const tools: ToolDefinition[] = [
   {
     name: 'search',
     description:
-      'Search 1–8 exact symbol names, qualified names, or callable signatures. Batch with `queries`; true misses share one raw scan. `path` is a soft disambiguation hint: matching candidates are narrowed and ranked, while a miss keeps all exact candidates with a warning. Use line/signature for stronger assertions. `includeCode="if_unique"` returns one implementation body plus compact declaration pointers; oversized source is safely truncated. Natural-language questions and literal values are rejected.',
+      'Search 1–8 symbol names, qualified names, or callable signatures. Defaults to strict case-sensitive lookup; case correction, fuzzy suggestions, and owner recovery require server environment CODEGRAPH_SEARCH_FUZZY=1. Batch with `queries`; true misses share one exact raw-source scan. `path` is a soft disambiguation hint: matching candidates are narrowed and ranked, while a miss keeps all exact candidates with a warning. Use line/signature for stronger assertions. `includeCode="if_unique"` returns one implementation body plus compact declaration pointers; oversized source is safely truncated. Natural-language questions and literal values are rejected.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -1872,6 +1872,7 @@ export class ToolHandler {
     const queryValue = this.validateString(args.query, 'query');
     if (typeof queryValue !== 'string') return queryValue;
     const queryText = queryValue.trim();
+    const fuzzyEnabled = process.env.CODEGRAPH_SEARCH_FUZZY?.trim() === '1';
     const parsedQuery = parseCallableLookup(queryText);
     const implicitSignature = parsedQuery.signature;
     const query = parsedQuery.symbol;
@@ -1928,8 +1929,8 @@ export class ToolHandler {
     // 50+ defs) buries the wanted def below the fetch limit and the agent
     // Reads to find it. The direct index returns EVERY exact-name definition,
     // ranked (generated files down, definitions before declarations). Only
-    // when no exact match exists do we fall back to the FTS→LIKE→edit-distance
-    // chain, flagged with a warning so the agent knows the candidates are
+    // when fuzzy mode is enabled and no exact match exists do we try the
+    // FTS→LIKE→edit-distance chain, flagged so the agent knows the candidates are
     // closest matches, not the queried name (no silent wrong-symbol surfacing).
     const isQualified = /[.\/]|::/.test(query);
     // Backward-compatible with small embedders/test doubles that implement
@@ -1940,7 +1941,7 @@ export class ToolHandler {
         ? []
         : cg.getNodesByName(query);
     let caseCorrected = false;
-    if (exactAll.length === 0) {
+    if (exactAll.length === 0 && fuzzyEnabled) {
       exactAll = this.findCaseInsensitiveSymbolMatches(cg, query);
       caseCorrected = exactAll.length > 0;
     }
@@ -2051,6 +2052,28 @@ export class ToolHandler {
         formatted + caseNote + sourceNote + note,
         declarationEvidence,
       ].filter(Boolean).join('\n\n')));
+    }
+
+    if (!fuzzyEnabled) {
+      // A kind/line constraint can exclude an indexed exact symbol. That is
+      // not a graph miss and must not trigger an absence scan or suggestions.
+      if (exactAll.length > 0) {
+        return this.textResult([
+          includeCodeCorrection,
+          pathStatusNotice,
+          lineStatusNotice,
+          `No exact matches for "${query}" satisfy the requested kind/line constraints.`,
+        ].filter(Boolean).join('\n\n'));
+      }
+      const needle = this.rawEvidenceNeedle(query);
+      const evidence = needle
+        ? await this.renderSearchRawEvidence(cg, [{ label: queryText, needle }], deferredRawEvidence)
+        : '';
+      return this.textResult([
+        includeCodeCorrection,
+        `No exact, case-sensitive match found in the indexed graph for "${query}".`,
+        evidence,
+      ].filter(Boolean).join('\n\n'));
     }
 
     // A qualified query is already an explicit disambiguation request. Never

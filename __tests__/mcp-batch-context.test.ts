@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -12,6 +12,7 @@ describe('MCP bounded batch context and literal search', () => {
   let handler: ToolHandler;
 
   beforeEach(async () => {
+    vi.stubEnv('CODEGRAPH_SEARCH_FUZZY', undefined);
     dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cg-batch-context-'));
     fs.mkdirSync(path.join(dir, 'src'), { recursive: true });
     fs.writeFileSync(
@@ -252,6 +253,7 @@ describe('MCP bounded batch context and literal search', () => {
   });
 
   afterEach(() => {
+    vi.unstubAllEnvs();
     cg?.close();
     fs.rmSync(dir, { recursive: true, force: true });
   });
@@ -469,7 +471,7 @@ describe('MCP bounded batch context and literal search', () => {
 
   it('returns raw source hits when an exact graph symbol is missing', async () => {
     const out = await output('search', { query: 'RAW_ONLY_MISSING_MARKER' });
-    expect(out).toMatch(/No results found/i);
+    expect(out).toMatch(/No exact, case-sensitive match/i);
     expect(out).toContain('RAW_MATCHES');
     expect(out).toMatch(/src\/raw_gap\.ts:\s*\n\s*Line 1:/i);
     expect(out).toMatch(/index\/parser gap/i);
@@ -477,7 +479,7 @@ describe('MCP bounded batch context and literal search', () => {
 
   it('claims absence only after a complete current-source scan', async () => {
     const out = await output('search', { query: 'TotallyAbsentSymbol' });
-    expect(out).toMatch(/No results found/i);
+    expect(out).toMatch(/No exact, case-sensitive match/i);
     expect(out).toContain('CONFIRMED_ABSENT');
     expect(out).toMatch(/complete scan of \d+ file/i);
     expect(out).toMatch(/do not rerun Grep/i);
@@ -573,6 +575,7 @@ describe('MCP bounded batch context and literal search', () => {
   });
 
   it('caps wrong-owner recovery before grouping a high-frequency leaf', async () => {
+    vi.stubEnv('CODEGRAPH_SEARCH_FUZZY', '1');
     const db = (cg as any).db.getDb();
     const insert = db.prepare(
       `INSERT INTO nodes (
@@ -601,6 +604,7 @@ describe('MCP bounded batch context and literal search', () => {
   });
 
   it('bounds legacy owner pairing when path narrows a high-frequency leaf below the candidate cap', async () => {
+    vi.stubEnv('CODEGRAPH_SEARCH_FUZZY', '1');
     const db = (cg as any).db.getDb();
     const insert = db.prepare(
       `INSERT INTO nodes (
@@ -748,6 +752,7 @@ describe('MCP bounded batch context and literal search', () => {
   });
 
   it('corrects a unique symbol capitalization mismatch in the same call', async () => {
+    vi.stubEnv('CODEGRAPH_SEARCH_FUZZY', '1');
     const out = await output('search', {
       query: 'namedcontainer',
       includeCode: 'if_unique',
@@ -816,6 +821,7 @@ describe('MCP bounded batch context and literal search', () => {
   });
 
   it('uses path only as secondary ranking for fuzzy fallback', async () => {
+    vi.stubEnv('CODEGRAPH_SEARCH_FUZZY', '1');
     const out = await output('search', {
       query: 'rankedTarge',
       path: 'path-far',

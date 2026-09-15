@@ -1,29 +1,23 @@
 /**
- * codegraph_search semantics — exact-first, fuzzy-fallback with warning
- *
- * Mirrors the resolution pattern already used by codegraph_node /
- * codegraph_explore (findSymbolMatches / findAllSymbols): a bare name is
- * resolved through the direct exact-name index first, and only falls back
- * to the FTS→LIKE→edit-distance chain — flagged with a `⚠️ No exact match`
- * warning — when no exact match exists. These tests pin that behavior so a
- * search for an exact name can't regress to burying it under prefix /
- * case-folded lookalikes, and a name with no exact match can't regress to an
- * empty result that sends the agent back to grep.
+ * codegraph_search defaults to case-sensitive exact lookup with raw evidence.
+ * The server environment can opt into case correction, fuzzy suggestions,
+ * and owner recovery. No tool parameter selects the search mode.
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import CodeGraph from '../../src/index';
-import { ToolHandler } from '../../src/mcp/tools';
+import { getStaticTools, ToolHandler } from '../../src/mcp/tools';
 
-describe('codegraph_search semantics — exact-first, fuzzy-fallback', () => {
+describe('codegraph_search semantics — exact by default, fuzzy via environment', () => {
   let tempDir: string;
   let cg: CodeGraph;
   let handler: ToolHandler;
 
   beforeEach(async () => {
+    vi.stubEnv('CODEGRAPH_SEARCH_FUZZY', undefined);
     tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'codegraph-search-sem-'));
     fs.mkdirSync(path.join(tempDir, 'src'), { recursive: true });
 
@@ -74,6 +68,8 @@ describe('codegraph_search semantics — exact-first, fuzzy-fallback', () => {
   });
 
   afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllEnvs();
     if (cg) cg.destroy();
     if (fs.existsSync(tempDir)) {
       fs.rmSync(tempDir, { recursive: true, force: true });
@@ -95,6 +91,7 @@ describe('codegraph_search semantics — exact-first, fuzzy-fallback', () => {
   });
 
   it('falls back to fuzzy matches with a warning when no exact match exists', async () => {
+    vi.stubEnv('CODEGRAPH_SEARCH_FUZZY', '1');
     const result = await handler.execute('search', { query: 'nonexist' });
     expect(result.isError).toBeFalsy();
     const text = result.content[0]!.text;
@@ -105,6 +102,7 @@ describe('codegraph_search semantics — exact-first, fuzzy-fallback', () => {
   });
 
   it('adds exact raw evidence behind fuzzy results for a distinctive identifier', async () => {
+    vi.stubEnv('CODEGRAPH_SEARCH_FUZZY', '1');
     const result = await handler.execute('search', { query: 'missing_symbol' });
     expect(result.isError).toBeFalsy();
     const text = result.content[0]!.text;
@@ -114,7 +112,95 @@ describe('codegraph_search semantics — exact-first, fuzzy-fallback', () => {
     expect(text).toContain('CONFIRMED_ABSENT');
   });
 
+  it('strict mode skips the expensive search chain and retains exact raw evidence', async () => {
+    const search = vi.spyOn(cg, 'searchNodes');
+    const result = await handler.execute('search', { query: 'missing_symbol' });
+    expect(result.isError).toBeFalsy();
+    expect(search).not.toHaveBeenCalled();
+    expect(result.content[0]!.text).toContain('No exact, case-sensitive match');
+    expect(result.content[0]!.text).not.toContain('missing_symbol_helper');
+    expect(result.content[0]!.text).toContain('CONFIRMED_ABSENT');
+  });
+
+  it('strict mode does not correct case or recover an unknown owner', async () => {
+    const search = vi.spyOn(cg, 'searchNodes');
+    for (const query of ['HelperSync', 'LegacyService::execute']) {
+      const result = await handler.execute('search', { query, includeCode: 'if_unique' });
+      expect(result.isError).toBeFalsy();
+      expect(result.content[0]!.text).toContain('No exact, case-sensitive match');
+      expect(result.content[0]!.text).not.toContain('```');
+      expect(result.content[0]!.text).not.toContain('Case-insensitive');
+    }
+    expect(search).not.toHaveBeenCalled();
+  });
+
+  it('strict mode preserves unique implementation delivery and signature assertions', async () => {
+    const result = await handler.execute('search', {
+      query: 'Service::execute', includeCode: 'if_unique',
+    });
+    expect(result.isError).toBeFalsy();
+    expect(result.content[0]!.text).toContain('return value + 1');
+    const mismatch = await handler.execute('search', {
+      query: 'Service::execute', signature: 'void execute()', includeCode: 'if_unique',
+    });
+    expect(mismatch.content[0]!.text).toContain('Signature hint did not match');
+    expect(mismatch.content[0]!.text).not.toContain('```');
+  });
+
+  it('strict mode does not turn a kind or line mismatch into an absence scan', async () => {
+    const search = vi.spyOn(cg, 'searchNodes');
+    for (const constraints of [{ kind: 'class' }, { line: 1000 }]) {
+      const result = await handler.execute('search', { query: 'helper', ...constraints });
+      expect(result.isError).toBeFalsy();
+      expect(result.content[0]!.text).toContain('satisfy the requested kind/line constraints');
+      expect(result.content[0]!.text).not.toContain('HelperUtils');
+      expect(result.content[0]!.text).not.toContain('CONFIRMED_ABSENT');
+      expect(result.content[0]!.text).not.toMatch(/raw-source/i);
+    }
+    expect(search).not.toHaveBeenCalled();
+  });
+
+  it('inherits strict mode across a batch and shares a single raw scan', async () => {
+    const search = vi.spyOn(cg, 'searchNodes');
+    const files = vi.spyOn(cg, 'getFiles');
+    const result = await handler.execute('search', {
+      queries: ['FIRST_RAW_MARKER', { query: 'SECOND_RAW_MARKER' }, { query: 'helperSync', includeCode: 'if_unique' }],
+    });
+    expect(result.isError).toBeFalsy();
+    expect(search).not.toHaveBeenCalled();
+    expect(files).toHaveBeenCalledTimes(1);
+    expect(result.content[0]!.text).toContain('raw_markers.cpp');
+    expect(result.content[0]!.text).toContain('function helperSync');
+  });
+
+  it('enables fuzzy matching for single and batch requests only when the environment is 1', async () => {
+    const search = vi.spyOn(cg, 'searchNodes');
+    for (const setting of [undefined, '', '0', 'false', 'true']) {
+      vi.stubEnv('CODEGRAPH_SEARCH_FUZZY', setting);
+      const strict = await handler.execute('search', { query: 'nonexist' });
+      expect(strict.content[0]!.text).not.toContain('nonexistThing');
+    }
+    expect(search).not.toHaveBeenCalled();
+    vi.stubEnv('CODEGRAPH_SEARCH_FUZZY', '1');
+    const fuzzy = await handler.execute('search', { query: 'nonexist' });
+    expect(fuzzy.content[0]!.text).toContain('nonexistThing');
+    const batch = await handler.execute('search', { queries: ['nonexist', { query: 'HelperSync', includeCode: 'if_unique' }] });
+    expect(batch.content[0]!.text).toContain('nonexistThing');
+    expect(batch.content[0]!.text).toContain('Case-insensitive unique correction');
+    expect(batch.content[0]!.text).toContain('function helperSync');
+    expect(search).toHaveBeenCalled();
+  });
+
+  it('does not expose search-mode parameters on the tool or batch items', () => {
+    const schema = getStaticTools().find(tool => tool.name === 'search')!.inputSchema as any;
+    expect(schema.properties).not.toHaveProperty('exact');
+    expect(schema.properties).not.toHaveProperty('fuzzy');
+    expect(schema.properties.queries.items.properties).not.toHaveProperty('exact');
+    expect(schema.properties.queries.items.properties).not.toHaveProperty('fuzzy');
+  });
+
   it('falls back to fuzzy with a warning when the kind filter eliminates the exact match', async () => {
+    vi.stubEnv('CODEGRAPH_SEARCH_FUZZY', '1');
     // `helper` exists, but only as a function and a method — not as a class.
     // Filtering kind=class yields no exact match, so it must fall back to
     // fuzzy and surface the class-typed prefix candidate `HelperUtils` with
@@ -198,7 +284,7 @@ describe('codegraph_search semantics — exact-first, fuzzy-fallback', () => {
   it('does not fuzzy-fallback for an unknown qualified input', async () => {
     const result = await handler.execute('search', { query: 'Foo.bar' });
     expect(result.isError).toBeFalsy();
-    expect(result.content[0]!.text).toContain('No results found');
+    expect(result.content[0]!.text).toContain('No exact, case-sensitive match');
   });
 
   it('returns one implementation body plus a compact declaration pointer for one exact overload', async () => {
@@ -232,6 +318,7 @@ describe('codegraph_search semantics — exact-first, fuzzy-fallback', () => {
   });
 
   it('recovers a wrong qualified owner from exact leaf candidates without raw scanning', async () => {
+    vi.stubEnv('CODEGRAPH_SEARCH_FUZZY', '1');
     const result = await handler.execute('search', {
       query: 'LegacyService::execute',
       includeCode: 'if_unique',
@@ -245,6 +332,7 @@ describe('codegraph_search semantics — exact-first, fuzzy-fallback', () => {
   });
 
   it('does not inline unrelated leaf candidates when the requested owner exists', async () => {
+    vi.stubEnv('CODEGRAPH_SEARCH_FUZZY', '1');
     const result = await handler.execute('search', {
       query: 'Widget::execute',
       includeCode: 'if_unique',
@@ -258,6 +346,7 @@ describe('codegraph_search semantics — exact-first, fuzzy-fallback', () => {
   });
 
   it('deduplicates identical source blocks across batch query sections', async () => {
+    vi.stubEnv('CODEGRAPH_SEARCH_FUZZY', '1');
     const result = await handler.execute('search', {
       queries: [
         { query: 'LegacyService::execute', includeCode: 'if_unique' },
