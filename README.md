@@ -355,6 +355,10 @@ AI 助手默认可用的 **7 个 MCP 工具**：
 
 > 另有一个 `codegraph_explore`（一次调用批量取多个符号源码并串调用路径）**默认关闭**，需要时设环境变量 `CODEGRAPH_ENABLE_EXPLORE=1` 重启 MCP 服务器即可开放。完整用法见 **[用户手册](docs/manual/README.md)**。
 
+`codegraph_search` 默认严格区分大小写并精确匹配，保留精确源码兜底。需要大小写纠正、模糊建议及错误 owner 恢复时，在 MCP 配置的 `env` 中设置 `CODEGRAPH_SEARCH_FUZZY=1` 并重启服务；不增加工具调用参数。CLI 的 `codegraph query` 也默认精确匹配，只有传 `--fuzzy` 才启用模糊搜索。
+
+Linux 随包 ripgrep 的直接计时、扫描预算设置和完整示例见 [精准查询与原文扫描诊断](docs/search-exact-and-ripgrep-benchmark.md)。
+
 ---
 
 ## 部署说明

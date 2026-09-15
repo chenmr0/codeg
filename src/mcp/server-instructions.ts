@@ -9,12 +9,15 @@ declaration/definition partner, caller, callee, or lifecycle hop must be resolve
 ## Routing
 
 - Symbol lookup → \`codegraph_search\`. Batch 2–8 names with
-  \`queries=[...]\`; true misses share one multi-pattern raw-source scan. Set
+  \`queries=[...]\`; true misses share one multi-pattern raw-source scan. Search
+  defaults to strict case-sensitive lookup. Fuzzy suggestions, case correction,
+  and owner recovery require server environment \`CODEGRAPH_SEARCH_FUZZY=1\`;
+  exact raw-source fallback applies in either mode. Set
   \`includeCode: "if_unique"\` for implementation source plus a compact
   declaration pointer in the same response. Oversized source is safely truncated
-  rather than replaced by an outline. A wrong owner is recovered only when the
-  owner itself is absent; an indexed owner with no such member does not inline
-  unrelated leaf candidates.
+  rather than replaced by an outline. With fuzzy mode enabled, a wrong owner is
+  recovered only when the owner itself is absent; an indexed owner with no such
+  member does not inline unrelated leaf candidates.
 - Precise implementation bundle → ONE \`codegraph_node(targets=[...])\` or ONE
   \`codegraph_context(targets=[...])\`. Targets may be a selected container with
   members, exact text anchors, or exact file windows. Overlapping ranges and
