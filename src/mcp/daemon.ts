@@ -578,6 +578,10 @@ function readClientHello(
     ) => {
       if (settled) return;
       settled = true;
+      // Keep the hello's tail and newly arriving MCP bytes buffered while the
+      // session takes ownership. Removing a data listener alone leaves the
+      // socket flowing and can discard these bytes before the next listener.
+      socket.pause();
       socket.removeListener('data', onData);
       socket.removeListener('error', onEnd);
       socket.removeListener('close', onEnd);

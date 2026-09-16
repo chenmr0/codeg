@@ -2552,6 +2552,15 @@ WHERE nt.file_path = ?
     }));
   }
 
+  /** Bounded fan-in probe before moving an expensive file replacement off-loop. */
+  hasManyIncomingEdges(filePath: string): boolean {
+    const row = this.db.prepare(`SELECT COUNT(*) AS count FROM (
+      SELECT 1 FROM nodes n JOIN edges e ON e.target = n.id
+      WHERE n.file_path = ? LIMIT 2000
+    )`).get(filePath) as { count: number };
+    return row.count >= 2000;
+  }
+
   /**
    * Find files that should be re-resolved when the given files change.
    *

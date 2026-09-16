@@ -6,6 +6,7 @@
  */
 
 import * as path from 'path';
+import { existsSync } from 'fs';
 import {
   Node,
   Edge,
@@ -54,6 +55,7 @@ import { FileWatcher, WatchOptions, PendingFile, LockUnavailableError } from './
 import { EXTRACTION_VERSION } from './extraction/extraction-version';
 import { getLanguageScopeKey, withLanguageScope } from './extraction/language-scope';
 import { SyncRetryState } from './extraction/sync-retry-state';
+import { StoreWriter, type ReplaceFileStore } from './extraction/store-writer';
 import {
   collectPersistedIndexDiagnostics,
   isDeclarationMacroRecoverySkipped,
@@ -64,6 +66,10 @@ import { CodeGraphPackageVersion } from './mcp/version';
 import { cancelRawEvidenceScans } from './mcp/raw-source-worker-client';
 import { ResolutionDiagnostics } from './resolution/diagnostics';
 import { syncNameLookupMode } from './resolution/name-lookup';
+
+// A 10,000-reference page can hold the MCP event loop for seconds. Sync
+// persists smaller complete batches, yielding with no open reader/transaction.
+const SYNC_REFERENCE_BATCH_SIZE = 250;
 
 // Re-export types for consumers
 export * from './types';
@@ -722,9 +728,12 @@ export class CodeGraph {
    * Uses a mutex to prevent concurrent indexing operations.
    */
   async sync(options: SyncOptions = {}): Promise<SyncResult> {
-    return withLanguageScope(() => this.indexMutex.withLock(async () => {
+    const syncStartedAt = performance.now();
+    let acquiredWriteLock = false;
+    const result = await withLanguageScope(() => this.indexMutex.withLock(async () => {
       try {
         this.fileLock.acquire();
+        acquiredWriteLock = true;
       } catch {
         return { filesChecked: 0, filesAdded: 0, filesModified: 0, filesRemoved: 0, nodesUpdated: 0, durationMs: 0 };
       }
@@ -752,6 +761,7 @@ export class CodeGraph {
       let deferWal = false;
       let priorAutocheckpoint = 0;
       let walValve: WalCheckpointValve | null = null;
+      const syncStoreWriter: { current: StoreWriter | null } = { current: null };
       // Verbose-only attribution of the work AFTER extraction. These are
       // sequential wall intervals, not sums of per-reference CPU timings.
       let tailCheckpoint = 0;
@@ -782,10 +792,23 @@ export class CodeGraph {
         const retryState = new SyncRetryState(this.queries);
         const recoveredRetryFiles = retryState.filePaths;
         this.orchestrator.setSyncRetryState(retryState);
+        const workerPath = path.join(__dirname, 'extraction', 'store-worker.js');
+        const replaceFileStore: ReplaceFileStore | undefined =
+          this.db.getBackend() === 'node-sqlite' && this.db.getJournalMode() === 'wal' && existsSync(workerPath)
+            ? (request) => {
+                // Reuse one writer only when a file has expensive fan-in.
+                // Small syncs and the in-memory WASM backend stay on their
+                // existing path; no worker startup is paid for ordinary saves.
+                syncStoreWriter.current ??= new StoreWriter(workerPath, this.db.getPath(), false,
+                  { root: this.projectRoot, deferWal });
+                return syncStoreWriter.current.replace(request);
+              }
+            : undefined;
         const result = await this.orchestrator.sync(
           options.onProgress,
           options.paths,
           options.verbose,
+          replaceFileStore,
         );
         const hasSuccessfulChangedFiles = (result.changedFilePaths?.length ?? 0) > 0;
         if (options.verbose) tailCheckpoint = performance.now();
@@ -822,7 +845,7 @@ export class CodeGraph {
           try {
             await this.resolver.resolveFilesAndPersist(referenceFiles, (current, total) => {
               options.onProgress?.({ phase: 'resolving', current, total });
-            }, { diagnostics: detail, nameLookup: 'sync' });
+            }, { diagnostics: detail, nameLookup: 'sync', batchSize: SYNC_REFERENCE_BATCH_SIZE });
             if (detail) detail.complete = true;
           } finally {
             if (detail) console.log(`[sync] refs-detail ${detail.format()}`);
@@ -836,7 +859,7 @@ export class CodeGraph {
         const resurrectedRefCount = result.resurrectedReferenceSourceFiles?.length
           ? await this.resolver.resolveFilesAndPersist(result.resurrectedReferenceSourceFiles, (current, total) => {
             options.onProgress?.({ phase: 'resolving', current, total });
-          }) : 0;
+          }, { batchSize: SYNC_REFERENCE_BATCH_SIZE }) : 0;
 
         tailMark('resurrectedRefsMs');
         // A changed file may introduce a symbol needed by references in files
@@ -870,6 +893,7 @@ export class CodeGraph {
                   group.nameTail,
                   afterRowId,
                   group.maxRowId,
+                  SYNC_REFERENCE_BATCH_SIZE,
                 );
                 if (batch.length === 0) break;
 
@@ -1008,7 +1032,7 @@ export class CodeGraph {
           if (successfullyReindexedFiles.length > 0) {
             await this.resolver.resolveFilesAndPersist(successfullyReindexedFiles, (current, total) => {
               options.onProgress?.({ phase: 'resolving', current, total });
-            });
+            }, { batchSize: SYNC_REFERENCE_BATCH_SIZE });
           }
 
           // Only files whose replacement graph was actually stored are safe
@@ -1108,9 +1132,13 @@ export class CodeGraph {
         // Keep restoration and lock release nested so even an unexpected valve
         // teardown failure cannot leave later sync/index commands wedged.
         try {
-          if (walValve) {
-            walValve.stop();
-            await walValve.drain();
+          try {
+            await syncStoreWriter.current?.close();
+          } finally {
+            if (walValve) {
+              walValve.stop();
+              await walValve.drain();
+            }
           }
         } finally {
           try {
@@ -1130,6 +1158,11 @@ export class CodeGraph {
         }
       }
     }));
+    // The extraction result excludes reference resolution, maintenance and
+    // lock cleanup. Report elapsed time only after all sync work has finished.
+    // Keep the all-zero lock-unavailable sentinel used by the file watcher.
+    if (acquiredWriteLock) result.durationMs = Math.round(performance.now() - syncStartedAt);
+    return result;
   }
 
   /**

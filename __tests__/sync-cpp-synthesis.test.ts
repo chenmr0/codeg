@@ -4,6 +4,8 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import CodeGraph from '../src/index';
 import { QueryBuilder } from '../src/db/queries';
+import { synthesizeIncrementalCCppEdges } from '../src/resolution/callback-synthesizer';
+import type { Node } from '../src/types';
 
 function rawDb(cg: CodeGraph): any {
   const handle = (cg as any).db?.db;
@@ -40,6 +42,33 @@ describe('C/C++ incremental synthesis', () => {
       // Already closed by a failed assertion path.
     }
     fs.rmSync(directory, { recursive: true, force: true });
+  });
+
+  it('loads a shared method name once while preserving every scoped owner pairing', async () => {
+    cg = CodeGraph.initSync(directory);
+    const queries = (cg as unknown as { queries: QueryBuilder }).queries;
+    const nodes: Node[] = [];
+    const expected: string[] = [];
+    for (let i = 0; i < 80; i++) {
+      const owner = `Owner${i}`;
+      const common = { language: 'cpp' as const, startLine: i + 1, endLine: i + 1,
+        startColumn: 0, endColumn: 0, updatedAt: Date.now() };
+      nodes.push({ ...common, id: `class-${i}`, kind: 'class', name: owner, qualifiedName: owner, filePath: 'api.hpp' });
+      nodes.push({ ...common, id: `decl-${i}`, kind: 'method', name: 'run', qualifiedName: `${owner}::run`,
+        filePath: 'api.hpp', signature: 'void run()', isDeclaration: true });
+      nodes.push({ ...common, id: `def-${i}`, kind: 'method', name: 'run', qualifiedName: `${owner}::run`,
+        filePath: 'api.cpp', signature: 'void run()' });
+      expected.push(`def-${i}>decl-${i}`);
+    }
+    queries.insertNodes(nodes);
+    const lookups = vi.spyOn(queries, 'getNodesByName');
+    try {
+      await synthesizeIncrementalCCppEdges(queries, ['api.cpp']);
+      const pairs = rawDb(cg).prepare("SELECT source || '>' || target AS pair FROM edges WHERE kind='defines'").all()
+        .map((row: { pair: string }) => row.pair).sort();
+      expect(pairs).toEqual(expected.sort());
+      expect(lookups.mock.calls.filter(([name]) => name === 'run')).toHaveLength(1);
+    } finally { lookups.mockRestore(); }
   });
 
   it('rebuilds a C declaration-definition edge without a whole-graph node scan', async () => {

@@ -44,6 +44,25 @@ const internal = (cg: CodeGraph) => cg as unknown as {
 };
 
 describe('scoped reference keyset reader', () => {
+  it('lets the event loop respond before a modest sync finishes reference resolution', async () => {
+    const root = temporary();
+    fs.writeFileSync(path.join(root, 'calls.c'), 'int target(void) { return 1; }\n' +
+      Array.from({ length: 1001 }, (_, i) => `int caller_${i}(void) { return target(); }`).join('\n'));
+    const cg = CodeGraph.initSync(root); graphs.push(cg);
+    const { queries, db } = internal(cg);
+    let scheduled = false;
+    let pendingAtHeartbeat: number | undefined;
+    await cg.sync({ onProgress: progress => {
+      if (progress.phase !== 'resolving' || scheduled) return;
+      scheduled = true;
+      setImmediate(() => { pendingAtHeartbeat = queries.getUnresolvedReferencesCount(); });
+    } });
+    expect(pendingAtHeartbeat).toBeGreaterThan(0);
+    expect(pendingAtHeartbeat).toBeLessThan(1001);
+    expect(queries.getUnresolvedReferencesCount()).toBe(0);
+    expect(db.db.prepare("SELECT COUNT(*) n FROM edges WHERE kind='calls'").get().n).toBe(1001);
+  });
+
   it('supports sql.js fallback with bounded prepared-statement reuse across many pages', async () => {
     // This bundled Emscripten loader otherwise passes a Windows filesystem
     // path to Node's fetch. Use its local fs loader for this offline test.

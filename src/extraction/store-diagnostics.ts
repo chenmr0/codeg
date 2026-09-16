@@ -12,6 +12,14 @@ export class StoreDiagnostics {
   refRows = 0;
   failedPhase: keyof StoreDiagnostics['timings'] | 'none' = 'none';
 
+  add(other: StoreDiagnosticsSnapshot): void {
+    for (const phase of Object.keys(this.timings) as Array<keyof typeof this.timings>) {
+      this.timings[phase] += other.timings[phase];
+    }
+    for (const count of ['files', 'skipped', 'nodeRows', 'edgeRows', 'refRows'] as const) this[count] += other[count];
+    if (other.failedPhase !== 'none') this.failedPhase = other.failedPhase;
+  }
+
   measure<T>(phase: keyof StoreDiagnostics['timings'], operation: () => T): T {
     const started = performance.now();
     try { return operation(); }
@@ -27,6 +35,9 @@ export class StoreDiagnostics {
     ).join(' ');
   }
 }
+
+export type StoreDiagnosticsSnapshot = Pick<StoreDiagnostics,
+  'timings' | 'files' | 'skipped' | 'nodeRows' | 'edgeRows' | 'refRows' | 'failedPhase'>;
 
 export function measureStore<T>(diagnostics: StoreDiagnostics | undefined,
   phase: keyof StoreDiagnostics['timings'], operation: () => T): T {

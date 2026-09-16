@@ -41,6 +41,9 @@ import { isRetryableParseWorkerError } from './wasm-errors';
 import {
   StoreWriter,
   type StoreBundle,
+  type StoreReplacement,
+  type StoreReplacementResult,
+  type ReplaceFileStore,
   finalizeStoreBundle,
 } from './store-writer';
 import {
@@ -2304,6 +2307,27 @@ export class ExtractionOrchestrator {
     return finalizeStoreBundle(result, filePath, language, file);
   }
 
+  /** Internal worker entry: reuse exactly the normal replacement/rewiring logic. */
+  storeParsedReplacement(request: StoreReplacement): StoreReplacementResult {
+    if (request.remove) {
+      return { failedSourceFiles: [], resurrectedSourceFiles: this.removeStoredFile(request.filePath) };
+    }
+    this.syncRewireFailures = [];
+    const diagnostics = request.diagnostics ? new StoreDiagnostics() : undefined;
+    this.storeExtractionResult(request.filePath, request.content, request.language,
+      request.stats, request.result, diagnostics ? { diagnostics } : undefined);
+    return { failedSourceFiles: this.syncRewireFailures, diagnostics };
+  }
+
+  private removeStoredFile(filePath: string): string[] {
+    const resurrected = this.queries.getIncomingCrossFileEdges(filePath)
+      .map(resurrectReferenceFromEdge)
+      .filter((ref): ref is UnresolvedReference => ref !== null);
+    if (resurrected.length > 0) this.queries.insertUnresolvedRefsBatch(resurrected);
+    this.queries.deleteFile(filePath);
+    return [...new Set(resurrected.map(ref => ref.filePath).filter((file): file is string => !!file))];
+  }
+
   /**
    * Store extraction result in database.
    *
@@ -2316,7 +2340,7 @@ export class ExtractionOrchestrator {
     filePath: string,
     content: string,
     language: Language,
-    stats: fs.Stats,
+    stats: Pick<fs.Stats, 'size' | 'mtimeMs'>,
     result: ExtractionResult,
     options?: { force?: boolean; diagnostics?: StoreDiagnostics }
   ): void {
@@ -2512,14 +2536,16 @@ export class ExtractionOrchestrator {
      */
     scopedPaths?: string[],
     verbose?: boolean,
+    replaceFileStore?: ReplaceFileStore,
   ): Promise<SyncResult> {
-    return withLanguageScope(() => this.syncInScope(onProgress, scopedPaths, verbose));
+    return withLanguageScope(() => this.syncInScope(onProgress, scopedPaths, verbose, replaceFileStore));
   }
 
   private async syncInScope(
     onProgress?: (progress: IndexProgress) => void,
     scopedPaths?: string[],
     verbose?: boolean,
+    replaceFileStore?: ReplaceFileStore,
   ): Promise<SyncResult> {
     await initGrammars(); // Initialize WASM runtime (grammars loaded lazily below)
     // Sync rescans; clear the canonical-path cache so repointed symlinks are seen.
@@ -2666,18 +2692,17 @@ export class ExtractionOrchestrator {
         // in other files are unchanged. Preserve stamped resolution edges as
         // pending refs so this same sync can rebind them or park them for a
         // later symbol-driven retry.
-        const resurrected = this.queries
-          .getIncomingCrossFileEdges(tracked.path)
-          .map(resurrectReferenceFromEdge)
-          .filter((ref): ref is UnresolvedReference => ref !== null);
-        if (resurrected.length > 0) {
-          this.queries.insertUnresolvedRefsBatch(resurrected);
-          for (const ref of resurrected) {
-            if (ref.filePath) resurrectedReferenceSourceFiles.add(ref.filePath);
-          }
-        }
         this.syncRetryState?.beforeDelete(tracked.path);
-        this.queries.deleteFile(tracked.path);
+        let sourceFiles: string[];
+        if (replaceFileStore && this.queries.hasManyIncomingEdges(tracked.path)) {
+          try {
+            sourceFiles = (await replaceFileStore({ filePath: tracked.path, remove: true }))
+              .resurrectedSourceFiles ?? [];
+          } finally { this.queries.clearCache(); }
+        } else {
+          sourceFiles = this.removeStoredFile(tracked.path);
+        }
+        for (const file of sourceFiles) resurrectedReferenceSourceFiles.add(file);
         filesRemoved++;
       }
       if (++reconcileChecks % SYNC_RECONCILE_YIELD_INTERVAL === 0) {
@@ -2979,14 +3004,30 @@ export class ExtractionOrchestrator {
               ? item.language
               : detectLanguage(item.filePath, item.content);
             if (item.result.nodes.length > 0 || item.result.errors.length === 0) {
-              this.storeExtractionResult(
-                item.filePath,
-                item.content,
-                language,
-                item.stats,
-                item.result,
-                storeDetail ? { diagnostics: storeDetail } : undefined,
-              );
+              if (replaceFileStore && this.queries.hasManyIncomingEdges(item.filePath)) {
+                // Journal on the owning sync before handing writes over. It
+                // retains the index mutex/file lock and awaits this one file;
+                // no later replacement or resolution can overlap the worker.
+                measureStore(storeDetail, 'retryStateMs', () =>
+                  this.syncRetryState?.beforeStore(item.filePath, hashContent(item.content!),
+                    item.content!, language, item.result!, this.queries.getFileByPath(item.filePath)));
+                try {
+                  const stored = await replaceFileStore({ filePath: item.filePath, content: item.content,
+                    language, stats: { size: item.stats.size, mtimeMs: item.stats.mtimeMs },
+                    result: item.result, diagnostics: !!storeDetail });
+                  this.syncRewireFailures.push(...stored.failedSourceFiles);
+                  if (storeDetail && stored.diagnostics) storeDetail.add(stored.diagnostics);
+                } finally {
+                  // Another connection changed rows, including on a partial
+                  // write failure. The retry journal remains the recovery path.
+                  this.queries.clearCache();
+                }
+              } else {
+                this.storeExtractionResult(
+                  item.filePath, item.content, language, item.stats, item.result,
+                  storeDetail ? { diagnostics: storeDetail } : undefined,
+                );
+              }
               changedFilePaths.push(item.filePath);
             } else {
               const resultErrors = item.result.errors.length > 0
