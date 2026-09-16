@@ -1,5 +1,5 @@
 /**
- * Main-thread client for the fresh-index store worker.
+ * Main-thread client for the index store worker.
  *
  * Bundles are posted in file order and the worker applies them in arrival
  * order, preserving deterministic row insertion while moving synchronous
@@ -8,6 +8,7 @@
 
 import { Worker } from 'worker_threads';
 import { estimateExtractionBytes } from './extraction-size';
+import type { StoreDiagnosticsSnapshot } from './store-diagnostics';
 import type {
   Edge,
   ExtractionResult,
@@ -23,6 +24,24 @@ export interface StoreBundle {
   refs: UnresolvedReference[];
   file: FileRecord;
 }
+
+export type StoreReplacement = { filePath: string; remove: true } | {
+  remove?: false;
+  filePath: string;
+  content: string;
+  language: Language;
+  stats: { size: number; mtimeMs: number };
+  result: ExtractionResult;
+  diagnostics: boolean;
+};
+
+export interface StoreReplacementResult {
+  failedSourceFiles: string[];
+  resurrectedSourceFiles?: string[];
+  diagnostics?: StoreDiagnosticsSnapshot;
+}
+
+export type ReplaceFileStore = (request: StoreReplacement) => Promise<StoreReplacementResult>;
 
 export function finalizeStoreBundle(
   result: Pick<ExtractionResult, 'nodes' | 'edges' | 'unresolvedReferences'>,
@@ -69,8 +88,13 @@ export class StoreWriter {
   private outstandingBytes = 0;
   private readonly bundleBytes: number[] = [];
   private exited = false;
+  private replacements = new Map<number, {
+    resolve: (result: StoreReplacementResult) => void;
+    reject: (error: Error) => void;
+  }>();
 
-  constructor(workerScriptPath: string, dbPath: string, fastInit: boolean) {
+  constructor(workerScriptPath: string, dbPath: string, fastInit: boolean,
+    replacement?: { root: string; deferWal: boolean }) {
     this.worker = new Worker(workerScriptPath);
     let readyResolve!: () => void;
     let readyReject!: (error: Error) => void;
@@ -85,7 +109,7 @@ export class StoreWriter {
 
     this.worker.on(
       'message',
-      (message: { type: string; id?: number; message?: string }) => {
+      (message: { type: string; id?: number; message?: string; result?: StoreReplacementResult }) => {
         if (message.type === 'ready') {
           readyResolve();
         } else if (message.type === 'ack') {
@@ -96,9 +120,19 @@ export class StoreWriter {
           if (!waiter) return;
           if (this.firstError) waiter.reject(this.firstError);
           else waiter.resolve();
+        } else if (message.type === 'replaced' && message.id !== undefined && message.result) {
+          const waiter = this.replacements.get(message.id);
+          this.replacements.delete(message.id);
+          waiter?.resolve(message.result);
         } else if (message.type === 'error') {
           if (!this.firstError) {
             this.firstError = new Error(`store worker: ${message.message}`);
+          }
+          readyReject(this.firstError);
+          if (message.id !== undefined) {
+            const waiter = this.replacements.get(message.id);
+            this.replacements.delete(message.id);
+            waiter?.reject(this.firstError);
           }
           this.settleOne();
         }
@@ -115,7 +149,7 @@ export class StoreWriter {
         readyReject(this.firstError!);
       } else if (
         this.drainWaiters.size > 0 ||
-        this.belowWaiters.length > 0
+        this.belowWaiters.length > 0 || this.replacements.size > 0
       ) {
         this.failAll(
           new Error('store worker exited before pending writes drained')
@@ -123,7 +157,7 @@ export class StoreWriter {
       }
     });
 
-    this.worker.postMessage({ type: 'open', dbPath, fastInit });
+    this.worker.postMessage({ type: 'open', dbPath, fastInit, replacement });
   }
 
   ready(): Promise<void> {
@@ -140,6 +174,21 @@ export class StoreWriter {
     this.outstandingBytes += bytes;
     this.bundleBytes.push(bytes);
     this.worker.postMessage({ type: 'bundle', bundle });
+  }
+
+  /** The owning sync awaits each replacement; this is not a second write queue. */
+  replace(request: StoreReplacement): Promise<StoreReplacementResult> {
+    if (this.firstError) return Promise.reject(this.firstError);
+    if (this.exited) return Promise.reject(new Error('store worker already exited'));
+    const id = this.nextDrainId++;
+    return new Promise((resolve, reject) => {
+      this.replacements.set(id, { resolve, reject });
+      try { this.worker.postMessage({ type: 'replace', id, request }); }
+      catch (error) {
+        this.replacements.delete(id);
+        reject(error instanceof Error ? error : new Error(String(error)));
+      }
+    });
   }
 
   waitBelow(limit: number, maxBytes = Infinity): Promise<void> {
@@ -201,6 +250,8 @@ export class StoreWriter {
       waiter.reject(this.firstError);
     }
     this.drainWaiters.clear();
+    for (const waiter of this.replacements.values()) waiter.reject(this.firstError);
+    this.replacements.clear();
     this.outstanding = 0;
     this.outstandingBytes = 0;
     this.bundleBytes.length = 0;

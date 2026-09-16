@@ -28,6 +28,20 @@ function fixture() {
 }
 
 describe('store worker buffer backpressure', () => {
+  it.each(['error', 'exit', 'replacement-error'])('rejects a pending replacement on %s', async (failure) => {
+    const { writer, worker } = fixture();
+    try {
+      const pending = writer.replace({ filePath: 'a.c', content: '', language: 'c',
+        stats: { size: 0, mtimeMs: 1 }, diagnostics: false,
+        result: { nodes: [], edges: [], unresolvedReferences: [], errors: [], durationMs: 0 } });
+      const rejected = expect(pending).rejects.toThrow();
+      if (failure === 'error') worker.emit('error', new Error('worker crashed'));
+      else if (failure === 'exit') worker.emit('exit', 0);
+      else worker.emit('message', { type: 'error', id: 0, message: 'replacement failed' });
+      await rejected;
+    } finally { await writer.close(); }
+  });
+
   it('keeps a byte-bound waiter blocked until enough ordered acknowledgments arrive', async () => {
     const { writer, ack } = fixture();
     try {

@@ -603,7 +603,8 @@ function cppLastTwoSegments(qn: string): string {
 
 function* cppDeclDefEdges(
   queries: QueryBuilder,
-  scopedMethods?: ReadonlyMap<string, string>
+  scopedMethods?: ReadonlyMap<string, string>,
+  preparedMethods?: Map<string, Node[]>
 ): IterableIterator<Edge> {
   const seen = new Set<string>();
 
@@ -619,16 +620,16 @@ function* cppDeclDefEdges(
       if (cls.language === 'cpp') classNames.add(cls.name);
     }
   }
-  const receiverExists = (receiver: string): boolean =>
-    classNames
-      ? classNames.has(receiver)
-      : queries
-          .getNodesByName(receiver)
-          .some(
-            (node) =>
-              node.language === 'cpp' &&
-              (node.kind === 'class' || node.kind === 'struct')
-          );
+  const receiverCache = new Map<string, boolean>();
+  const receiverExists = (receiver: string): boolean => {
+    if (classNames) return classNames.has(receiver);
+    const cached = receiverCache.get(receiver);
+    if (cached !== undefined) return cached;
+    const exists = queries.getNodesByName(receiver).some((node) =>
+      node.language === 'cpp' && (node.kind === 'class' || node.kind === 'struct'));
+    receiverCache.set(receiver, exists);
+    return exists;
+  };
 
   // Group cpp method nodes by the last two qualifiedName segments
   // (`Class::method`). An in-class declaration builds qn `ns::Class::method`
@@ -642,8 +643,8 @@ function* cppDeclDefEdges(
   // (src/index.ts) keys its ownerIndex. The receiver check below then matches
   // the class segment (everything before the last `::`) against the
   // simple-name class set.
-  const methodsByQn = new Map<string, Node[]>();
-  if (scopedMethods) {
+  const methodsByQn = preparedMethods ?? new Map<string, Node[]>();
+  if (scopedMethods && !preparedMethods) {
     for (const [key, methodName] of scopedMethods) {
       const nodes = queries
         .getNodesByName(methodName)
@@ -655,7 +656,7 @@ function* cppDeclDefEdges(
         );
       if (nodes.length > 0) methodsByQn.set(key, nodes);
     }
-  } else {
+  } else if (!scopedMethods) {
     for (const m of queries.iterateNodesByKind('method')) {
       if (m.language !== 'cpp' || !m.qualifiedName || !m.qualifiedName.includes('::')) continue;
       const key = cppLastTwoSegments(m.qualifiedName);
@@ -667,6 +668,7 @@ function* cppDeclDefEdges(
   }
 
   for (const [qn, nodes] of methodsByQn) {
+    if (nodes.length === 0) continue;
     // Verify receiver class is indexed (strict mode). qn is `Class::method`;
     // the receiver is the class segment (everything before the last `::`).
     const sep = qn.lastIndexOf('::');
@@ -2100,6 +2102,13 @@ export async function synthesizeIncrementalCCppEdges(
     ['constant', new Set<string>()],
   ]);
   const affectedSubclassIds = new Set<string>();
+  const visitedTypes = new Set<string>();
+  let nextYieldAt = performance.now() + 10;
+  const yieldIfNeeded = async (): Promise<void> => {
+    if (performance.now() < nextYieldAt) return;
+    await yieldToEventLoop();
+    nextYieldAt = performance.now() + 10;
+  };
 
   const addCppMethod = (node: Node | null | undefined): void => {
     if (!node || node.kind !== 'method' || node.language !== 'cpp') return;
@@ -2115,6 +2124,8 @@ export async function synthesizeIncrementalCCppEdges(
     ) {
       return;
     }
+    if (visitedTypes.has(node.id)) return;
+    visitedTypes.add(node.id);
     // Existing override synthesis treats only class nodes as concrete
     // subclasses, but either a class or struct may be their changed base.
     if (node.kind === 'class') affectedSubclassIds.add(node.id);
@@ -2170,12 +2181,28 @@ export async function synthesizeIncrementalCCppEdges(
         }
       }
     }
+    // All reads above are materialized; no SQLite cursor or transaction is
+    // held while MCP requests run between completed file inspections.
+    await yieldIfNeeded();
   }
   if (!hasChangedCCppNode) return 0;
 
+  // Many affected classes share names such as init/reset. Load each bare
+  // method name once, then partition by the same Class::method key used by
+  // pairing. Re-querying all peers for every class made this phase quadratic.
+  // Pre-seed the map to preserve the previous scoped-key/edge emission order.
+  const methodGroups = new Map<string, Node[]>([...cppMethods.keys()].map(key => [key, []]));
+  for (const name of new Set(cppMethods.values())) {
+    for (const node of queries.getNodesByName(name)) {
+      if (node.kind !== 'method' || node.language !== 'cpp') continue;
+      methodGroups.get(cppLastTwoSegments(node.qualifiedName))?.push(node);
+    }
+    await yieldIfNeeded();
+  }
+
   function* scopedEdges(): IterableIterator<Edge> {
     yield* cppOverrideEdges(queries, affectedSubclassIds);
-    yield* cppDeclDefEdges(queries, cppMethods);
+    yield* cppDeclDefEdges(queries, cppMethods, methodGroups);
     yield* cDeclDefEdges(queries, cFunctionNames);
     yield* cCppVarDeclDefEdges(queries, variableNames);
   }

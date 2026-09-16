@@ -362,6 +362,9 @@ export class SocketTransport extends LineBasedJsonRpcTransport {
       process.stderr.write(`[CodeGraph daemon] socket error: ${err.message}\n`);
       this.handleSocketClose();
     });
+    // The daemon pauses the socket while handing off its client-hello reader.
+    // Resume only after every transport listener is installed.
+    this.socket.resume();
   }
 
   stop(): void {

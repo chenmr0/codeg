@@ -5,7 +5,7 @@
  * sync lifecycle: auto-checkpointing is disabled only while sync is active,
  * restored on every exit path, and does not change the resulting graph update.
  */
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -65,6 +65,49 @@ function connectionOf(graph: CodeGraph): DatabaseConnection {
 }
 
 describe('sync WAL deferral', () => {
+  it('reports the full sync duration including post-extraction maintenance', async () => {
+    writeFixture();
+    const graph = openGraph();
+    await graph.indexAll();
+    writeFixture(10);
+    const internals = graph as unknown as {
+      orchestrator: { sync: (...args: unknown[]) => Promise<{ durationMs: number }> };
+    };
+    const original = internals.orchestrator.sync.bind(internals.orchestrator);
+    const extract = vi.spyOn(internals.orchestrator, 'sync').mockImplementation(async (...args) => {
+      const result = await original(...args);
+      result.durationMs = 1; // The extraction timer excludes the later phases.
+      return result;
+    });
+    const maintenance = vi.spyOn(connectionOf(graph), 'runMaintenance').mockImplementation(async () => {
+      await new Promise(resolve => setTimeout(resolve, 60));
+    });
+    try {
+      const result = await graph.sync();
+      expect(maintenance).toHaveBeenCalled();
+      expect(result.filesModified).toBe(1);
+      expect(result.durationMs).toBeGreaterThanOrEqual(50);
+    } finally {
+      extract.mockRestore();
+      maintenance.mockRestore();
+    }
+  });
+
+  it('keeps the lock-unavailable sentinel unchanged', async () => {
+    writeFixture();
+    const graph = openGraph();
+    const internals = graph as unknown as { fileLock: { acquire: () => void } };
+    const acquire = vi.spyOn(internals.fileLock, 'acquire').mockImplementation(() => {
+      throw new Error('another writer owns the lock');
+    });
+    try {
+      expect(await graph.sync()).toEqual({
+        filesChecked: 0, filesAdded: 0, filesModified: 0,
+        filesRemoved: 0, nodesUpdated: 0, durationMs: 0,
+      });
+    } finally { acquire.mockRestore(); }
+  });
+
   it('disables auto-checkpointing during a changed-file sync and restores it', async () => {
     writeFixture();
     const graph = openGraph();
