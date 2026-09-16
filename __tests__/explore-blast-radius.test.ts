@@ -1,5 +1,5 @@
 /**
- * codegraph_explore blast-radius section.
+ * codegraph_wx_explore blast-radius section.
  *
  * explore now appends a compact, always-on "Blast radius" for the entry
  * symbols: who depends on each (locations only — no source) and which test
@@ -14,7 +14,7 @@ import * as os from 'os';
 import CodeGraph from '../src/index';
 import { ToolHandler } from '../src/mcp/tools';
 
-describe('codegraph_explore — blast radius', () => {
+describe('codegraph_wx_explore — blast radius', () => {
   let testDir: string;
   let cg: CodeGraph;
   let handler: ToolHandler;

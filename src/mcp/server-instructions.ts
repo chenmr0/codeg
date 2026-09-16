@@ -8,7 +8,7 @@ declaration/definition partner, caller, callee, or lifecycle hop must be resolve
 
 ## Routing
 
-- Symbol lookup → \`codegraph_search\`. Batch 2–8 names with
+- Symbol lookup → \`codegraph_wx_search\`. Batch 2–8 names with
   \`queries=[...]\`; true misses share one multi-pattern raw-source scan. Search
   defaults to strict case-sensitive lookup. Fuzzy suggestions, case correction,
   and owner recovery require server environment \`CODEGRAPH_SEARCH_FUZZY=1\`;
@@ -18,20 +18,20 @@ declaration/definition partner, caller, callee, or lifecycle hop must be resolve
   rather than replaced by an outline. With fuzzy mode enabled, a wrong owner is
   recovered only when the owner itself is absent; an indexed owner with no such
   member does not inline unrelated leaf candidates.
-- Precise implementation bundle → ONE \`codegraph_node(targets=[...])\` or ONE
-  \`codegraph_context(targets=[...])\`. Targets may be a selected container with
+- Precise implementation bundle → ONE \`codegraph_wx_node(targets=[...])\` or ONE
+  \`codegraph_wx_context(targets=[...])\`. Targets may be a selected container with
   members, exact text anchors, or exact file windows. Overlapping ranges and
   declaration/definition partners are deduplicated. Caller/callee trails are off
   by default. JSON-stringified targets arrays are parsed automatically.
-- Relationships → \`codegraph_callers\`, \`codegraph_callees\`, or
-  \`codegraph_impact\`. Use file + line or signature for overloads. These tools do
+- Relationships → \`codegraph_wx_callers\`, \`codegraph_wx_callees\`, or
+  \`codegraph_wx_impact\`. Use file + line or signature for overloads. These tools do
   not aggregate distinct overloads; callers includes the exact virtual-dispatch
   family and base-declaration call sites.
 - Known file, unknown symbol →
-  \`codegraph_node(file=..., symbolsOnly=true, outlineQuery=...)\`. Outline filters
+  \`codegraph_wx_node(file=..., symbolsOnly=true, outlineQuery=...)\`. Outline filters
   match leaf symbol names, not parameter text. A bare batch \`{file}\` target
   becomes a compact symbol outline.
-- Literals/macros/registrations → ONE \`codegraph_text_search\` call with a narrow
+- Literals/macros/registrations → ONE \`codegraph_wx_text_search\` call with a narrow
   path and several queries. A zero-match identifier can recover an exact symbol.
   Generated directories are skipped unless \`includeGenerated=true\` or the path
   identifies one exact generated file.

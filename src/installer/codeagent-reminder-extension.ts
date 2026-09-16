@@ -27,8 +27,8 @@
  * import.
  */
 
-export const CODEAGENT_REMINDER_EXTENSION_MARKER = 'CODEGRAPH_CODEAGENT_REMINDER_EXTENSION';
-export const CODEAGENT_REMINDER_EXTENSION_FILENAME = 'codegraph-reminder.ts';
+export const CODEAGENT_REMINDER_EXTENSION_MARKER = 'CODEGRAPH_WX_CODEAGENT_REMINDER_EXTENSION';
+export const CODEAGENT_REMINDER_EXTENSION_FILENAME = 'codegraph-wx-reminder.ts';
 
 export const CODEAGENT_REMINDER_EXTENSION_SOURCE = `// ${CODEAGENT_REMINDER_EXTENSION_MARKER}
 // Installed by CodeGraph. Re-running codegraph install updates this file.
@@ -46,17 +46,17 @@ const SOURCE_EXTENSIONS = new Set([
 
 const OUTPUT_SOURCE_RE = /(?:^|[\\\\/\\s(])[^:\\r\\n]*\\.(?:c|h|cc|cpp|cxx|hh|hpp|hxx|ipp|inl|tcc|m|mm|cs|cshtml|razor|java|kt|kts|scala|sc|go|rs|swift|dart|pas|dpr|dpk|lpr|dfm|fmx|py|pyw|rb|rake|php|module|install|theme|inc|ts|tsx|mts|cts|js|jsx|mjs|cjs|xsjs|xsjslib|vue|svelte|lua|luau|liquid|twig)(?=[:\\s)\\]\\r\\n]|$)/im
 const SOURCE_DISCOVERY_COMMAND_RE = /(?:^|[|;&]\\s*|\\b)(?:rg|grep|findstr|select-string|get-childitem|gci|dir|ls|get-content|gc|type)\\b/i
-const SYSTEM_REMINDER_MARKER = "[CODEGRAPH_DYNAMIC_SYSTEM_REMINDER]"
+const SYSTEM_REMINDER_MARKER = "[CODEGRAPH_WX_DYNAMIC_SYSTEM_REMINDER]"
 const SYSTEM_REMINDER = SYSTEM_REMINDER_MARKER + "\\n" +
-  "优先使用 CodeGraph系列工具，而不是read、grep、Bash源码搜索等。当前项目源码已建立CodeGraph索引；仅当CodeGraph无结果、目标文件已在本会话修改导致索引stale，或目标内容不受索引覆盖时，才使用原生源码搜索/读取。"
+  "优先使用 CodeGraph wx 系列工具，而不是read、grep、Bash源码搜索等。当前项目源码已建立CodeGraph索引；仅当CodeGraph无结果、目标文件已在本会话修改导致索引stale，或目标内容不受索引覆盖时，才使用原生源码搜索/读取。"
 
 function findIndexRoot(start) {
   if (!start || typeof start !== "string") return null
   // CodeAgent supplies the worktree/project root. Do not walk above it: a
-  // stray ~/.codegraph directory must not make every unrelated project look
+  // stray ~/.codegraph-wx directory must not make every unrelated project look
   // indexed.
   const root = resolve(start)
-  return existsSync(join(root, ".codegraph")) ? root : null
+  return existsSync(join(root, ".codegraph-wx")) ? root : null
 }
 
 function absolutePath(value, directory) {
@@ -113,7 +113,7 @@ export default async function CodeGraphReminderExtension({ client, directory, wo
         const sessionID = input.sessionID || mainSessionID() || "default"
         const args = input.args && typeof input.args === "object" ? input.args : {}
 
-        if (tool.startsWith("mcp__codegraph__") || tool.startsWith("codegraph_")) {
+        if (tool.startsWith("mcp__codegraph_wx__") || tool.startsWith("codegraph_wx_")) {
           pendingBySession.delete(sessionID)
           pendingBySession.delete(mainSessionID())
           return

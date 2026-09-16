@@ -1,88 +1,97 @@
 /**
- * The marker-fenced agent-instructions block the installer writes into each
- * agent's instructions file (CLAUDE.md / AGENTS.md / GEMINI.md).
- *
- * History: pre-#529 the installer wrote a full usage playbook here, which
- * duplicated the MCP `initialize` instructions for the main agent — so it
- * was removed and `mcp/server-instructions.ts` became the single source of
- * truth. A much smaller block returned for #704, because the MCP
- * instructions cannot reach two audiences that the instructions FILE does
- * reach:
- *
- *  - **Task-tool subagents** — they receive the project instructions file
- *    in their context but NOT the MCP initialize instructions. They hold
- *    the codegraph MCP tools only as deferred names and rarely think to
- *    load them: measured on a forced-delegation flow question (excalidraw,
- *    sonnet, high effort), subagents loaded + used codegraph in ~1 of 9
- *    runs without this block, and consistently with it — including runs
- *    with zero Read/grep fallback.
- *  - **Non-MCP harnesses** — agents with no MCP client at all can still
- *    run the `codegraph explore` CLI, which prints the same output as the
- *    MCP tool.
- *
- * Keep this block SHORT. The main agent reads it every turn on top of the
- * server instructions — the #529 duplication-cost argument still bounds
- * its size. Command names and the two surfaces, nothing more.
+ * User-provided Chinese tool-routing rules for the instructions files written
+ * by the installer (AGENTS.md / CLAUDE.md / GEMINI.md). Tool examples use the
+ * isolated codegraph_wx MCP service prefix; tool arguments stay unchanged.
  */
 
-/** Markers used by the marker-based section write/removal. */
-export const CODEGRAPH_SECTION_START = '<!-- CODEGRAPH_START -->';
-export const CODEGRAPH_SECTION_END = '<!-- CODEGRAPH_END -->';
+export const CODEGRAPH_SECTION_START = '<!-- CODEGRAPH_WX_START -->';
+export const CODEGRAPH_SECTION_END = '<!-- CODEGRAPH_WX_END -->';
 
-/**
- * The full block, markers included, exactly as written to disk.
- *
- * The wording is deliberately CONDITIONAL ("in repositories indexed by…"):
- * a global install writes this into a user-scope file (~/.claude/CLAUDE.md,
- * ~/.cac/AGENTS.md, ~/.config/opencode/AGENTS.md) that applies to every
- * project the user opens — including unindexed ones, where an unconditional
- * "this repository is indexed" claim would send subagents into failing
- * codegraph calls (the noise the unindexed-session policy exists to
- * prevent).
- *
- * This fork has `codegraph_explore` DISABLED by default (the tool returned
- * too much data with too much noise, per user feedback) — see
- * `CODEGRAPH_ENABLE_EXPLORE` in `src/mcp/tools.ts`. So unlike upstream #704,
- * this block does NOT point at `codegraph_explore`; it points at the granular
- * tools that ARE on (`codegraph_search` / `codegraph_node` / `codegraph_callers`
- * / `codegraph_callees` / `codegraph_impact` / `codegraph_files`) and at the
- * `codegraph query|callers|callees|impact` shell commands for MCP-less
- * harnesses. Keep it SHORT — the main agent reads it every turn on top of
- * the server instructions.
- */
+/** Full managed block, including the markers used for upgrade and removal. */
 export const CODEGRAPH_INSTRUCTIONS_BLOCK = `${CODEGRAPH_SECTION_START}
-## CodeGraph
+## 工具使用规则
 
-Use CodeGraph only when a \`.codegraph/\` directory exists. If the task already
-gives an exact file and line and only neighboring code is needed, use host Read;
-reserve CodeGraph for symbol pairing and relationships.
+### 项目上下文探索工具选择
 
-- Symbol → \`codegraph_search\`; batch names with ONE
-  \`codegraph_search(queries=[...])\`. Set \`includeCode="if_unique"\` for
-  implementation source plus a compact declaration pointer. Oversized source is
-  safely truncated rather than replaced by an outline.
-- Precise bundle → ONE \`codegraph_node(targets=[...])\` or
-  \`codegraph_context(targets=[...])\`. Use \`{file, symbols:[...], texts:[...]}\`
-  or \`{symbol:<container>, members:[...]}\`; ranges and decl/def partners are
-  deduplicated. Caller/callee trails are off by default.
-- Known file, unknown leaf →
-  \`codegraph_node(file=..., symbolsOnly=true, outlineQuery=...)\`. Batch outlines
-  support \`outlineQueries\`; filters match leaf names, not parameter signatures.
-- Literals → \`codegraph_text_search\` with one narrow path and several queries.
-  Exact generated-file paths are included; directory scans need
-  \`includeGenerated=true\` for generated files.
-- Exact non-symbol boundary → \`codegraph_node(file=..., offset=..., limit<=500)\`.
-  Bare/full-file MCP reads are rejected; over-budget window batches preflight
-  before emitting partial source.
-- Relationships → \`codegraph_callers\`, \`codegraph_callees\`, or
-  \`codegraph_impact\`. Pass file + line or signature for overloads; these tools
-  refuse to aggregate distinct overloads. Callers includes base-declaration call
-  sites for an exact override dispatch family.
-- Miss evidence: trust \`CONFIRMED_ABSENT\`; \`DECLARATION_ONLY\` means no paired
-  definition; compact raw-source matches/\`RAW_MATCHES\` signal an index gap;
-  narrow after \`INCONCLUSIVE\`.
-- Directory inventory → \`codegraph_files\`. Without MCP, use the equivalent
-  \`codegraph query|callers|callees|impact\` commands.
+探索源代码时，优先使用 \`codegraph_wx_*\` 获取符号、结构和调用关系。不要用 \`grep\`、\`glob\` 或 \`Read\` 重复扫描已经由 CodeGraph 回答的内容。
 
-If there is no \`.codegraph/\` directory, skip CodeGraph entirely — indexing is the user's decision.
+#### 工具路由
+
+- 已知符号，只需位置或签名：
+\`codegraph_wx_search(query=<符号名>, limit<=10)\`
+- 已知唯一符号，需要查看实现：
+\`codegraph_wx_node(symbol=<符号名>, includeCode=true)\`
+不要先读取其所在文件。
+- 符号可能重名或重载：
+先用 \`codegraph_wx_search\` 定位目标定义，再用
+\`codegraph_wx_node(symbol=<符号名>, file=<文件>, line=<行号>, includeCode=true)\`。
+不要一次请求全部同名定义的源码。
+- 查询调用关系：
+直接使用 \`codegraph_wx_callers\`、\`codegraph_wx_callees\` 或 \`codegraph_wx_impact\`。
+关系结果足够回答问题时立即停止，不要为了“多了解一些”继续读取源码。
+- 只知道文件、不知道符号：
+先调用 \`codegraph_wx_node(file=<文件>, symbolsOnly=true)\` 获取符号概要，
+再针对需要的单个符号调用 \`codegraph_wx_node(symbol=...)\`。
+- 只知道目录：
+先调用 \`codegraph_wx_files(path=<目录>)\`，然后按文件概要和符号逐步缩小范围。
+- 必须查看不属于独立符号的局部代码时：
+使用 \`codegraph_wx_node(file=<文件>, offset=<起始行>, limit<=200)\`。
+仅在缺少必要内容时扩展相邻范围。
+
+#### 硬性限制
+
+1. 禁止调用不带 \`symbol\`、\`symbolsOnly=true\` 或 \`offset+limit\` 的
+\`codegraph_wx_node(file=...)\`。
+2. 禁止为了定位符号、理解文件结构或查询调用关系而读取整个源文件。
+3. 禁止对 \`callers\`、\`callees\` 或搜索结果中的所有符号循环调用
+\`codegraph_wx_node\`；只读取与当前结论或修改直接相关的符号。
+4. CodeGraph 已返回足够证据后立即停止，不做预防性、重复性探索。
+5. 不用 \`grep\` 机械复核成功的 CodeGraph 结果。
+
+#### 允许回退到 grep/Read 的情况
+
+仅限以下情况，并把范围限制到相关文件或行：
+
+- 文件未被 CodeGraph 索引；
+- CodeGraph 明确报告索引过期或文件等待重新索引；
+- 连续的精确符号查询仍无结果；
+- 查找字符串、反射、动态注册、生成代码等 AST 图谱可能不覆盖的引用；
+- 需要读取配置、文档或 Markdown。
+
+#### 示例
+
+##### 正例：修改一个函数
+
+任务：“修改 \`Session::refreshToken\` 的超时处理。”
+正确：
+
+1. \`codegraph_wx_node(
+symbol="refreshToken",
+file="session.cpp",
+includeCode=true
+)\`
+2. \`codegraph_wx_impact(symbol="refreshToken", depth=2)\`
+3. 只在确有必要时读取某个直接调用者。
+
+错误：
+
+- \`codegraph_wx_node(file="session.cpp")\`
+
+原因：修改目标是一个可命名符号，无需读取整个文件。
+
+##### 正例：只知道文件名
+
+任务：“看看 \`device_manager.cpp\` 里哪段代码负责设备初始化。”
+正确：
+
+1. \`codegraph_wx_node(file="device_manager.cpp", symbolsOnly=true)\`
+2. 从概要中选出 \`initDevice\`
+3. \`codegraph_wx_node(symbol="initDevice", file="device_manager.cpp",
+includeCode=true)\`
+
+错误：
+
+- \`codegraph_wx_node(file="device_manager.cpp")\`
+
+原因：应先看结构，再读取目标符号。
 ${CODEGRAPH_SECTION_END}`;

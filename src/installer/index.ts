@@ -27,7 +27,7 @@ import { getGlyphs } from '../ui/glyphs';
 // re-exports FileWatcher and would transitively pull in ../extraction — the
 // installer must stay importable even when native modules can't load).
 import { watchDisabledReason } from '../sync/watch-policy';
-import { isGitRepo, isSyncHookInstalled, installGitSyncHook } from '../sync/git-hooks';
+import { isGitRepo, isSyncHookInstalled, installGitSyncHook, refreshInstalledGitSyncHooks } from '../sync/git-hooks';
 import { getCodeGraphDir, codeGraphDirName } from '../directory';
 import { hasCommand } from '../upgrade';
 
@@ -104,15 +104,14 @@ export async function runInstallerWithOptions(opts: RunInstallerOptions): Promis
     return;
   }
 
-  // Step 2: ensure the codegraph CLI is on PATH so agents can launch the
-  // MCP server. Skip the prompt if codegraph is already on PATH (upgrades
-  // are a separate concern, handled by `codegraph upgrade`).
+  // Step 2: optionally expose the familiar CLI on PATH for shell use.
+  // MCP launchers bind directly to this package and do not depend on PATH.
   if (!useDefaults) {
     if (hasCommand('codegraph')) {
       clack.log.info('codegraph CLI already on PATH — skipping.');
     } else {
       const shouldInstallGlobally = await clack.confirm({
-        message: 'Install the codegraph CLI on your PATH? (Required so agents can launch the MCP server)',
+        message: 'Install the codegraph CLI on your PATH for use in your terminal?',
         initialValue: true,
       });
       if (clack.isCancel(shouldInstallGlobally)) {
@@ -123,14 +122,14 @@ export async function runInstallerWithOptions(opts: RunInstallerOptions): Promis
         const s = clack.spinner();
         s.start('Installing codegraph CLI...');
         try {
-          execSync('npm install -g @colbymchenry/codegraph', { stdio: 'pipe', windowsHide: true });
+          execSync('npm install -g @sdd/codegraph-wx', { stdio: 'pipe', windowsHide: true });
           s.stop('Installed codegraph CLI on PATH');
         } catch {
           s.stop('Could not install (permission denied)');
-          clack.log.warn('Try: sudo npm install -g @colbymchenry/codegraph');
+          clack.log.warn('Try: sudo npm install -g @sdd/codegraph-wx');
         }
       } else {
-        clack.log.info('Skipped CLI install — agents will not be able to launch the MCP server without it');
+        clack.log.info('Skipped PATH setup. MCP uses the current WX package directly.');
       }
     }
   }
@@ -189,6 +188,7 @@ export async function runInstallerWithOptions(opts: RunInstallerOptions): Promis
   }
 
   // Step 5: per-target install loop.
+  let failed = false;
   for (const target of targets) {
     if (!target.supportsLocation(location)) {
       clack.log.warn(
@@ -196,7 +196,14 @@ export async function runInstallerWithOptions(opts: RunInstallerOptions): Promis
       );
       continue;
     }
-    const result = target.install(location, { autoAllow });
+    let result;
+    try {
+      result = target.install(location, { autoAllow });
+    } catch (error) {
+      failed = true;
+      clack.log.error(`${target.displayName}: ${error instanceof Error ? error.message : String(error)}`);
+      continue;
+    }
     for (const file of result.files) {
       const verb = file.action === 'unchanged'
         ? 'Unchanged'
@@ -211,8 +218,23 @@ export async function runInstallerWithOptions(opts: RunInstallerOptions): Promis
   }
 
   // Step 6: for local install, initialize the project.
-  if (location === 'local') {
+  if (location === 'local' && !failed) {
+    try {
+      const hooks = refreshInstalledGitSyncHooks(process.cwd());
+      for (const note of hooks.notes ?? []) clack.log.info(note);
+    } catch (error) {
+      clack.log.error(`Git hooks: ${error instanceof Error ? error.message : String(error)}`);
+      process.exitCode = 1;
+      clack.outro('Installation incomplete. Repair the reported Git hooks and retry.');
+      return;
+    }
     await initializeLocalProject(clack, useDefaults);
+  }
+
+  if (failed) {
+    process.exitCode = 1;
+    clack.outro('Some clients could not be updated. Repair the reported configurations and retry.');
+    return;
   }
 
   if (location === 'global') {
@@ -303,7 +325,7 @@ export function uninstallTargets(
  * one block per agent so the user sees exactly which providers it hit.
  *
  * Removes only what install wrote (MCP server entry, instructions
- * block, permissions) — never the `.codegraph/` index, which `codegraph
+ * block, permissions) — never the `.codegraph-wx/` index, which `codegraph
  * uninit` owns.
  */
 export async function runUninstaller(opts: RunUninstallerOptions): Promise<void> {
@@ -476,7 +498,7 @@ async function initializeLocalProject(
 
   // Initialize
   const cg = await CodeGraph.init(projectPath);
-  clack.log.success('Created .codegraph/ directory');
+  clack.log.success('Created .codegraph-wx/ directory');
 
   // Index the project with shimmer progress (worker thread for smooth animation)
   const { createShimmerProgress } = await import('../ui/shimmer-progress');
@@ -557,6 +579,7 @@ export async function offerWatchFallback(
   }
 
   const result = installGitSyncHook(projectPath);
+  for (const note of result.notes ?? []) clack.log.info(note);
   if (result.installed.length > 0) {
     clack.log.success(
       `Installed git ${result.installed.join(', ')} hook${result.installed.length > 1 ? 's' : ''} — ` +

@@ -118,7 +118,7 @@ describe('MCP catch-up gate', () => {
       '⚠️ Index refresh is still running; results for recently changed files may be stale.',
     );
     expect(stale.content[0].text).not.toMatch(
-      /interaction budget|elapsed|retry this query|codegraph sync|codegraph_status|provisional/i,
+      /interaction budget|elapsed|retry this query|codegraph sync|codegraph_wx_status|provisional/i,
     );
     expect(stale.content[0].text).toMatch(/survivor/);
 
@@ -171,7 +171,7 @@ describe('MCP catch-up gate', () => {
       '⚠️ Startup index refresh was incomplete; results for recently changed files may be stale.',
     );
     expect(res.content[0].text).not.toContain('simulated sync failure');
-    expect(res.content[0].text).not.toMatch(/codegraph sync|codegraph_status|retry/i);
+    expect(res.content[0].text).not.toMatch(/codegraph sync|codegraph_wx_status|retry/i);
     expect(res.content[0].text).toMatch(/survivor/);
 
     const status = await handler.execute('status', {});

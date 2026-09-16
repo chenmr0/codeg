@@ -180,7 +180,7 @@ describe.skipIf(!HAS_SQLITE)('matchesSymbol — module-qualified lookups (#173)'
     expect(matches.length).toBe(0);
   });
 
-  it('codegraph_node with a `file` hint pins an overloaded name to that file', async () => {
+  it('codegraph_wx_node with a `file` hint pins an overloaded name to that file', async () => {
     // `run` is defined in BOTH stage_apply.rs and stage_detect.rs. A bare lookup
     // returns both; the `file` hint narrows to the one the caller saw in a trail.
     const res = await handler.execute('node', {
@@ -236,7 +236,7 @@ describe.skipIf(!HAS_SQLITE)('matchesSymbol — dotted lookups (regression for #
     }
   });
 
-  it('codegraph_node on an ambiguous bare name returns ALL overloads with bodies (no guess)', async () => {
+  it('codegraph_wx_node on an ambiguous bare name returns ALL overloads with bodies (no guess)', async () => {
     // `request` is BOTH a method (Session.request) and a free function. The old
     // behavior returned one + a dead-end "Others:" note, forcing a Read to get
     // the other overload; now both bodies come back in one call.

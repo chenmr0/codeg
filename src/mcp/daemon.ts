@@ -28,7 +28,7 @@
  *   - Listening on the daemon socket and spawning per-connection sessions.
  *   - The handshake "hello" line that lets a proxy verify it found a
  *     same-version daemon before piping any JSON-RPC through it.
- *   - The lockfile (`.codegraph/daemon.pid`) competing daemons arbitrate
+ *   - The lockfile (`.codegraph-wx/daemon.pid`) competing daemons arbitrate
  *     against — atomic `O_EXCL` create with the full record written in the same
  *     breath (no empty-file window) + cleanup on exit.
  *   - Reference counting + idle timeout.
@@ -175,7 +175,7 @@ export class Daemon {
       server.once('error', (err) => reject(err));
       server.listen(this.socketPath, () => {
         // POSIX: tighten permissions to user-only — the socket lives under
-        // `.codegraph/`, which is git-ignored but may be on a shared FS.
+        // `.codegraph-wx/`, which is git-ignored but may be on a shared FS.
         if (process.platform !== 'win32') {
           try { fs.chmodSync(this.socketPath, 0o600); } catch { /* best-effort */ }
         }
@@ -417,7 +417,7 @@ export type AcquireResult =
  */
 export function tryAcquireDaemonLock(projectRoot: string): AcquireResult {
   const pidPath = getDaemonPidPath(projectRoot);
-  // Make sure the .codegraph/ directory exists — the daemon may be the first
+  // Make sure the .codegraph-wx/ directory exists — the daemon may be the first
   // thing to touch it on a fresh-clone-but-already-initialized checkout.
   fs.mkdirSync(path.dirname(pidPath), { recursive: true });
 

@@ -5,7 +5,7 @@
  * tool dispatcher intersects "files referenced in this response" with that
  * pending set and prepends a banner ("⚠️ Some files referenced below were
  * edited since the last index sync…"). Pending files outside the current
- * response stay silent; codegraph_status owns the project-wide list.
+ * response stay silent; codegraph_wx_status owns the project-wide list.
  *
  * No auto-flush, no static wait — the response is instant and the agent
  * decides whether to Read the specific stale file. These tests exercise
@@ -50,7 +50,7 @@ describe('MCP staleness banner', () => {
     fs.mkdirSync(path.join(testDir, 'src'));
     // Three isolated files with no cross-references — keeps each test's
     // "which path does the response mention?" assertion unambiguous. If the
-    // files shared imports/calls, codegraph_search responses would surface
+    // files shared imports/calls, codegraph_wx_search responses would surface
     // multiple file paths and the banner-vs-footer split would be racy.
     fs.writeFileSync(
       path.join(testDir, 'src', 'alpha-only.ts'),
@@ -148,7 +148,7 @@ describe('MCP staleness banner', () => {
     expect(text).not.toMatch(/elsewhere in this project are pending index sync/);
   });
 
-  it('lists pending files under "Pending sync" in codegraph_status', async () => {
+  it('lists pending files under "Pending sync" in codegraph_wx_status', async () => {
     cg.watch({ debounceMs: 4000, inertForTests: true });
     await cg.waitUntilWatcherReady();
 

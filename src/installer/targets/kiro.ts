@@ -2,12 +2,12 @@
  * Kiro CLI / IDE target. Writes:
  *
  *   - MCP server entry to `~/.kiro/settings/mcp.json` (global) or
- *     `./.kiro/settings/mcp.json` (local). Standard `mcpServers.codegraph`
+ *     `./.kiro/settings/mcp.json` (local). Standard `mcpServers.codegraph_wx`
  *     shape, same as Claude / Cursor / Gemini.
- *   - Instructions to `~/.kiro/steering/codegraph.md` (global) or
- *     `./.kiro/steering/codegraph.md` (local). Kiro's "steering" system
+ *   - Instructions to `~/.kiro/steering/codegraph-wx.md` (global) or
+ *     `./.kiro/steering/codegraph-wx.md` (local). Kiro's "steering" system
  *     loads every `*.md` file in the steering dir as agent context, so
- *     a dedicated `codegraph.md` is the natural surface — we own the
+ *     a dedicated `codegraph-wx.md` is the natural surface — we own the
  *     whole file outright (no marker-based merging needed) and delete
  *     it on uninstall.
  *
@@ -49,7 +49,7 @@ function mcpJsonPath(loc: Location): string {
   return path.join(configDir(loc), 'settings', 'mcp.json');
 }
 function steeringPath(loc: Location): string {
-  return path.join(configDir(loc), 'steering', 'codegraph.md');
+  return path.join(configDir(loc), 'steering', 'codegraph-wx.md');
 }
 
 class KiroTarget implements AgentTarget {
@@ -64,7 +64,7 @@ class KiroTarget implements AgentTarget {
   detect(loc: Location): DetectionResult {
     const file = mcpJsonPath(loc);
     const config = readJsonFile(file);
-    const alreadyConfigured = !!config.mcpServers?.codegraph;
+    const alreadyConfigured = !!config.mcpServers?.codegraph_wx;
     const installed = loc === 'global'
       ? fs.existsSync(configDir('global')) || fs.existsSync(file)
       : fs.existsSync(file) || fs.existsSync(configDir('local'));
@@ -77,7 +77,7 @@ class KiroTarget implements AgentTarget {
 
     // The steering doc is no longer written — the codegraph usage
     // guidance ships in the MCP server's `initialize` response (issue
-    // #529). Delete a `codegraph.md` a previous install created so an
+    // #529). Delete a `codegraph-wx.md` a previous install created so an
     // upgrade self-heals.
     const steeringCleanup = removeSteeringEntry(loc);
     if (steeringCleanup.action === 'removed') files.push(steeringCleanup);
@@ -101,8 +101,8 @@ class KiroTarget implements AgentTarget {
 
     const file = mcpJsonPath(loc);
     const config = readJsonFile(file);
-    if (config.mcpServers?.codegraph) {
-      delete config.mcpServers.codegraph;
+    if (config.mcpServers?.codegraph_wx) {
+      delete config.mcpServers.codegraph_wx;
       if (Object.keys(config.mcpServers).length === 0) {
         delete config.mcpServers;
       }
@@ -119,7 +119,7 @@ class KiroTarget implements AgentTarget {
 
   printConfig(loc: Location): string {
     const target = mcpJsonPath(loc);
-    const snippet = JSON.stringify({ mcpServers: { codegraph: getMcpServerConfig() } }, null, 2);
+    const snippet = JSON.stringify({ mcpServers: { codegraph_wx: getMcpServerConfig() } }, null, 2);
     return `# Add to ${target}\n\n${snippet}\n`;
   }
 
@@ -134,7 +134,7 @@ function writeMcpEntry(loc: Location): WriteResult['files'][number] {
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 
   const existing = readJsonFile(file);
-  const before = existing.mcpServers?.codegraph;
+  const before = existing.mcpServers?.codegraph_wx;
   const after = getMcpServerConfig();
 
   if (jsonDeepEqual(before, after)) {
@@ -143,14 +143,14 @@ function writeMcpEntry(loc: Location): WriteResult['files'][number] {
   const action: 'created' | 'updated' =
     before ? 'updated' : (fs.existsSync(file) ? 'updated' : 'created');
   if (!existing.mcpServers) existing.mcpServers = {};
-  existing.mcpServers.codegraph = after;
+  existing.mcpServers.codegraph_wx = after;
   writeJsonFile(file, existing);
   return { path: file, action };
 }
 
 /**
  * Delete the steering file we own. If a user has hand-edited the file
- * out of recognition we still remove it — codegraph.md is a name we
+ * out of recognition we still remove it — codegraph-wx.md is a name we
  * claim, and a partial install leaving the file behind is worse than
  * a clean delete. Used by both install (self-heal on upgrade — see
  * issue #529) and uninstall.

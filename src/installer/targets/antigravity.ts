@@ -56,7 +56,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { execSync } from 'child_process';
+import { getWxCliCommand } from '../../cli/launcher';
 import {
   AgentTarget,
   DetectionResult,
@@ -102,48 +102,10 @@ function preferredMcpConfigPath(): string {
   return legacyMcpConfigPath();
 }
 
-/**
- * Resolve the on-disk path of the `codegraph` binary so a Mac GUI app
- * launched from Dock/Finder (with a stripped PATH) can find it. Falls
- * back to the bare `codegraph` name when:
- *
- *  - we're not on macOS (Linux GUI apps inherit user PATH; Windows
- *    uses env PATH directly), OR
- *  - the lookup fails for any reason (preserving install in restricted
- *    environments where `which`/`command -v` aren't available).
- *
- * Resolution prefers `command -v` (built-in, no PATH manipulation),
- * with `which` as a fallback. Both are read via the user's interactive
- * shell PATH at install time — that's the right PATH for finding
- * nvm-managed tools like ours.
- */
-function resolveCodegraphCommand(): string {
-  if (process.platform !== 'darwin') return 'codegraph';
-  try {
-    const resolved = execSync('command -v codegraph || which codegraph', {
-      encoding: 'utf-8',
-      stdio: ['ignore', 'pipe', 'ignore'],
-      shell: '/bin/bash',
-      windowsHide: true,
-    }).trim();
-    if (resolved && fs.existsSync(resolved)) return resolved;
-  } catch {
-    /* fall through to bare name */
-  }
-  return 'codegraph';
-}
-
-/**
- * Build the codegraph MCP-server entry for Antigravity. Distinct from
- * `getMcpServerConfig()` because Antigravity (a) rejects the `type`
- * field and (b) needs an absolute command path on macOS — see file
- * header.
- */
+/** Antigravity rejects the type field; bind directly to this wx installation. */
 function buildAntigravityEntry(): { command: string; args: string[] } {
-  return {
-    command: resolveCodegraphCommand(),
-    args: ['serve', '--mcp'],
-  };
+  const cli = getWxCliCommand();
+  return { command: cli.command, args: [...cli.args, 'serve', '--mcp'] };
 }
 
 class AntigravityTarget implements AgentTarget {
@@ -161,7 +123,7 @@ class AntigravityTarget implements AgentTarget {
     }
     const file = preferredMcpConfigPath();
     const config = readJsonFile(file);
-    const alreadyConfigured = !!config.mcpServers?.codegraph;
+    const alreadyConfigured = !!config.mcpServers?.codegraph_wx;
     // "Installed" heuristic: either the unified config dir, the legacy
     // config dir, or one of the config files exists. Antigravity creates
     // ~/.gemini/ on first launch even before MCP configs.
@@ -221,7 +183,7 @@ class AntigravityTarget implements AgentTarget {
       return '# Antigravity IDE has no project-local config — use --location=global.\n';
     }
     const file = preferredMcpConfigPath();
-    const snippet = JSON.stringify({ mcpServers: { codegraph: buildAntigravityEntry() } }, null, 2);
+    const snippet = JSON.stringify({ mcpServers: { codegraph_wx: buildAntigravityEntry() } }, null, 2);
     return `# Add to ${file}\n\n${snippet}\n`;
   }
 
@@ -237,7 +199,7 @@ function writeMcpEntry(): WriteResult['files'][number] {
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 
   const existing = readJsonFile(file);
-  const before = existing.mcpServers?.codegraph;
+  const before = existing.mcpServers?.codegraph_wx;
   const after = buildAntigravityEntry();
 
   if (jsonDeepEqual(before, after)) {
@@ -246,7 +208,7 @@ function writeMcpEntry(): WriteResult['files'][number] {
   const action: 'created' | 'updated' =
     before ? 'updated' : (fs.existsSync(file) ? 'updated' : 'created');
   if (!existing.mcpServers) existing.mcpServers = {};
-  existing.mcpServers.codegraph = after;
+  existing.mcpServers.codegraph_wx = after;
   writeJsonFile(file, existing);
   return { path: file, action };
 }
@@ -263,8 +225,8 @@ function cleanupLegacyEntry(): WriteResult['files'][number] | null {
   const legacy = legacyMcpConfigPath();
   if (!fs.existsSync(legacy)) return null;
   const config = readJsonFile(legacy);
-  if (!config.mcpServers?.codegraph) return null;
-  delete config.mcpServers.codegraph;
+  if (!config.mcpServers?.codegraph_wx) return null;
+  delete config.mcpServers.codegraph_wx;
   if (Object.keys(config.mcpServers).length === 0) {
     delete config.mcpServers;
   }
@@ -275,8 +237,8 @@ function cleanupLegacyEntry(): WriteResult['files'][number] | null {
 function removeCodegraphFromFile(file: string): WriteResult['files'][number] {
   if (!fs.existsSync(file)) return { path: file, action: 'not-found' };
   const config = readJsonFile(file);
-  if (!config.mcpServers?.codegraph) return { path: file, action: 'not-found' };
-  delete config.mcpServers.codegraph;
+  if (!config.mcpServers?.codegraph_wx) return { path: file, action: 'not-found' };
+  delete config.mcpServers.codegraph_wx;
   if (Object.keys(config.mcpServers).length === 0) {
     delete config.mcpServers;
   }

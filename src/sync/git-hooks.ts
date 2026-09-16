@@ -7,18 +7,20 @@
  * install git hooks that refresh the index after the operations that change
  * files on disk: commit, merge (covers `git pull`), and checkout.
  *
- * The hooks run `codegraph sync` in the background so they never block git,
- * and are guarded by `command -v codegraph` so they no-op cleanly when the
- * CLI isn't on PATH. Our snippet is delimited by marker comments so install
- * is idempotent and removal preserves any user-authored hook content.
+ * Hooks invoke the WX package directly in the background. Marker comments
+ * delimit the managed block; outside user-authored commands are preserved.
  */
 
 import * as fs from 'fs';
 import * as path from 'path';
 import { execFileSync } from 'child_process';
+import { getWxCliCommand } from '../cli/launcher';
+import { codeGraphDirName } from '../directory';
+import { GIT_HOOK_MARKERS, resetManagedSections } from '../installer/managed-sections';
+import { atomicWriteFileSync, readConfigFile, removeConfigFile, recordCleanup, withConfigTransaction } from '../installer/config-transaction';
 
-const MARKER_BEGIN = '# >>> codegraph sync hook >>>';
-const MARKER_END = '# <<< codegraph sync hook <<<';
+const MARKER_BEGIN = '# >>> codegraph-wx sync hook >>>';
+const MARKER_END = '# <<< codegraph-wx sync hook <<<';
 
 export type GitHookName = 'post-commit' | 'post-merge' | 'post-checkout';
 
@@ -32,6 +34,7 @@ export interface GitHookResult {
   hooksDir: string | null;
   /** Reason nothing happened (e.g. not a git repository). */
   skipped?: string;
+  notes?: string[];
 }
 
 /**
@@ -73,13 +76,21 @@ function gitHooksDir(projectRoot: string): string | null {
 
 /** The shell snippet (between markers) injected into each hook. */
 function markerBlock(): string {
+  const cli = getWxCliCommand();
+  // Git runs these hooks in sh, including Git for Windows. Quote paths as
+  // shell literals; forward slashes keep Windows drive paths usable in sh.
+  const quote = (value: string): string => "'" + value.replace(/'/g, "'\"'\"'") + "'";
+  const shellPath = (value: string): string => quote(process.platform === 'win32'
+    ? value.replace(/\\/g, '/') : value);
+  const command = [cli.command, ...cli.args].map(shellPath).join(' ');
+  const dataDir = codeGraphDirName();
   return [
     MARKER_BEGIN,
     '# Keeps the CodeGraph index fresh while the live file watcher is off',
     '# (e.g. WSL2 /mnt drives). Runs in the background so it never blocks git.',
-    '# Managed by codegraph; remove with `codegraph uninit` or delete this block.',
-    'if command -v codegraph >/dev/null 2>&1; then',
-    '  ( codegraph sync >/dev/null 2>&1 & ) >/dev/null 2>&1',
+    '# Managed by codegraph-wx; remove with `codegraph uninit` or delete this block.',
+    `if [ -x ${shellPath(cli.command)} ] && [ -f ${shellPath(cli.args[0]!)} ] && [ -f ${quote(dataDir + '/codegraph.db')} ]; then`,
+    `  ( CODEGRAPH_DIR=${quote(dataDir)} ${command} sync >/dev/null 2>&1 & ) >/dev/null 2>&1`,
     'fi',
     MARKER_END,
   ].join('\n');
@@ -87,16 +98,7 @@ function markerBlock(): string {
 
 /** Remove our marker block (and the marker lines) from hook content. */
 function stripMarkerBlock(content: string): string {
-  const lines = content.split('\n');
-  const kept: string[] = [];
-  let inBlock = false;
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (trimmed === MARKER_BEGIN) { inBlock = true; continue; }
-    if (trimmed === MARKER_END) { inBlock = false; continue; }
-    if (!inBlock) kept.push(line);
-  }
-  return kept.join('\n');
+  return resetManagedSections(content, GIT_HOOK_MARKERS).content;
 }
 
 /** Whether a hook body is just a shebang / blank lines (i.e. only ever ours). */
@@ -105,14 +107,6 @@ function isEffectivelyEmpty(content: string): boolean {
     .split('\n')
     .map((l) => l.trim())
     .every((l) => l.length === 0 || l.startsWith('#!'));
-}
-
-function chmodExecutable(file: string): void {
-  try {
-    fs.chmodSync(file, 0o755);
-  } catch {
-    /* chmod is a no-op / unsupported on some platforms (e.g. Windows) */
-  }
 }
 
 /**
@@ -124,15 +118,13 @@ export function installGitSyncHook(
   projectRoot: string,
   hooks: GitHookName[] = DEFAULT_SYNC_HOOKS,
 ): GitHookResult {
+  return withConfigTransaction('git sync hooks install', () => installHooks(projectRoot, hooks));
+}
+
+function installHooks(projectRoot: string, hooks: GitHookName[]): GitHookResult {
   const hooksDir = gitHooksDir(projectRoot);
   if (!hooksDir) {
     return { installed: [], hooksDir: null, skipped: 'not a git repository' };
-  }
-
-  try {
-    fs.mkdirSync(hooksDir, { recursive: true });
-  } catch {
-    return { installed: [], hooksDir, skipped: 'could not access the git hooks directory' };
   }
 
   const block = markerBlock();
@@ -140,20 +132,13 @@ export function installGitSyncHook(
 
   for (const hook of hooks) {
     const file = path.join(hooksDir, hook);
-    let content: string;
-
-    if (fs.existsSync(file)) {
-      // Strip any prior block, then re-append the current one.
-      const base = stripMarkerBlock(fs.readFileSync(file, 'utf8')).replace(/\s*$/, '');
-      content = base.length > 0
-        ? `${base}\n\n${block}\n`
-        : `#!/bin/sh\n${block}\n`;
-    } else {
-      content = `#!/bin/sh\n${block}\n`;
+    const original = readConfigFile(file);
+    const reset = resetManagedSections(original || '#!/bin/sh\n', GIT_HOOK_MARKERS, block, file);
+    // Also restore executable mode if an otherwise current hook lost it.
+    atomicWriteFileSync(file, reset.content, 0o755);
+    if (reset.content !== original) {
+      if (reset.count) recordCleanup(`Replaced ${reset.count} managed Git hook blocks in ${file}.`);
     }
-
-    fs.writeFileSync(file, content);
-    chmodExecutable(file);
     installed.push(hook);
   }
 
@@ -169,6 +154,10 @@ export function removeGitSyncHook(
   projectRoot: string,
   hooks: GitHookName[] = DEFAULT_SYNC_HOOKS,
 ): GitHookResult {
+  return withConfigTransaction('git sync hooks remove', () => removeHooks(projectRoot, hooks));
+}
+
+function removeHooks(projectRoot: string, hooks: GitHookName[]): GitHookResult {
   const hooksDir = gitHooksDir(projectRoot);
   if (!hooksDir) {
     return { installed: [], hooksDir: null, skipped: 'not a git repository' };
@@ -180,20 +169,31 @@ export function removeGitSyncHook(
     const file = path.join(hooksDir, hook);
     if (!fs.existsSync(file)) continue;
 
-    const original = fs.readFileSync(file, 'utf8');
-    if (!original.includes(MARKER_BEGIN)) continue;
+    const original = readConfigFile(file);
+    if (!GIT_HOOK_MARKERS.some(pair => pair.some(marker => original.includes(marker)))) continue;
 
     const stripped = stripMarkerBlock(original);
     if (isEffectivelyEmpty(stripped)) {
-      fs.unlinkSync(file);
+      removeConfigFile(file);
     } else {
-      fs.writeFileSync(file, `${stripped.replace(/\s*$/, '')}\n`);
-      chmodExecutable(file);
+      atomicWriteFileSync(file, stripped, 0o755);
     }
     removed.push(hook);
   }
 
   return { installed: removed, hooksDir };
+}
+
+/** Upgrade only hooks already opted into; do not enable additional hooks. */
+export function refreshInstalledGitSyncHooks(projectRoot: string): GitHookResult {
+  const hooksDir = gitHooksDir(projectRoot);
+  if (!hooksDir) return { installed: [], hooksDir };
+  const hooks = DEFAULT_SYNC_HOOKS.filter(hook => {
+    const file = path.join(hooksDir, hook);
+    const content = fs.existsSync(file) ? readConfigFile(file) : '';
+    return GIT_HOOK_MARKERS.some(pair => pair.some(marker => content.includes(marker)));
+  });
+  return hooks.length ? installGitSyncHook(projectRoot, hooks) : { installed: [], hooksDir };
 }
 
 /** Whether any CodeGraph sync hook is currently installed. */

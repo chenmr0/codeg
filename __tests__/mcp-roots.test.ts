@@ -75,7 +75,7 @@ function send(child: ChildProcessWithoutNullStreams, msg: object): void {
 const CLIENT_INFO = { name: 'test', version: '0.0.0' };
 
 describe('MCP project resolution via roots/list (issue #196)', () => {
-  let cwdDir: string;     // where the server is launched — has NO .codegraph
+  let cwdDir: string;     // where the server is launched — has NO .codegraph-wx
   let projectDir: string; // the real indexed project the client reports
   let child: ChildProcessWithoutNullStreams | null = null;
 
@@ -84,13 +84,15 @@ describe('MCP project resolution via roots/list (issue #196)', () => {
     projectDir = fs.mkdtempSync(path.join(os.tmpdir(), 'codegraph-mcp-proj-'));
   });
 
-  afterEach(() => {
-    if (child && !child.killed) {
+  afterEach(async () => {
+    if (child && child.exitCode === null && child.signalCode === null) {
+      const stopped = new Promise<void>(resolve => child!.once('close', () => resolve()));
       child.kill('SIGKILL');
-      child = null;
+      await stopped;
     }
-    fs.rmSync(cwdDir, { recursive: true, force: true });
-    fs.rmSync(projectDir, { recursive: true, force: true });
+    child = null;
+    fs.rmSync(cwdDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    fs.rmSync(projectDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   });
 
   it('resolves the project from the client roots/list when no rootUri is sent', async () => {

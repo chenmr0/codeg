@@ -1,6 +1,6 @@
 /**
  * C++ namespace support: extraction (qualifiedName carries `ns::` prefix),
- * `codegraph_node` lookup (`ns::symbol`), and decl-def pairing of a
+ * `codegraph_wx_node` lookup (`ns::symbol`), and decl-def pairing of a
  * namespace-scoped class's out-of-line method definition.
  *
  * Before this support, `cppExtractor` never built a namespace node nor pushed
@@ -134,7 +134,7 @@ describe('C++ namespace extraction & lookup', () => {
     expect(qn('ns::C::m'), 'namespace-scoped class method').toBeTruthy();
   });
 
-  it('codegraph_node resolves a ns::symbol qualified lookup (was "not found")', async () => {
+  it('codegraph_wx_node resolves a ns::symbol qualified lookup (was "not found")', async () => {
     await indexFiles({
       'a.h':
         'namespace pre_process_buff {\n' +
@@ -149,7 +149,7 @@ describe('C++ namespace extraction & lookup', () => {
     expect(out).toContain('UbuffOffset');
   });
 
-  it('codegraph_node lists same-named structs with their namespace qn to disambiguate', async () => {
+  it('codegraph_wx_node lists same-named structs with their namespace qn to disambiguate', async () => {
     await indexFiles({
       'a.h':
         'namespace pre_process_buff {\n' +

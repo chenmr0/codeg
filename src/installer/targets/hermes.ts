@@ -5,11 +5,11 @@
  * top-level `mcp_servers` key, and exposes discovered MCP tools through
  * dynamic toolsets named `mcp-<server>`. We add:
  *
- *   mcp_servers.codegraph -> `codegraph serve --mcp`
- *   platform_toolsets.cli -> `mcp-codegraph`
+ *   mcp_servers.codegraph_wx -> `codegraph serve --mcp`
+ *   platform_toolsets.cli -> `mcp-codegraph_wx`
  *
  * The second entry matters because Hermes CLI profiles often enable an
- * explicit `platform_toolsets.cli` list. Without `mcp-codegraph` in that
+ * explicit `platform_toolsets.cli` list. Without `mcp-codegraph_wx` in that
  * list, the MCP server can be configured and connected but its tools may
  * still be filtered out of normal CLI sessions.
  */
@@ -24,7 +24,7 @@ import {
   Location,
   WriteResult,
 } from './types';
-import { atomicWriteFileSync } from './shared';
+import { atomicWriteFileSync, getMcpServerConfig } from './shared';
 
 type LineRange = { start: number; end: number };
 
@@ -92,7 +92,7 @@ class HermesTarget implements AgentTarget {
       'platform_toolsets:',
       '  cli:',
       '    - hermes-cli',
-      '    - mcp-codegraph',
+      '    - mcp-codegraph_wx',
       '',
     ].join('\n');
   }
@@ -250,12 +250,12 @@ function escapeRegExp(value: string): string {
 }
 
 function renderCodeGraphMcpChild(): string[] {
+  const mcp = getMcpServerConfig();
   return [
-    '  codegraph:',
-    '    command: codegraph',
+    '  codegraph_wx:',
+    '    command: ' + JSON.stringify(mcp.command),
     '    args:',
-    '      - serve',
-    '      - --mcp',
+    ...mcp.args.map(arg => '      - ' + JSON.stringify(arg)),
     '    timeout: 120',
     '    connect_timeout: 60',
     '    enabled: true',
@@ -269,13 +269,13 @@ function renderCodeGraphMcpBlock(): string[] {
 function hasCodeGraphMcpServer(content: string): boolean {
   const lines = splitLines(content);
   const parent = topLevelRange(lines, 'mcp_servers');
-  return !!parent && !!childRange(lines, parent, 'codegraph');
+  return !!parent && !!childRange(lines, parent, 'codegraph_wx');
 }
 
 function upsertCodeGraphMcpServer(content: string): string {
   const lines = splitLines(content);
   const parent = topLevelRange(lines, 'mcp_servers');
-  const child = parent ? childRange(lines, parent, 'codegraph') : null;
+  const child = parent ? childRange(lines, parent, 'codegraph_wx') : null;
   const replacement = renderCodeGraphMcpChild();
 
   if (!parent) {
@@ -299,7 +299,7 @@ function upsertCodeGraphMcpServer(content: string): string {
 function removeCodeGraphMcpServer(content: string): string {
   const lines = splitLines(content);
   const parent = topLevelRange(lines, 'mcp_servers');
-  const child = parent ? childRange(lines, parent, 'codegraph') : null;
+  const child = parent ? childRange(lines, parent, 'codegraph_wx') : null;
   if (!child) return content;
   lines.splice(child.start, child.end - child.start);
   return joinLines(lines);
@@ -313,21 +313,21 @@ function upsertCodeGraphToolset(content: string): string {
   if (!parent) {
     if (lines.length > 0 && lines[lines.length - 1] === '') lines.pop();
     if (lines.length > 0) lines.push('');
-    lines.push('platform_toolsets:', '  cli:', '    - hermes-cli', '    - mcp-codegraph');
+    lines.push('platform_toolsets:', '  cli:', '    - hermes-cli', '    - mcp-codegraph_wx');
     return joinLines(lines);
   }
 
   if (!cli) {
-    lines.splice(parent.end, 0, '  cli:', '    - hermes-cli', '    - mcp-codegraph');
+    lines.splice(parent.end, 0, '  cli:', '    - hermes-cli', '    - mcp-codegraph_wx');
     return joinLines(lines);
   }
 
   const hasEntry = lines
     .slice(cli.start + 1, cli.end)
-    .some((line) => line.trim() === '- mcp-codegraph');
+    .some((line) => line.trim() === '- mcp-codegraph_wx');
   if (hasEntry) return joinLines(lines);
 
-  lines.splice(cli.end, 0, `${cli.itemIndent}- mcp-codegraph`);
+  lines.splice(cli.end, 0, `${cli.itemIndent}- mcp-codegraph_wx`);
   return joinLines(lines);
 }
 
@@ -339,12 +339,12 @@ function removeCodeGraphToolset(content: string): string {
 
   const hasEntry = lines
     .slice(cli.start + 1, cli.end)
-    .some((line) => line.trim() === '- mcp-codegraph');
+    .some((line) => line.trim() === '- mcp-codegraph_wx');
   if (!hasEntry) return content;
 
   const next = lines.filter((line, idx) => {
     if (idx <= cli.start || idx >= cli.end) return true;
-    return line.trim() !== '- mcp-codegraph';
+    return line.trim() !== '- mcp-codegraph_wx';
   });
   return joinLines(next);
 }

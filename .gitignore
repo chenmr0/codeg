@@ -45,7 +45,7 @@ npm-debug.log*
 .parallels
 
 # CodeGraph data directories (in test projects)
-.codegraph/
+.codegraph-wx/
 
 test_frameworks
 

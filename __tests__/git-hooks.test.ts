@@ -6,7 +6,7 @@
  * Exercises real git repos in temp dirs — no mocking.
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { execFileSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -17,6 +17,7 @@ import {
   isSyncHookInstalled,
   isGitRepo,
   DEFAULT_SYNC_HOOKS,
+  refreshInstalledGitSyncHooks,
 } from '../src/sync/git-hooks';
 
 function gitInit(dir: string): void {
@@ -33,13 +34,16 @@ describe('git sync hooks', () => {
 
   beforeEach(() => {
     repo = fs.mkdtempSync(path.join(os.tmpdir(), 'codegraph-githooks-'));
+    vi.stubEnv('HOME', path.join(repo, 'home'));
+    vi.stubEnv('USERPROFILE', path.join(repo, 'home'));
   });
 
   afterEach(() => {
+    vi.unstubAllEnvs();
     if (fs.existsSync(repo)) fs.rmSync(repo, { recursive: true, force: true });
   });
 
-  it('installs all default hooks, executable, invoking codegraph sync', () => {
+  it('installs all default hooks, executable, invoking codegraph-wx sync', () => {
     gitInit(repo);
     const result = installGitSyncHook(repo);
 
@@ -50,8 +54,10 @@ describe('git sync hooks', () => {
       const file = path.join(repo, '.git', 'hooks', hook);
       expect(fs.existsSync(file)).toBe(true);
       const body = fs.readFileSync(file, 'utf8');
-      expect(body).toContain('codegraph sync');
-      expect(body).toContain('command -v codegraph'); // no-op when not on PATH
+      expect(body).toContain('codegraph-wx sync');
+      expect(body).not.toContain('command -v codegraph');
+      expect(body).toContain('codegraph.js');
+      expect(body).toContain("CODEGRAPH_DIR='.codegraph-wx'");
       expect(isExecutable(file)).toBe(true);
     }
     expect(isSyncHookInstalled(repo)).toBe(true);
@@ -63,8 +69,35 @@ describe('git sync hooks', () => {
     installGitSyncHook(repo);
 
     const body = fs.readFileSync(path.join(repo, '.git', 'hooks', 'post-commit'), 'utf8');
-    const occurrences = body.split('# >>> codegraph sync hook >>>').length - 1;
+    const occurrences = body.split('# >>> codegraph-wx sync hook >>>').length - 1;
     expect(occurrences).toBe(1);
+  });
+
+  it('replaces the reserved legacy hook block and removes it on uninstall', () => {
+    gitInit(repo);
+    const file = path.join(repo, '.git', 'hooks', 'post-commit');
+    const community = '#!/bin/sh\n# >>> codegraph sync hook >>>\ncodegraph sync\n# <<< codegraph sync hook <<<\n';
+    fs.writeFileSync(file, community);
+    installGitSyncHook(repo, ['post-commit']);
+    expect(fs.readFileSync(file, 'utf8')).toContain('codegraph-wx sync hook');
+    expect(fs.readFileSync(file, 'utf8')).not.toContain('# >>> codegraph sync hook >>>');
+    removeGitSyncHook(repo, ['post-commit']);
+    expect(fs.existsSync(file)).toBe(false);
+  });
+
+  it('refreshes only previously installed hooks and rejects malformed pairs without partial writes', () => {
+    gitInit(repo);
+    const commit = path.join(repo, '.git', 'hooks', 'post-commit');
+    const merge = path.join(repo, '.git', 'hooks', 'post-merge');
+    const legacy = '#!/bin/sh\necho keep\n# >>> codegraph sync hook >>>\ncustomized\n# <<< codegraph sync hook <<<\n';
+    fs.writeFileSync(commit, legacy);
+    fs.writeFileSync(merge, '# >>> codegraph-wx sync hook >>>\nmissing end\n');
+    expect(() => refreshInstalledGitSyncHooks(repo)).toThrow(/missing.*end marker/);
+    expect(fs.readFileSync(commit, 'utf8')).toBe(legacy);
+    fs.unlinkSync(merge);
+    expect(refreshInstalledGitSyncHooks(repo).installed).toEqual(['post-commit']);
+    expect(fs.existsSync(merge)).toBe(false);
+    expect(fs.readFileSync(commit, 'utf8')).toContain('echo keep\n');
   });
 
   it('preserves a pre-existing user hook and appends our block', () => {
@@ -76,7 +109,7 @@ describe('git sync hooks', () => {
 
     const body = fs.readFileSync(file, 'utf8');
     expect(body).toContain('echo "my custom hook"');
-    expect(body).toContain('codegraph sync');
+    expect(body).toContain('codegraph-wx sync');
   });
 
   it('remove strips our block; deletes a hook that was only ours', () => {
@@ -102,7 +135,7 @@ describe('git sync hooks', () => {
     expect(fs.existsSync(file)).toBe(true);
     const body = fs.readFileSync(file, 'utf8');
     expect(body).toContain('echo "keep me"');
-    expect(body).not.toContain('codegraph sync');
+    expect(body).not.toContain('codegraph-wx sync');
   });
 
   it('honors core.hooksPath', () => {

@@ -64,7 +64,7 @@ describe('codegraph status --json — CI fields (#329)', () => {
     expect(out.initialized).toBe(false);
     expect(out.version).toBe(PKG_VERSION);
     expect(typeof out.indexPath).toBe('string');
-    expect(out.indexPath as string).toContain('.codegraph');
+    expect(out.indexPath as string).toContain('.codegraph-wx');
     expect(out.lastIndexed).toBeNull();
   });
 
@@ -79,7 +79,7 @@ describe('codegraph status --json — CI fields (#329)', () => {
     const out = runStatusJson(tempDir);
     expect(out.initialized).toBe(true);
     expect(out.version).toBe(PKG_VERSION);
-    expect(out.indexPath as string).toContain('.codegraph');
+    expect(out.indexPath as string).toContain('.codegraph-wx');
     expect(typeof out.lastIndexed).toBe('string');
     // ISO string that round-trips back into the index window.
     const ms = Date.parse(out.lastIndexed as string);

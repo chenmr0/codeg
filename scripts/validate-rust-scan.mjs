@@ -61,7 +61,8 @@ fixture('anchored whitelist and nested ignore', { '.codegraphignore': '/*\n!/a/b
 fixture('root info exclude', { '.git/info/exclude': 'hidden/\n', 'hidden/no.c': '', 'visible/yes.c': '' });
 fixture('blocked parent', { 'src/.gitignore': 'blocked/\n!blocked/yes.c\n', 'src/blocked/yes.c': '', 'src/ok.c': '' });
 fixture('double star negation', { '.gitignore': 'tests/**/test_*\n!tests/**/test_*.*\n', 'tests/test_a.c': '', 'tests/deep/test_b.c': '' });
-fixture('data directories', { '.codegraph/a.c': '', '.codegraph-other/a.c': '', 'src/a.c': '' });
+fixture('wx data directories and community sources', { '.codegraph-wx/a.c': '', '.codegraph-wx-other/a.c': '',
+  '.codegraph/a.c': '', '.codegraph-other/a.c': '', 'src/a.c': '' });
 fixture('Unicode documentation', { '报告.md': '', 'docs/说明.txt': '', 'src/a.c': '' });
 for (const name of ['src/中文.c', '中文/a.c', 'src/中文.Kt', 'templates/中文.json', 'src/中文.routes']) {
   fixture('Unicode source fallback: ' + name, { [name]: '', 'src/a.c': '' }, 'fallback');

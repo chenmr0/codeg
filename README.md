@@ -2,7 +2,9 @@
 
 > 面向 C/C++ 千万行级存量代码仓的本地代码知识图谱 —— 让 AI 编程助手不再`grep → read → grep → read`地瞎摸，一次查询就能拿到符号、源码、调用链和影响面。
 
-CodeGraph-CPP 基于开源 [CodeGraph](https://github.com/colbymchenry/codegraph) 演进，重点增强 C/C++ 大型代码仓的静态解析能力。项目针对宏、全局变量、结构体字段、`typedef`、头文件原型、`#include` 关系以及 `compile_commands.json` 编译信息等常见难点进行了专项适配，尽可能减少符号丢失、类型误判和跨文件关系断裂。所有数据 100% 留在本地，一个 `.codegraph/` 目录搞定。
+CodeGraph-CPP 基于开源 [CodeGraph](https://github.com/colbymchenry/codegraph) 演进，重点增强 C/C++ 大型代码仓的静态解析能力。项目针对宏、全局变量、结构体字段、`typedef`、头文件原型、`#include` 关系以及 `compile_commands.json` 编译信息等常见难点进行了专项适配，尽可能减少符号丢失、类型误判和跨文件关系断裂。所有数据 100% 留在本地，一个 `.codegraph-wx/` 目录搞定。
+
+> wx 与社区版使用独立索引和 MCP 配置，CLI 仍为 `codegraph`。存量项目需手动导入或重建索引，并重新运行安装器。详见[版本隔离与迁移](docs/wx-isolation.md)。
 
 默认索引 **C/C++、Objective-C/Objective-C++、Python、Lua**。设置 `CODEGRAPH_ALL_LANGUAGES=1` 可恢复全部已有语言和格式支持（包括 JS/TS、Vue/Svelte、Java、Rust 等）；`init`、`index`、`sync` 和文件监听使用同一范围。已有索引切换范围后，下一次索引或同步会执行一次完整重建，此后的 `sync` 继续增量更新。环境变量用法及 MCP 注意事项见[语言范围配置](docs/manual/03-core-commands.md#语言范围配置)。
 
@@ -67,7 +69,7 @@ flowchart LR
     S["C / C++ 源代码"] --> P["tree-sitter 解析"]
     P --> E["提取符号实体"]
     P --> R["提取调用、引用、包含等关系"]
-    E --> DB[("本地图谱数据库\n.codegraph/")]
+    E --> DB[("本地图谱数据库\n.codegraph-wx/")]
     R --> DB
     DB --> CLI["CLI 查询"]
     DB --> MCP["MCP 工具"]
@@ -87,7 +89,7 @@ flowchart LR
 
 > “`g_session_counter` 这个全局变量都在哪些文件里被读写？”
 
-没有图谱时，AI 得 `grep "g_session_counter"`，然后逐个读文件分辨“这是定义还是引用、是不是同名局部变量”。有了 CodeGraph-CPP，一次 `codegraph_search` + `codegraph_callers` 直接拿到：定义位置、所有引用点，且已排除同名局部变量和函数调用目标。
+没有图谱时，AI 得 `grep "g_session_counter"`，然后逐个读文件分辨“这是定义还是引用、是不是同名局部变量”。有了 CodeGraph-CPP，一次 `codegraph_wx_search` + `codegraph_wx_callers` 直接拿到：定义位置、所有引用点，且已排除同名局部变量和函数调用目标。
 
 ### 场景二：代码修复 —— “改这个函数会炸到谁？”
 
@@ -115,13 +117,13 @@ flowchart LR
 
 > “帮我实现一个新的 `close_device` 函数，风格和现有设备管理一致。”
 
-AI 写新代码最怕上下文不全。用 `codegraph_node` 逐个读取 `init_device`、`deinit_device` 的**完整源码**（外加 caller/callee 调用链），再 `codegraph_node` 看一眼设备结构体和相关宏，AI 看着真实代码照葫芦画瓢，生成的代码命名、错误处理、日志风格都和项目一致，而不是凭空臆造。
+AI 写新代码最怕上下文不全。用 `codegraph_wx_node` 逐个读取 `init_device`、`deinit_device` 的**完整源码**（外加 caller/callee 调用链），再 `codegraph_wx_node` 看一眼设备结构体和相关宏，AI 看着真实代码照葫芦画瓢，生成的代码命名、错误处理、日志风格都和项目一致，而不是凭空臆造。
 
 ### 场景四：代码理解 —— 接手老项目不再迷路
 
 > “一个请求从入口 `process_request` 到最终写盘，经过哪些函数？”
 
-从入口 `process_request` 起步，用 `codegraph_callees` 看它调用了谁，再沿调用方逐层下钻（`callees` 迭代 + `codegraph_impact --depth 4` 反向看影响面），跨文件、跨头文件的调用链就能拼出来，不用再手动跳转。配合 `codegraph_node` 随时读取某一跳的源码看具体实现。
+从入口 `process_request` 起步，用 `codegraph_wx_callees` 看它调用了谁，再沿调用方逐层下钻（`callees` 迭代 + `codegraph_wx_impact --depth 4` 反向看影响面），跨文件、跨头文件的调用链就能拼出来，不用再手动跳转。配合 `codegraph_wx_node` 随时读取某一跳的源码看具体实现。
 
 ### 场景五：CI 增量测试 —— 不再全量重跑
 
@@ -168,7 +170,7 @@ codegraph init -i      # 交互式初始化 + 构建索引
 codegraph status       # 查看索引：节点数、边数、后端类型
 ```
 
-索引数据存在项目根目录 `.codegraph/` 下，**不要提交到代码仓**（加进 `.gitignore`）。
+索引数据存在项目根目录 `.codegraph-wx/` 下，**不要提交到代码仓**（加进 `.gitignore`）。
 
 ```mermaid
 sequenceDiagram
@@ -178,7 +180,7 @@ sequenceDiagram
     U->>T: npm i -g codegraph-cpp
     U->>T: codegraph install
     U->>T: codegraph init -i
-    T-->>U: ✅ 图谱建好（.codegraph/）
+    T-->>U: ✅ 图谱建好（.codegraph-wx/）
     U->>AI: 正常提问（无需特殊指令）
     AI->>T: 自动调用 codegraph 工具
     AI-->>U: 带图谱上下文的答案
@@ -248,7 +250,7 @@ CodeGraph-CPP 是 CodeGraph 的 C/C++ 增强版，重点解决 C/C++ 大仓静�
 - ✅ **多声明器拆分**：`int x, y, z;` 会被拆成三个独立变量，都能单独检索。
 - ✅ **跨文件调用/引用连通**：`#include` 关系会被解析，配合 `compile_commands.json` 的 `-I` 路径，跨文件的调用和引用能正确连起来。
 - ✅ **全局变量引用追踪准确**：函数体内对 `g_` 前缀全局变量的读写会被追踪，并自动排除同名局部变量、参数和函数调用目标，不产生误连。
-- ✅ **`codegraph query` 默认精确匹配**：按名搜索默认改为精确、区分大小写，不再连带返回大小写不同或名字相近的近似命中；需要模糊匹配时加 `--fuzzy`。MCP 的 `codegraph_search` 仍保留对 AI 友好的模糊匹配。
+- ✅ **`codegraph query` 默认精确匹配**：按名搜索默认改为精确、区分大小写，不再连带返回大小写不同或名字相近的近似命中；需要模糊匹配时加 `--fuzzy`。MCP 的 `codegraph_wx_search` 仍保留对 AI 友好的模糊匹配。
 - ✅ **宏处理不误伤合法代码**：初始化列表/聚合体里的宏、CRLF 续接的多行 `#define`、以及 `template<class T>` 等模板代码，都不会被宏处理破坏。
 
 > 简单说：上游 CodeGraph 在 C/C++ 上容易“丢字段、丢原型、把宏当函数、声明与定义断开”；CodeGraph-CPP 把这些洞补上了。
@@ -265,7 +267,7 @@ flowchart TB
         S2 --> S4["提取调用、引用、包含和继承关系"]
         S3 --> S5["符号归一化与跨文件关联"]
         S4 --> S5
-        S5 --> DB[("SQLite / FTS5\n.codegraph/codegraph.db")]
+        S5 --> DB[("SQLite / FTS5\n.codegraph-wx/codegraph.db")]
     end
 
     subgraph QUERY["查询阶段"]
@@ -281,7 +283,7 @@ flowchart TB
     class DB store;
 ```
 
-整张图就是项目里一个 `.codegraph/codegraph.db` 文件，可以复制、备份、带走——完全便携。
+整张图就是项目里一个 `.codegraph-wx/codegraph.db` 文件，可以复制、备份、带走——完全便携。
 
 比如这段 C 代码：
 
@@ -331,31 +333,31 @@ codegraph affected src/foo.c       # 受改动影响的测试文件
 
 ## 配置 AI 助手（MCP）
 
-`codegraph install` 会自动写入配置。手动配置示例：
+`codegraph install` 会自动写入绑定 wx 包和 Node 绝对路径的配置。手动配置时，请把下面示例中的路径替换为本机实际路径：
 
 ```json
 {
   "mcpServers": {
-    "codegraph": {
-      "command": "codegraph",
-      "args": ["serve", "--mcp"]
+    "codegraph_wx": {
+      "command": "/absolute/path/to/node",
+      "args": ["/absolute/path/to/codegraph-wx/dist/bin/codegraph.js", "serve", "--mcp"]
     }
   }
 }
 ```
 
-AI 助手默认可用的 **7 个 MCP 工具**：
+MCP 原始工具名（如 `search`、`node`）及参数保持不变；下面使用客户端添加服务前缀后的名称。AI 助手默认可用的工具包括：
 
-- `codegraph_search` — 按名称搜索符号
-- `codegraph_node` — 读取符号详情、完整源码与调用链（读代码主力）
-- `codegraph_callers` / `codegraph_callees` — 查调用方 / 被调方
-- `codegraph_impact` — 修改影响面分析
-- `codegraph_files` — 索引化的文件结构
-- `codegraph_status` — 索引健康度与统计
+- `codegraph_wx_search` — 按名称搜索符号
+- `codegraph_wx_node` — 读取符号详情、完整源码与调用链（读代码主力）
+- `codegraph_wx_callers` / `codegraph_wx_callees` — 查调用方 / 被调方
+- `codegraph_wx_impact` — 修改影响面分析
+- `codegraph_wx_files` — 索引化的文件结构
+- `codegraph_wx_status` — 索引健康度与统计
 
-> 另有一个 `codegraph_explore`（一次调用批量取多个符号源码并串调用路径）**默认关闭**，需要时设环境变量 `CODEGRAPH_ENABLE_EXPLORE=1` 重启 MCP 服务器即可开放。完整用法见 **[用户手册](docs/manual/README.md)**。
+> 另有一个 `codegraph_wx_explore`（一次调用批量取多个符号源码并串调用路径）**默认关闭**，需要时设环境变量 `CODEGRAPH_ENABLE_EXPLORE=1` 重启 MCP 服务器即可开放。完整用法见 **[用户手册](docs/manual/README.md)**。
 
-`codegraph_search` 默认严格区分大小写并精确匹配，保留精确源码兜底。需要大小写纠正、模糊建议及错误 owner 恢复时，在 MCP 配置的 `env` 中设置 `CODEGRAPH_SEARCH_FUZZY=1` 并重启服务；不增加工具调用参数。CLI 的 `codegraph query` 也默认精确匹配，只有传 `--fuzzy` 才启用模糊搜索。
+`codegraph_wx_search` 默认严格区分大小写并精确匹配，保留精确源码兜底。需要大小写纠正、模糊建议及错误 owner 恢复时，在 MCP 配置的 `env` 中设置 `CODEGRAPH_SEARCH_FUZZY=1` 并重启服务；不增加工具调用参数。CLI 的 `codegraph query` 也默认精确匹配，只有传 `--fuzzy` 才启用模糊搜索。
 
 Linux 随包 ripgrep 的直接计时、扫描预算设置和完整示例见 [精准查询与原文扫描诊断](docs/search-exact-and-ripgrep-benchmark.md)。
 

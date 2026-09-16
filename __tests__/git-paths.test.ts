@@ -176,7 +176,7 @@ describe('Git candidate post-processing', () => {
     expect(lines[2]).toMatchObject({ requestedMode: 'native', mode: 'git' });
     expect(lines[3]).toMatchObject({ summary: true, parity: true, sourceFiles: 1 });
     expect(new Set(lines.map(line => line.hash)).size).toBe(1);
-    expect(fs.existsSync(path.join(dir, '.codegraph'))).toBe(false);
+    expect(fs.existsSync(path.join(dir, '.codegraph-wx'))).toBe(false);
     expect(fs.readFileSync(path.join(dir, 'a.c'), 'utf8')).toBe('int value;\n');
     expect(git('status', '--porcelain=v1', '-z').toString()).toBe(statusBefore);
   });

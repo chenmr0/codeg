@@ -1,6 +1,6 @@
 /**
  * `codegraph node` CLI command — covers the same two modes as the MCP
- * `codegraph_node` tool (file-view and symbol-view), via the shared
+ * `codegraph_wx_node` tool (file-view and symbol-view), via the shared
  * `buildNodeView` rendering core in `src/cli/node-view.ts`. Real files + real
  * SQLite (no DB mocking), mirroring `node-file-view.test.ts`'s setup.
  */
@@ -11,7 +11,7 @@ import * as os from 'os';
 import CodeGraph from '../src/index';
 import { buildNodeView, type NodeViewArgs } from '../src/cli/node-view';
 
-describe('codegraph node (CLI twin of codegraph_node)', () => {
+describe('codegraph node (CLI twin of codegraph_wx_node)', () => {
   let dir: string;
   let cg: CodeGraph;
 

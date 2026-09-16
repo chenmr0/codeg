@@ -3,7 +3,7 @@
  * exposed MCP tool surface without touching the client config. Inert when unset.
  * Filtering happens in ListTools (getTools) and is enforced again on execute().
  *
- * codegraph_explore is disabled by default; set CODEGRAPH_ENABLE_EXPLORE=1 to
+ * codegraph_wx_explore is disabled by default; set CODEGRAPH_ENABLE_EXPLORE=1 to
  * include it in the surface.
  */
 import { describe, it, expect, afterEach } from 'vitest';
@@ -26,7 +26,7 @@ describe('CODEGRAPH_MCP_TOOLS allowlist', () => {
 
   // --- explore disabled by default (CODEGRAPH_ENABLE_EXPLORE unset) ---
 
-  it('does not expose codegraph_explore by default', () => {
+  it('does not expose codegraph_wx_explore by default', () => {
     delete process.env[ENV];
     const all = listed();
     expect(all).not.toContain('explore');
@@ -36,7 +36,7 @@ describe('CODEGRAPH_MCP_TOOLS allowlist', () => {
     expect(all.length).toBeGreaterThanOrEqual(7);
   });
 
-  it('exposes codegraph_explore when CODEGRAPH_ENABLE_EXPLORE=1', () => {
+  it('exposes codegraph_wx_explore when CODEGRAPH_ENABLE_EXPLORE=1', () => {
     delete process.env[ENV];
     process.env[EXPLORE_ENV] = '1';
     const all = listed();
@@ -57,7 +57,7 @@ describe('CODEGRAPH_MCP_TOOLS allowlist', () => {
 
   it('requires short raw names and ignores prefixed allowlist entries', () => {
     process.env[EXPLORE_ENV] = '1';
-    process.env[ENV] = ' codegraph_explore , search ';
+    process.env[ENV] = ' codegraph_wx_explore , search ';
     expect(listed()).toEqual(['search']);
   });
 

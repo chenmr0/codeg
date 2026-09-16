@@ -163,7 +163,7 @@ export interface PendingFile {
  *   was the system-crashing fd leak on macOS (#644/#496/#555/#628).
  * - Debounced to avoid thrashing on rapid saves
  * - Filters to supported source files by extension
- * - Ignores .codegraph/ and .git/ regardless of .gitignore
+ * - Ignores .codegraph-wx/ and .git/ regardless of .gitignore
  * - Tracks per-file pending state so MCP tools can flag stale results
  *   without blocking on a sync (issue #403)
  */
@@ -481,7 +481,7 @@ export class FileWatcher {
   /** Our own dirs are always ignored, regardless of .gitignore. */
   private isAlwaysIgnored(rel: string): boolean {
     // First path segment. Ignore any CodeGraph data dir — the active one AND a
-    // sibling like `.codegraph-win` a second environment (Windows/WSL) created
+    // sibling like `.codegraph-wx-win` a second environment (Windows/WSL) created
     // in the same tree, so neither side watches the other's index (#636).
     const top = rel.split('/')[0] ?? rel;
     return (

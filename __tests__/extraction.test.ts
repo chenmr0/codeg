@@ -3169,7 +3169,7 @@ void k() {
       // `void foo();` inside a class body is parsed by tree-sitter-cpp as a
       // field_declaration with a function_declarator. Must be flagged
       // isDeclaration=true so cppDeclDefEdges pairs it with the out-of-line
-      // .cpp definition (and so codegraph_search shows it as a declaration).
+      // .cpp definition (and so codegraph_wx_search shows it as a declaration).
       const result = extractFromSource(
         'foo.h',
         'class Foo {\npublic:\n  void bar();\n};\n'

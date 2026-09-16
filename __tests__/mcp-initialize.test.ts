@@ -26,7 +26,7 @@ function spawnServer(cwd: string): ChildProcessWithoutNullStreams {
     // Pin to direct (in-process) mode. #172 is a contract about the in-process
     // server's init ordering — the "File watcher active" log this test observes
     // is emitted in-process. In daemon mode the watcher runs in the detached
-    // daemon (logging to .codegraph/daemon.log, not the child's stderr); the
+    // daemon (logging to .codegraph-wx/daemon.log, not the child's stderr); the
     // same response-before-init guarantee lives in the shared session code and
     // is covered by mcp-daemon.test.ts. Direct mode also avoids leaking a
     // detached daemon from this suite.
@@ -124,7 +124,7 @@ describe('MCP initialize handshake (issue #172)', () => {
     fs.rmSync(tempDir, { recursive: true, force: true });
   });
 
-  it('responds to initialize quickly when no .codegraph exists in cwd', async () => {
+  it('responds to initialize quickly when no .codegraph-wx exists in cwd', async () => {
     child = spawnServer(tempDir);
     const events = tagStreams(child);
     sendInitialize(child, tempDir);
@@ -137,7 +137,7 @@ describe('MCP initialize handshake (issue #172)', () => {
   }, 10000);
 
   it('sends initialize response BEFORE tryInitializeDefault finishes', async () => {
-    // Seed a real .codegraph so the server's tryInitializeDefault path runs
+    // Seed a real .codegraph-wx so the server's tryInitializeDefault path runs
     // its full body: CodeGraph.open() (which awaits initGrammars()) and then
     // startWatching() (which logs "File watcher active" to stderr). On any
     // platform, that stderr log is observable evidence that tryInitializeDefault
@@ -161,7 +161,7 @@ describe('MCP initialize handshake (issue #172)', () => {
     expect(response.seq).toBeLessThan(watcherLog.seq);
     const json = JSON.parse(response.text);
     expect(json.id).toBe(0);
-    expect(json.result.serverInfo.name).toBe('codegraph');
+    expect(json.result.serverInfo.name).toBe('codegraph-wx');
   }, 20000);
 
   it('answers resources/list and prompts/list with empty lists, not -32601 (issue #621)', async () => {

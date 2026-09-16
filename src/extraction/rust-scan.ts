@@ -64,7 +64,7 @@ export function decodeRustSnapshot(value: unknown): RustScanSnapshot {
     if (typeof file.path !== 'string' || !/^[\x20-\x7e]+$/.test(file.path) ||
         file.path.includes('\\') || path.isAbsolute(file.path) || file.path.includes(':') ||
         file.path.split('/').some(part => !part || part === '.' || part === '..' || part === '.git' ||
-          part === '.codegraph' || part.startsWith('.codegraph-') || part === dataDir) ||
+          part === '.codegraph-wx' || part.startsWith('.codegraph-wx-') || part === dataDir) ||
         !isSourceFile(file.path, 'all') || stats.has(file.path) ||
         !Number.isSafeInteger(file.size) || file.size < 0 ||
         !Number.isSafeInteger(file.mtimeMs) || file.mtimeMs < 0) throw new Error('invalid-file');

@@ -46,7 +46,7 @@ export function hasMcpConfig(location: InstallLocation): boolean {
     ? path.join(os.homedir(), '.claude.json')
     : path.join(process.cwd(), '.mcp.json');
   const config = readJsonFile(file);
-  return !!config.mcpServers?.codegraph;
+  return !!config.mcpServers?.codegraph_wx;
 }
 
 export function hasPermissions(location: InstallLocation): boolean {
@@ -56,5 +56,5 @@ export function hasPermissions(location: InstallLocation): boolean {
   const settings = readJsonFile(file);
   const allow = settings.permissions?.allow;
   if (!Array.isArray(allow)) return false;
-  return allow.some((p: string) => p.startsWith('mcp__codegraph__'));
+  return allow.some((p: string) => p.startsWith('mcp__codegraph_wx__'));
 }

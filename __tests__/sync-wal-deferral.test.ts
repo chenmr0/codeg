@@ -140,7 +140,7 @@ describe('sync WAL deferral', () => {
     };
     closeGraph(deferred);
 
-    fs.rmSync(path.join(tmpDir, '.codegraph'), { recursive: true, force: true });
+    fs.rmSync(path.join(tmpDir, '.codegraph-wx'), { recursive: true, force: true });
     writeFixture();
     process.env.CODEGRAPH_NO_WAL_DEFER = '1';
     const ordinary = openGraph();

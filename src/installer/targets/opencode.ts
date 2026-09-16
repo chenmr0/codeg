@@ -17,7 +17,7 @@
  * Config shape uses opencode's wrapper:
  *   {
  *     "$schema": "https://opencode.ai/config.json",
- *     "mcp": { "codegraph": { "type": "local", "command": [...], "enabled": true } }
+ *     "mcp": { "codegraph_wx": { "type": "local", "command": [...], "enabled": true } }
  *   }
  *
  * The shape differs from Claude/Cursor — opencode uses `mcp.<name>`
@@ -32,7 +32,9 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { parse as parseJsonc, modify, applyEdits } from 'jsonc-parser';
+import { getWxCliCommand } from '../../cli/launcher';
+import { recordCleanup } from '../config-transaction';
+import { parse as parseJsonc, parseTree, findNodeAtLocation, modify, applyEdits } from 'jsonc-parser';
 import {
   AgentTarget,
   DetectionResult,
@@ -46,13 +48,13 @@ import {
   removeMarkedSection,
   upsertInstructionsEntry,
 } from './shared';
+import { transactionalTarget, readConfigFile, removeManagedFile, hasManagedMcp } from './shared';
 import {
   CODEGRAPH_SECTION_END,
   CODEGRAPH_SECTION_START,
 } from '../instructions-template';
 import {
   OPENCODE_REMINDER_PLUGIN_FILENAME,
-  OPENCODE_REMINDER_PLUGIN_MARKER,
   OPENCODE_REMINDER_PLUGIN_SOURCE,
 } from '../opencode-reminder-plugin';
 
@@ -95,23 +97,27 @@ function reminderPluginPath(loc: Location): string {
 
 function readConfigText(file: string): string {
   if (!fs.existsSync(file)) return '';
-  return fs.readFileSync(file, 'utf-8');
+  return readConfigFile(file);
 }
 
 function parseConfig(text: string): Record<string, any> {
   if (!text.trim()) return {};
   const errors: any[] = [];
-  const result = parseJsonc(text, errors, { allowTrailingComma: true });
-  if (result == null || typeof result !== 'object' || Array.isArray(result)) {
-    return {};
+  const source = text.replace(/^\uFEFF/, '');
+  const result = parseJsonc(source, errors, { allowTrailingComma: true });
+  if (errors.length || result == null || typeof result !== 'object' || Array.isArray(result)) {
+    throw new Error('Invalid OpenCode JSONC configuration; repair it and retry.');
   }
+  const wrappers = parseTree(source)?.children?.filter(entry => entry.children?.[0]?.value === 'mcp') ?? [];
+  if (wrappers.length > 1) throw new Error('Duplicate OpenCode mcp sections; combine them and retry.');
   return result as Record<string, any>;
 }
 
 function getOpencodeServerEntry(): { type: string; command: string[]; enabled: boolean } {
+  const cli = getWxCliCommand();
   return {
     type: 'local',
-    command: ['codegraph', 'serve', '--mcp'],
+    command: [cli.command, ...cli.args, 'serve', '--mcp'],
     enabled: true,
   };
 }
@@ -134,7 +140,7 @@ class OpencodeTarget implements AgentTarget {
   detect(loc: Location): DetectionResult {
     const file = configPath(loc);
     const config = parseConfig(readConfigText(file));
-    const alreadyConfigured = !!config.mcp?.codegraph;
+    const alreadyConfigured = !!config.mcp?.codegraph_wx;
     const installed = loc === 'global'
       ? fs.existsSync(globalConfigDir())
       : fs.existsSync(file);
@@ -144,6 +150,7 @@ class OpencodeTarget implements AgentTarget {
   install(loc: Location, _opts: InstallOptions): WriteResult {
     const files: WriteResult['files'] = [];
     files.push(writeMcpEntry(loc));
+    files.push(removeManagedFile(path.join(path.dirname(reminderPluginPath(loc)), 'codegraph-reminder.js')));
     files.push(writeReminderPlugin(loc));
 
     // AGENTS.md — the short marker-fenced CodeGraph block (#704). The
@@ -165,20 +172,22 @@ class OpencodeTarget implements AgentTarget {
     } else {
       const text = readConfigText(file);
       const config = parseConfig(text);
-      if (!config.mcp?.codegraph) {
+      if (!hasManagedMcp(config, 'mcp')) {
         files.push({ path: file, action: 'not-found' });
       } else {
         // Drop our key surgically. Leaves siblings + comments untouched.
-        let edits = modify(text, ['mcp', 'codegraph'], undefined, {
-          formattingOptions: FORMATTING,
-        });
-        let updated = applyEdits(text, edits);
+        let updated = text;
+        for (const name of ['codegraph', 'codegraph_wx']) {
+          while (Object.hasOwn(parseConfig(updated).mcp ?? {}, name)) {
+            updated = applyEdits(updated, modify(updated, ['mcp', name], undefined, { formattingOptions: FORMATTING }));
+          }
+        }
 
         // If `mcp` is now an empty object, drop the wrapper too.
         const afterParsed = parseConfig(updated);
         if (afterParsed.mcp && typeof afterParsed.mcp === 'object' &&
             Object.keys(afterParsed.mcp).length === 0) {
-          edits = modify(updated, ['mcp'], undefined, { formattingOptions: FORMATTING });
+          const edits = modify(updated, ['mcp'], undefined, { formattingOptions: FORMATTING });
           updated = applyEdits(updated, edits);
         }
 
@@ -189,6 +198,7 @@ class OpencodeTarget implements AgentTarget {
 
     files.push(removeInstructionsEntry(loc));
     files.push(removeReminderPlugin(loc));
+    files.push(removeManagedFile(path.join(path.dirname(reminderPluginPath(loc)), 'codegraph-reminder.js')));
 
     return { files };
   }
@@ -197,7 +207,7 @@ class OpencodeTarget implements AgentTarget {
     const target = configPath(loc);
     const snippet = JSON.stringify({
       $schema: 'https://opencode.ai/config.json',
-      mcp: { codegraph: getOpencodeServerEntry() },
+      mcp: { codegraph_wx: getOpencodeServerEntry() },
     }, null, 2);
     return `# Add to ${target}\n\n${snippet}\n`;
   }
@@ -210,7 +220,7 @@ class OpencodeTarget implements AgentTarget {
 function writeReminderPlugin(loc: Location): WriteResult['files'][number] {
   const file = reminderPluginPath(loc);
   const existed = fs.existsSync(file);
-  if (existed && fs.readFileSync(file, 'utf-8') === OPENCODE_REMINDER_PLUGIN_SOURCE) {
+  if (existed && readConfigFile(file) === OPENCODE_REMINDER_PLUGIN_SOURCE) {
     return { path: file, action: 'unchanged' };
   }
   atomicWriteFileSync(file, OPENCODE_REMINDER_PLUGIN_SOURCE);
@@ -218,22 +228,7 @@ function writeReminderPlugin(loc: Location): WriteResult['files'][number] {
 }
 
 function removeReminderPlugin(loc: Location): WriteResult['files'][number] {
-  const file = reminderPluginPath(loc);
-  if (!fs.existsSync(file)) return { path: file, action: 'not-found' };
-
-  // The filename is namespaced, but still avoid deleting a user replacement
-  // that no longer carries our ownership marker.
-  let content = '';
-  try { content = fs.readFileSync(file, 'utf-8'); } catch { return { path: file, action: 'kept' }; }
-  if (!content.includes(OPENCODE_REMINDER_PLUGIN_MARKER)) {
-    return { path: file, action: 'kept' };
-  }
-  try {
-    fs.unlinkSync(file);
-    return { path: file, action: 'removed' };
-  } catch {
-    return { path: file, action: 'kept' };
-  }
+  return removeManagedFile(reminderPluginPath(loc));
 }
 
 function writeMcpEntry(loc: Location): WriteResult['files'][number] {
@@ -249,10 +244,14 @@ function writeMcpEntry(loc: Location): WriteResult['files'][number] {
   }
 
   const config = parseConfig(text);
-  const before = config.mcp?.codegraph;
+  hasManagedMcp(config, 'mcp'); // Validate the wrapper before making any edits.
+  const before = config.mcp?.codegraph_wx;
   const after = getOpencodeServerEntry();
 
-  if (jsonDeepEqual(before, after)) {
+  const tree = parseTree(text);
+  const entries = tree ? findNodeAtLocation(tree, ['mcp'])?.children ?? [] : [];
+  const wxCount = entries.filter(entry => entry.children?.[0]?.value === 'codegraph_wx').length;
+  if (!Object.hasOwn(config.mcp ?? {}, 'codegraph') && wxCount === 1 && jsonDeepEqual(before, after)) {
     return { path: file, action: 'unchanged' };
   }
 
@@ -266,7 +265,13 @@ function writeMcpEntry(loc: Location): WriteResult['files'][number] {
 
   // Surgical edit — preserves comments, formatting, and order of
   // every key we don't touch.
-  const edits = modify(text, ['mcp', 'codegraph'], after, {
+  for (const name of ['codegraph', 'codegraph_wx']) {
+    while (Object.hasOwn(parseConfig(text).mcp ?? {}, name)) {
+      text = applyEdits(text, modify(text, ['mcp', name], undefined, { formattingOptions: FORMATTING }));
+      recordCleanup(`Removed managed OpenCode MCP entry: ${name}.`);
+    }
+  }
+  const edits = modify(text, ['mcp', 'codegraph_wx'], after, {
     formattingOptions: FORMATTING,
   });
   const updated = applyEdits(text, edits);
@@ -286,4 +291,4 @@ function removeInstructionsEntry(loc: Location): WriteResult['files'][number] {
   return { path: file, action };
 }
 
-export const opencodeTarget: AgentTarget = new OpencodeTarget();
+export const opencodeTarget: AgentTarget = transactionalTarget(new OpencodeTarget());

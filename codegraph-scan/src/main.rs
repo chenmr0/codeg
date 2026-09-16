@@ -175,9 +175,9 @@ impl Scanner<'_> {
                 .into_string()
                 .map_err(|_| "non-utf8-path")?;
             if name == ".git"
-                || name == ".codegraph"
+                || name == ".codegraph-wx"
                 || name == self.request.data_dir
-                || name.starts_with(".codegraph-")
+                || name.starts_with(".codegraph-wx-")
             {
                 continue;
             }

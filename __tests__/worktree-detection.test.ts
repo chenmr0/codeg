@@ -1,7 +1,7 @@
 /**
  * Git worktree index-mismatch detection (issue #155).
  *
- * A CodeGraph index is resolved by walking up to the nearest `.codegraph/`.
+ * A CodeGraph index is resolved by walking up to the nearest `.codegraph-wx/`.
  * When a worktree is nested inside the main checkout, that walk reaches the
  * MAIN checkout's index and a query silently returns the main branch's code
  * instead of the worktree's. `detectWorktreeIndexMismatch` spots exactly this
@@ -34,7 +34,7 @@ function real(p: string): string {
 }
 
 describe('detectWorktreeIndexMismatch (issue #155)', () => {
-  let mainRepo: string;   // main checkout — owns the .codegraph index
+  let mainRepo: string;   // main checkout — owns the .codegraph-wx index
   let worktree: string;   // a linked worktree nested inside the main checkout
   let nonGit: string;     // a directory outside any git repo
 
@@ -145,7 +145,7 @@ describe('worktree mismatch surfaces on hot read tools (issue #155)', () => {
     fs.rmSync(mainRepo, { recursive: true, force: true });
   });
 
-  it('prefixes a compact notice on codegraph_search run from a nested worktree', async () => {
+  it('prefixes a compact notice on codegraph_wx_search run from a nested worktree', async () => {
     handler.setDefaultProjectHint(worktree);
     const res = await handler.execute('search', { query: 'mainOnly' });
     const text = res.content[0].text;
@@ -161,7 +161,7 @@ describe('worktree mismatch surfaces on hot read tools (issue #155)', () => {
     expect(res.content[0].text).not.toContain('different git worktree');
   });
 
-  it('still shows the verbose warning on codegraph_status', async () => {
+  it('still shows the verbose warning on codegraph_wx_status', async () => {
     handler.setDefaultProjectHint(worktree);
     const res = await handler.execute('status', {});
     const text = res.content[0].text;
@@ -180,7 +180,7 @@ describe('worktree mismatch surfaces on hot read tools (issue #155)', () => {
     const savedPath = process.env.PATH;
     process.env.PATH = '';
     try {
-      const second = await handler.execute('explore', { query: 'mainOnly' });
+      const second = await handler.execute('node', { symbol: 'mainOnly' });
       expect(second.content[0].text).toContain('different git worktree');
     } finally {
       process.env.PATH = savedPath;

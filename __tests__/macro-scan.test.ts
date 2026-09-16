@@ -64,7 +64,7 @@ describe('macro context baseline and protocol', () => {
     expect(result.stderr).toContain(kind === 'missing' ? 'Project directory is unavailable (ENOENT)' :
       kind === 'file' ? 'Project path is not a directory' : 'No C/C++/ObjC candidates');
     expect(result.stderr).not.toContain('Benchmark rejected: disabled');
-    expect(fs.existsSync(path.join(root, '.codegraph'))).toBe(false);
+    expect(fs.existsSync(path.join(root, '.codegraph-wx'))).toBe(false);
   });
   it('uses a bounded automatic threshold independent of the directory scanner switch', () => {
     vi.stubEnv('CODEGRAPH_RUST_SCAN', '1'); vi.stubEnv('CODEGRAPH_RUST_MACROS', 'auto');

@@ -6,7 +6,7 @@
  *
  *   - MCP server entry to `~/.gemini/settings.json` (global) or
  *     `./.gemini/settings.json` (local) under the standard
- *     `mcpServers.codegraph` key. Same shape as Claude / Cursor.
+ *     `mcpServers.codegraph_wx` key. Same shape as Claude / Cursor.
  *   - Instructions to `~/.gemini/GEMINI.md` (global) or `./GEMINI.md`
  *     (local — Gemini reads the project root file directly, not
  *     under `.gemini/`).
@@ -34,12 +34,12 @@ import {
 } from './types';
 import {
   getMcpServerConfig,
-  jsonDeepEqual,
   readJsonFile,
   removeMarkedSection,
   upsertInstructionsEntry,
   writeJsonFile,
 } from './shared';
+import { transactionalTarget, resetMcpEntry } from './shared';
 import {
   CODEGRAPH_SECTION_END,
   CODEGRAPH_SECTION_START,
@@ -74,7 +74,7 @@ class GeminiTarget implements AgentTarget {
   detect(loc: Location): DetectionResult {
     const file = settingsJsonPath(loc);
     const config = readJsonFile(file);
-    const alreadyConfigured = !!config.mcpServers?.codegraph;
+    const alreadyConfigured = !!config.mcpServers?.codegraph_wx;
     const installed = loc === 'global'
       ? fs.existsSync(configDir('global')) || fs.existsSync(file)
       : fs.existsSync(file) || fs.existsSync(configDir('local'));
@@ -100,11 +100,7 @@ class GeminiTarget implements AgentTarget {
 
     const file = settingsJsonPath(loc);
     const config = readJsonFile(file);
-    if (config.mcpServers?.codegraph) {
-      delete config.mcpServers.codegraph;
-      if (Object.keys(config.mcpServers).length === 0) {
-        delete config.mcpServers;
-      }
+    if (resetMcpEntry(config, undefined)) {
       // If the file is now an empty `{}` we still leave it — other
       // (top-level) Gemini settings the user might add later can
       // share the file; deleting it would be surprising.
@@ -121,7 +117,7 @@ class GeminiTarget implements AgentTarget {
 
   printConfig(loc: Location): string {
     const target = settingsJsonPath(loc);
-    const snippet = JSON.stringify({ mcpServers: { codegraph: getMcpServerConfig() } }, null, 2);
+    const snippet = JSON.stringify({ mcpServers: { codegraph_wx: getMcpServerConfig() } }, null, 2);
     return `# Add to ${target}\n\n${snippet}\n`;
   }
 
@@ -132,20 +128,16 @@ class GeminiTarget implements AgentTarget {
 
 function writeMcpEntry(loc: Location): WriteResult['files'][number] {
   const file = settingsJsonPath(loc);
-  const dir = path.dirname(file);
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 
   const existing = readJsonFile(file);
-  const before = existing.mcpServers?.codegraph;
+  const before = existing.mcpServers?.codegraph_wx;
   const after = getMcpServerConfig();
 
-  if (jsonDeepEqual(before, after)) {
+  if (!resetMcpEntry(existing, after)) {
     return { path: file, action: 'unchanged' };
   }
   const action: 'created' | 'updated' =
     before ? 'updated' : (fs.existsSync(file) ? 'updated' : 'created');
-  if (!existing.mcpServers) existing.mcpServers = {};
-  existing.mcpServers.codegraph = after;
   writeJsonFile(file, existing);
   return { path: file, action };
 }
@@ -161,4 +153,4 @@ function removeInstructionsEntry(loc: Location): WriteResult['files'][number] {
   return { path: file, action };
 }
 
-export const geminiTarget: AgentTarget = new GeminiTarget();
+export const geminiTarget: AgentTarget = transactionalTarget(new GeminiTarget());

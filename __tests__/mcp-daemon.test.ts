@@ -21,7 +21,7 @@
  *
  * These tests intentionally spawn real `node dist/bin/codegraph.js` processes
  * over real sockets/pipes — the same surface a Claude Code / Cursor / Codex
- * install exercises. The daemon logs to `.codegraph/daemon.log` (it has no
+ * install exercises. The daemon logs to `.codegraph-wx/daemon.log` (it has no
  * client stderr of its own), so daemon-side assertions read that file.
  *
  * `realRoot` vs `tempDir`: processes are spawned with the (possibly symlinked)
@@ -140,14 +140,14 @@ function isAlive(pid: number): boolean {
 
 function readLockPid(root: string): number | null {
   try {
-    const raw = fs.readFileSync(path.join(root, '.codegraph', 'daemon.pid'), 'utf8');
+    const raw = fs.readFileSync(path.join(root, '.codegraph-wx', 'daemon.pid'), 'utf8');
     const info = JSON.parse(raw);
     return typeof info.pid === 'number' ? info.pid : null;
   } catch { return null; }
 }
 
 function readDaemonLog(root: string): string {
-  try { return fs.readFileSync(path.join(root, '.codegraph', 'daemon.log'), 'utf8'); }
+  try { return fs.readFileSync(path.join(root, '.codegraph-wx', 'daemon.log'), 'utf8'); }
   catch { return ''; }
 }
 
@@ -189,7 +189,7 @@ describe('Shared MCP daemon (issue #411)', () => {
     }
     await new Promise((r) => setTimeout(r, 50));
     servers.length = 0;
-    fs.rmSync(tempDir, { recursive: true, force: true });
+    fs.rmSync(tempDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   });
 
   it('two invocations share ONE detached daemon; both attach as proxies', async () => {
@@ -199,13 +199,13 @@ describe('Shared MCP daemon (issue #411)', () => {
     servers.push(first);
     sendInitialize(first.child, `file://${tempDir}`, 1);
     const firstResp = await waitFor(() => findResponse(first.stdout, 1), 10000);
-    expect(firstResp.result.serverInfo.name).toBe('codegraph');
+    expect(firstResp.result.serverInfo.name).toBe('codegraph-wx');
 
     // The launcher is a PROXY (not the daemon itself) — that's the detach fix.
     await waitFor(() => first.stderr.some((l) => l.includes('Attached to shared daemon')), 8000);
 
     // A detached daemon came up and recorded itself.
-    await waitFor(() => fs.existsSync(path.join(realRoot, '.codegraph', 'daemon.pid')), 8000);
+    await waitFor(() => fs.existsSync(path.join(realRoot, '.codegraph-wx', 'daemon.pid')), 8000);
     await waitFor(() => countListeningLines(realRoot) >= 1, 8000);
     const daemonPid = readLockPid(realRoot);
     expect(daemonPid).toBeTruthy();
@@ -223,7 +223,7 @@ describe('Shared MCP daemon (issue #411)', () => {
     servers.push(second);
     sendInitialize(second.child, `file://${tempDir}`, 2);
     const secondResp = await waitFor(() => findResponse(second.stdout, 2), 10000);
-    expect(secondResp.result.serverInfo.name).toBe('codegraph');
+    expect(secondResp.result.serverInfo.name).toBe('codegraph-wx');
     await waitFor(() => second.stderr.some((l) => l.includes('Attached to shared daemon')), 8000);
 
     // Exactly one daemon ever bound, and it's the same pid both attached to.
@@ -242,7 +242,7 @@ describe('Shared MCP daemon (issue #411)', () => {
     // All three get a valid initialize response...
     for (let i = 0; i < procs.length; i++) {
       const resp = await waitFor(() => findResponse(procs[i].stdout, i + 1), 12000);
-      expect(resp.result.serverInfo.name).toBe('codegraph');
+      expect(resp.result.serverInfo.name).toBe('codegraph-wx');
     }
     // ...and all three attached as proxies (none fell back / wedged).
     for (const p of procs) {
@@ -303,14 +303,14 @@ describe('Shared MCP daemon (issue #411)', () => {
     await waitFor(() => findResponse(first.stdout, 1), 10000);
     // Direct mode — no daemon machinery touched.
     expect(first.stderr.some((l) => l.includes('Attached to shared daemon'))).toBe(false);
-    expect(fs.existsSync(path.join(realRoot, '.codegraph', 'daemon.pid'))).toBe(false);
-    expect(fs.existsSync(path.join(realRoot, '.codegraph', 'daemon.log'))).toBe(false);
+    expect(fs.existsSync(path.join(realRoot, '.codegraph-wx', 'daemon.pid'))).toBe(false);
+    expect(fs.existsSync(path.join(realRoot, '.codegraph-wx', 'daemon.log'))).toBe(false);
   }, 20000);
 
   it('clears a stale (dead-pid) lockfile and a fresh daemon takes over', async () => {
     // Plant a lockfile pointing at a definitely-dead pid + the real socket path.
     fs.writeFileSync(
-      path.join(realRoot, '.codegraph', 'daemon.pid'),
+      path.join(realRoot, '.codegraph-wx', 'daemon.pid'),
       JSON.stringify({
         pid: 999_999,
         version: '0.0.0-fake',
@@ -326,7 +326,7 @@ describe('Shared MCP daemon (issue #411)', () => {
     const resp = await waitFor(() => findResponse(server.stdout, 1), 10000).catch((e) => {
       throw new Error(`${(e as Error).message}\nstderr:\n${server.stderr.join('\n')}\ndaemon.log:\n${readDaemonLog(realRoot)}`);
     });
-    expect(resp.result.serverInfo.name).toBe('codegraph');
+    expect(resp.result.serverInfo.name).toBe('codegraph-wx');
     await waitFor(() => countListeningLines(realRoot) >= 1, 10000);
     // The pidfile now names a live daemon, not the planted-dead 999999.
     const livePid = readLockPid(realRoot);
@@ -340,7 +340,7 @@ describe('Shared MCP daemon (issue #411)', () => {
     // Plant a live-pid lockfile so the launcher treats the lock as held, and a
     // mini-server that answers with a mismatched-version hello.
     fs.writeFileSync(
-      path.join(realRoot, '.codegraph', 'daemon.pid'),
+      path.join(realRoot, '.codegraph-wx', 'daemon.pid'),
       JSON.stringify({ pid: process.pid, version: '0.0.0-mismatch', socketPath: sockPath, startedAt: Date.now() }),
     );
     const miniServer = net.createServer((sock) => {
@@ -356,7 +356,7 @@ describe('Shared MCP daemon (issue #411)', () => {
       // response — the proxy answers the handshake locally and, refusing to
       // attach across the version mismatch, serves the session in-process.
       const resp = await waitFor(() => findResponse(server.stdout, 1), 10000);
-      expect(resp.result.serverInfo.name).toBe('codegraph');
+      expect(resp.result.serverInfo.name).toBe('codegraph-wx');
       await waitFor(
         () => server.stderr.some((l) => l.includes('serving this session in-process')),
         6000,
@@ -387,7 +387,7 @@ describe('Shared MCP daemon (issue #411)', () => {
     // should fire and the daemon should exit and clean up its lockfile.
     expect(await waitProcessExit(daemonPid, 12000)).toBe(true);
     expect(readDaemonLog(realRoot)).toContain('inactivity backstop');
-    expect(fs.existsSync(path.join(realRoot, '.codegraph', 'daemon.pid'))).toBe(false);
+    expect(fs.existsSync(path.join(realRoot, '.codegraph-wx', 'daemon.pid'))).toBe(false);
   }, 30000);
 
   it('daemon idle-times-out after the last client disconnects', async () => {
@@ -404,7 +404,7 @@ describe('Shared MCP daemon (issue #411)', () => {
     server.child.stdin.end();
 
     expect(await waitProcessExit(daemonPid, 10000)).toBe(true);
-    expect(fs.existsSync(path.join(realRoot, '.codegraph', 'daemon.pid'))).toBe(false);
+    expect(fs.existsSync(path.join(realRoot, '.codegraph-wx', 'daemon.pid'))).toBe(false);
   }, 30000);
 
   it('proxy survives the daemon dying mid-session and keeps serving (#662)', async () => {

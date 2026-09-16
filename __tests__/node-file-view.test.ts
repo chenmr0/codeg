@@ -1,5 +1,5 @@
 /**
- * Guarded codegraph_node MCP file mode. Agent calls must request either a
+ * Guarded codegraph_wx_node MCP file mode. Agent calls must request either a
  * structural outline (`symbolsOnly`) or an explicit source window capped at
  * 500 lines. Oversized requests are corrected in-place; bare/full-file reads
  * and mixed symbol/file-window parameters are rejected before source reaches
@@ -12,7 +12,7 @@ import * as os from 'os';
 import CodeGraph from '../src/index';
 import { ToolHandler } from '../src/mcp/tools';
 
-describe('codegraph_node guarded MCP file mode', () => {
+describe('codegraph_wx_node guarded MCP file mode', () => {
   let dir: string;
   let cg: CodeGraph;
   let h: ToolHandler;
@@ -155,7 +155,7 @@ describe('codegraph_node guarded MCP file mode', () => {
     expect(out).toContain('Widget');
     expect(out).toContain(`:${helper.startLine}-${helper.endLine}`);
     expect(out).not.toContain('return x + 1'); // bodies are NOT included in the map
-    expect(out).toMatch(/batch 1[–-]8 precise.*codegraph_node\(targets/i);
+    expect(out).toMatch(/batch 1[–-]8 precise.*codegraph_wx_node\(targets/i);
     expect(out).not.toMatch(/drop `symbolsOnly`/i);
   });
 

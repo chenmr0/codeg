@@ -1,5 +1,5 @@
 /**
- * Adaptive output budget for codegraph_explore (#185).
+ * Adaptive output budget for codegraph_wx_explore (#185).
  *
  * The explore tool used to apply a fixed 35KB output cap regardless of
  * project size, which on small codebases was a net loss vs. native
@@ -137,7 +137,7 @@ describe('getExploreOutputBudget', () => {
  * Regression guard for #185 — protects against future edits to handleExplore
  * silently re-introducing the fixed 35KB cap on small projects.
  */
-describe('codegraph_explore output respects the adaptive budget', () => {
+describe('codegraph_wx_explore output respects the adaptive budget', () => {
   let testDir: string;
   let cg: CodeGraph;
   let handler: ToolHandler;
@@ -145,7 +145,7 @@ describe('codegraph_explore output respects the adaptive budget', () => {
   const exploreOriginal = process.env[EXPLORE_ENV];
 
   beforeAll(async () => {
-    // codegraph_explore is disabled by default — re-enable for these tests.
+    // codegraph_wx_explore is disabled by default — re-enable for these tests.
     process.env[EXPLORE_ENV] = '1';
     testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'codegraph-explore-budget-'));
     const srcDir = path.join(testDir, 'src');

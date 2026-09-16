@@ -54,7 +54,7 @@ describe('CodeGraph Foundation', () => {
       expect(fs.existsSync(gitignorePath)).toBe(true);
 
       const content = fs.readFileSync(gitignorePath, 'utf-8');
-      // Ignore everything in .codegraph/ except this file itself, so transient
+      // Ignore everything in .codegraph-wx/ except this file itself, so transient
       // files (db, daemon.pid, sockets, logs) never show up in git. (#492, #484)
       expect(content).toContain('*');
       expect(content).toContain('!.gitignore');
@@ -308,7 +308,7 @@ describe('Query Builder', () => {
 });
 
 // Two environments that share one working tree (Windows-native + WSL) must not
-// share one `.codegraph/`. CODEGRAPH_DIR overrides the data directory name so
+// share one `.codegraph-wx/`. CODEGRAPH_DIR overrides the data directory name so
 // each side keeps its own index in the same tree (issue #636).
 describe('CODEGRAPH_DIR override (#636)', () => {
   const saved = process.env.CODEGRAPH_DIR;
@@ -324,33 +324,33 @@ describe('CODEGRAPH_DIR override (#636)', () => {
   });
 
   describe('codeGraphDirName()', () => {
-    it('defaults to .codegraph when unset', () => {
+    it('defaults to .codegraph-wx when unset', () => {
       delete process.env.CODEGRAPH_DIR;
-      expect(codeGraphDirName()).toBe('.codegraph');
+      expect(codeGraphDirName()).toBe('.codegraph-wx');
     });
 
     it('honors a valid override', () => {
-      process.env.CODEGRAPH_DIR = '.codegraph-win';
-      expect(codeGraphDirName()).toBe('.codegraph-win');
+      process.env.CODEGRAPH_DIR = '.codegraph-wx-win';
+      expect(codeGraphDirName()).toBe('.codegraph-wx-win');
     });
 
     // Anything that isn't a plain segment could escape the project root or
     // clobber it, so it's ignored in favor of the default.
     it.each(['foo/bar', 'a\\b', '..', '../x', '.', '/abs/path', '   ', ''])(
-      'falls back to .codegraph for invalid value %j',
+      'falls back to .codegraph-wx for invalid value %j',
       (bad) => {
         process.env.CODEGRAPH_DIR = bad;
-        expect(codeGraphDirName()).toBe('.codegraph');
+        expect(codeGraphDirName()).toBe('.codegraph-wx');
       }
     );
   });
 
   describe('isCodeGraphDataDir()', () => {
-    it('matches the default, the active override, and .codegraph-* siblings', () => {
-      process.env.CODEGRAPH_DIR = '.codegraph-win';
-      expect(isCodeGraphDataDir('.codegraph')).toBe(true);       // the other env's dir
-      expect(isCodeGraphDataDir('.codegraph-win')).toBe(true);   // active override
-      expect(isCodeGraphDataDir('.codegraph-wsl')).toBe(true);   // any sibling
+    it('matches the default, the active override, and .codegraph-wx-* siblings', () => {
+      process.env.CODEGRAPH_DIR = '.codegraph-wx-win';
+      expect(isCodeGraphDataDir('.codegraph-wx')).toBe(true);       // the other env's dir
+      expect(isCodeGraphDataDir('.codegraph-wx-win')).toBe(true);   // active override
+      expect(isCodeGraphDataDir('.codegraph-wx-wsl')).toBe(true);   // any sibling
     });
 
     it('does not match unrelated directories', () => {
@@ -361,13 +361,13 @@ describe('CODEGRAPH_DIR override (#636)', () => {
     });
   });
 
-  it('init writes the index under the overridden directory, not .codegraph', () => {
-    process.env.CODEGRAPH_DIR = '.codegraph-win';
+  it('init writes the index under the overridden directory, not .codegraph-wx', () => {
+    process.env.CODEGRAPH_DIR = '.codegraph-wx-win';
     const cg = CodeGraph.initSync(tempDir);
     try {
-      expect(fs.existsSync(path.join(tempDir, '.codegraph-win', 'codegraph.db'))).toBe(true);
-      expect(fs.existsSync(path.join(tempDir, '.codegraph'))).toBe(false);
-      expect(getCodeGraphDir(tempDir)).toBe(path.join(tempDir, '.codegraph-win'));
+      expect(fs.existsSync(path.join(tempDir, '.codegraph-wx-win', 'codegraph.db'))).toBe(true);
+      expect(fs.existsSync(path.join(tempDir, '.codegraph-wx'))).toBe(false);
+      expect(getCodeGraphDir(tempDir)).toBe(path.join(tempDir, '.codegraph-wx-win'));
       expect(CodeGraph.isInitialized(tempDir)).toBe(true);
     } finally {
       cg.close();
@@ -375,7 +375,7 @@ describe('CODEGRAPH_DIR override (#636)', () => {
   });
 
   it('two index dirs coexist in one tree and the override side skips the sibling', async () => {
-    // WSL side: default `.codegraph`, with a source file.
+    // WSL side: default `.codegraph-wx`, with a source file.
     delete process.env.CODEGRAPH_DIR;
     fs.writeFileSync(path.join(tempDir, 'app.ts'), 'export function onlyReal() {}\n');
     const wsl = await CodeGraph.init(tempDir, { index: true });
@@ -383,12 +383,12 @@ describe('CODEGRAPH_DIR override (#636)', () => {
 
     // Windows side: override dir, same tree. Plant a decoy source file INSIDE
     // the WSL data dir — the override-side index must not pick it up.
-    process.env.CODEGRAPH_DIR = '.codegraph-win';
-    fs.writeFileSync(path.join(tempDir, '.codegraph', 'decoy.ts'), 'export function decoyLeak() {}\n');
+    process.env.CODEGRAPH_DIR = '.codegraph-wx-win';
+    fs.writeFileSync(path.join(tempDir, '.codegraph-wx', 'decoy.ts'), 'export function decoyLeak() {}\n');
     const win = await CodeGraph.init(tempDir, { index: true });
     try {
-      expect(fs.existsSync(path.join(tempDir, '.codegraph', 'codegraph.db'))).toBe(true);
-      expect(fs.existsSync(path.join(tempDir, '.codegraph-win', 'codegraph.db'))).toBe(true);
+      expect(fs.existsSync(path.join(tempDir, '.codegraph-wx', 'codegraph.db'))).toBe(true);
+      expect(fs.existsSync(path.join(tempDir, '.codegraph-wx-win', 'codegraph.db'))).toBe(true);
       expect(win.searchNodes('onlyReal').length).toBeGreaterThan(0);
       expect(win.searchNodes('decoyLeak')).toEqual([]); // sibling data dir not indexed
     } finally {

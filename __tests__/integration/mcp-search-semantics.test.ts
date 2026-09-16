@@ -1,5 +1,5 @@
 /**
- * codegraph_search defaults to case-sensitive exact lookup with raw evidence.
+ * codegraph_wx_search defaults to case-sensitive exact lookup with raw evidence.
  * The server environment can opt into case correction, fuzzy suggestions,
  * and owner recovery. No tool parameter selects the search mode.
  */
@@ -11,7 +11,7 @@ import * as os from 'os';
 import CodeGraph from '../../src/index';
 import { getStaticTools, ToolHandler } from '../../src/mcp/tools';
 
-describe('codegraph_search semantics — exact by default, fuzzy via environment', () => {
+describe('codegraph_wx_search semantics — exact by default, fuzzy via environment', () => {
   let tempDir: string;
   let cg: CodeGraph;
   let handler: ToolHandler;

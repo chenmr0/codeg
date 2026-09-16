@@ -7,13 +7,13 @@
  *
  *   - MCP server entry to `~/.cac.json` (global = user scope, loads in
  *     every project) or `./.mcp.json` (local = project scope). Same
- *     `mcpServers.codegraph` shape as Claude Code. CodeAgent reads its
+ *     `mcpServers.codegraph_wx` shape as Claude Code. CodeAgent reads its
  *     user-scope MCP servers from `~/.cac.json` (BRAND_CAC.GLOBAL_CONFIG_FILE)
  *     and project-scope from `./.mcp.json` (getProjectMcpFilePathCac →
  *     git root + '.mcp.json').
  *   - Permissions to `~/.cac/settings.json` (global) or
  *     `./.cac/settings.json` (local), gated on `autoAllow`. Same
- *     `mcp__codegraph__*` allowlist format Claude Code uses.
+ *     `mcp__codegraph_wx__*` allowlist format Claude Code uses.
  *   - Instructions to `~/.cac/AGENTS.md` (global) or `./AGENTS.md`
  *     (local — CodeAgent reads the project-root AGENTS.md directly, not
  *     under `.cac/`, matching its getMemoryPath('Project') / ('User')
@@ -23,10 +23,8 @@
  *     `extensions.json`. It appends a short, contextual CodeGraph hint to
  *     the next request after a grep/read touches indexed source.
  *
- * No legacy `./.claude.json` migration and no pre-0.8 hook cleanup apply
- * here — CodeAgent is a brand-new target, so there's nothing stale to
- * self-heal on that side. The instructions strip is kept for parity so a
- * future upgrade self-heals any block a prior install might write.
+ * Installation resets reserved new/old names and markers, including
+ * legacy command hooks copied from older Claude-compatible settings.
  */
 
 import * as fs from 'fs';
@@ -41,7 +39,8 @@ import {
 } from './types';
 import {
   atomicWriteFileSync,
-  getCodeGraphPermissions,
+  reconcilePermissions,
+  isManagedPermission,
   getMcpServerConfig,
   jsonDeepEqual,
   readJsonFile,
@@ -49,13 +48,14 @@ import {
   upsertInstructionsEntry,
   writeJsonFile,
 } from './shared';
+import { removeConfigFile, transactionalTarget, resetMcpEntry, readConfigFile, removeManagedFile, assertObject } from './shared';
+import { cleanupLegacyHooks } from './claude';
 import {
   CODEGRAPH_SECTION_END,
   CODEGRAPH_SECTION_START,
 } from '../instructions-template';
 import {
   CODEAGENT_REMINDER_EXTENSION_FILENAME,
-  CODEAGENT_REMINDER_EXTENSION_MARKER,
   CODEAGENT_REMINDER_EXTENSION_SOURCE,
 } from '../codeagent-reminder-extension';
 
@@ -112,7 +112,7 @@ class CodeAgentTarget implements AgentTarget {
   detect(loc: Location): DetectionResult {
     const mcpPath = mcpJsonPath(loc);
     const config = readJsonFile(mcpPath);
-    const alreadyConfigured = !!config.mcpServers?.codegraph;
+    const alreadyConfigured = !!config.mcpServers?.codegraph_wx;
     // Infer "installed" from the existence of either the config dir
     // (global) or the project MCP marker file (local). Cheap and avoids
     // shelling out to `codeagentcli --version`.
@@ -128,10 +128,10 @@ class CodeAgentTarget implements AgentTarget {
     // 1. MCP server entry
     files.push(writeMcpEntry(loc));
 
-    // 2. Permissions (only when autoAllow)
-    if (opts.autoAllow) {
-      files.push(writePermissionsEntry(loc));
-    }
+    // Reset managed allows even when auto-allow is disabled.
+    files.push(writePermissionsEntry(loc, opts.autoAllow));
+    const hookCleanup = cleanupLegacyHooks(loc, settingsJsonPath(loc));
+    if (hookCleanup.action === 'removed') files.push(hookCleanup);
 
     // 3. AGENTS.md — the short marker-fenced CodeGraph block (#704).
     // The MCP initialize instructions reach only the main agent;
@@ -142,6 +142,7 @@ class CodeAgentTarget implements AgentTarget {
 
     // 4. Native-tool reminder extension — write the file first, then
     // register it, so the registration never points at a missing file.
+    files.push(removeManagedFile(path.join(configDir(loc), 'extensions', 'codegraph-reminder.ts')));
     files.push(writeReminderExtension(loc));
     files.push(upsertExtensionRegistration(loc));
 
@@ -154,11 +155,7 @@ class CodeAgentTarget implements AgentTarget {
     // 1. MCP server entry
     const mcpPath = mcpJsonPath(loc);
     const config = readJsonFile(mcpPath);
-    if (config.mcpServers?.codegraph) {
-      delete config.mcpServers.codegraph;
-      if (Object.keys(config.mcpServers).length === 0) {
-        delete config.mcpServers;
-      }
+    if (resetMcpEntry(config, undefined)) {
       writeJsonFile(mcpPath, config);
       files.push({ path: mcpPath, action: 'removed' });
     } else {
@@ -171,7 +168,7 @@ class CodeAgentTarget implements AgentTarget {
     if (Array.isArray(settings.permissions?.allow)) {
       const before = settings.permissions.allow.length;
       settings.permissions.allow = settings.permissions.allow.filter(
-        (p: string) => !p.startsWith('mcp__codegraph__'),
+        (p: unknown) => !isManagedPermission(p),
       );
       if (settings.permissions.allow.length !== before) {
         if (settings.permissions.allow.length === 0) {
@@ -195,13 +192,16 @@ class CodeAgentTarget implements AgentTarget {
     // 4. Reminder extension — drop the registration first, then the file.
     files.push(removeExtensionRegistration(loc));
     files.push(removeReminderExtension(loc));
+    files.push(removeManagedFile(path.join(configDir(loc), 'extensions', 'codegraph-reminder.ts')));
+    const hookCleanup = cleanupLegacyHooks(loc, settingsJsonPath(loc));
+    if (hookCleanup.action === 'removed') files.push(hookCleanup);
 
     return { files };
   }
 
   printConfig(loc: Location): string {
     const target = mcpJsonPath(loc);
-    const snippet = JSON.stringify({ mcpServers: { codegraph: getMcpServerConfig() } }, null, 2);
+    const snippet = JSON.stringify({ mcpServers: { codegraph_wx: getMcpServerConfig() } }, null, 2);
     return `# Add to ${target}\n\n${snippet}\n`;
   }
 
@@ -223,53 +223,24 @@ class CodeAgentTarget implements AgentTarget {
 function writeMcpEntry(loc: Location): WriteResult['files'][number] {
   const file = mcpJsonPath(loc);
   const existing = readJsonFile(file);
-  const before = existing.mcpServers?.codegraph;
+  const before = existing.mcpServers?.codegraph_wx;
   const after = getMcpServerConfig();
 
-  if (jsonDeepEqual(before, after)) {
+  if (!resetMcpEntry(existing, after)) {
     // Already exactly what we'd write — preserve byte-identical file.
     return { path: file, action: 'unchanged' };
   }
   const action: 'created' | 'updated' = before ? 'updated' : (fs.existsSync(file) ? 'updated' : 'created');
-  if (!existing.mcpServers) existing.mcpServers = {};
-  existing.mcpServers.codegraph = after;
   writeJsonFile(file, existing);
   return { path: file, action };
 }
 
-export function writePermissionsEntry(loc: Location): WriteResult['files'][number] {
-  const file = settingsJsonPath(loc);
-  const settings = readJsonFile(file);
-  const created = !fs.existsSync(file);
-
-  if (!settings.permissions) settings.permissions = {};
-  if (!Array.isArray(settings.permissions.allow)) settings.permissions.allow = [];
-
-  const want = getCodeGraphPermissions();
-  const before = [...settings.permissions.allow];
-  settings.permissions.allow = settings.permissions.allow.filter(
-    (perm: unknown) => typeof perm !== 'string' || !perm.startsWith('mcp__codegraph__codegraph_'),
-  );
-  for (const perm of want) {
-    if (!settings.permissions.allow.includes(perm)) {
-      settings.permissions.allow.push(perm);
-    }
-  }
-  if (jsonDeepEqual(before, settings.permissions.allow) && !created) {
-    return { path: file, action: 'unchanged' };
-  }
-  writeJsonFile(file, settings);
-  return { path: file, action: created ? 'created' : 'updated' };
+export function writePermissionsEntry(loc: Location, autoAllow = true): WriteResult['files'][number] {
+  return reconcilePermissions(settingsJsonPath(loc), autoAllow);
 }
 
 /**
- * Strip the marker-delimited CodeGraph block from AGENTS.md if a prior
- * install wrote one. Codegraph no longer maintains an instructions file
- * (issue #529) — the MCP server's `initialize` instructions are the
- * single source of truth — so both install (self-heal on upgrade) and
- * uninstall call this. `removeMarkedSection` returns `not-found`/`kept`
- * when there's nothing to strip; the install caller drops those from
- * the report so a fresh install stays quiet.
+ * Uninstall removes all new/old managed blocks and preserves outside text.
  */
 function removeInstructionsEntry(loc: Location): WriteResult['files'][number] {
   const file = instructionsPath(loc);
@@ -280,7 +251,7 @@ function removeInstructionsEntry(loc: Location): WriteResult['files'][number] {
 function writeReminderExtension(loc: Location): WriteResult['files'][number] {
   const file = reminderExtensionPath(loc);
   const existed = fs.existsSync(file);
-  if (existed && fs.readFileSync(file, 'utf-8') === CODEAGENT_REMINDER_EXTENSION_SOURCE) {
+  if (existed && readConfigFile(file) === CODEAGENT_REMINDER_EXTENSION_SOURCE) {
     return { path: file, action: 'unchanged' };
   }
   atomicWriteFileSync(file, CODEAGENT_REMINDER_EXTENSION_SOURCE);
@@ -288,22 +259,7 @@ function writeReminderExtension(loc: Location): WriteResult['files'][number] {
 }
 
 function removeReminderExtension(loc: Location): WriteResult['files'][number] {
-  const file = reminderExtensionPath(loc);
-  if (!fs.existsSync(file)) return { path: file, action: 'not-found' };
-
-  // The filename is namespaced, but still avoid deleting a user replacement
-  // that no longer carries our ownership marker.
-  let content = '';
-  try { content = fs.readFileSync(file, 'utf-8'); } catch { return { path: file, action: 'kept' }; }
-  if (!content.includes(CODEAGENT_REMINDER_EXTENSION_MARKER)) {
-    return { path: file, action: 'kept' };
-  }
-  try {
-    fs.unlinkSync(file);
-    return { path: file, action: 'removed' };
-  } catch {
-    return { path: file, action: 'kept' };
-  }
+  return removeManagedFile(reminderExtensionPath(loc));
 }
 
 /**
@@ -321,15 +277,28 @@ function entrySpecifierOf(entry: unknown): string | null {
 }
 
 /**
- * Match our extension entry by canonical specifier or by basename, so a
- * user who registered the same file as an object or absolute path is not
- * duplicated by a re-install.
+ * Only the two managed files in the expected directory belong to us.
+ * Another directory can contain a user extension with the same basename.
  */
-function isOurExtensionEntry(entry: unknown, specifier: string): boolean {
+function isOurExtensionEntry(entry: unknown, loc: Location): boolean {
   const s = entrySpecifierOf(entry);
   if (!s) return false;
-  return s === specifier ||
-    path.basename(s).toLowerCase() === CODEAGENT_REMINDER_EXTENSION_FILENAME.toLowerCase();
+  if (!path.isAbsolute(s) && !/^\.\.?[/\\]/.test(s)) return false;
+  const base = loc === 'global' ? configDir(loc) : process.cwd();
+  const normalize = (value: string): string => {
+    const resolved = path.resolve(base, value);
+    return process.platform === 'win32' ? resolved.toLowerCase() : resolved;
+  };
+  return [reminderExtensionPath(loc), path.join(configDir(loc), 'extensions', 'codegraph-reminder.ts')]
+    .some(file => normalize(file) === normalize(s));
+}
+
+function extensionEntries(config: Record<string, any>, file: string): unknown[] {
+  assertObject(config, file);
+  if (config.extensions !== undefined && !Array.isArray(config.extensions)) {
+    throw new Error(`${file}: extensions must be an array.`);
+  }
+  return config.extensions ?? [];
 }
 
 function upsertExtensionRegistration(loc: Location): WriteResult['files'][number] {
@@ -337,11 +306,12 @@ function upsertExtensionRegistration(loc: Location): WriteResult['files'][number
   const existed = fs.existsSync(file);
   const config = readJsonFile(file);
   const specifier = extensionEntrySpecifier(loc);
-  const entries = Array.isArray(config.extensions) ? config.extensions : [];
-  if (entries.some((e) => isOurExtensionEntry(e, specifier))) {
+  const entries = extensionEntries(config, file);
+  const next = [...entries.filter(e => !isOurExtensionEntry(e, loc)), specifier];
+  if (jsonDeepEqual(entries, next)) {
     return { path: file, action: 'unchanged' };
   }
-  config.extensions = [...entries, specifier];
+  config.extensions = next;
   writeJsonFile(file, config);
   return { path: file, action: existed ? 'updated' : 'created' };
 }
@@ -350,13 +320,12 @@ function removeExtensionRegistration(loc: Location): WriteResult['files'][number
   const file = extensionsJsonPath(loc);
   if (!fs.existsSync(file)) return { path: file, action: 'not-found' };
   const config = readJsonFile(file);
-  const specifier = extensionEntrySpecifier(loc);
-  const entries = Array.isArray(config.extensions) ? config.extensions : [];
-  const kept = entries.filter((e) => !isOurExtensionEntry(e, specifier));
+  const entries = extensionEntries(config, file);
+  const kept = entries.filter((e) => !isOurExtensionEntry(e, loc));
   if (kept.length === entries.length) return { path: file, action: 'not-found' };
   if (kept.length === 0 && Object.keys(config).every((k) => k === 'extensions')) {
     // The file only carried our entry — remove it entirely.
-    try { fs.unlinkSync(file); } catch { return { path: file, action: 'kept' }; }
+    removeConfigFile(file);
     return { path: file, action: 'removed' };
   }
   config.extensions = kept;
@@ -364,4 +333,4 @@ function removeExtensionRegistration(loc: Location): WriteResult['files'][number
   return { path: file, action: 'removed' };
 }
 
-export const codeagentTarget: AgentTarget = new CodeAgentTarget();
+export const codeagentTarget: AgentTarget = transactionalTarget(new CodeAgentTarget());

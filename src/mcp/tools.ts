@@ -92,7 +92,7 @@ export function resolveMcpCatchUpBudgetMs(raw: string | undefined): number {
   return parsed;
 }
 
-/** Maximum source lines returned by one MCP codegraph_node file window. */
+/** Maximum source lines returned by one MCP codegraph_wx_node file window. */
 const MCP_NODE_MAX_FILE_WINDOW_LINES = 500;
 
 /** Default/maximum number of entries in a file structural outline. */
@@ -157,7 +157,7 @@ const MAX_INPUT_LENGTH = 10_000;
 const MAX_PATH_LENGTH = 4_096;
 
 /**
- * Calculate the recommended number of codegraph_explore calls based on project size.
+ * Calculate the recommended number of codegraph_wx_explore calls based on project size.
  * Larger codebases need more exploration calls to cover their surface area,
  * but smaller ones should use fewer to avoid unnecessary overhead.
  */
@@ -170,7 +170,7 @@ export function getExploreBudget(fileCount: number): number {
 }
 
 /**
- * Adaptive output budget for `codegraph_explore`, scaled to project size.
+ * Adaptive output budget for `codegraph_wx_explore`, scaled to project size.
  *
  * Smaller codebases get a tighter total cap, fewer default files, smaller
  * per-file cap, and tighter clustering — so a focused query on a 100-file
@@ -320,7 +320,7 @@ export function getExploreOutputBudget(fileCount: number): ExploreOutputBudget {
 }
 
 /**
- * Whether `codegraph_explore` should prefix source lines with their line
+ * Whether `codegraph_wx_explore` should prefix source lines with their line
  * numbers (cat -n style: `<num>\t<code>`).
  *
  * Line numbers let the agent cite `file:line` straight from the explore
@@ -335,7 +335,7 @@ function exploreLineNumbersEnabled(): boolean {
 }
 
 /**
- * Adaptive explore sizing (default ON). `codegraph_explore` skeletonizes OFF-SPINE
+ * Adaptive explore sizing (default ON). `codegraph_wx_explore` skeletonizes OFF-SPINE
  * polymorphic-sibling files — a file whose class is one of ≥3 interchangeable
  * implementations of a shared interface (e.g. OkHttp's `: Interceptor` classes) —
  * to class + member signatures (bodies elided), keeping the on-spine exemplar full.
@@ -351,7 +351,7 @@ function adaptiveExploreEnabled(): boolean {
 }
 
 /**
- * Whether `codegraph_explore` is enabled. Default OFF.
+ * Whether `codegraph_wx_explore` is enabled. Default OFF.
  * Set `CODEGRAPH_ENABLE_EXPLORE=1` (or `true`) to re-enable the explore tool.
  */
 function isExploreEnabled(): boolean {
@@ -597,11 +597,11 @@ type RelationshipTargetResolution =
  */
 const projectPathProperty: PropertySchema = {
   type: 'string',
-  description: 'Path to a different project with .codegraph/ initialized. If omitted, uses current project. Use this to query other codebases.',
+  description: 'Path to a different project with .codegraph-wx/ initialized. If omitted, uses current project. Use this to query other codebases.',
 };
 
 /**
- * NodeKinds exposed as the `kind` filter enum in codegraph_search.
+ * NodeKinds exposed as the `kind` filter enum in codegraph_wx_search.
  * Derived from NODE_KINDS so new kinds appear automatically — a hardcoded
  * list is exactly how macro/enum/enum_member were silently omitted before.
  * Excluded: file/parameter/import/export (no user-facing search value).
@@ -613,7 +613,7 @@ const SEARCHABLE_KINDS = NODE_KINDS.filter(
 /**
  * All CodeGraph MCP tools
  *
- * Designed for minimal context usage - use codegraph_explore as the primary tool
+ * Designed for minimal context usage - use codegraph_wx_explore as the primary tool
  * (one call usually answers the whole question), and only use other tools for
  * targeted follow-up queries.
  *
@@ -976,7 +976,7 @@ export const tools: ToolDefinition[] = [
       properties: {
         targets: {
           type: 'array',
-          description: 'Native batch mode: 1–8 precise targets. Supports `{symbol, file?, line?, signature?, members?}`, grouped `{file, symbols:[...], texts:[...]}`, `{file}` for an outline, `{file, text, contextLines?, maxMatches?}`, and `{file, offset, limit}`. Source ranges are merged and declaration/definition partners are expanded exactly like codegraph_context.',
+          description: 'Native batch mode: 1–8 precise targets. Supports `{symbol, file?, line?, signature?, members?}`, grouped `{file, symbols:[...], texts:[...]}`, `{file}` for an outline, `{file, text, contextLines?, maxMatches?}`, and `{file, offset, limit}`. Source ranges are merged and declaration/definition partners are expanded exactly like codegraph_wx_context.',
           minItems: 1,
           maxItems: MCP_CONTEXT_MAX_TARGETS,
           items: {
@@ -1220,7 +1220,7 @@ export class ToolHandler {
   private defaultProjectHint: string | null = null;
   // Per-start-path cache of the git worktree/index mismatch (issue #155). The
   // mismatch is a fixed property of (where the request came from → which
-  // .codegraph/ it resolves to), so the up-to-two `git rev-parse` spawns run
+  // .codegraph-wx/ it resolves to), so the up-to-two `git rev-parse` spawns run
   // once and every later tool call reuses the result — never shelling out to
   // git on the hot path. `undefined` = not computed yet; `null` = no mismatch.
   private worktreeMismatchCache: Map<string, WorktreeIndexMismatch | null> = new Map();
@@ -1341,7 +1341,7 @@ export class ToolHandler {
 
   /**
    * Get tool definitions with dynamic descriptions based on project size.
-   * The codegraph_explore tool description includes a budget recommendation
+   * The codegraph_wx_explore tool description includes a budget recommendation
    * scaled to the number of indexed files. Honors the CODEGRAPH_MCP_TOOLS
    * allowlist so a trimmed surface is reflected in ListTools.
    */
@@ -1367,7 +1367,7 @@ export class ToolHandler {
       // n=2 audits ruled out cutting below 5 tools:
       // - 3-tool gate (search + context + trace): cost regressed on
       //   cobra/ky/sinatra. The agent fell back to raw Reads to cover
-      //   what codegraph_node + codegraph_explore would have answered.
+      //   what codegraph_wx_node + codegraph_wx_explore would have answered.
       // - 1-tool gate (search only): catastrophic regression — express
       //   went from -43% WIN to +107% LOSS. With only search, the agent
       //   can't navigate the call graph structurally and reads everything.
@@ -1412,7 +1412,7 @@ export class ToolHandler {
    * If projectPath is provided, opens that project's CodeGraph (cached).
    * Otherwise returns the default CodeGraph instance.
    *
-   * Walks up parent directories to find the nearest .codegraph/ folder,
+   * Walks up parent directories to find the nearest .codegraph-wx/ folder,
    * similar to how git finds .git/ directories.
    */
   private getCodeGraph(projectPath?: string): CodeGraph {
@@ -1421,7 +1421,7 @@ export class ToolHandler {
         const searched = this.defaultProjectHint ?? process.cwd();
         throw new Error(
           'No CodeGraph project is loaded for this session.\n' +
-          `Searched for a .codegraph/ directory starting from: ${searched}\n` +
+          `Searched for a .codegraph-wx/ directory starting from: ${searched}\n` +
           'The index is likely fine — this is a working-directory detection issue: ' +
           "the MCP client launched the server outside your project and didn't report the " +
           'workspace root. Fix it either way:\n' +
@@ -1439,7 +1439,7 @@ export class ToolHandler {
 
     // Reject sensitive system directories before opening. Only validate a
     // path that actually exists — a nested or not-yet-created sub-path of a
-    // real project must still be allowed to resolve UP to its .codegraph/
+    // real project must still be allowed to resolve UP to its .codegraph-wx/
     // root below (issue #238), so we don't run the existence-checking
     // validator on paths that are meant to walk up.
     if (existsSync(projectPath)) {
@@ -1449,7 +1449,7 @@ export class ToolHandler {
       }
     }
 
-    // Walk up parent directories to find nearest .codegraph/
+    // Walk up parent directories to find nearest .codegraph-wx/
     const resolvedRoot = findNearestCodeGraphRoot(projectPath);
 
     if (!resolvedRoot) {
@@ -1571,7 +1571,7 @@ export class ToolHandler {
    * notice when the resolved index belongs to a different git working tree than
    * the caller's (issue #155). Without this, an agent in a nested worktree
    * silently trusts main-branch results. No-op on error results and when there
-   * is no mismatch. `codegraph_status` is excluded — it embeds its own verbose
+   * is no mismatch. `codegraph_wx_status` is excluded — it embeds its own verbose
    * warning — so it stays out of this path.
    */
   private withWorktreeNotice(result: ToolResult, projectPath?: string): ToolResult {
@@ -1595,7 +1595,7 @@ export class ToolHandler {
    * fall back to Read for those *specific* files without waiting for the
    * debounced sync to fire. Pending files not referenced by the current
    * answer are deliberately silent: they do not affect this result and a
-   * project-wide list on every call is pure context noise. codegraph_status
+   * project-wide list on every call is pure context noise. codegraph_wx_status
    * remains the explicit place to inspect every pending file.
    *
    * Cost when nothing is pending — the common case — is one boolean check.
@@ -1739,7 +1739,7 @@ export class ToolHandler {
       if (typeof pathCheck === 'object' && pathCheck !== undefined) {
         return pathCheck;
       }
-      // The `path` and `pattern` properties used by codegraph_files are
+      // The `path` and `pattern` properties used by codegraph_wx_files are
       // also path-shaped — apply the same cap.
       if (args.path !== undefined) {
         const check = this.validateOptionalPath(args.path, 'path');
@@ -1801,14 +1801,14 @@ export class ToolHandler {
   }
 
   /**
-   * Handle codegraph_search
+   * Handle codegraph_wx_search
    */
   private async handleSearch(args: Record<string, unknown>): Promise<ToolResult> {
     if (args.queries === undefined) {
       if (args.query === undefined) return this.errorResult('Provide query for one symbol or queries for a batch of 1 to 8 symbols');
       return this.handleSearchSingle(args);
     }
-    if (args.query !== undefined) return this.errorResult('codegraph_search cannot combine query with queries; choose single or batch mode');
+    if (args.query !== undefined) return this.errorResult('codegraph_wx_search cannot combine query with queries; choose single or batch mode');
     if (!Array.isArray(args.queries) || args.queries.length < 1 || args.queries.length > MCP_SEARCH_MAX_QUERIES) {
       return this.errorResult(`queries must contain 1 to ${MCP_SEARCH_MAX_QUERIES} symbol queries`);
     }
@@ -1901,7 +1901,7 @@ export class ToolHandler {
     if (nlCheck.isNatural) {
       return this.textResult([
         includeCodeCorrection,
-        `codegraph_search 需要传入符号名，不支持自然语言描述或非符号内容。\n\n` +
+        `codegraph_wx_search 需要传入符号名，不支持自然语言描述或非符号内容。\n\n` +
         `收到的查询: "${query}"\n` +
         `检测到: ${nlCheck.reason}\n\n` +
         `→ 请从你的问题中提取关键符号名，直接搜索符号名。\n`,
@@ -2133,7 +2133,7 @@ export class ToolHandler {
 
   /**
    * Exact, bounded multi-symbol context for implementation tasks whose target
-   * symbols are already named. This avoids N separate codegraph_node calls and
+   * symbols are already named. This avoids N separate codegraph_wx_node calls and
    * deliberately omits repetitive relation trails unless explicitly requested.
    */
   private async handleContext(args: Record<string, unknown>): Promise<ToolResult> {
@@ -2846,7 +2846,7 @@ export class ToolHandler {
       for (const candidate of omittedCandidates) {
         out.push(`- ${candidate.label}: about ${candidate.section.length} rendered characters`);
       }
-      out.push('', '> The sections above are complete. Request the omitted labels together in the next `codegraph_context` call.');
+      out.push('', '> The sections above are complete. Request the omitted labels together in the next `codegraph_wx_context` call.');
     }
     if (misses.length > 0) out.push('', '## Unresolved / omitted targets', ...misses);
     if (corrections.length > 0) {
@@ -3063,7 +3063,7 @@ export class ToolHandler {
         '',
         '## Exact symbol recovery for zero-match identifiers',
         '',
-        '> These identifiers were absent from the requested literal-search path but exist as indexed symbols elsewhere. The exact search result is included now; do not call `codegraph_search` or Grep for them again.',
+        '> These identifiers were absent from the requested literal-search path but exist as indexed symbols elsewhere. The exact search result is included now; do not call `codegraph_wx_search` or Grep for them again.',
       );
       for (const recovery of recoveries) {
         out.push('', `### ${recovery.query}`, '', recovery.text);
@@ -3081,7 +3081,7 @@ export class ToolHandler {
   }
 
   /**
-   * Handle codegraph_callers
+   * Handle codegraph_wx_callers
    */
   private async handleCallers(args: Record<string, unknown>): Promise<ToolResult> {
     const cg = this.getCodeGraph(args.projectPath as string | undefined);
@@ -3132,7 +3132,7 @@ export class ToolHandler {
   }
 
   /**
-   * Handle codegraph_callees
+   * Handle codegraph_wx_callees
    */
   private async handleCallees(args: Record<string, unknown>): Promise<ToolResult> {
     const cg = this.getCodeGraph(args.projectPath as string | undefined);
@@ -3173,7 +3173,7 @@ export class ToolHandler {
   }
 
   /**
-   * Handle codegraph_impact
+   * Handle codegraph_wx_impact
    */
   private async handleImpact(args: Record<string, unknown>): Promise<ToolResult> {
     const cg = this.getCodeGraph(args.projectPath as string | undefined);
@@ -3211,7 +3211,7 @@ export class ToolHandler {
   }
 
   /**
-   * Flow-from-named-symbols: an agent's codegraph_explore query is a bag of
+   * Flow-from-named-symbols: an agent's codegraph_wx_explore query is a bag of
    * symbol names that usually spans the flow it's investigating (e.g.
    * "PmsProductController getList PmsProductService list PmsProductServiceImpl").
    * Surface the longest call chain AMONG those named symbols — scoped to what the
@@ -3494,11 +3494,11 @@ export class ToolHandler {
   }
 
   /**
-   * Handle codegraph_explore — deep exploration in a single call
+   * Handle codegraph_wx_explore — deep exploration in a single call
    *
    * Strategy: find relevant symbols via graph traversal, group by file,
    * then read contiguous file sections covering all symbols per file.
-   * This replaces multiple codegraph_node + Read calls.
+   * This replaces multiple codegraph_wx_node + Read calls.
    *
    * Output size is adaptive to project file count via
    * `getExploreOutputBudget` — see #185 for why a fixed 35k cap was a
@@ -3518,10 +3518,10 @@ export class ToolHandler {
         .map((t) => t.replace(/^[^\w]+|[^\w]+$/g, ''))
         .filter((t) => /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(t) && t.length >= 2);
       const hint = idTokens.length >= 2
-        ? `\n→ 请尝试: codegraph_explore query="${idTokens.join(' ')}"\n  （从问题中提取的关键符号名）`
+        ? `\n→ 请尝试: codegraph_wx_explore query="${idTokens.join(' ')}"\n  （从问题中提取的关键符号名）`
         : '';
       return this.textResult(
-        `codegraph_explore 使用符号名/文件名效果最好，不支持自然语言描述。\n\n` +
+        `codegraph_wx_explore 使用符号名/文件名效果最好，不支持自然语言描述。\n\n` +
         `收到的查询: "${query}"\n` +
         `检测到: ${nlCheck.reason}\n\n` +
         `→ 请从问题中提取关键符号名后直接传入` +
@@ -3632,7 +3632,7 @@ export class ToolHandler {
         // 50+-overload name (tokio `poll`) ranks the wanted def (`Harness::poll`)
         // below the FTS cut, so findAllSymbols would never see it and the
         // type-token bias below couldn't pick the harness.rs one. (Same fix as
-        // codegraph_node's findSymbolMatches.) Qualified tokens keep findAllSymbols.
+        // codegraph_wx_node's findSymbolMatches.) Qualified tokens keep findAllSymbols.
         const isQual = /[.\/]|::/.test(t);
         const raw = isQual ? this.findAllSymbols(cg, t).nodes : cg.getNodesByName(t);
         const cands = raw
@@ -3643,7 +3643,7 @@ export class ToolHandler {
         // only: the overloads whose file/class the query ALSO names (the agent
         // told us which one it wants — DataRequest's, not Validation.swift's),
         // capped; else fall back to the single most-substantive def. This is the
-        // explore-side mirror of codegraph_node's overload disambiguation.
+        // explore-side mirror of codegraph_wx_node's overload disambiguation.
         let picks: Node[];
         if (cands.length <= 3) {
           picks = cands;
@@ -4120,15 +4120,15 @@ export class ToolHandler {
         if (skel.length > 0) {
           const names = [...new Set(group.nodes.filter(n => n.kind !== 'import' && n.kind !== 'export').map(n => n.name))]
             .slice(0, budget.maxSymbolsInFileHeader).join(', ');
-          // Steer the agent to codegraph_explore for an elided body — NEVER to
+          // Steer the agent to codegraph_wx_explore for an elided body — NEVER to
           // Read. The old "Read for more" / "Read for a full body" tags invited
           // a Read of the very file just skeletonized; on a central, wanted file
           // (Session.swift, DataRequest.swift) that fired an over-investigation
           // spiral (the agent Read the skeletonized file, then kept digging).
           // CLAUDE.md: explore output must never tell the agent to Read.
           const tag = bodyIds.size > 0
-            ? 'focused (the methods you named in full, the rest as signatures — codegraph_explore a signature by name for its body; do NOT Read)'
-            : 'skeleton (signatures only — codegraph_explore a name for its full body; do NOT Read)';
+            ? 'focused (the methods you named in full, the rest as signatures — codegraph_wx_explore a signature by name for its body; do NOT Read)'
+            : 'skeleton (signatures only — codegraph_wx_explore a name for its full body; do NOT Read)';
           lines.push(`#### ${filePath} — ${names} · ${tag}`, '', '```' + lang, skel.join('\n'), '```', '');
           totalChars += skel.join('\n').length + 120;
           filesIncluded++;
@@ -4447,10 +4447,10 @@ export class ToolHandler {
     if (budget.includeCompletenessSignal) {
       lines.push('');
       lines.push('---');
-      lines.push(`> **Complete source for ${filesIncluded} files is included above — do NOT re-read them.** If your question also needs files/symbols listed under "Not shown above" (or any area this call didn't cover), make ANOTHER codegraph_explore targeting those names — it returns the same source with line numbers and is cheaper and more complete than reading. Reserve Read for a single specific line range explore can't surface.`);
+      lines.push(`> **Complete source for ${filesIncluded} files is included above — do NOT re-read them.** If your question also needs files/symbols listed under "Not shown above" (or any area this call didn't cover), make ANOTHER codegraph_wx_explore targeting those names — it returns the same source with line numbers and is cheaper and more complete than reading. Reserve Read for a single specific line range explore can't surface.`);
     } else if (anyFileTrimmed) {
       lines.push('');
-      lines.push(`> Some file sections were trimmed for size. For a specific symbol you still need, run another \`codegraph_explore\` (or \`codegraph_node\`) with its exact name — line-numbered source, cheaper and more complete than Read.`);
+      lines.push(`> Some file sections were trimmed for size. For a specific symbol you still need, run another \`codegraph_wx_explore\` (or \`codegraph_wx_node\`) with its exact name — line-numbered source, cheaper and more complete than Read.`);
     }
 
     // Add explore budget note based on project size
@@ -4485,13 +4485,13 @@ export class ToolHandler {
       const lastSection = cut.lastIndexOf('\n#### ');
       const boundary = lastSection > hardCeiling * 0.5 ? lastSection : cut.lastIndexOf('\n');
       const safe = boundary > 0 ? cut.slice(0, boundary) : cut;
-      return this.textResult(safe + '\n\n... (output truncated to budget; the source above is complete and verbatim — treat it as already Read. For any area not covered, run another codegraph_explore with the specific names — do NOT Read these files.)');
+      return this.textResult(safe + '\n\n... (output truncated to budget; the source above is complete and verbatim — treat it as already Read. For any area not covered, run another codegraph_wx_explore with the specific names — do NOT Read these files.)');
     }
     return this.textResult(output);
   }
 
   /**
-   * Handle codegraph_node
+   * Handle codegraph_wx_node
    */
   private async handleNode(args: Record<string, unknown>): Promise<ToolResult> {
     if (args.targets !== undefined) {
@@ -4500,7 +4500,7 @@ export class ToolHandler {
       ].filter((key) => args[key] !== undefined);
       if (conflicting.length > 0) {
         return this.errorResult(
-          `codegraph_node batch mode cannot combine targets with top-level ${conflicting.join(', ')}. ` +
+          `codegraph_wx_node batch mode cannot combine targets with top-level ${conflicting.join(', ')}. ` +
           'Move each precise symbol/member/text/file-region request inside targets.',
         );
       }
@@ -4513,14 +4513,14 @@ export class ToolHandler {
       });
       if (!bundled.isError && bundled.content[0]?.type === 'text') {
         bundled.content[0].text =
-          '> Native codegraph_node batch mode used one merged implementation bundle. Treat every source range below as already read.\n\n' +
+          '> Native codegraph_wx_node batch mode used one merged implementation bundle. Treat every source range below as already read.\n\n' +
           bundled.content[0].text;
       }
       return bundled;
     }
 
     if (args.expand !== undefined || args.expectedMissing !== undefined) {
-      return this.errorResult('codegraph_node expand and expectedMissing are batch-only; provide targets=[...].');
+      return this.errorResult('codegraph_wx_node expand and expectedMissing are batch-only; provide targets=[...].');
     }
 
     const fileHint = typeof args.file === 'string' && args.file.trim() ? args.file.trim() : undefined;
@@ -4572,7 +4572,7 @@ export class ToolHandler {
     const includeRelations = args.includeRelations === true;
     const preciseSymbolTarget = /[.]|::/.test(symbolRaw) || Boolean(fileHint && lineHint !== undefined);
     const relationshipRouteNotice = preciseSymbolTarget && !includeRelations
-      ? '> Caller/callee relations were omitted. Use `codegraph_callers` or `codegraph_callees` only if that relationship direction is needed.'
+      ? '> Caller/callee relations were omitted. Use `codegraph_wx_callers` or `codegraph_wx_callees` only if that relationship direction is needed.'
       : '';
 
     // File windows and symbol reads are genuinely different requests, so keep
@@ -4581,7 +4581,7 @@ export class ToolHandler {
       const symbolExample = `{ symbol: ${JSON.stringify(symbolRaw)}, file: ${JSON.stringify(fileHint ?? 'path/to/file.cpp')}, line: 123, includeCode: true }`;
       const outlineExample = `{ file: ${JSON.stringify(fileHint ?? 'path/to/file.cpp')}, symbolsOnly: true, outlineQuery: "optional-name" }`;
       return this.errorResult(
-        'codegraph_node symbol mode cannot use offset, limit, symbolsOnly, outlineQuery, or outlineLimit. ' +
+        'codegraph_wx_node symbol mode cannot use offset, limit, symbolsOnly, outlineQuery, or outlineLimit. ' +
         `Choose ONE corrected call:\n- Known symbol: ${symbolExample}\n- Unknown symbol in file: ${outlineExample}`
       );
     }
@@ -4676,7 +4676,7 @@ export class ToolHandler {
     // different types (Alamofire `didCompleteTask`/`task`/`validate`, gin
     // `reset`). Returning ONE forces the agent to guess, and when it guesses
     // wrong it READS the file to find the right overload — the dominant
-    // codegraph_node read cause on Swift/Go. So return them ALL: pack as many
+    // codegraph_wx_node read cause on Swift/Go. So return them ALL: pack as many
     // FULL bodies as fit a char budget (the agent gets the one it needs in this
     // one call, no follow-up parameter to learn), and list any remainder by
     // file:start-end so a large overload set can't overflow the per-tool cap.
@@ -4730,7 +4730,7 @@ export class ToolHandler {
       if (listed.length > LIST_CAP) out.push(`- … +${listed.length - LIST_CAP} more`);
       out.push(
         '',
-        `> Need one of these in full? Call codegraph_node again with the same \`symbol\` plus \`file\` (e.g. \`"${listed[0]!.filePath.split('/').pop()}"\`) and/or \`line\` — do NOT read the file.`,
+        `> Need one of these in full? Call codegraph_wx_node again with the same \`symbol\` plus \`file\` (e.g. \`"${listed[0]!.filePath.split('/').pop()}"\`) and/or \`line\` — do NOT read the file.`,
       );
     }
     if (relationshipRouteNotice) out.push('', relationshipRouteNotice);
@@ -4897,7 +4897,7 @@ export class ToolHandler {
       if (!broadQuery && filtered.length > outlineLimit) {
         out.push('', `> Outline capped at ${outlineLimit} of ${filtered.length} matching symbols. Narrow with \`outlineQuery\`; do not read the file to recover the omitted list.`);
       }
-      out.push('', '> Choose exact names from this outline. Read one implementation with `codegraph_node`; batch 1–8 precise symbol/member/text/file-region targets with ONE `codegraph_node(targets=[...])` implementation bundle (or `codegraph_context(targets=[...])`). Do not page through the file.');
+      out.push('', '> Choose exact names from this outline. Read one implementation with `codegraph_wx_node`; batch 1–8 precise symbol/member/text/file-region targets with ONE `codegraph_wx_node(targets=[...])` implementation bundle (or `codegraph_wx_context(targets=[...])`). Do not page through the file.');
       return this.textResult(this.truncateOutput(out.join('\n')));
     }
 
@@ -4962,7 +4962,7 @@ export class ToolHandler {
     if (!complete) {
       out.push(
         '',
-        `(lines ${offset}–${shownEnd} of ${total} — stop here unless a specific non-symbol/edit-boundary line is still missing; for named code use \`codegraph_node\` or \`codegraph_context\`; do not request the next file window)`,
+        `(lines ${offset}–${shownEnd} of ${total} — stop here unless a specific non-symbol/edit-boundary line is still missing; for named code use \`codegraph_wx_node\` or \`codegraph_wx_context\`; do not request the next file window)`,
       );
     }
     // Self-bounded to CHAR_BUDGET — do NOT route through truncateOutput (15k).
@@ -5216,9 +5216,9 @@ export class ToolHandler {
 
   /**
    * Build the "trail" for a symbol: its direct callees (what it calls) and
-   * callers (what calls it), each with file:start-end — so codegraph_node doubles as
+   * callers (what calls it), each with file:start-end — so codegraph_wx_node doubles as
    * the structural Grep→Read→expand primitive: a spot PLUS where to go next.
-   * Capped to stay cheap. Walk the graph by calling codegraph_node on a trail
+   * Capped to stay cheap. Walk the graph by calling codegraph_wx_node on a trail
    * entry; no Read needed for covered hops. Empty edges on a non-leaf often mean
    * dynamic dispatch the static graph couldn't resolve — that absence is itself
    * a signal (read that one hop) rather than a dead end.
@@ -5244,7 +5244,7 @@ export class ToolHandler {
     const callers = collect(cg.getCallers(node.id));
     const declDefSection = this.formatDeclDef(cg, node, true);
     if (callees.length === 0 && callers.length === 0) return declDefSection;
-    const lines: string[] = ['', '### Trail — codegraph_node any of these to follow it (no Read needed)'];
+    const lines: string[] = ['', '### Trail — codegraph_wx_node any of these to follow it (no Read needed)'];
     if (callees.length > 0) {
       lines.push(`**Calls →** ${callees.slice(0, TRAIL_CAP).map(fmt).join(', ')}${callees.length > TRAIL_CAP ? `, +${callees.length - TRAIL_CAP} more` : ''}`);
     }
@@ -5359,7 +5359,7 @@ export class ToolHandler {
   }
 
   /**
-   * Handle codegraph_status
+   * Handle codegraph_wx_status
    */
   private async handleStatus(
     args: Record<string, unknown>,
@@ -5462,7 +5462,7 @@ export class ToolHandler {
   }
 
   /**
-   * Handle codegraph_files - get project file structure from the index
+   * Handle codegraph_wx_files - get project file structure from the index
    */
   private async handleFiles(args: Record<string, unknown>): Promise<ToolResult> {
     const cg = this.getCodeGraph(args.projectPath as string | undefined);
@@ -5836,7 +5836,7 @@ export class ToolHandler {
     out.push(
       '',
       '## Next call',
-      '- Prefer one `codegraph_context` with exact `symbol` targets or `{ symbol: <container>, members: [...] }` selected from the names above.',
+      '- Prefer one `codegraph_wx_context` with exact `symbol` targets or `{ symbol: <container>, members: [...] }` selected from the names above.',
       '- For non-symbol boundaries, replace wide windows with `{ file, text, contextLines }` anchors.',
       '- If the raw regions are genuinely required, split them into smaller context batches using the section estimates above. Do not use Read or page through the files.',
     );
@@ -5867,7 +5867,7 @@ export class ToolHandler {
    * Returns the best match and a note about alternatives if any.
    */
   /**
-   * Find ALL definitions matching a name, ranked, so codegraph_node can return
+   * Find ALL definitions matching a name, ranked, so codegraph_wx_node can return
    * every overload instead of guessing one (the wrong guess → a Read). Keepers
    * rank before generated stubs (.pb.go etc.); stable within a group preserves
    * FTS order. Returns [] when nothing matches; a qualified lookup that finds no
@@ -6306,7 +6306,7 @@ export class ToolHandler {
     if (groups.length > 12) lines.push(`- … +${groups.length - 12} more candidates`);
     lines.push(
       '',
-      `Retry \`codegraph_${tool}\` with one candidate's \`file\` plus \`line\`, or copy its \`signature\`.`,
+      `Retry \`codegraph_wx_${tool}\` with one candidate's \`file\` plus \`line\`, or copy its \`signature\`.`,
       `Example: { symbol: ${JSON.stringify(symbol)}, file: ${JSON.stringify(groups[0]![0]!.filePath)}, line: ${groups[0]![0]!.startLine} }`,
       'Do not infer any individual overload\'s relationships from an aggregate of these candidates.',
     );
@@ -6400,7 +6400,7 @@ export class ToolHandler {
   /**
    * A precise node result still names sibling overloads compactly. This lets a
    * caller notice a declaration-only or differently-typed overload without a
-   * second codegraph_search call, while keeping their bodies out of the answer.
+   * second codegraph_wx_search call, while keeping their bodies out of the answer.
    */
   private formatOtherOverloadSummary(cg: CodeGraph, symbol: string, selected: Node): string {
     if (!selected.signature || !selected.signature.includes('(')) return '';
@@ -6892,7 +6892,7 @@ export class ToolHandler {
       lines.push(
         `- … +${children.length - visible.length} more members omitted`,
         '',
-        '> Large container outline capped. Use ONE `codegraph_node(targets=[{ symbol, file, members: [...] }])` implementation bundle for up to 32 already-known members; do not request a broader file outline or Read the class file.',
+        '> Large container outline capped. Use ONE `codegraph_wx_node(targets=[{ symbol, file, members: [...] }])` implementation bundle for up to 32 already-known members; do not request a broader file outline or Read the class file.',
       );
     }
     return lines.join('\n');
@@ -6924,10 +6924,10 @@ export class ToolHandler {
       const exactSourceTarget = `{ file: ${JSON.stringify(node.filePath)}, symbols: [${JSON.stringify(displaySymbol(node))}] }`;
       lines.push('', outline, '',
         `> Structural outline only. For this container's exact declaration source, use ONE ` +
-        `\`codegraph_node(targets=[${exactSourceTarget}])\` implementation bundle; ` +
+        `\`codegraph_wx_node(targets=[${exactSourceTarget}])\` implementation bundle; ` +
         'for selected implementations use `{ symbol, file, members: [...] }`, which also returns matching C++ out-of-line definitions. Do not Read the file.');
     } else if (code) {
-      // Line-numbered (cat -n style, like codegraph_explore and Read) so the
+      // Line-numbered (cat -n style, like codegraph_wx_explore and Read) so the
       // agent can cite/edit exact lines without re-Reading the file for them.
       const bounded = boundNumberedSource(code, node.startLine || 1, sourceCharBudget);
       sourceTruncated = bounded.truncated;

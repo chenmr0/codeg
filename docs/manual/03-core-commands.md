@@ -10,7 +10,7 @@
 | `codegraph uninstall` | 从 AI 助手移除 CodeGraph |
 | `codegraph upgrade` | 检查 / 安装新版本 |
 | `codegraph init [path]` | 项目初始化 + 构建索引 |
-| `codegraph uninit [path]` | 删除项目的 `.codegraph/` |
+| `codegraph uninit [path]` | 删除项目的 `.codegraph-wx/` |
 | `codegraph index [path]` | 全量（重新）索引 |
 | `codegraph sync [path]` | 增量同步 |
 | `codegraph status [path]` | 查看索引统计 |
@@ -122,7 +122,7 @@ codegraph sync --quiet      # git hook 里用，只输出必要信息
 ### `codegraph uninit` —— 删除索引
 
 ```bash
-codegraph uninit            # 删除 .codegraph/（会确认）
+codegraph uninit            # 删除 .codegraph-wx/（会确认）
 codegraph uninit --force    # 跳过确认
 ```
 

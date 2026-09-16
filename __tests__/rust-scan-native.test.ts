@@ -82,7 +82,7 @@ describe.skipIf(!available)('real Rust scanner differential gate', () => {
 
   it('skips all CodeGraph data directories and the active override', () => {
     vi.stubEnv('CODEGRAPH_DIR', 'custom-index');
-    write('.codegraph/a.c'); write('.codegraph-other/a.c'); write('custom-index/a.c'); write('src/a.c');
+    write('.codegraph-wx/a.c'); write('.codegraph-other/a.c'); write('custom-index/a.c'); write('src/a.c');
     compare();
   });
 

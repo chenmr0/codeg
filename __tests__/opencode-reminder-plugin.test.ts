@@ -13,7 +13,7 @@ describe('OpenCode CodeGraph native-tool reminder plugin', () => {
 
   beforeEach(async () => {
     dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cg-opencode-reminder-'));
-    const pluginFile = path.join(dir, 'codegraph-reminder.mjs');
+    const pluginFile = path.join(dir, 'codegraph-wx-reminder.mjs');
     fs.writeFileSync(pluginFile, OPENCODE_REMINDER_PLUGIN_SOURCE);
     const pluginModule = await import(`${pathToFileURL(pluginFile).href}?test=${Date.now()}-${Math.random()}`);
     const plugin = await pluginModule.CodeGraphReminderPlugin({ directory: dir, worktree: dir });
@@ -36,7 +36,7 @@ describe('OpenCode CodeGraph native-tool reminder plugin', () => {
   });
 
   it('injects a real system reminder after indexed source read without changing tool output', async () => {
-    fs.mkdirSync(path.join(dir, '.codegraph'));
+    fs.mkdirSync(path.join(dir, '.codegraph-wx'));
     const first = { output: 'int main() {}', title: '', metadata: {} };
     await afterHook({ tool: 'read', sessionID: 's1', args: { filePath: 'main.cpp' } }, first);
     expect(first.output).toBe('int main() {}');
@@ -44,8 +44,8 @@ describe('OpenCode CodeGraph native-tool reminder plugin', () => {
     const firstSystem = { system: ['base'] };
     await systemHook({ sessionID: 's1' }, firstSystem);
     expect(firstSystem.system).toHaveLength(2);
-    expect(firstSystem.system[1]).toContain('[CODEGRAPH_DYNAMIC_SYSTEM_REMINDER]');
-    expect(firstSystem.system[1]).toContain('优先使用 CodeGraph系列工具，而不是read、grep、Bash源码搜索等。');
+    expect(firstSystem.system[1]).toContain('[CODEGRAPH_WX_DYNAMIC_SYSTEM_REMINDER]');
+    expect(firstSystem.system[1]).toContain('优先使用 CodeGraph wx 系列工具，而不是read、grep、Bash源码搜索等。');
     expect(firstSystem.system[1]).not.toContain('<system-reminder>');
 
     // The reminder stays armed across model requests so an auxiliary model
@@ -60,7 +60,7 @@ describe('OpenCode CodeGraph native-tool reminder plugin', () => {
   });
 
   it('does not arm the reminder for docs', async () => {
-    fs.mkdirSync(path.join(dir, '.codegraph'));
+    fs.mkdirSync(path.join(dir, '.codegraph-wx'));
 
     const docs = { output: '# Guide', title: '', metadata: {} };
     await afterHook({ tool: 'read', sessionID: 's1', args: { filePath: 'README.md' } }, docs);
@@ -70,15 +70,19 @@ describe('OpenCode CodeGraph native-tool reminder plugin', () => {
   });
 
   it('recognizes source paths in grep output and clears or re-arms around CodeGraph use', async () => {
-    fs.mkdirSync(path.join(dir, '.codegraph'));
+    fs.mkdirSync(path.join(dir, '.codegraph-wx'));
     const grep = { output: 'src/channel.cpp:42: get_dfc()', title: '', metadata: {} };
     await afterHook({ tool: 'grep', sessionID: 's1', args: { path: 'src', pattern: 'get_dfc' } }, grep);
     const armed = { system: ['base'] };
     await systemHook({ sessionID: 's1' }, armed);
-    expect(armed.system.join('\n')).toContain('优先使用 CodeGraph系列工具');
+    expect(armed.system.join('\n')).toContain('优先使用 CodeGraph wx 系列工具');
     expect(grep.output).toBe('src/channel.cpp:42: get_dfc()');
 
-    await afterHook({ tool: 'codegraph_search', sessionID: 's1', args: { query: 'get_dfc' } }, { output: 'hit' });
+    await afterHook({ tool: 'codegraph_search', sessionID: 's1', args: { query: 'get_dfc' } }, { output: 'community hit' });
+    const stillArmed = { system: ['base'] };
+    await systemHook({ sessionID: 's1' }, stillArmed);
+    expect(stillArmed.system.join('\n')).toContain('优先使用 CodeGraph wx 系列工具');
+    await afterHook({ tool: 'codegraph_wx_search', sessionID: 's1', args: { query: 'get_dfc' } }, { output: 'hit' });
     const cleared = { system: ['base'] };
     await systemHook({ sessionID: 's1' }, cleared);
     expect(cleared.system).toEqual(['base']);
@@ -87,11 +91,11 @@ describe('OpenCode CodeGraph native-tool reminder plugin', () => {
     await afterHook({ tool: 'grep', sessionID: 's1', args: { path: 'src', pattern: 'get_dfc' } }, nextGrep);
     const rearmed = { system: ['base'] };
     await systemHook({ sessionID: 's1' }, rearmed);
-    expect(rearmed.system.join('\n')).toContain('优先使用 CodeGraph系列工具');
+    expect(rearmed.system.join('\n')).toContain('优先使用 CodeGraph wx 系列工具');
   });
 
   it('recognizes Bash source discovery without intercepting build commands', async () => {
-    fs.mkdirSync(path.join(dir, '.codegraph'));
+    fs.mkdirSync(path.join(dir, '.codegraph-wx'));
 
     const listing = { output: 'src/channel.cpp\nsrc/channel.h', title: '', metadata: {} };
     await afterHook({ tool: 'bash', sessionID: 's1', args: { command: 'Get-ChildItem src' } }, listing);
@@ -99,7 +103,7 @@ describe('OpenCode CodeGraph native-tool reminder plugin', () => {
     await systemHook({ sessionID: 's1' }, armed);
     expect(armed.system.join('\n')).toContain('Bash源码搜索');
 
-    await afterHook({ tool: 'codegraph_files', sessionID: 's1', args: { path: 'src' } }, { output: 'hit' });
+    await afterHook({ tool: 'codegraph_wx_files', sessionID: 's1', args: { path: 'src' } }, { output: 'hit' });
     const build = { output: 'src/channel.cpp: compiling', title: '', metadata: {} };
     await afterHook({ tool: 'bash', sessionID: 's1', args: { command: 'npm run build' } }, build);
     const notArmed = { system: ['base'] };
@@ -110,11 +114,11 @@ describe('OpenCode CodeGraph native-tool reminder plugin', () => {
     await afterHook({ tool: 'bash', sessionID: 's1', args: { command: 'Get-Content src/channel.cpp' } }, exactRead);
     const rearmed = { system: ['base'] };
     await systemHook({ sessionID: 's1' }, rearmed);
-    expect(rearmed.system.join('\n')).toContain('优先使用 CodeGraph系列工具');
+    expect(rearmed.system.join('\n')).toContain('优先使用 CodeGraph wx 系列工具');
   });
 
   it('does not redirect a read of a file edited in the same session', async () => {
-    fs.mkdirSync(path.join(dir, '.codegraph'));
+    fs.mkdirSync(path.join(dir, '.codegraph-wx'));
     await afterHook({ tool: 'edit', sessionID: 's1', args: { filePath: 'main.cpp' } }, { output: 'done' });
     const output = { output: 'new source', title: '', metadata: {} };
     await afterHook({ tool: 'read', sessionID: 's1', args: { filePath: 'main.cpp' } }, output);
@@ -124,7 +128,7 @@ describe('OpenCode CodeGraph native-tool reminder plugin', () => {
   });
 
   it('clears pending reminders when implementation starts or the session ends', async () => {
-    fs.mkdirSync(path.join(dir, '.codegraph'));
+    fs.mkdirSync(path.join(dir, '.codegraph-wx'));
     const read = () => afterHook(
       { tool: 'read', sessionID: 's1', args: { filePath: 'main.cpp' } },
       { output: 'source', title: '', metadata: {} },

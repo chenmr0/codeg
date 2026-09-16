@@ -195,7 +195,7 @@ program
 /**
  * Resolve project path from argument or current directory
  * Walks up parent directories to find nearest initialized CodeGraph project
- * (must have .codegraph/codegraph.db, not just .codegraph/lessons.db)
+ * (must have .codegraph-wx/codegraph.db, not just .codegraph-wx/lessons.db)
  */
 function resolveProjectPath(pathArg?: string): string {
   const absolutePath = path.resolve(pathArg || process.cwd());
@@ -206,7 +206,7 @@ function resolveProjectPath(pathArg?: string): string {
   }
 
   // Walk up to find nearest parent with CodeGraph initialized
-  // Note: findNearestCodeGraphRoot finds any .codegraph folder, but we need one with codegraph.db
+  // Note: findNearestCodeGraphRoot finds any .codegraph-wx folder, but we need one with codegraph.db
   let current = absolutePath;
   const root = path.parse(current).root;
 
@@ -503,7 +503,7 @@ function printIndexResult(clack: typeof import('@clack/prompts'), result: IndexR
 
     if (projectPath) {
       writeErrorLog(projectPath, result.errors);
-      clack.log.info('See .codegraph/errors.log for details');
+      clack.log.info('See .codegraph-wx/errors.log for details');
     }
 
     if (result.success && result.filesIndexed > 0 && result.complete !== false) {
@@ -511,7 +511,7 @@ function printIndexResult(clack: typeof import('@clack/prompts'), result: IndexR
     }
   } else if (warningCount > 0 && projectPath) {
     writeErrorLog(projectPath, result.errors);
-    clack.log.info('See .codegraph/errors.log for warning details');
+    clack.log.info('See .codegraph-wx/errors.log for warning details');
   } else if (projectPath) {
     const logPath = path.join(getCodeGraphDir(projectPath), 'errors.log');
     if (fs.existsSync(logPath)) {
@@ -521,7 +521,7 @@ function printIndexResult(clack: typeof import('@clack/prompts'), result: IndexR
 }
 
 /**
- * Write detailed error log to .codegraph/errors.log
+ * Write detailed error log to .codegraph-wx/errors.log
  */
 function writeErrorLog(projectPath: string, errors: Array<{ message: string; filePath?: string; severity: string; code?: string }>): void {
   const cgDir = getCodeGraphDir(projectPath);
@@ -645,7 +645,7 @@ program
  */
 program
   .command('uninit [path]')
-  .description('Remove CodeGraph from a project (deletes .codegraph/ directory)')
+  .description('Remove CodeGraph from a project (deletes .codegraph-wx/ directory)')
   .option('-f, --force', 'Skip confirmation prompt')
   .action(async (pathArg: string | undefined, options: { force?: boolean }) => {
     const projectPath = resolveProjectPath(pathArg);
@@ -1884,7 +1884,7 @@ program
   .option('-t, --target <ids>', 'Target agent(s): comma-separated ids, or "auto"|"all"|"none". Default: prompt')
   .option('-l, --location <where>', 'Install location: "global" or "local". Default: prompt')
   .option('-y, --yes', 'Non-interactive: defaults to --location=global --target=auto, auto-allow on')
-  .option('--no-permissions', 'Skip writing the auto-allow permissions list (Claude Code only)')
+  .option('--no-permissions', 'Remove managed auto-allow rules without adding new ones (Claude Code / CodeAgent)')
   .option('--print-config <id>', 'Print MCP config snippet for the named agent and exit (no file writes)')
   .action(async (opts: {
     target?: string;
@@ -1943,7 +1943,7 @@ program
  * Inverse of `install`. Removes the codegraph MCP server entry,
  * instructions block, and permissions from every agent (or a
  * `--target` subset). Prompts global-vs-local when not given. Does NOT
- * delete the `.codegraph/` index — that's `codegraph uninit`.
+ * delete the `.codegraph-wx/` index — that's `codegraph uninit`.
  */
 program
   .command('uninstall')

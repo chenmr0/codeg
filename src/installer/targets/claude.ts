@@ -28,14 +28,16 @@ import {
   WriteResult,
 } from './types';
 import {
-  getCodeGraphPermissions,
+  reconcilePermissions,
+  isManagedPermission,
   getMcpServerConfig,
-  jsonDeepEqual,
   readJsonFile,
   removeMarkedSection,
   upsertInstructionsEntry,
   writeJsonFile,
 } from './shared';
+import { removeConfigFile, transactionalTarget, resetMcpEntry } from './shared';
+import { recordCleanup } from '../config-transaction';
 import {
   CODEGRAPH_SECTION_END,
   CODEGRAPH_SECTION_START,
@@ -83,7 +85,7 @@ class ClaudeCodeTarget implements AgentTarget {
   detect(loc: Location): DetectionResult {
     const mcpPath = mcpJsonPath(loc);
     const config = readJsonFile(mcpPath);
-    const alreadyConfigured = !!config.mcpServers?.codegraph;
+    const alreadyConfigured = !!config.mcpServers?.codegraph_wx;
     // For "installed" we infer from the existence of either the dir
     // (global) or the project marker file (local). Cheap and avoids
     // shelling out to `claude --version`.
@@ -107,10 +109,8 @@ class ClaudeCodeTarget implements AgentTarget {
       if (migrated) files.push(migrated);
     }
 
-    // 2. Permissions (only when autoAllow)
-    if (opts.autoAllow) {
-      files.push(writePermissionsEntry(loc));
-    }
+    // Reset managed allows even when auto-allow is disabled.
+    files.push(writePermissionsEntry(loc, opts.autoAllow));
 
     // 2b. Strip stale auto-sync hooks left by a pre-0.8 install. Those
     // versions wrote `codegraph mark-dirty` / `sync-if-dirty` hooks to
@@ -137,11 +137,7 @@ class ClaudeCodeTarget implements AgentTarget {
     // 1. MCP server entry
     const mcpPath = mcpJsonPath(loc);
     const config = readJsonFile(mcpPath);
-    if (config.mcpServers?.codegraph) {
-      delete config.mcpServers.codegraph;
-      if (Object.keys(config.mcpServers).length === 0) {
-        delete config.mcpServers;
-      }
+    if (resetMcpEntry(config, undefined)) {
       writeJsonFile(mcpPath, config);
       files.push({ path: mcpPath, action: 'removed' });
     } else {
@@ -161,7 +157,7 @@ class ClaudeCodeTarget implements AgentTarget {
     if (Array.isArray(settings.permissions?.allow)) {
       const before = settings.permissions.allow.length;
       settings.permissions.allow = settings.permissions.allow.filter(
-        (p: string) => !p.startsWith('mcp__codegraph__'),
+        (p: unknown) => !isManagedPermission(p),
       );
       if (settings.permissions.allow.length !== before) {
         if (settings.permissions.allow.length === 0) {
@@ -195,7 +191,7 @@ class ClaudeCodeTarget implements AgentTarget {
 
   printConfig(loc: Location): string {
     const target = mcpJsonPath(loc);
-    const snippet = JSON.stringify({ mcpServers: { codegraph: getMcpServerConfig() } }, null, 2);
+    const snippet = JSON.stringify({ mcpServers: { codegraph_wx: getMcpServerConfig() } }, null, 2);
     return `# Add to ${target}\n\n${snippet}\n`;
   }
 
@@ -214,10 +210,10 @@ class ClaudeCodeTarget implements AgentTarget {
 export function writeMcpEntry(loc: Location): WriteResult['files'][number] {
   const file = mcpJsonPath(loc);
   const existing = readJsonFile(file);
-  const before = existing.mcpServers?.codegraph;
+  const before = existing.mcpServers?.codegraph_wx;
   const after = getMcpServerConfig();
 
-  if (jsonDeepEqual(before, after)) {
+  if (!resetMcpEntry(existing, after)) {
     // Already exactly what we'd write — preserve byte-identical file.
     return { path: file, action: 'unchanged' };
   }
@@ -229,8 +225,6 @@ export function writeMcpEntry(loc: Location): WriteResult['files'][number] {
   // idiom (empty-content => 'created') because its config.toml is
   // ours alone to manage.
   const action: 'created' | 'updated' = before ? 'updated' : (fs.existsSync(file) ? 'updated' : 'created');
-  if (!existing.mcpServers) existing.mcpServers = {};
-  existing.mcpServers.codegraph = after;
   writeJsonFile(file, existing);
   return { path: file, action };
 }
@@ -247,35 +241,19 @@ function cleanupLegacyLocalMcp(): WriteResult['files'][number] | null {
   const file = legacyLocalMcpPath();
   if (!fs.existsSync(file)) return null;
   const config = readJsonFile(file);
-  if (!config.mcpServers?.codegraph) return null;
-  delete config.mcpServers.codegraph;
-  if (Object.keys(config.mcpServers).length === 0) delete config.mcpServers;
+  if (!resetMcpEntry(config, undefined)) return null;
   if (Object.keys(config).length === 0) {
-    try { fs.unlinkSync(file); } catch { /* ignore */ }
+    removeConfigFile(file);
   } else {
     writeJsonFile(file, config);
   }
   return { path: file, action: 'removed' };
 }
 
-/**
- * True when a Claude Code hook `command` is one of the auto-sync hooks
- * a pre-0.8 install wrote. Those installers added
- * `PostToolUse(Edit|Write) → codegraph mark-dirty` and
- * `Stop → codegraph sync-if-dirty` (local builds used the
- * `npx @colbymchenry/codegraph …` form, which still contains the
- * `codegraph <subcommand>` substring). Both subcommands were later
- * removed from the CLI, so the Stop hook fails every turn with
- * "unknown command 'sync-if-dirty'". Matching on the codegraph-scoped
- * subcommand keeps unrelated user hooks (e.g. GitKraken's
- * `gk ai hook run`) untouched.
- */
+/** Recognize legacy installer commands, without matching unrelated script text. */
 function isLegacyCodegraphHookCommand(command: unknown): boolean {
   if (typeof command !== 'string') return false;
-  return (
-    command.includes('codegraph mark-dirty') ||
-    command.includes('codegraph sync-if-dirty')
-  );
+  return /^\s*(?:codegraph(?:-wx)?(?:\.cmd)?|npx(?:\.cmd)?\s+(?:-y\s+|--yes\s+)?(?:@sdd\/codegraph-wx|@colbymchenry\/codegraph)(?:@[^\s]+)?)\s+(?:mark-dirty|sync-if-dirty)(?=\s|$)/.test(command);
 }
 
 /**
@@ -293,8 +271,7 @@ function isLegacyCodegraphHookCommand(command: unknown): boolean {
  * Exported so it can be unit-tested directly and reused by both
  * `install` (an upgrade self-heals) and `uninstall`.
  */
-export function cleanupLegacyHooks(loc: Location): WriteResult['files'][number] {
-  const file = settingsJsonPath(loc);
+export function cleanupLegacyHooks(loc: Location, file = settingsJsonPath(loc)): WriteResult['files'][number] {
   if (!fs.existsSync(file)) return { path: file, action: 'not-found' };
 
   const settings = readJsonFile(file);
@@ -304,7 +281,8 @@ export function cleanupLegacyHooks(loc: Location): WriteResult['files'][number] 
   }
 
   // Pass 1: drop the legacy command(s) from inside every matcher group.
-  let removedAny = false;
+  let removedCount = 0;
+  const emptiedGroups = new Set<unknown>();
   for (const event of Object.keys(hooks)) {
     const groups = hooks[event];
     if (!Array.isArray(groups)) continue;
@@ -314,62 +292,37 @@ export function cleanupLegacyHooks(loc: Location): WriteResult['files'][number] 
       group.hooks = group.hooks.filter(
         (h: any) => !isLegacyCodegraphHookCommand(h?.command),
       );
-      if (group.hooks.length !== before) removedAny = true;
+      removedCount += before - group.hooks.length;
+      if (before > 0 && group.hooks.length === 0) emptiedGroups.add(group);
     }
   }
 
-  if (!removedAny) return { path: file, action: 'unchanged' };
+  if (!removedCount) return { path: file, action: 'unchanged' };
 
   // Pass 2: prune empty matcher groups, then events with no groups
-  // left, then an empty top-level `hooks`. Guarded by `removedAny` so
+  // left, then an empty top-level `hooks`. Guarded by the removal count so
   // we never restructure a settings.json that had no codegraph hooks.
   for (const event of Object.keys(hooks)) {
     const groups = hooks[event];
     if (!Array.isArray(groups)) continue;
     hooks[event] = groups.filter(
-      (g: any) => !(g && Array.isArray(g.hooks) && g.hooks.length === 0),
+      (g: any) => !emptiedGroups.has(g),
     );
     if (hooks[event].length === 0) delete hooks[event];
   }
   if (Object.keys(hooks).length === 0) delete settings.hooks;
 
   writeJsonFile(file, settings);
+  recordCleanup(`Removed ${removedCount} legacy CodeGraph hook commands from ${file}.`);
   return { path: file, action: 'removed' };
 }
 
-export function writePermissionsEntry(loc: Location): WriteResult['files'][number] {
-  const file = settingsJsonPath(loc);
-  const settings = readJsonFile(file);
-  const created = !fs.existsSync(file);
-
-  if (!settings.permissions) settings.permissions = {};
-  if (!Array.isArray(settings.permissions.allow)) settings.permissions.allow = [];
-
-  const want = getCodeGraphPermissions();
-  const before = [...settings.permissions.allow];
-  settings.permissions.allow = settings.permissions.allow.filter(
-    (perm: unknown) => typeof perm !== 'string' || !perm.startsWith('mcp__codegraph__codegraph_'),
-  );
-  for (const perm of want) {
-    if (!settings.permissions.allow.includes(perm)) {
-      settings.permissions.allow.push(perm);
-    }
-  }
-  if (jsonDeepEqual(before, settings.permissions.allow) && !created) {
-    return { path: file, action: 'unchanged' };
-  }
-  writeJsonFile(file, settings);
-  return { path: file, action: created ? 'created' : 'updated' };
+export function writePermissionsEntry(loc: Location, autoAllow = true): WriteResult['files'][number] {
+  return reconcilePermissions(settingsJsonPath(loc), autoAllow);
 }
 
 /**
- * Strip the marker-delimited CodeGraph block from CLAUDE.md if a prior
- * install wrote one. Codegraph no longer maintains an instructions file
- * (issue #529) — the MCP server's `initialize` instructions are the
- * single source of truth — so both install (self-heal on upgrade) and
- * uninstall call this. `removeMarkedSection` returns `not-found`/`kept`
- * when there's nothing to strip; the install caller drops those from
- * the report so a fresh install stays quiet.
+ * Uninstall removes all new/old managed blocks and preserves outside text.
  */
 export function removeInstructionsEntry(loc: Location): WriteResult['files'][number] {
   const file = instructionsPath(loc);
@@ -377,4 +330,4 @@ export function removeInstructionsEntry(loc: Location): WriteResult['files'][num
   return { path: file, action };
 }
 
-export const claudeTarget: AgentTarget = new ClaudeCodeTarget();
+export const claudeTarget: AgentTarget = transactionalTarget(new ClaudeCodeTarget());

@@ -1,28 +1,28 @@
 /**
  * Directory Management
  *
- * Manages the .codegraph/ directory structure for CodeGraph data.
+ * Manages the .codegraph-wx/ directory structure for CodeGraph data.
  */
 
 import * as fs from 'fs';
 import * as path from 'path';
 
 /** The default per-project data directory name. */
-const DEFAULT_CODEGRAPH_DIR = '.codegraph';
+const DEFAULT_CODEGRAPH_DIR = '.codegraph-wx';
 
 let warnedBadDirName = false;
 
 /**
  * Resolve the per-project data directory name, honoring the `CODEGRAPH_DIR`
- * environment override (default `.codegraph`). The override is a single path
+ * environment override (default `.codegraph-wx`). The override is a single path
  * segment that lives in the project root.
  *
  * Why this exists: two environments that share one working tree must NOT share
- * one `.codegraph/` — most concretely Windows-native and WSL (issue #636). The
- * daemon lockfile (`.codegraph/daemon.pid`) records a platform-specific pid and
+ * one `.codegraph-wx/` — most concretely Windows-native and WSL (issue #636). The
+ * daemon lockfile (`.codegraph-wx/daemon.pid`) records a platform-specific pid and
  * socket path (a Windows named pipe vs a WSL Unix socket), and SQLite file
  * locking across the WSL2 ↔ Windows filesystem boundary is unreliable, so two
- * daemons sharing one index risks corruption. Setting `CODEGRAPH_DIR=.codegraph-win`
+ * daemons sharing one index risks corruption. Setting `CODEGRAPH_DIR=.codegraph-wx-win`
  * on one side gives each environment its own index in the same tree.
  *
  * Read live (not captured at load) so it is both process-accurate and testable.
@@ -65,8 +65,8 @@ export const CODEGRAPH_DIR = codeGraphDirName();
 
 /**
  * Is `name` (a single path segment) a CodeGraph data directory? Matches the
- * default `.codegraph`, the active `CODEGRAPH_DIR` override, and any
- * `.codegraph-*` sibling. File-watching and the indexer skip ALL of these, so
+ * default `.codegraph-wx`, the active `CODEGRAPH_DIR` override, and any
+ * `.codegraph-wx-*` sibling. File-watching and the indexer skip ALL of these, so
  * when two environments share one working tree (Windows + WSL, issue #636)
  * neither indexes or watches the other's index directory.
  */
@@ -79,7 +79,7 @@ export function isCodeGraphDataDir(name: string): boolean {
 }
 
 /**
- * Get the .codegraph directory path for a project
+ * Get the .codegraph-wx directory path for a project
  */
 export function getCodeGraphDir(projectRoot: string): string {
   return path.join(projectRoot, codeGraphDirName());
@@ -87,26 +87,26 @@ export function getCodeGraphDir(projectRoot: string): string {
 
 /**
  * Check if a project has been initialized with CodeGraph
- * Requires both .codegraph/ directory AND codegraph.db to exist
+ * Requires both .codegraph-wx/ directory AND codegraph.db to exist
  */
 export function isInitialized(projectRoot: string): boolean {
   const codegraphDir = getCodeGraphDir(projectRoot);
   if (!fs.existsSync(codegraphDir) || !fs.statSync(codegraphDir).isDirectory()) {
     return false;
   }
-  // Must have codegraph.db, not just .codegraph folder
+  // Must have codegraph.db, not just .codegraph-wx folder
   const dbPath = path.join(codegraphDir, 'codegraph.db');
   return fs.existsSync(dbPath);
 }
 
 /**
- * Find the nearest parent directory containing .codegraph/
+ * Find the nearest parent directory containing .codegraph-wx/
  *
  * Walks up from the given path to find a CodeGraph-initialized project,
  * similar to how git finds .git/ directories.
  *
  * @param startPath - Directory to start searching from
- * @returns The project root containing .codegraph/, or null if not found
+ * @returns The project root containing .codegraph-wx/, or null if not found
  */
 export function findNearestCodeGraphRoot(startPath: string): string | null {
   let current = path.resolve(startPath);
@@ -130,15 +130,15 @@ export function findNearestCodeGraphRoot(startPath: string): string | null {
 }
 
 /**
- * Create the .codegraph directory structure
- * Note: Only throws if codegraph.db already exists, not just if .codegraph/ exists.
+ * Create the .codegraph-wx directory structure
+ * Note: Only throws if codegraph.db already exists, not just if .codegraph-wx/ exists.
  */
 export function createDirectory(projectRoot: string): void {
   const codegraphDir = getCodeGraphDir(projectRoot);
   const dbPath = path.join(codegraphDir, 'codegraph.db');
 
   // Only throw if CodeGraph is actually initialized (db exists)
-  // .codegraph/ folder alone is fine
+  // .codegraph-wx/ folder alone is fine
   if (fs.existsSync(dbPath)) {
     throw new Error(`CodeGraph already initialized in ${projectRoot}`);
   }
@@ -146,11 +146,11 @@ export function createDirectory(projectRoot: string): void {
   // Create main directory (if it doesn't exist)
   fs.mkdirSync(codegraphDir, { recursive: true });
 
-  // Create .gitignore inside .codegraph (if it doesn't exist)
+  // Create .gitignore inside .codegraph-wx (if it doesn't exist)
   const gitignorePath = path.join(codegraphDir, '.gitignore');
   if (!fs.existsSync(gitignorePath)) {
     const gitignoreContent = `# CodeGraph data files — local to each machine, not for committing.
-# Ignore everything in .codegraph/ except this file itself, so transient
+# Ignore everything in .codegraph-wx/ except this file itself, so transient
 # files (the database, daemon.pid, sockets, logs) never show up in git.
 *
 !.gitignore
@@ -161,7 +161,7 @@ export function createDirectory(projectRoot: string): void {
 }
 
 /**
- * Remove the .codegraph directory
+ * Remove the .codegraph-wx directory
  */
 export function removeDirectory(projectRoot: string): void {
   const codegraphDir = getCodeGraphDir(projectRoot);
@@ -170,7 +170,7 @@ export function removeDirectory(projectRoot: string): void {
     return;
   }
 
-  // Verify .codegraph is a real directory, not a symlink pointing elsewhere
+  // Verify .codegraph-wx is a real directory, not a symlink pointing elsewhere
   const lstat = fs.lstatSync(codegraphDir);
   if (lstat.isSymbolicLink()) {
     // Only remove the symlink itself, never follow it for recursive delete
@@ -189,7 +189,7 @@ export function removeDirectory(projectRoot: string): void {
 }
 
 /**
- * Get all files in the .codegraph directory
+ * Get all files in the .codegraph-wx directory
  */
 export function listDirectoryContents(projectRoot: string): string[] {
   const codegraphDir = getCodeGraphDir(projectRoot);
@@ -206,7 +206,7 @@ export function listDirectoryContents(projectRoot: string): string[] {
     for (const entry of entries) {
       const relativePath = prefix ? `${prefix}/${entry.name}` : entry.name;
 
-      // Skip symlinks to prevent following links outside .codegraph
+      // Skip symlinks to prevent following links outside .codegraph-wx
       if (entry.isSymbolicLink()) {
         continue;
       }
@@ -224,7 +224,7 @@ export function listDirectoryContents(projectRoot: string): string[] {
 }
 
 /**
- * Get the total size of the .codegraph directory in bytes
+ * Get the total size of the .codegraph-wx directory in bytes
  */
 export function getDirectorySize(projectRoot: string): number {
   const codegraphDir = getCodeGraphDir(projectRoot);
@@ -239,7 +239,7 @@ export function getDirectorySize(projectRoot: string): number {
     const entries = fs.readdirSync(dir, { withFileTypes: true });
 
     for (const entry of entries) {
-      // Skip symlinks to prevent following links outside .codegraph
+      // Skip symlinks to prevent following links outside .codegraph-wx
       if (entry.isSymbolicLink()) {
         continue;
       }
@@ -260,7 +260,7 @@ export function getDirectorySize(projectRoot: string): number {
 }
 
 /**
- * Ensure a subdirectory exists within .codegraph
+ * Ensure a subdirectory exists within .codegraph-wx
  */
 export function ensureSubdirectory(projectRoot: string, subdirName: string): string {
   if (subdirName.includes('..') || subdirName.includes(path.sep) || subdirName.includes('/')) {
@@ -277,7 +277,7 @@ export function ensureSubdirectory(projectRoot: string, subdirName: string): str
 }
 
 /**
- * Check if the .codegraph directory has valid structure
+ * Check if the .codegraph-wx directory has valid structure
  */
 export function validateDirectory(projectRoot: string): {
   valid: boolean;
@@ -292,7 +292,7 @@ export function validateDirectory(projectRoot: string): {
   }
 
   if (!fs.statSync(codegraphDir).isDirectory()) {
-    errors.push('.codegraph exists but is not a directory');
+    errors.push('.codegraph-wx exists but is not a directory');
     return { valid: false, errors };
   }
 
@@ -300,11 +300,11 @@ export function validateDirectory(projectRoot: string): {
   const gitignorePath = path.join(codegraphDir, '.gitignore');
   if (!fs.existsSync(gitignorePath)) {
     try {
-      const gitignoreContent = `# CodeGraph data files — local to each machine, not for committing.\n# Ignore everything in .codegraph/ except this file itself, so transient\n# files (the database, daemon.pid, sockets, logs) never show up in git.\n*\n!.gitignore\n`;
+      const gitignoreContent = `# CodeGraph data files — local to each machine, not for committing.\n# Ignore everything in .codegraph-wx/ except this file itself, so transient\n# files (the database, daemon.pid, sockets, logs) never show up in git.\n*\n!.gitignore\n`;
       fs.writeFileSync(gitignorePath, gitignoreContent, 'utf-8');
     } catch {
       // Non-fatal: warn but don't block
-      errors.push('.gitignore missing in .codegraph directory and could not be created');
+      errors.push('.gitignore missing in .codegraph-wx directory and could not be created');
     }
   }
 

@@ -9,7 +9,7 @@
  * `installer-targets.test.ts`.)
  */
 
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
@@ -54,36 +54,16 @@ describe('Installer Config Writer', () => {
 
       const content = JSON.parse(fs.readFileSync(mcpJson, 'utf-8'));
       expect(content.mcpServers).toBeDefined();
-      expect(content.mcpServers.codegraph).toBeDefined();
+      expect(content.mcpServers.codegraph_wx).toBeDefined();
     });
 
-    it('should handle corrupted JSON by creating backup', () => {
-      // Create a corrupted .mcp.json
+    it('rejects corrupted JSON and preserves the original file', () => {
       const mcpJson = path.join(tempDir, '.mcp.json');
-      fs.writeFileSync(mcpJson, '{ this is not valid json !!!');
-
-      // Suppress console.warn during test
-      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-
-      // Should not throw - gracefully handles corruption
-      writeMcpConfig('local');
-
-      // Should have warned
-      expect(warnSpy).toHaveBeenCalled();
-      const warnMsg = warnSpy.mock.calls[0][0];
-      expect(warnMsg).toContain('Warning');
-
-      // Backup should exist
-      expect(fs.existsSync(mcpJson + '.backup')).toBe(true);
-      // Original backup content should be the corrupted content
-      const backup = fs.readFileSync(mcpJson + '.backup', 'utf-8');
-      expect(backup).toContain('this is not valid json');
-
-      // New file should be valid JSON with codegraph config
-      const content = JSON.parse(fs.readFileSync(mcpJson, 'utf-8'));
-      expect(content.mcpServers.codegraph).toBeDefined();
-
-      warnSpy.mockRestore();
+      const original = '{ this is not valid json !!!';
+      fs.writeFileSync(mcpJson, original);
+      expect(() => writeMcpConfig('local')).toThrow(/invalid JSON/);
+      expect(fs.readFileSync(mcpJson, 'utf8')).toBe(original);
+      expect(fs.existsSync(mcpJson + '.backup')).toBe(false);
     });
 
     it('should preserve existing valid config when adding codegraph', () => {
@@ -96,7 +76,7 @@ describe('Installer Config Writer', () => {
       writeMcpConfig('local');
 
       const content = JSON.parse(fs.readFileSync(mcpJson, 'utf-8'));
-      expect(content.mcpServers.codegraph).toBeDefined();
+      expect(content.mcpServers.codegraph_wx).toBeDefined();
       expect(content.mcpServers.other).toBeDefined();
       expect(content.customField).toBe('preserved');
     });

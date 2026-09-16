@@ -4,7 +4,7 @@
  *   - MCP server entry to `~/.cursor/mcp.json` (global) or
  *     `./.cursor/mcp.json` (local). Same `{mcpServers: {...}}` shape
  *     as Claude.
- *   - Instructions to `./.cursor/rules/codegraph.mdc` (project-local
+ *   - Instructions to `./.cursor/rules/codegraph-wx.mdc` (project-local
  *     ONLY). Cursor's rules system is a project-scoped surface;
  *     global cursor rules aren't a stable convention as of 2026-05.
  *     For `--location=global`, only mcp.json is written.
@@ -15,7 +15,7 @@
  * that ISN'T the workspace root AND doesn't pass `rootUri` /
  * `workspaceFolders` in the MCP initialize call. The codegraph MCP
  * server's `process.cwd()` fallback therefore misses the workspace's
- * `.codegraph/` and reports "not initialized" on every tool call.
+ * `.codegraph-wx/` and reports "not initialized" on every tool call.
  *
  * So we inject `--path` into the args ourselves:
  *
@@ -64,7 +64,7 @@ function mcpJsonPath(loc: Location): string {
  * root. There is no global equivalent.
  */
 function rulesPath(): string {
-  return path.join(process.cwd(), '.cursor', 'rules', 'codegraph.mdc');
+  return path.join(process.cwd(), '.cursor', 'rules', 'codegraph-wx.mdc');
 }
 
 /**
@@ -96,7 +96,7 @@ class CursorTarget implements AgentTarget {
   detect(loc: Location): DetectionResult {
     const mcpPath = mcpJsonPath(loc);
     const config = readJsonFile(mcpPath);
-    const alreadyConfigured = !!config.mcpServers?.codegraph;
+    const alreadyConfigured = !!config.mcpServers?.codegraph_wx;
     // "Installed" heuristic: does ~/.cursor exist (global) or has the
     // user opted into a project-local cursor config dir?
     const installed = loc === 'global'
@@ -110,7 +110,7 @@ class CursorTarget implements AgentTarget {
 
     files.push(writeMcpEntry(loc));
 
-    // We no longer write `.cursor/rules/codegraph.mdc` — the codegraph
+    // We no longer write `.cursor/rules/codegraph-wx.mdc` — the codegraph
     // usage guidance ships in the MCP server's `initialize` response,
     // the single source of truth (issue #529). Strip a rules file a
     // previous install created so an upgrade self-heals.
@@ -130,8 +130,8 @@ class CursorTarget implements AgentTarget {
 
     const mcpPath = mcpJsonPath(loc);
     const config = readJsonFile(mcpPath);
-    if (config.mcpServers?.codegraph) {
-      delete config.mcpServers.codegraph;
+    if (config.mcpServers?.codegraph_wx) {
+      delete config.mcpServers.codegraph_wx;
       if (Object.keys(config.mcpServers).length === 0) {
         delete config.mcpServers;
       }
@@ -150,7 +150,7 @@ class CursorTarget implements AgentTarget {
 
   printConfig(loc: Location): string {
     const target = mcpJsonPath(loc);
-    const snippet = JSON.stringify({ mcpServers: { codegraph: buildCursorMcpConfig(loc) } }, null, 2);
+    const snippet = JSON.stringify({ mcpServers: { codegraph_wx: buildCursorMcpConfig(loc) } }, null, 2);
     return `# Add to ${target}\n\n${snippet}\n`;
   }
 
@@ -177,7 +177,7 @@ function buildCursorMcpConfig(loc: Location): { type: string; command: string; a
 function writeMcpEntry(loc: Location): WriteResult['files'][number] {
   const file = mcpJsonPath(loc);
   const existing = readJsonFile(file);
-  const before = existing.mcpServers?.codegraph;
+  const before = existing.mcpServers?.codegraph_wx;
   const after = buildCursorMcpConfig(loc);
 
   if (jsonDeepEqual(before, after)) {
@@ -185,7 +185,7 @@ function writeMcpEntry(loc: Location): WriteResult['files'][number] {
   }
   const action: 'created' | 'updated' = before ? 'updated' : (fs.existsSync(file) ? 'updated' : 'created');
   if (!existing.mcpServers) existing.mcpServers = {};
-  existing.mcpServers.codegraph = after;
+  existing.mcpServers.codegraph_wx = after;
   writeJsonFile(file, existing);
   return { path: file, action };
 }
@@ -195,7 +195,7 @@ function writeMcpEntry(loc: Location): WriteResult['files'][number] {
  * install — see issue #529).
  *
  * Unlike the shared CLAUDE.md / AGENTS.md files (where codegraph owns
- * only a marker-delimited section), `.cursor/rules/codegraph.mdc` is a
+ * only a marker-delimited section), `.cursor/rules/codegraph-wx.mdc` is a
  * file we create OUTRIGHT — the frontmatter is ours too. So a plain
  * `removeMarkedSection` is wrong here: it would strip our instruction
  * block but leave the orphaned `description: CodeGraph ...` frontmatter

@@ -604,7 +604,7 @@ export function handle(): void {}
       const findSymbolMatches = (handler as any).findSymbolMatches.bind(handler);
 
       // Both same-named definitions are returned (no longer one + a dead-end
-      // note) so codegraph_node can hand back every overload and the agent never
+      // note) so codegraph_wx_node can hand back every overload and the agent never
       // Reads to find the one it wanted.
       const matches = findSymbolMatches(cg, 'handle');
       expect(matches.length).toBe(2);
@@ -667,7 +667,7 @@ describe('CLI uninit', () => {
     // Uninitialize
     cg.uninitialize();
 
-    // .codegraph directory should be removed
+    // .codegraph-wx directory should be removed
     expect(CodeGraph.isInitialized(testDir)).toBe(false);
   });
 });

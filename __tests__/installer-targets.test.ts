@@ -18,10 +18,19 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { ALL_TARGETS, getTarget, resolveTargetFlag } from '../src/installer/targets/registry';
+import { ALL_TARGETS, getTarget as registeredTarget, resolveTargetFlag } from '../src/installer/targets/registry';
 import { uninstallTargets } from '../src/installer';
 import { upsertTomlTable, removeTomlTable, buildTomlTable } from '../src/installer/targets/toml';
 import { cleanupLegacyHooks } from '../src/installer/targets/claude';
+import { getMcpServerConfig } from '../src/installer/targets/shared';
+import { cursorTarget } from '../src/installer/targets/cursor';
+import { codexTarget } from '../src/installer/targets/codex';
+import { kiroTarget } from '../src/installer/targets/kiro';
+import { antigravityTarget } from '../src/installer/targets/antigravity';
+import { hermesTarget } from '../src/installer/targets/hermes';
+// Exercise dormant adapters directly without enabling them in the product registry.
+const getTarget = (id: string) => registeredTarget(id) ??
+  [cursorTarget, codexTarget, kiroTarget, antigravityTarget, hermesTarget].find(t => t.id === id);
 
 function mkTmpDir(label: string): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), `cg-targets-${label}-`));
@@ -60,11 +69,11 @@ function setHome(dir: string): { restore: () => void } {
 // file, but install (self-heal on upgrade) and uninstall both still
 // strip a block a prior install left, so we plant this to exercise it.
 const LEGACY_BLOCK = [
-  '<!-- CODEGRAPH_START -->',
+  '<!-- CODEGRAPH_WX_START -->',
   '## CodeGraph',
   '',
-  'Prefer `codegraph_search` / `codegraph_callers` over grep.',
-  '<!-- CODEGRAPH_END -->',
+  'Prefer `codegraph_wx_search` / `codegraph_wx_callers` over grep.',
+  '<!-- CODEGRAPH_WX_END -->',
 ].join('\n');
 
 describe('Installer targets — contract', () => {
@@ -130,11 +139,12 @@ describe('Installer targets — contract', () => {
 
             // Seed pre-existing config.
             fs.mkdirSync(path.dirname(jsonPath), { recursive: true });
-            const seed: Record<string, any> = { mcpServers: { other: { command: 'x' } } };
+            const community = { command: 'community-codegraph', args: ['serve', '--mcp'] };
+            const seed: Record<string, any> = { mcpServers: { other: { command: 'x' }, codegraph_community: community } };
             // opencode uses `mcp` not `mcpServers`. Match its shape too.
             if (target.id === 'opencode') {
               delete seed.mcpServers;
-              seed.mcp = { other: { type: 'local', command: ['x'], enabled: true } };
+              seed.mcp = { other: { type: 'local', command: ['x'], enabled: true }, codegraph_community: community };
             }
             fs.writeFileSync(jsonPath, JSON.stringify(seed, null, 2) + '\n');
 
@@ -143,11 +153,16 @@ describe('Installer targets — contract', () => {
             const after = JSON.parse(fs.readFileSync(jsonPath, 'utf-8'));
             if (target.id === 'opencode') {
               expect(after.mcp.other).toBeDefined();
-              expect(after.mcp.codegraph).toBeDefined();
+              expect(after.mcp.codegraph_wx).toBeDefined();
+              expect(after.mcp.codegraph_community).toEqual(community);
             } else {
               expect(after.mcpServers.other).toBeDefined();
-              expect(after.mcpServers.codegraph).toBeDefined();
+              expect(after.mcpServers.codegraph_wx).toBeDefined();
+              expect(after.mcpServers.codegraph_community).toEqual(community);
             }
+            target.uninstall(location);
+            const remaining = JSON.parse(fs.readFileSync(jsonPath, 'utf-8'));
+            expect((remaining.mcp ?? remaining.mcpServers).codegraph_community).toEqual(community);
           });
 
           it('uninstall reverses install (alreadyConfigured returns to false)', () => {
@@ -281,7 +296,7 @@ describe('Installer targets — partial-state idempotency', () => {
     expect(afterInstall).toContain('// top-level note about my opencode setup');
     expect(afterInstall).toContain('/* multi-line block comment');
     expect(afterInstall).toContain('// pinned');
-    expect(afterInstall).toContain('"codegraph"');
+    expect(afterInstall).toContain('"codegraph_wx"');
     expect(afterInstall).toContain('"providers"');
 
     // Idempotent re-run reports unchanged, file is byte-identical.
@@ -295,27 +310,27 @@ describe('Installer targets — partial-state idempotency', () => {
     const result = opencode.install('global', { autoAllow: true });
     const agentsMd = path.join(tmpHome, '.config', 'opencode', 'AGENTS.md');
     expect(fs.existsSync(agentsMd)).toBe(true);
-    expect(fs.readFileSync(agentsMd, 'utf-8')).toContain('codegraph_search');
-    expect(fs.readFileSync(agentsMd, 'utf-8')).not.toContain('codegraph_explore');
+    expect(fs.readFileSync(agentsMd, 'utf-8')).toContain('codegraph_wx_search');
+    expect(fs.readFileSync(agentsMd, 'utf-8')).not.toContain('codegraph_wx_explore');
     expect(result.files.find((f) => f.path.endsWith('AGENTS.md'))?.action).toBe('created');
   });
 
   it('opencode: install writes an auto-discovered grep/read reminder plugin', () => {
     const opencode = getTarget('opencode')!;
     const first = opencode.install('global', { autoAllow: true });
-    const plugin = path.join(tmpHome, '.config', 'opencode', 'plugins', 'codegraph-reminder.js');
+    const plugin = path.join(tmpHome, '.config', 'opencode', 'plugins', 'codegraph-wx-reminder.js');
 
     expect(fs.existsSync(plugin)).toBe(true);
     const body = fs.readFileSync(plugin, 'utf-8');
-    expect(body).toContain('CODEGRAPH_OPENCODE_REMINDER_PLUGIN');
+    expect(body).toContain('CODEGRAPH_WX_OPENCODE_REMINDER_PLUGIN');
     expect(body).toContain('"tool.execute.after"');
     expect(body).toContain('const directSourceTool = tool === "grep" || tool === "read"');
     expect(body).toContain('tool === "bash" || tool === "shell"');
-    expect(body).toContain('existsSync(join(root, ".codegraph"))');
+    expect(body).toContain('existsSync(join(root, ".codegraph-wx"))');
     expect(body).toContain('experimental.chat.system.transform');
-    expect(body).toContain('CODEGRAPH_DYNAMIC_SYSTEM_REMINDER');
+    expect(body).toContain('CODEGRAPH_WX_DYNAMIC_SYSTEM_REMINDER');
     expect(body).not.toContain('output.output +=');
-    expect(body).toContain('优先使用 CodeGraph系列工具，而不是read、grep、Bash源码搜索等。');
+    expect(body).toContain('优先使用 CodeGraph wx 系列工具，而不是read、grep、Bash源码搜索等。');
     expect(first.files.find((f) => f.path === plugin)?.action).toBe('created');
 
     const second = opencode.install('global', { autoAllow: true });
@@ -334,9 +349,9 @@ describe('Installer targets — partial-state idempotency', () => {
     const body = fs.readFileSync(agentsMd, 'utf-8');
     expect(body).toContain('# My personal opencode instructions');
     expect(body).toContain('Always respond in pirate.');
-    expect(body).not.toContain('Prefer `codegraph_search`');
-    expect(body).toContain('codegraph_search');
-    expect(body).not.toContain('codegraph_explore');
+    expect(body).not.toContain('Prefer `codegraph_wx_search`');
+    expect(body).toContain('codegraph_wx_search');
+    expect(body).not.toContain('codegraph_wx_explore');
     expect(result.files.find((f) => f.path.endsWith('AGENTS.md'))?.action).toBe('updated');
   });
 
@@ -362,12 +377,12 @@ describe('Installer targets — partial-state idempotency', () => {
     // macOS realpath shenanigans (/var vs /private/var) — suffix match.
     expect(paths.some((p) => p.endsWith('/opencode.jsonc'))).toBe(true);
     expect(paths.some((p) => p.endsWith('/AGENTS.md'))).toBe(true);
-    expect(paths.some((p) => p.endsWith('/.opencode/plugins/codegraph-reminder.js'))).toBe(true);
+    expect(paths.some((p) => p.endsWith('/.opencode/plugins/codegraph-wx-reminder.js'))).toBe(true);
     expect(fs.existsSync(path.join(process.cwd(), 'AGENTS.md'))).toBe(true);
-    expect(fs.existsSync(path.join(process.cwd(), '.opencode', 'plugins', 'codegraph-reminder.js'))).toBe(true);
+    expect(fs.existsSync(path.join(process.cwd(), '.opencode', 'plugins', 'codegraph-wx-reminder.js'))).toBe(true);
   });
 
-  it('gemini: install writes settings.json (mcpServers.codegraph) and the GEMINI.md block (#704)', () => {
+  it('gemini: install writes settings.json (mcpServers.codegraph_wx) and the GEMINI.md block (#704)', () => {
     const gemini = getTarget('gemini')!;
     const result = gemini.install('global', { autoAllow: true });
     const settings = path.join(tmpHome, '.gemini', 'settings.json');
@@ -375,11 +390,11 @@ describe('Installer targets — partial-state idempotency', () => {
     expect(result.files.some((f) => f.path === settings)).toBe(true);
     expect(result.files.some((f) => f.path === geminiMd)).toBe(true);
     expect(fs.existsSync(geminiMd)).toBe(true);
-    expect(fs.readFileSync(geminiMd, 'utf-8')).toContain('codegraph_search');
-    expect(fs.readFileSync(geminiMd, 'utf-8')).not.toContain('codegraph_explore');
+    expect(fs.readFileSync(geminiMd, 'utf-8')).toContain('codegraph_wx_search');
+    expect(fs.readFileSync(geminiMd, 'utf-8')).not.toContain('codegraph_wx_explore');
 
     const cfg = JSON.parse(fs.readFileSync(settings, 'utf-8'));
-    expect(cfg.mcpServers.codegraph).toEqual({ type: 'stdio', command: 'codegraph', args: ['serve', '--mcp'] });
+    expect(cfg.mcpServers.codegraph_wx).toEqual(getMcpServerConfig());
   });
 
   it('gemini: install preserves pre-existing settings (security.auth survives)', () => {
@@ -394,7 +409,7 @@ describe('Installer targets — partial-state idempotency', () => {
 
     const after = JSON.parse(fs.readFileSync(settings, 'utf-8'));
     expect(after.security?.auth?.selectedType).toBe('oauth-personal');
-    expect(after.mcpServers?.codegraph).toBeDefined();
+    expect(after.mcpServers?.codegraph_wx).toBeDefined();
   });
 
   it('gemini: uninstall strips codegraph but leaves pre-existing settings (security.auth) intact', () => {
@@ -436,22 +451,22 @@ describe('Installer targets — partial-state idempotency', () => {
     expect(body).not.toContain('CODEGRAPH_START');
   });
 
-  it('kiro: install writes settings/mcp.json (mcpServers.codegraph) and no steering doc (#529)', () => {
+  it('kiro: install writes settings/mcp.json (mcpServers.codegraph_wx) and no steering doc (#529)', () => {
     const kiro = getTarget('kiro')!;
     const result = kiro.install('global', { autoAllow: true });
     const mcp = path.join(tmpHome, '.kiro', 'settings', 'mcp.json');
-    const steering = path.join(tmpHome, '.kiro', 'steering', 'codegraph.md');
+    const steering = path.join(tmpHome, '.kiro', 'steering', 'codegraph-wx.md');
     expect(result.files.some((f) => f.path === mcp)).toBe(true);
     expect(result.files.some((f) => f.path === steering)).toBe(false);
     expect(fs.existsSync(steering)).toBe(false);
 
     const cfg = JSON.parse(fs.readFileSync(mcp, 'utf-8'));
-    expect(cfg.mcpServers.codegraph).toEqual({ type: 'stdio', command: 'codegraph', args: ['serve', '--mcp'] });
+    expect(cfg.mcpServers.codegraph_wx).toEqual(getMcpServerConfig());
   });
 
-  it('kiro: install deletes a leftover steering codegraph.md (self-heal) (#529)', () => {
+  it('kiro: install deletes a leftover steering codegraph-wx.md (self-heal) (#529)', () => {
     const kiro = getTarget('kiro')!;
-    const steering = path.join(tmpHome, '.kiro', 'steering', 'codegraph.md');
+    const steering = path.join(tmpHome, '.kiro', 'steering', 'codegraph-wx.md');
     fs.mkdirSync(path.dirname(steering), { recursive: true });
     fs.writeFileSync(steering, `${LEGACY_BLOCK}\n`);
 
@@ -472,7 +487,7 @@ describe('Installer targets — partial-state idempotency', () => {
 
     const after = JSON.parse(fs.readFileSync(mcp, 'utf-8'));
     expect(after.mcpServers.other).toBeDefined();
-    expect(after.mcpServers.codegraph).toBeDefined();
+    expect(after.mcpServers.codegraph_wx).toBeDefined();
   });
 
   it('kiro: uninstall strips codegraph but leaves sibling MCP servers intact', () => {
@@ -488,12 +503,12 @@ describe('Installer targets — partial-state idempotency', () => {
 
     const after = JSON.parse(fs.readFileSync(mcp, 'utf-8'));
     expect(after.mcpServers.other).toBeDefined();
-    expect(after.mcpServers.codegraph).toBeUndefined();
+    expect(after.mcpServers.codegraph_wx).toBeUndefined();
   });
 
-  it('kiro: uninstall removes a leftover steering codegraph.md file outright', () => {
+  it('kiro: uninstall removes a leftover steering codegraph-wx.md file outright', () => {
     const kiro = getTarget('kiro')!;
-    const steering = path.join(tmpHome, '.kiro', 'steering', 'codegraph.md');
+    const steering = path.join(tmpHome, '.kiro', 'steering', 'codegraph-wx.md');
     fs.mkdirSync(path.dirname(steering), { recursive: true });
     fs.writeFileSync(steering, `${LEGACY_BLOCK}\n`);
 
@@ -504,7 +519,7 @@ describe('Installer targets — partial-state idempotency', () => {
   it('kiro: uninstall removes our steering doc but leaves a sibling (product.md) untouched', () => {
     const kiro = getTarget('kiro')!;
     const sibling = path.join(tmpHome, '.kiro', 'steering', 'product.md');
-    const ours = path.join(tmpHome, '.kiro', 'steering', 'codegraph.md');
+    const ours = path.join(tmpHome, '.kiro', 'steering', 'codegraph-wx.md');
     fs.mkdirSync(path.dirname(sibling), { recursive: true });
     fs.writeFileSync(sibling, '# Product\n\nMy team practices.\n');
     fs.writeFileSync(ours, `${LEGACY_BLOCK}\n`);
@@ -521,7 +536,7 @@ describe('Installer targets — partial-state idempotency', () => {
     const result = kiro.install('local', { autoAllow: true });
     const paths = result.files.map((f) => f.path.replace(/\\/g, '/'));
     expect(paths.some((p) => p.endsWith('/.kiro/settings/mcp.json'))).toBe(true);
-    expect(paths.some((p) => p.endsWith('/.kiro/steering/codegraph.md'))).toBe(false);
+    expect(paths.some((p) => p.endsWith('/.kiro/steering/codegraph-wx.md'))).toBe(false);
   });
 
   it('antigravity: install writes to LEGACY ~/.gemini/antigravity/mcp_config.json when no migration marker', () => {
@@ -531,7 +546,7 @@ describe('Installer targets — partial-state idempotency', () => {
     const legacyFile = path.join(tmpHome, '.gemini', 'antigravity', 'mcp_config.json');
     expect(fs.existsSync(legacyFile)).toBe(true);
     const cfg = JSON.parse(fs.readFileSync(legacyFile, 'utf-8'));
-    expect(cfg.mcpServers.codegraph).toBeDefined();
+    expect(cfg.mcpServers.codegraph_wx).toBeDefined();
     // Crucially: does NOT touch the Gemini CLI's settings.json.
     expect(fs.existsSync(path.join(tmpHome, '.gemini', 'settings.json'))).toBe(false);
   });
@@ -549,7 +564,7 @@ describe('Installer targets — partial-state idempotency', () => {
     const unifiedFile = path.join(unifiedDir, 'mcp_config.json');
     expect(fs.existsSync(unifiedFile)).toBe(true);
     const cfg = JSON.parse(fs.readFileSync(unifiedFile, 'utf-8'));
-    expect(cfg.mcpServers.codegraph).toBeDefined();
+    expect(cfg.mcpServers.codegraph_wx).toBeDefined();
     // Legacy path is NOT touched when the marker tells us migration happened.
     expect(fs.existsSync(path.join(tmpHome, '.gemini', 'antigravity', 'mcp_config.json'))).toBe(false);
   });
@@ -566,7 +581,7 @@ describe('Installer targets — partial-state idempotency', () => {
     antigravity.install('global', { autoAllow: true });
 
     const cfg = JSON.parse(fs.readFileSync(unifiedFile, 'utf-8'));
-    expect(cfg.mcpServers.codegraph).toBeDefined();
+    expect(cfg.mcpServers.codegraph_wx).toBeDefined();
   });
 
   it('antigravity: entry has NO `type` field (Antigravity rejects entries with it)', () => {
@@ -580,9 +595,9 @@ describe('Installer targets — partial-state idempotency', () => {
     const cfg = JSON.parse(fs.readFileSync(
       path.join(tmpHome, '.gemini', 'config', 'mcp_config.json'), 'utf-8'
     ));
-    expect(cfg.mcpServers.codegraph.type).toBeUndefined();
-    expect(cfg.mcpServers.codegraph.command).toBeDefined();
-    expect(cfg.mcpServers.codegraph.args).toEqual(['serve', '--mcp']);
+    expect(cfg.mcpServers.codegraph_wx.type).toBeUndefined();
+    expect(cfg.mcpServers.codegraph_wx.command).toBeDefined();
+    expect(cfg.mcpServers.codegraph_wx.args).toEqual(getMcpServerConfig().args);
   });
 
   it('antigravity: install migrates a legacy codegraph entry to the unified path when marker appears', () => {
@@ -594,7 +609,7 @@ describe('Installer targets — partial-state idempotency', () => {
     const legacyFile = path.join(tmpHome, '.gemini', 'antigravity', 'mcp_config.json');
     fs.mkdirSync(path.dirname(legacyFile), { recursive: true });
     fs.writeFileSync(legacyFile, JSON.stringify({
-      mcpServers: { codegraph: { command: 'codegraph', args: ['serve', '--mcp'] } },
+      mcpServers: { codegraph_wx: { command: 'codegraph', args: ['serve', '--mcp'] } },
     }, null, 2) + '\n');
     fs.mkdirSync(path.join(tmpHome, '.gemini', 'config'), { recursive: true });
     fs.writeFileSync(path.join(tmpHome, '.gemini', 'config', '.migrated'), '');
@@ -604,7 +619,7 @@ describe('Installer targets — partial-state idempotency', () => {
     const unified = JSON.parse(fs.readFileSync(
       path.join(tmpHome, '.gemini', 'config', 'mcp_config.json'), 'utf-8'
     ));
-    expect(unified.mcpServers.codegraph).toBeDefined();
+    expect(unified.mcpServers.codegraph_wx).toBeDefined();
     // Legacy file's codegraph entry got stripped.
     const legacy = JSON.parse(fs.readFileSync(legacyFile, 'utf-8'));
     expect(legacy.mcpServers).toBeUndefined();
@@ -622,7 +637,7 @@ describe('Installer targets — partial-state idempotency', () => {
 
     const after = JSON.parse(fs.readFileSync(mcpFile, 'utf-8'));
     expect(after.mcpServers.other).toBeDefined();
-    expect(after.mcpServers.codegraph).toBeDefined();
+    expect(after.mcpServers.codegraph_wx).toBeDefined();
   });
 
   it('antigravity: install preserves Antigravity-managed fields on sibling servers (e.g. disabled flag)', () => {
@@ -644,7 +659,7 @@ describe('Installer targets — partial-state idempotency', () => {
 
     const after = JSON.parse(fs.readFileSync(unified, 'utf-8'));
     expect(after.mcpServers['code-review-graph'].disabled).toBe(true);
-    expect(after.mcpServers.codegraph).toBeDefined();
+    expect(after.mcpServers.codegraph_wx).toBeDefined();
   });
 
   it('antigravity: uninstall removes only codegraph, sibling MCP server survives', () => {
@@ -660,7 +675,7 @@ describe('Installer targets — partial-state idempotency', () => {
 
     const after = JSON.parse(fs.readFileSync(mcpFile, 'utf-8'));
     expect(after.mcpServers.other).toBeDefined();
-    expect(after.mcpServers.codegraph).toBeUndefined();
+    expect(after.mcpServers.codegraph_wx).toBeUndefined();
   });
 
   it('antigravity: uninstall sweeps BOTH legacy and unified paths (handles migration half-state)', () => {
@@ -673,10 +688,10 @@ describe('Installer targets — partial-state idempotency', () => {
     fs.mkdirSync(path.dirname(legacy), { recursive: true });
     fs.mkdirSync(path.dirname(unified), { recursive: true });
     fs.writeFileSync(legacy, JSON.stringify({
-      mcpServers: { codegraph: { command: 'codegraph', args: ['serve', '--mcp'] } },
+      mcpServers: { codegraph_wx: { command: 'codegraph', args: ['serve', '--mcp'] } },
     }, null, 2) + '\n');
     fs.writeFileSync(unified, JSON.stringify({
-      mcpServers: { codegraph: { command: 'codegraph', args: ['serve', '--mcp'] } },
+      mcpServers: { codegraph_wx: { command: 'codegraph', args: ['serve', '--mcp'] } },
     }, null, 2) + '\n');
     fs.writeFileSync(path.join(path.dirname(unified), '.migrated'), '');
 
@@ -713,13 +728,13 @@ describe('Installer targets — partial-state idempotency', () => {
     // Antigravity lands on the LEGACY path here since no .migrated marker
     // was planted — same end-to-end check either way.
     const ideCfg = JSON.parse(fs.readFileSync(path.join(tmpHome, '.gemini', 'antigravity', 'mcp_config.json'), 'utf-8'));
-    expect(cliCfg.mcpServers.codegraph).toBeDefined();
-    expect(ideCfg.mcpServers.codegraph).toBeDefined();
+    expect(cliCfg.mcpServers.codegraph_wx).toBeDefined();
+    expect(ideCfg.mcpServers.codegraph_wx).toBeDefined();
 
     // Uninstall one — the other's MCP entry must survive.
     antigravity.uninstall('global');
     const cliAfter = JSON.parse(fs.readFileSync(path.join(tmpHome, '.gemini', 'settings.json'), 'utf-8'));
-    expect(cliAfter.mcpServers.codegraph).toBeDefined();
+    expect(cliAfter.mcpServers.codegraph_wx).toBeDefined();
   });
 
   it('hermes: install adds codegraph MCP server and cli toolset, preserving existing yaml', () => {
@@ -745,9 +760,9 @@ describe('Installer targets — partial-state idempotency', () => {
     const body = fs.readFileSync(config, 'utf-8');
     expect(body).toContain('model:\n  default: qwen-3.7');
     expect(body).toContain('mcp_servers:\n  other:\n    command: other');
-    expect(body).toContain('  codegraph:\n    command: codegraph');
+    expect(body).toContain('  codegraph_wx:\n    command: ' + JSON.stringify(process.execPath));
     expect(body).toContain('    - hermes-cli');
-    expect(body).toContain('    - mcp-codegraph');
+    expect(body).toContain('    - mcp-codegraph_wx');
     expect(body).toContain('  discord:\n    - hermes-discord');
 
     const second = hermes.install('global', { autoAllow: true });
@@ -764,15 +779,15 @@ describe('Installer targets — partial-state idempotency', () => {
 
     hermes.uninstall('global');
     const body = fs.readFileSync(config, 'utf-8');
-    expect(body).not.toContain('codegraph:');
-    expect(body).not.toContain('mcp-codegraph');
+    expect(body).not.toContain('codegraph_wx:');
+    expect(body).not.toContain('mcp-codegraph_wx');
     expect(body).toContain('custom:\n  keep: true');
   });
 
   // Regression for #456: PyYAML's default block style writes list items at the
   // SAME indent as the parent key (`cli:` and its `- hermes-cli` are both at
   // indent 2). The pre-fix line-based patcher mistook that first list item for
-  // the next sibling key, truncated the cli block, and spliced `- mcp-codegraph`
+  // the next sibling key, truncated the cli block, and spliced `- mcp-codegraph_wx`
   // at indent 4 BEFORE the existing items — producing unparseable YAML.
   it('hermes: install preserves PyYAML-default list-at-same-indent style (issue #456)', () => {
     const hermes = getTarget('hermes')!;
@@ -799,8 +814,8 @@ describe('Installer targets — partial-state idempotency', () => {
     hermes.install('global', { autoAllow: true });
     const body = fs.readFileSync(config, 'utf-8');
 
-    // mcp-codegraph appended at the same 2-space indent as existing items
-    expect(body).toContain('\n  - mcp-codegraph\n');
+    // mcp-codegraph_wx appended at the same 2-space indent as existing items
+    expect(body).toContain('\n  - mcp-codegraph_wx\n');
     // hermes-cli preserved
     expect(body).toContain('\n  - hermes-cli\n');
     // Sibling sections kept their indent — `telegram:` is still a key under
@@ -812,7 +827,7 @@ describe('Installer targets — partial-state idempotency', () => {
     expect(body).not.toMatch(/^- hermes-telegram/m);
 
     // The whole platform_toolsets block extracted by line search should
-    // start with `cli:` and not contain a stray 4-space `mcp-codegraph`
+    // start with `cli:` and not contain a stray 4-space `mcp-codegraph_wx`
     // appearing before the rest of the existing items.
     expect(body).toContain('  cli:\n  - hermes-cli\n  - browser');
 
@@ -838,18 +853,18 @@ describe('Installer targets — partial-state idempotency', () => {
 
     hermes.install('global', { autoAllow: true });
     const installed = fs.readFileSync(config, 'utf-8');
-    expect(installed).toContain('- mcp-codegraph');
-    expect(installed).toContain('codegraph:');
+    expect(installed).toContain('- mcp-codegraph_wx');
+    expect(installed).toContain('codegraph_wx:');
 
     hermes.uninstall('global');
     const body = fs.readFileSync(config, 'utf-8');
-    expect(body).not.toContain('mcp-codegraph');
-    expect(body).not.toContain('command: codegraph');
+    expect(body).not.toContain('mcp-codegraph_wx');
+    expect(body).not.toContain('  codegraph_wx:');
     expect(body).toContain('  cli:\n  - hermes-cli\n  - browser');
     expect(body).toContain('  telegram:\n  - hermes-telegram');
   });
 
-  it('opencode: uninstall removes only mcp.codegraph, preserves comments and siblings', () => {
+  it('opencode: uninstall removes only mcp.codegraph_wx, preserves comments and siblings', () => {
     const opencode = getTarget('opencode')!;
     const dir = path.join(tmpHome, '.config', 'opencode');
     fs.mkdirSync(dir, { recursive: true });
@@ -867,7 +882,7 @@ describe('Installer targets — partial-state idempotency', () => {
 
     opencode.install('global', { autoAllow: true });
     const afterInstall = fs.readFileSync(file, 'utf-8');
-    expect(afterInstall).toContain('"codegraph"');
+    expect(afterInstall).toContain('"codegraph_wx"');
     expect(afterInstall).toContain('"other"');
 
     opencode.uninstall('global');
@@ -877,9 +892,9 @@ describe('Installer targets — partial-state idempotency', () => {
     expect(afterUninstall).toContain('"other"');
   });
 
-  it('opencode: uninstall removes its reminder plugin but keeps a user replacement', () => {
+  it('opencode: uninstall removes its reminder plugin including a replacement at the managed filename', () => {
     const opencode = getTarget('opencode')!;
-    const plugin = path.join(tmpHome, '.config', 'opencode', 'plugins', 'codegraph-reminder.js');
+    const plugin = path.join(tmpHome, '.config', 'opencode', 'plugins', 'codegraph-wx-reminder.js');
 
     opencode.install('global', { autoAllow: true });
     opencode.uninstall('global');
@@ -888,19 +903,19 @@ describe('Installer targets — partial-state idempotency', () => {
     fs.mkdirSync(path.dirname(plugin), { recursive: true });
     fs.writeFileSync(plugin, 'export const UserPlugin = async () => ({})\n');
     const result = opencode.uninstall('global');
-    expect(fs.existsSync(plugin)).toBe(true);
-    expect(result.files.find((f) => f.path === plugin)?.action).toBe('kept');
+    expect(fs.existsSync(plugin)).toBe(false);
+    expect(result.files.find((f) => f.path === plugin)?.action).toBe('removed');
   });
 
-  it('codex: user-added key inside [mcp_servers.codegraph] survives idempotent re-install', () => {
+  it('codex: user-added key inside [mcp_servers.codegraph_wx] survives idempotent re-install', () => {
     const codex = getTarget('codex')!;
     codex.install('global', { autoAllow: false });
     const tomlPath = path.join(tmpHome, '.codex', 'config.toml');
     const original = fs.readFileSync(tomlPath, 'utf-8');
     // User edits the block to add a custom key.
     const edited = original.replace(
-      'args = ["serve", "--mcp"]',
-      'args = ["serve", "--mcp"]\nenabled = true',
+      '[mcp_servers.codegraph_wx]',
+      '[mcp_servers.codegraph_wx]\nenabled = true',
     );
     fs.writeFileSync(tomlPath, edited);
     // Re-install: our serializer doesn't know `enabled = true`, so
@@ -922,7 +937,7 @@ describe('Installer targets — partial-state idempotency', () => {
     expect(fs.existsSync(path.join(tmpCwd, '.mcp.json'))).toBe(true);
     expect(fs.existsSync(path.join(tmpCwd, '.claude.json'))).toBe(false);
     const cfg = JSON.parse(fs.readFileSync(path.join(tmpCwd, '.mcp.json'), 'utf-8'));
-    expect(cfg.mcpServers.codegraph).toBeDefined();
+    expect(cfg.mcpServers.codegraph_wx).toBeDefined();
   });
 
   it('claude: install creates the CLAUDE.md codegraph block (#704)', () => {
@@ -931,9 +946,9 @@ describe('Installer targets — partial-state idempotency', () => {
     const claudeMd = path.join(tmpCwd, '.claude', 'CLAUDE.md');
     expect(fs.existsSync(claudeMd)).toBe(true);
     const body = fs.readFileSync(claudeMd, 'utf-8');
-    expect(body).toContain('## CodeGraph');
-    expect(body).toContain('codegraph_search');
-    expect(body).not.toContain('codegraph_explore');
+    expect(body).toContain('## 工具使用规则');
+    expect(body).toContain('codegraph_wx_search');
+    expect(body).not.toContain('codegraph_wx_explore');
     expect(result.files.find((f) => f.path.endsWith('CLAUDE.md'))?.action).toBe('created');
   });
 
@@ -948,9 +963,9 @@ describe('Installer targets — partial-state idempotency', () => {
     const body = fs.readFileSync(claudeMd, 'utf-8');
     expect(body).toContain('# My project rules');
     expect(body).toContain('Use tabs.');
-    expect(body).not.toContain('Prefer `codegraph_search`');
-    expect(body).toContain('codegraph_search');
-    expect(body).not.toContain('codegraph_explore');
+    expect(body).not.toContain('Prefer `codegraph_wx_search`');
+    expect(body).toContain('codegraph_wx_search');
+    expect(body).not.toContain('codegraph_wx_explore');
     expect(result.files.find((f) => f.path.endsWith('CLAUDE.md'))?.action).toBe('updated');
   });
 
@@ -958,7 +973,7 @@ describe('Installer targets — partial-state idempotency', () => {
     const claude = getTarget('claude')!;
     claude.install('global', { autoAllow: false });
     const cfg = JSON.parse(fs.readFileSync(path.join(tmpHome, '.claude.json'), 'utf-8'));
-    expect(cfg.mcpServers.codegraph).toBeDefined();
+    expect(cfg.mcpServers.codegraph_wx).toBeDefined();
   });
 
   it('claude: local install migrates a legacy ./.claude.json codegraph entry into ./.mcp.json', () => {
@@ -966,7 +981,7 @@ describe('Installer targets — partial-state idempotency', () => {
     const legacy = path.join(tmpCwd, '.claude.json');
     fs.writeFileSync(
       legacy,
-      JSON.stringify({ mcpServers: { codegraph: { type: 'stdio', command: 'codegraph', args: ['serve', '--mcp'] } } }, null, 2),
+      JSON.stringify({ mcpServers: { codegraph_wx: { type: 'stdio', command: 'codegraph', args: ['serve', '--mcp'] } } }, null, 2),
     );
 
     claude.install('local', { autoAllow: false });
@@ -974,7 +989,7 @@ describe('Installer targets — partial-state idempotency', () => {
     // codegraph now lives in .mcp.json; the legacy file (which held only
     // codegraph) is gone.
     const mcp = JSON.parse(fs.readFileSync(path.join(tmpCwd, '.mcp.json'), 'utf-8'));
-    expect(mcp.mcpServers.codegraph).toBeDefined();
+    expect(mcp.mcpServers.codegraph_wx).toBeDefined();
     expect(fs.existsSync(legacy)).toBe(false);
   });
 
@@ -985,7 +1000,7 @@ describe('Installer targets — partial-state idempotency', () => {
       legacy,
       JSON.stringify({
         mcpServers: {
-          codegraph: { type: 'stdio', command: 'codegraph', args: ['serve', '--mcp'] },
+          codegraph_wx: { type: 'stdio', command: 'codegraph', args: ['serve', '--mcp'] },
           other: { command: 'x' },
         },
         somethingElse: true,
@@ -996,11 +1011,11 @@ describe('Installer targets — partial-state idempotency', () => {
 
     // Only codegraph is stripped from the legacy file; siblings survive.
     const after = JSON.parse(fs.readFileSync(legacy, 'utf-8'));
-    expect(after.mcpServers.codegraph).toBeUndefined();
+    expect(after.mcpServers.codegraph_wx).toBeUndefined();
     expect(after.mcpServers.other).toBeDefined();
     expect(after.somethingElse).toBe(true);
     const mcp = JSON.parse(fs.readFileSync(path.join(tmpCwd, '.mcp.json'), 'utf-8'));
-    expect(mcp.mcpServers.codegraph).toBeDefined();
+    expect(mcp.mcpServers.codegraph_wx).toBeDefined();
   });
 
   it('claude: uninstall strips codegraph from ./.mcp.json and a legacy ./.claude.json', () => {
@@ -1008,11 +1023,11 @@ describe('Installer targets — partial-state idempotency', () => {
     // A user left with both the working .mcp.json and a stale .claude.json.
     fs.writeFileSync(
       path.join(tmpCwd, '.mcp.json'),
-      JSON.stringify({ mcpServers: { codegraph: { command: 'codegraph' } } }, null, 2),
+      JSON.stringify({ mcpServers: { codegraph_wx: { command: 'codegraph' } } }, null, 2),
     );
     fs.writeFileSync(
       path.join(tmpCwd, '.claude.json'),
-      JSON.stringify({ mcpServers: { codegraph: { command: 'codegraph' }, other: { command: 'x' } } }, null, 2),
+      JSON.stringify({ mcpServers: { codegraph_wx: { command: 'codegraph' }, other: { command: 'x' } } }, null, 2),
     );
 
     claude.uninstall('local');
@@ -1020,7 +1035,7 @@ describe('Installer targets — partial-state idempotency', () => {
     const mcp = JSON.parse(fs.readFileSync(path.join(tmpCwd, '.mcp.json'), 'utf-8'));
     expect(mcp.mcpServers).toBeUndefined();
     const legacy = JSON.parse(fs.readFileSync(path.join(tmpCwd, '.claude.json'), 'utf-8'));
-    expect(legacy.mcpServers.codegraph).toBeUndefined();
+    expect(legacy.mcpServers.codegraph_wx).toBeUndefined();
     expect(legacy.mcpServers.other).toBeDefined();
   });
 
@@ -1045,15 +1060,34 @@ describe('Installer targets — partial-state idempotency', () => {
     return {
       hooks: {
         PostToolUse: [
-          { matcher: 'Edit|Write', hooks: [{ type: 'command', command: 'codegraph mark-dirty', async: true }] },
+          { matcher: 'Edit|Write', hooks: [{ type: 'command', command: 'npx @sdd/codegraph-wx mark-dirty', async: true }] },
         ],
         Stop: [
-          { hooks: [{ type: 'command', command: 'codegraph sync-if-dirty' }] },
+          { hooks: [{ type: 'command', command: 'npx @sdd/codegraph-wx sync-if-dirty' }] },
           { hooks: [{ type: 'command', command: '"/Users/me/gk" ai hook run --host claude-code' }] },
         ],
       },
     };
   }
+
+  it('claude: install and uninstall reset reserved legacy permissions, hooks and instruction markers', () => {
+    const claude = getTarget('claude')!;
+    const commands = ['codegraph sync-if-dirty', 'npx @colbymchenry/codegraph mark-dirty'];
+    const file = seedSettings('global', {
+      permissions: { allow: ['mcp__codegraph__search', 'mcp__codegraph__codegraph_node'] },
+      hooks: { Stop: [{ hooks: commands.map(command => ({ type: 'command', command })) }] },
+    });
+    const instructions = path.join(tmpHome, '.claude', 'CLAUDE.md');
+    const community = '<!-- CODEGRAPH_START -->\nCommunity instructions\n<!-- CODEGRAPH_END -->\n';
+    fs.writeFileSync(instructions, community);
+    claude.install('global', { autoAllow: true });
+    expect(fs.readFileSync(instructions, 'utf8')).toContain('<!-- CODEGRAPH_WX_START -->');
+    claude.uninstall('global');
+    const remaining = JSON.parse(fs.readFileSync(file, 'utf8'));
+    expect(remaining.permissions).toBeUndefined();
+    expect(remaining.hooks).toBeUndefined();
+    expect(fs.existsSync(instructions)).toBe(false);
+  });
 
   it('claude: install strips stale codegraph auto-sync hooks but keeps the user\'s GitKraken hook', () => {
     const claude = getTarget('claude')!;
@@ -1071,23 +1105,23 @@ describe('Installer targets — partial-state idempotency', () => {
     // The unrelated GitKraken hook survives untouched.
     expect(stopCommands.some((c: string) => c.includes('gk') && c.includes('ai hook run'))).toBe(true);
     // Permissions still written as normal alongside the cleanup.
-    expect(after.permissions?.allow).toContain('mcp__codegraph__search');
-    expect(after.permissions?.allow).not.toContain('mcp__codegraph__codegraph_search');
+    expect(after.permissions?.allow).toContain('mcp__codegraph_wx__search');
+    expect(after.permissions?.allow).not.toContain('mcp__codegraph_wx__codegraph_search');
   });
 
   it('claude: install migrates double-prefixed MCP permissions to short raw tool permissions', () => {
     const claude = getTarget('claude')!;
     const file = seedSettings('global', {
       permissions: {
-        allow: ['mcp__codegraph__codegraph_node', 'mcp__other__keep'],
+        allow: ['mcp__codegraph_wx__codegraph_node', 'mcp__other__keep'],
       },
     });
 
     claude.install('global', { autoAllow: true });
 
     const after = JSON.parse(fs.readFileSync(file, 'utf-8'));
-    expect(after.permissions.allow).toContain('mcp__codegraph__node');
-    expect(after.permissions.allow).not.toContain('mcp__codegraph__codegraph_node');
+    expect(after.permissions.allow).toContain('mcp__codegraph_wx__node');
+    expect(after.permissions.allow).not.toContain('mcp__codegraph_wx__codegraph_node');
     expect(after.permissions.allow).toContain('mcp__other__keep');
   });
 
@@ -1097,7 +1131,7 @@ describe('Installer targets — partial-state idempotency', () => {
         Stop: [
           {
             hooks: [
-              { type: 'command', command: 'codegraph sync-if-dirty' },
+              { type: 'command', command: 'npx @sdd/codegraph-wx sync-if-dirty' },
               { type: 'command', command: 'gk ai hook run --host claude-code' },
             ],
           },
@@ -1140,10 +1174,10 @@ describe('Installer targets — partial-state idempotency', () => {
     const file = seedSettings('local', {
       hooks: {
         PostToolUse: [
-          { matcher: 'Edit|Write', hooks: [{ type: 'command', command: 'npx @colbymchenry/codegraph mark-dirty', async: true }] },
+          { matcher: 'Edit|Write', hooks: [{ type: 'command', command: 'npx @sdd/codegraph-wx mark-dirty', async: true }] },
         ],
         Stop: [
-          { hooks: [{ type: 'command', command: 'npx @colbymchenry/codegraph sync-if-dirty' }] },
+          { hooks: [{ type: 'command', command: 'npx @sdd/codegraph-wx sync-if-dirty' }] },
         ],
       },
     });
@@ -1158,24 +1192,24 @@ describe('Installer targets — partial-state idempotency', () => {
   it('codeagent: install writes the reminder extension and registers it in extensions.json', () => {
     const codeagent = getTarget('codeagent')!;
     const first = codeagent.install('global', { autoAllow: true });
-    const extension = path.join(tmpHome, '.cac', 'extensions', 'codegraph-reminder.ts');
+    const extension = path.join(tmpHome, '.cac', 'extensions', 'codegraph-wx-reminder.ts');
     const config = path.join(tmpHome, '.cac', 'extensions.json');
 
     expect(fs.existsSync(extension)).toBe(true);
     const body = fs.readFileSync(extension, 'utf-8');
-    expect(body).toContain('CODEGRAPH_CODEAGENT_REMINDER_EXTENSION');
+    expect(body).toContain('CODEGRAPH_WX_CODEAGENT_REMINDER_EXTENSION');
     expect(body).toContain('executeAfter');
     expect(body).toContain('messagesTransform');
-    expect(body).toContain('mcp__codegraph__');
-    expect(body).toContain('existsSync(join(root, ".codegraph"))');
-    expect(body).toContain('CODEGRAPH_DYNAMIC_SYSTEM_REMINDER');
+    expect(body).toContain('mcp__codegraph_wx__');
+    expect(body).toContain('existsSync(join(root, ".codegraph-wx"))');
+    expect(body).toContain('CODEGRAPH_WX_DYNAMIC_SYSTEM_REMINDER');
     expect(body).not.toContain('output.output +=');
-    expect(body).toContain('优先使用 CodeGraph系列工具，而不是read、grep、Bash源码搜索等。');
+    expect(body).toContain('优先使用 CodeGraph wx 系列工具，而不是read、grep、Bash源码搜索等。');
     expect(first.files.find((f) => f.path === extension)?.action).toBe('created');
 
     expect(fs.existsSync(config)).toBe(true);
     const cfg = JSON.parse(fs.readFileSync(config, 'utf-8'));
-    expect(cfg.extensions).toContain('./extensions/codegraph-reminder.ts');
+    expect(cfg.extensions).toContain('./extensions/codegraph-wx-reminder.ts');
     expect(first.files.find((f) => f.path === config)?.action).toBe('created');
 
     const second = codeagent.install('global', { autoAllow: true });
@@ -1187,19 +1221,19 @@ describe('Installer targets — partial-state idempotency', () => {
     const codeagent = getTarget('codeagent')!;
     const result = codeagent.install('local', { autoAllow: true });
     const paths = result.files.map((f) => f.path.replace(/\\/g, '/'));
-    expect(paths.some((p) => p.endsWith('/.cac/extensions/codegraph-reminder.ts'))).toBe(true);
+    expect(paths.some((p) => p.endsWith('/.cac/extensions/codegraph-wx-reminder.ts'))).toBe(true);
     expect(paths.some((p) => p.endsWith('/.cac/extensions.json'))).toBe(true);
-    expect(fs.existsSync(path.join(tmpCwd, '.cac', 'extensions', 'codegraph-reminder.ts'))).toBe(true);
+    expect(fs.existsSync(path.join(tmpCwd, '.cac', 'extensions', 'codegraph-wx-reminder.ts'))).toBe(true);
 
     const cfg = JSON.parse(fs.readFileSync(path.join(tmpCwd, '.cac', 'extensions.json'), 'utf-8'));
     // Project-level entries resolve against the project root, so the
     // specifier must carry the .cac/ prefix.
-    expect(cfg.extensions).toContain('./.cac/extensions/codegraph-reminder.ts');
+    expect(cfg.extensions).toContain('./.cac/extensions/codegraph-wx-reminder.ts');
   });
 
   it('codeagent: uninstall removes the extension file and its registration', () => {
     const codeagent = getTarget('codeagent')!;
-    const extension = path.join(tmpHome, '.cac', 'extensions', 'codegraph-reminder.ts');
+    const extension = path.join(tmpHome, '.cac', 'extensions', 'codegraph-wx-reminder.ts');
     const config = path.join(tmpHome, '.cac', 'extensions.json');
 
     codeagent.install('global', { autoAllow: true });
@@ -1209,9 +1243,9 @@ describe('Installer targets — partial-state idempotency', () => {
     expect(fs.existsSync(config)).toBe(false);
   });
 
-  it('codeagent: uninstall keeps a user replacement without our marker', () => {
+  it('codeagent: uninstall removes a replacement at the managed filename', () => {
     const codeagent = getTarget('codeagent')!;
-    const extension = path.join(tmpHome, '.cac', 'extensions', 'codegraph-reminder.ts');
+    const extension = path.join(tmpHome, '.cac', 'extensions', 'codegraph-wx-reminder.ts');
 
     codeagent.install('global', { autoAllow: true });
     codeagent.uninstall('global');
@@ -1220,8 +1254,8 @@ describe('Installer targets — partial-state idempotency', () => {
     fs.mkdirSync(path.dirname(extension), { recursive: true });
     fs.writeFileSync(extension, 'export default async () => ({})\n');
     const result = codeagent.uninstall('global');
-    expect(fs.existsSync(extension)).toBe(true);
-    expect(result.files.find((f) => f.path === extension)?.action).toBe('kept');
+    expect(fs.existsSync(extension)).toBe(false);
+    expect(result.files.find((f) => f.path === extension)?.action).toBe('removed');
   });
 
   it('codeagent: install preserves user extension entries in all three forms', () => {
@@ -1243,7 +1277,7 @@ describe('Installer targets — partial-state idempotency', () => {
     expect(cfg.extensions[0]).toBe('@scope/some-package');
     expect(cfg.extensions[1]).toEqual(['another-package', { key: 'value' }]);
     expect(cfg.extensions[2]).toEqual({ path: './extensions/user-ext.ts', options: { flag: true } });
-    expect(cfg.extensions[3]).toBe('./extensions/codegraph-reminder.ts');
+    expect(cfg.extensions[3]).toBe('./extensions/codegraph-wx-reminder.ts');
   });
 
   it('codeagent: uninstall removes only our entry, keeping user entries', () => {
@@ -1251,7 +1285,7 @@ describe('Installer targets — partial-state idempotency', () => {
     const config = path.join(tmpHome, '.cac', 'extensions.json');
     fs.mkdirSync(path.dirname(config), { recursive: true });
     fs.writeFileSync(config, JSON.stringify({
-      extensions: ['@scope/some-package', './extensions/codegraph-reminder.ts'],
+      extensions: ['@scope/some-package', './extensions/codegraph-wx-reminder.ts'],
     }, null, 2) + '\n');
 
     codeagent.uninstall('global');
@@ -1260,54 +1294,46 @@ describe('Installer targets — partial-state idempotency', () => {
     expect(cfg.extensions).toEqual(['@scope/some-package']);
   });
 
-  it('codeagent: install treats an object-form registration of our extension as already present', () => {
+  it('codeagent: install resets an object-form managed extension registration', () => {
     const codeagent = getTarget('codeagent')!;
     const config = path.join(tmpHome, '.cac', 'extensions.json');
     fs.mkdirSync(path.dirname(config), { recursive: true });
     fs.writeFileSync(config, JSON.stringify({
-      extensions: [{ path: './extensions/codegraph-reminder.ts' }],
+      extensions: [{ path: './extensions/codegraph-wx-reminder.ts' }],
     }, null, 2) + '\n');
 
     const result = codeagent.install('global', { autoAllow: true });
 
     const cfg = JSON.parse(fs.readFileSync(config, 'utf-8'));
-    expect(cfg.extensions).toEqual([{ path: './extensions/codegraph-reminder.ts' }]);
-    expect(result.files.find((f) => f.path === config)?.action).toBe('unchanged');
+    expect(cfg.extensions).toEqual(['./extensions/codegraph-wx-reminder.ts']);
+    expect(result.files.find((f) => f.path === config)?.action).toBe('updated');
   });
 
-  it('codeagent: install recovers a corrupted extensions.json with a backup', () => {
+  it('codeagent: install rejects a corrupted extensions.json before changing any client files', () => {
     const codeagent = getTarget('codeagent')!;
     const config = path.join(tmpHome, '.cac', 'extensions.json');
     fs.mkdirSync(path.dirname(config), { recursive: true });
     fs.writeFileSync(config, '{ not valid json');
 
-    codeagent.install('global', { autoAllow: true });
-
-    expect(fs.existsSync(config + '.backup')).toBe(true);
-    const cfg = JSON.parse(fs.readFileSync(config, 'utf-8'));
-    expect(cfg.extensions).toContain('./extensions/codegraph-reminder.ts');
+    expect(() => codeagent.install('global', { autoAllow: true })).toThrow(/invalid JSON/);
+    expect(fs.readFileSync(config, 'utf8')).toBe('{ not valid json');
+    expect(fs.existsSync(path.join(tmpHome, '.cac.json'))).toBe(false);
+    expect(fs.existsSync(path.join(tmpHome, '.cac', 'AGENTS.md'))).toBe(false);
   });
 });
 
 describe('Installer targets — registry', () => {
-  it('getTarget returns the right target for each id', () => {
-    expect(getTarget('claude')?.id).toBe('claude');
-    expect(getTarget('cursor')?.id).toBe('cursor');
-    expect(getTarget('codex')?.id).toBe('codex');
-    expect(getTarget('opencode')?.id).toBe('opencode');
-    expect(getTarget('codeagent')?.id).toBe('codeagent');
-    expect(getTarget('hermes')?.id).toBe('hermes');
-    expect(getTarget('gemini')?.id).toBe('gemini');
-    expect(getTarget('antigravity')?.id).toBe('antigravity');
-    expect(getTarget('kiro')?.id).toBe('kiro');
-    expect(getTarget('not-a-real-target')).toBeUndefined();
+  it('getTarget returns exactly the targets enabled in this distribution', () => {
+    for (const target of ALL_TARGETS) expect(registeredTarget(target.id)).toBe(target);
+    expect(registeredTarget('not-a-real-target')).toBeUndefined();
+    expect(registeredTarget('cursor')).toBeUndefined();
   });
 
   it('resolveTargetFlag handles auto/all/none/csv', () => {
     expect(resolveTargetFlag('none', 'global')).toEqual([]);
     expect(resolveTargetFlag('all', 'global').length).toBe(ALL_TARGETS.length);
-    const csv = resolveTargetFlag('claude,cursor', 'global');
-    expect(csv.map((t) => t.id)).toEqual(['claude', 'cursor']);
+    const csv = resolveTargetFlag('claude,codeagent', 'global');
+    expect(csv.map((t) => t.id)).toEqual(['claude', 'codeagent']);
   });
 
   it('resolveTargetFlag throws on unknown id', () => {
@@ -1316,27 +1342,27 @@ describe('Installer targets — registry', () => {
 });
 
 describe('Installer targets — TOML serializer (Codex backbone)', () => {
-  it('builds a [mcp_servers.codegraph] block with command + args', () => {
-    const block = buildTomlTable('mcp_servers.codegraph', {
+  it('builds a [mcp_servers.codegraph_wx] block with command + args', () => {
+    const block = buildTomlTable('mcp_servers.codegraph_wx', {
       command: 'codegraph',
       args: ['serve', '--mcp'],
     });
-    expect(block).toContain('[mcp_servers.codegraph]');
+    expect(block).toContain('[mcp_servers.codegraph_wx]');
     expect(block).toContain('command = "codegraph"');
     expect(block).toContain('args = ["serve", "--mcp"]');
   });
 
   it('upsert inserts into empty content', () => {
-    const block = buildTomlTable('mcp_servers.codegraph', { command: 'codegraph', args: ['serve'] });
-    const { content, action } = upsertTomlTable('', 'mcp_servers.codegraph', block);
+    const block = buildTomlTable('mcp_servers.codegraph_wx', { command: 'codegraph', args: ['serve'] });
+    const { content, action } = upsertTomlTable('', 'mcp_servers.codegraph_wx', block);
     expect(action).toBe('inserted');
-    expect(content.startsWith('[mcp_servers.codegraph]')).toBe(true);
+    expect(content.startsWith('[mcp_servers.codegraph_wx]')).toBe(true);
   });
 
   it('upsert is idempotent — second call returns unchanged', () => {
-    const block = buildTomlTable('mcp_servers.codegraph', { command: 'codegraph', args: ['serve'] });
-    const first = upsertTomlTable('', 'mcp_servers.codegraph', block);
-    const second = upsertTomlTable(first.content, 'mcp_servers.codegraph', block);
+    const block = buildTomlTable('mcp_servers.codegraph_wx', { command: 'codegraph', args: ['serve'] });
+    const first = upsertTomlTable('', 'mcp_servers.codegraph_wx', block);
+    const second = upsertTomlTable(first.content, 'mcp_servers.codegraph_wx', block);
     expect(second.action).toBe('unchanged');
     expect(second.content).toBe(first.content);
   });
@@ -1346,7 +1372,7 @@ describe('Installer targets — TOML serializer (Codex backbone)', () => {
       '[other_table]',
       'foo = "bar"',
       '',
-      '[mcp_servers.codegraph]',
+      '[mcp_servers.codegraph_wx]',
       'command = "old-codegraph"',
       'args = ["old"]',
       '',
@@ -1354,11 +1380,11 @@ describe('Installer targets — TOML serializer (Codex backbone)', () => {
       'baz = "qux"',
       '',
     ].join('\n');
-    const newBlock = buildTomlTable('mcp_servers.codegraph', {
+    const newBlock = buildTomlTable('mcp_servers.codegraph_wx', {
       command: 'codegraph',
       args: ['serve', '--mcp'],
     });
-    const { content, action } = upsertTomlTable(existing, 'mcp_servers.codegraph', newBlock);
+    const { content, action } = upsertTomlTable(existing, 'mcp_servers.codegraph_wx', newBlock);
     expect(action).toBe('replaced');
     expect(content).toContain('[other_table]');
     expect(content).toContain('foo = "bar"');
@@ -1373,20 +1399,20 @@ describe('Installer targets — TOML serializer (Codex backbone)', () => {
       '[other_table]',
       'foo = "bar"',
       '',
-      '[mcp_servers.codegraph]',
+      '[mcp_servers.codegraph_wx]',
       'command = "codegraph"',
       'args = ["serve"]',
     ].join('\n');
-    const { content, action } = removeTomlTable(existing, 'mcp_servers.codegraph');
+    const { content, action } = removeTomlTable(existing, 'mcp_servers.codegraph_wx');
     expect(action).toBe('removed');
     expect(content).toContain('[other_table]');
     expect(content).toContain('foo = "bar"');
-    expect(content).not.toContain('mcp_servers.codegraph');
+    expect(content).not.toContain('mcp_servers.codegraph_wx');
   });
 
   it('removeTomlTable on missing table returns not-found, no content change', () => {
     const existing = '[other]\nfoo = "bar"\n';
-    const { content, action } = removeTomlTable(existing, 'mcp_servers.codegraph');
+    const { content, action } = removeTomlTable(existing, 'mcp_servers.codegraph_wx');
     expect(action).toBe('not-found');
     expect(content).toBe(existing);
   });
@@ -1400,10 +1426,10 @@ describe('Installer targets — TOML serializer (Codex backbone)', () => {
       'name = "b"',
       '',
     ].join('\n');
-    const block = buildTomlTable('mcp_servers.codegraph', { command: 'codegraph', args: ['serve'] });
-    const { content } = upsertTomlTable(existing, 'mcp_servers.codegraph', block);
+    const block = buildTomlTable('mcp_servers.codegraph_wx', { command: 'codegraph', args: ['serve'] });
+    const { content } = upsertTomlTable(existing, 'mcp_servers.codegraph_wx', block);
     expect(content.match(/\[\[foo\]\]/g)?.length).toBe(2);
-    expect(content).toContain('[mcp_servers.codegraph]');
+    expect(content).toContain('[mcp_servers.codegraph_wx]');
   });
 });
 
@@ -1531,7 +1557,7 @@ describe('Installer — Cursor rules file cleanup on uninstall', () => {
     fs.rmSync(tmpCwd, { recursive: true, force: true });
   });
 
-  const rulesFile = () => path.join(process.cwd(), '.cursor', 'rules', 'codegraph.mdc');
+  const rulesFile = () => path.join(process.cwd(), '.cursor', 'rules', 'codegraph-wx.mdc');
 
   // The frontmatter a previous install wrote ahead of the marked block.
   // `removeRulesEntry` recognizes it to decide whether the leftover .mdc
@@ -1549,7 +1575,7 @@ describe('Installer — Cursor rules file cleanup on uninstall', () => {
     fs.writeFileSync(rulesFile(), MDC_FRONTMATTER + LEGACY_BLOCK + '\n' + extra);
   }
 
-  it('uninstall deletes a leftover codegraph.mdc entirely (no orphaned frontmatter left behind)', () => {
+  it('uninstall deletes a leftover codegraph-wx.mdc entirely (no orphaned frontmatter left behind)', () => {
     plantLegacyRulesFile();
     expect(fs.existsSync(rulesFile())).toBe(true);
 
@@ -1559,11 +1585,11 @@ describe('Installer — Cursor rules file cleanup on uninstall', () => {
     expect(fs.existsSync(rulesFile())).toBe(false);
   });
 
-  it('install self-heals a leftover codegraph.mdc (#529)', () => {
+  it('install self-heals a leftover codegraph-wx.mdc (#529)', () => {
     plantLegacyRulesFile();
     const result = cursor.install('local', { autoAllow: true });
     expect(fs.existsSync(rulesFile())).toBe(false);
-    expect(result.files.some((f) => f.path.endsWith('codegraph.mdc') && f.action === 'removed')).toBe(true);
+    expect(result.files.some((f) => f.path.endsWith('codegraph-wx.mdc') && f.action === 'removed')).toBe(true);
   });
 
   it('uninstall preserves user content added outside the codegraph markers (strips only our block)', () => {
@@ -1575,7 +1601,7 @@ describe('Installer — Cursor rules file cleanup on uninstall', () => {
     const after = fs.readFileSync(rulesFile(), 'utf-8');
     expect(after).toContain('keep me');
     // Our tool-usage block is gone.
-    expect(after).not.toContain('codegraph_search');
+    expect(after).not.toContain('codegraph_wx_search');
     expect(after).not.toContain('CODEGRAPH_START');
   });
 });

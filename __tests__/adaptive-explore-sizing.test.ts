@@ -1,10 +1,10 @@
 /**
- * Regression test for adaptive `codegraph_explore` sizing — sibling
+ * Regression test for adaptive `codegraph_wx_explore` sizing — sibling
  * skeletonization (branch `feat/adaptive-explore-sizing`, commit d6d059f).
  *
  * Feature: when a file is BOTH (1) off the synthesized flow spine AND (2) a
  * polymorphic sibling — its class implements/extends a supertype shared by
- * >= MIN_SIBLINGS (3) implementers — `codegraph_explore` renders it as a
+ * >= MIN_SIBLINGS (3) implementers — `codegraph_wx_explore` renders it as a
  * class + member *signature* skeleton (bodies elided) instead of full source,
  * keeping the on-spine exemplar and the mechanism full. This sizes the
  * response to the answer rather than the budget cap on sibling-heavy flows
@@ -51,7 +51,7 @@ function sectionFor(text: string, basename: string): string {
   return lines.slice(start, end).join('\n');
 }
 
-describe('adaptive codegraph_explore sizing — sibling skeletonization', () => {
+describe('adaptive codegraph_wx_explore sizing — sibling skeletonization', () => {
   let testDir: string;
   let cg: CodeGraph;
   let handler: ToolHandler;

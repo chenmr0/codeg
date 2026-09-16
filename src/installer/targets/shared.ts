@@ -1,234 +1,142 @@
-/**
- * Helpers shared across `AgentTarget` implementations.
- *
- * Lifted from the original `config-writer.ts` so each target can
- * compose them without inheritance. Kept deliberately small — the
- * targets are different enough (JSON vs TOML vs Markdown, varying
- * idempotency markers) that a base class would force the awkward
- * shape onto everyone.
- */
-
+/** Shared installer operations; managed names and markers are reset on install. */
+import type { AgentTarget, WriteResult } from './types';
 import * as fs from 'fs';
-import * as path from 'path';
-import {
-  CODEGRAPH_INSTRUCTIONS_BLOCK,
-  CODEGRAPH_SECTION_END,
-  CODEGRAPH_SECTION_START,
-} from '../instructions-template';
+import { getWxCliCommand } from '../../cli/launcher';
+import { atomicWriteFileSync, configFileExists, readConfigFile, removeConfigFile, recordCleanup, withConfigTransaction } from '../config-transaction';
+import { INSTRUCTION_MARKERS, MarkerPair, resetManagedSections } from '../managed-sections';
+import { CODEGRAPH_INSTRUCTIONS_BLOCK, CODEGRAPH_SECTION_END, CODEGRAPH_SECTION_START } from '../instructions-template';
+export { atomicWriteFileSync, readConfigFile, removeConfigFile, configFileExists } from '../config-transaction';
 
-/**
- * The MCP-server config block codegraph injects. Same shape across
- * all JSON-shaped agent configs (Claude, Cursor, opencode), only the
- * surrounding wrapper differs. Codex (TOML) builds its own block.
- */
 export function getMcpServerConfig(): { type: string; command: string; args: string[] } {
-  return {
-    type: 'stdio',
-    command: 'codegraph',
-    args: ['serve', '--mcp'],
-  };
+  const cli = getWxCliCommand();
+  return { type: 'stdio', command: cli.command, args: [...cli.args, 'serve', '--mcp'] };
 }
-
-/**
- * Permissions list for Claude `settings.json`. Other targets that
- * have a permissions concept can compose this list directly. The
- * permission strings follow Claude's `mcp__<server>__<tool>` format.
- */
 export function getCodeGraphPermissions(): string[] {
-  return [
-    'mcp__codegraph__explore',
-    'mcp__codegraph__search',
-    'mcp__codegraph__node',
-    'mcp__codegraph__context',
-    'mcp__codegraph__text_search',
-    'mcp__codegraph__callers',
-    'mcp__codegraph__callees',
-    'mcp__codegraph__impact',
-    'mcp__codegraph__files',
-    'mcp__codegraph__status',
-  ];
+  return ['explore', 'search', 'node', 'context', 'text_search', 'callers', 'callees', 'impact', 'files', 'status']
+    .map(tool => `mcp__codegraph_wx__${tool}`);
 }
-
-/**
- * Read a JSON file, returning `{}` when missing or unparseable.
- *
- * Unparseable files are backed up to `<path>.backup` BEFORE we return
- * `{}` — so an idempotent re-run never silently deletes a user's
- * existing config that happened to break JSON parse temporarily.
- */
+export function assertObject(value: unknown, label: string): asserts value is Record<string, any> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error(`${label}: expected a configuration object.`);
+}
 export function readJsonFile(filePath: string): Record<string, any> {
-  if (!fs.existsSync(filePath)) {
-    return {};
-  }
+  if (!configFileExists(filePath)) return {};
   try {
-    return JSON.parse(fs.readFileSync(filePath, 'utf-8'));
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    console.warn(`  Warning: Could not parse ${path.basename(filePath)}: ${msg}`);
-    console.warn(`  A backup will be created before overwriting.`);
-    try {
-      fs.copyFileSync(filePath, filePath + '.backup');
-    } catch { /* ignore backup failure */ }
-    return {};
+    const value: unknown = JSON.parse(readConfigFile(filePath).replace(/^\uFEFF/, ''));
+    assertObject(value, filePath);
+    return value;
+  } catch (error) {
+    throw new Error(`${filePath}: invalid JSON configuration; repair it and retry. ${String(error)}`);
   }
 }
-
-/**
- * Write a file atomically: write to `<path>.tmp.<pid>`, then rename.
- *
- * Prevents corruption if the process crashes mid-write. The temp
- * file is cleaned up on rename failure.
- */
-export function atomicWriteFileSync(filePath: string, content: string): void {
-  const dir = path.dirname(filePath);
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
-  }
-  const tmpPath = filePath + '.tmp.' + process.pid;
-  try {
-    fs.writeFileSync(tmpPath, content);
-    fs.renameSync(tmpPath, filePath);
-  } catch (err) {
-    try { fs.unlinkSync(tmpPath); } catch { /* ignore */ }
-    throw err;
-  }
-}
-
-/**
- * Atomic JSON write. Trailing newline matches the convention every
- * existing target had — preserves diff-friendly file shape.
- */
 export function writeJsonFile(filePath: string, data: Record<string, any>): void {
   atomicWriteFileSync(filePath, JSON.stringify(data, null, 2) + '\n');
 }
-
-/**
- * Compare two JSON values for deep equality, ignoring key order.
- *
- * Used for idempotency: when the on-disk config already exactly
- * matches what we'd write, return action=`unchanged` instead of
- * re-writing (and emitting a confusing "Updated" log line).
- */
 export function jsonDeepEqual(a: unknown, b: unknown): boolean {
   if (a === b) return true;
-  if (typeof a !== typeof b) return false;
-  if (a === null || b === null) return a === b;
-  if (typeof a !== 'object') return false;
+  if (typeof a !== typeof b || a === null || b === null || typeof a !== 'object') return false;
   if (Array.isArray(a) !== Array.isArray(b)) return false;
-  if (Array.isArray(a) && Array.isArray(b)) {
-    if (a.length !== b.length) return false;
-    return a.every((v, i) => jsonDeepEqual(v, b[i]));
-  }
+  if (Array.isArray(a) && Array.isArray(b)) return a.length === b.length && a.every((v, i) => jsonDeepEqual(v, b[i]));
   const ao = a as Record<string, unknown>;
   const bo = b as Record<string, unknown>;
   const ak = Object.keys(ao).sort();
   const bk = Object.keys(bo).sort();
-  if (ak.length !== bk.length) return false;
-  if (!ak.every((k, i) => k === bk[i])) return false;
-  return ak.every((k) => jsonDeepEqual(ao[k], bo[k]));
+  return ak.length === bk.length && ak.every((k, i) => k === bk[i] && jsonDeepEqual(ao[k], bo[k]));
 }
-
-/**
- * Replace or append a marker-delimited section in a markdown-ish file.
- *
- * Used by Claude / Codex for the `<!-- CODEGRAPH_START --> ... <!--
- * CODEGRAPH_END -->` block. Preserves all content outside the
- * markers verbatim.
- *
- * Returns `created` when the file didn't exist; `updated` when
- * markers were found and content swapped; `appended` when markers
- * weren't found and section was added at end. `unchanged` when the
- * existing block already matches `body`.
- */
-export function replaceOrAppendMarkedSection(
-  filePath: string,
-  body: string,
-  startMarker: string,
-  endMarker: string,
-): 'created' | 'updated' | 'appended' | 'unchanged' {
-  if (!fs.existsSync(filePath)) {
-    atomicWriteFileSync(filePath, body + '\n');
-    return 'created';
-  }
-
-  const content = fs.readFileSync(filePath, 'utf-8');
-  const startIdx = content.indexOf(startMarker);
-  const endIdx = content.indexOf(endMarker);
-
-  if (startIdx !== -1 && endIdx > startIdx) {
-    const existingBlock = content.substring(startIdx, endIdx + endMarker.length);
-    if (existingBlock === body) {
-      return 'unchanged';
+export function hasManagedMcp(config: Record<string, any>, key = 'mcpServers'): boolean {
+  if (config[key] === undefined) return false;
+  assertObject(config[key], key);
+  return Object.hasOwn(config[key], 'codegraph') || Object.hasOwn(config[key], 'codegraph_wx');
+}
+export function resetMcpEntry(config: Record<string, any>, entry: unknown, key = 'mcpServers'): boolean {
+  const managed = hasManagedMcp(config, key);
+  if (entry !== undefined && !Object.hasOwn(config[key] ?? {}, 'codegraph') && jsonDeepEqual(config[key]?.codegraph_wx, entry)) return false;
+  if (entry === undefined && !managed) return false;
+  const servers = config[key] ?? {};
+  const count = ['codegraph', 'codegraph_wx'].filter(name => Object.hasOwn(servers, name)).length;
+  delete servers.codegraph;
+  delete servers.codegraph_wx;
+  if (entry !== undefined) servers.codegraph_wx = entry;
+  if (Object.keys(servers).length) config[key] = servers;
+  else delete config[key];
+  if (count) recordCleanup(`Reset ${count} managed MCP entries in ${key}.`);
+  return true;
+}
+export function isManagedPermission(value: unknown): boolean {
+  return typeof value === 'string' && /^mcp__codegraph(?:_wx)?__/.test(value);
+}
+export function reconcilePermissions(file: string, autoAllow: boolean): WriteResult['files'][number] {
+  const existed = configFileExists(file);
+  const settings = readJsonFile(file);
+  const before = JSON.stringify(settings);
+  if (settings.permissions !== undefined) assertObject(settings.permissions, `${file}: permissions`);
+  const permissions = settings.permissions ?? {};
+  if (permissions.allow !== undefined && !Array.isArray(permissions.allow)) throw new Error(`${file}: permissions.allow must be an array.`);
+  const allow: unknown[] = permissions.allow ?? [];
+  const kept = allow.filter(value => !isManagedPermission(value));
+  const next = [...kept, ...(autoAllow ? getCodeGraphPermissions() : [])];
+  if (next.length) permissions.allow = next;
+  else delete permissions.allow;
+  if (Object.keys(permissions).length) settings.permissions = permissions;
+  else delete settings.permissions;
+  if (before === JSON.stringify(settings)) return { path: file, action: existed ? 'unchanged' : 'not-found' };
+  if (allow.length !== kept.length) recordCleanup(`Reset ${allow.length - kept.length} managed permission rules.`);
+  writeJsonFile(file, settings);
+  return { path: file, action: existed ? 'updated' : 'created' };
+}
+export function transactionalTarget(target: AgentTarget): AgentTarget {
+  const install = target.install.bind(target);
+  const uninstall = target.uninstall.bind(target);
+  const detect = target.detect.bind(target);
+  target.detect = loc => {
+    try { return detect(loc); } catch {
+      const paths = target.describePaths(loc);
+      // Detection must not prevent the user from selecting a broken config.
+      // Install will surface the precise parse error without writing anything.
+      return { installed: paths.some(file => fs.existsSync(file)), alreadyConfigured: false, configPath: paths[0] };
     }
-    const before = content.substring(0, startIdx);
-    const after = content.substring(endIdx + endMarker.length);
-    atomicWriteFileSync(filePath, before + body + after);
-    return 'updated';
-  }
-
-  // No markers — append. Preserve existing content with a separating
-  // blank line.
-  const trimmed = content.trimEnd();
-  const sep = trimmed.length > 0 ? '\n\n' : '';
-  atomicWriteFileSync(filePath, trimmed + sep + body + '\n');
-  return 'appended';
+  };
+  target.install = (loc, options) => withConfigTransaction(`${target.id} install ${loc}`, () => {
+    const result = install(loc, options);
+    result.files = result.files.filter(file => file.action !== 'not-found' && file.action !== 'kept');
+    const unique = new Map<string, WriteResult['files'][number]>();
+    for (const file of result.files) {
+      const previous = unique.get(file.path);
+      if (!previous || previous.action === 'unchanged') unique.set(file.path, file);
+    }
+    result.files = [...unique.values()];
+    return result;
+  });
+  target.uninstall = loc => withConfigTransaction(`${target.id} uninstall ${loc}`, () => uninstall(loc));
+  return target;
 }
-
-/**
- * Upsert the CodeGraph instructions block into an agent instructions
- * file (CLAUDE.md / AGENTS.md / GEMINI.md). The one write shared by
- * every target: self-heals a stale pre-#529 long block (markers match →
- * replaced by the current short one), appends after existing user
- * content otherwise, and reports `unchanged` on byte-equal re-runs so
- * install stays idempotent. See `instructions-template.ts` for why this
- * block exists (#704: subagents + non-MCP harnesses never see the MCP
- * initialize instructions).
- */
-export function upsertInstructionsEntry(file: string): { path: string; action: 'created' | 'updated' | 'unchanged' } {
-  const action = replaceOrAppendMarkedSection(
-    file,
-    CODEGRAPH_INSTRUCTIONS_BLOCK,
-    CODEGRAPH_SECTION_START,
-    CODEGRAPH_SECTION_END,
-  );
+export function removeManagedFile(file: string): WriteResult['files'][number] {
+  if (!configFileExists(file)) return { path: file, action: 'not-found' };
+  removeConfigFile(file);
+  recordCleanup(`Removed managed file: ${file}`);
+  return { path: file, action: 'removed' };
+}
+function markerPairs(start: string, end: string): readonly MarkerPair[] {
+  return INSTRUCTION_MARKERS.some(pair => pair[0] === start) ? INSTRUCTION_MARKERS : [[start, end]];
+}
+export function replaceOrAppendMarkedSection(filePath: string, body: string, startMarker: string, endMarker: string): 'created' | 'updated' | 'appended' | 'unchanged' {
+  const existed = configFileExists(filePath);
+  const content = readConfigFile(filePath);
+  const reset = resetManagedSections(content, markerPairs(startMarker, endMarker), body, filePath);
+  if (reset.content === content) return 'unchanged';
+  atomicWriteFileSync(filePath, reset.content);
+  if (reset.count) recordCleanup(`Replaced ${reset.count} managed instruction blocks in ${filePath}.`);
+  return !existed ? 'created' : reset.count ? 'updated' : 'appended';
+}
+export function upsertInstructionsEntry(file: string): WriteResult['files'][number] {
+  const action = replaceOrAppendMarkedSection(file, CODEGRAPH_INSTRUCTIONS_BLOCK, CODEGRAPH_SECTION_START, CODEGRAPH_SECTION_END);
   return { path: file, action: action === 'appended' ? 'updated' : action };
 }
-
-/**
- * Inverse of `replaceOrAppendMarkedSection`. Strips the marker
- * block from `filePath` if present. If the file becomes empty after
- * removal, deletes the file entirely (matches the existing Claude
- * uninstall behavior).
- *
- * Returns `removed` when content was stripped, `not-found` when
- * the markers weren't present, `kept` when the file didn't exist.
- */
-export function removeMarkedSection(
-  filePath: string,
-  startMarker: string,
-  endMarker: string,
-): 'removed' | 'not-found' | 'kept' {
-  if (!fs.existsSync(filePath)) return 'kept';
-
-  let content: string;
-  try {
-    content = fs.readFileSync(filePath, 'utf-8');
-  } catch {
-    return 'kept';
-  }
-
-  const startIdx = content.indexOf(startMarker);
-  const endIdx = content.indexOf(endMarker);
-  if (startIdx === -1 || endIdx <= startIdx) return 'not-found';
-
-  const before = content.substring(0, startIdx).trimEnd();
-  const after = content.substring(endIdx + endMarker.length).trimStart();
-  const joined = before + (before && after ? '\n\n' : '') + after;
-
-  if (joined.trim() === '') {
-    try { fs.unlinkSync(filePath); } catch { /* ignore */ }
-  } else {
-    atomicWriteFileSync(filePath, joined.trim() + '\n');
-  }
+export function removeMarkedSection(filePath: string, startMarker: string, endMarker: string): 'removed' | 'not-found' | 'kept' {
+  if (!configFileExists(filePath)) return 'kept';
+  const reset = resetManagedSections(readConfigFile(filePath), markerPairs(startMarker, endMarker), '', filePath);
+  if (!reset.count) return 'not-found';
+  if (!reset.content.trim()) removeConfigFile(filePath);
+  else atomicWriteFileSync(filePath, reset.content);
+  recordCleanup(`Removed ${reset.count} managed instruction blocks in ${filePath}.`);
   return 'removed';
 }

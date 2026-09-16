@@ -306,7 +306,7 @@ describe('MCP bounded batch context and literal search', () => {
       ],
       includeRelations: false,
     });
-    expect(out).toMatch(/Native codegraph_node batch mode/i);
+    expect(out).toMatch(/Native codegraph_wx_node batch mode/i);
     expect(out).toContain('return helper(1)');
     expect(out).toContain('return first()');
     expect(out).not.toContain('### Trail');
@@ -316,7 +316,7 @@ describe('MCP bounded batch context and literal search', () => {
       expand: 'declaration_definition',
       expectedMissing: ['send_bytes_'],
     });
-    expect(manifest).toMatch(/Native codegraph_node batch mode/i);
+    expect(manifest).toMatch(/Native codegraph_wx_node batch mode/i);
     expect(manifest).toContain('src/metrics.cpp');
     expect(manifest).toContain('src/metrics.h');
     expect(manifest).toContain('expected-new: send_bytes_');
@@ -1181,7 +1181,7 @@ describe('MCP bounded batch context and literal search', () => {
     expect(out).toContain('Other overloads (summary only)');
     expect(out).toContain('push_back_send_list(ObDtlLinkedBuffer *buffer)');
     expect(out).toMatch(/no indexed definition found for this exact overload/i);
-    expect(out).toMatch(/codegraph_callers.*codegraph_callees/i);
+    expect(out).toMatch(/codegraph_wx_callers.*codegraph_wx_callees/i);
   });
 
   it('marks a directly requested declaration-only overload as authoritative', async () => {
@@ -1449,7 +1449,7 @@ describe('MCP bounded batch context and literal search', () => {
     expect(out).toMatch(/Exact symbol recovery/i);
     expect(out).toContain('src/wide_alpha.ts');
     expect(out).toContain('export function wide_alpha()');
-    expect(out).toMatch(/do not call `codegraph_search` or Grep/i);
+    expect(out).toMatch(/do not call `codegraph_wx_search` or Grep/i);
   });
 
   it('rejects unbounded or malformed literal searches', async () => {

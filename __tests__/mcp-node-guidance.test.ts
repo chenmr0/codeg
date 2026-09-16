@@ -4,7 +4,7 @@ import { getCodeGraphPermissions } from '../src/installer/targets/shared';
 import { SERVER_INSTRUCTIONS } from '../src/mcp/server-instructions';
 import { getStaticTools, ToolHandler } from '../src/mcp/tools';
 
-describe('MCP codegraph_node context-budget guidance', () => {
+describe('MCP codegraph_wx_node context-budget guidance', () => {
   const nodeTool = () => getStaticTools().find((tool) => tool.name === 'node')!;
 
   it('advertises symbol-first guarded file mode', () => {
@@ -80,8 +80,8 @@ describe('MCP codegraph_node context-budget guidance', () => {
     expect(SERVER_INSTRUCTIONS).toContain('{ file, symbolsOnly: true }');
     expect(SERVER_INSTRUCTIONS).toContain('{ file, offset, limit<=500 }');
     expect(SERVER_INSTRUCTIONS).toMatch(/rejects bare\/full-file reads/i);
-    expect(SERVER_INSTRUCTIONS).toMatch(/ONE `codegraph_(?:node|context).*targets/i);
-    expect(SERVER_INSTRUCTIONS).toContain('codegraph_node(targets=[...])');
+    expect(SERVER_INSTRUCTIONS).toMatch(/ONE `codegraph_wx_(?:node|context).*targets/i);
+    expect(SERVER_INSTRUCTIONS).toContain('codegraph_wx_node(targets=[...])');
     expect(SERVER_INSTRUCTIONS).toMatch(/Preflight is decided by the 20K character budget/i);
     expect(SERVER_INSTRUCTIONS).toMatch(/queries=.*multi-pattern raw-source scan/i);
     expect(SERVER_INSTRUCTIONS).toMatch(/implementation source[^]*compact[^]*declaration pointer/i);
@@ -92,7 +92,7 @@ describe('MCP codegraph_node context-budget guidance', () => {
     expect(SERVER_INSTRUCTIONS).toMatch(/selected container[^]*text[^]*file windows/i);
     expect(SERVER_INSTRUCTIONS).toMatch(/bare[^]*file[^]*compact symbol outline/i);
     expect(SERVER_INSTRUCTIONS).toMatch(/JSON-stringified[^]*parsed automatically/i);
-    expect(SERVER_INSTRUCTIONS).toMatch(/ONE `codegraph_text_search` call/i);
+    expect(SERVER_INSTRUCTIONS).toMatch(/ONE `codegraph_wx_text_search` call/i);
     expect(SERVER_INSTRUCTIONS).toMatch(/zero-match identifier/i);
     expect(SERVER_INSTRUCTIONS).toContain('DECLARATION_ONLY');
     expect(SERVER_INSTRUCTIONS).toMatch(/compact\s+raw-source matches/i);
@@ -108,17 +108,17 @@ describe('MCP codegraph_node context-budget guidance', () => {
     expect(CODEGRAPH_INSTRUCTIONS_BLOCK).toMatch(/exact file[^]*line[^]*host Read/i);
     expect(CODEGRAPH_INSTRUCTIONS_BLOCK).toContain('symbolsOnly=true');
     expect(CODEGRAPH_INSTRUCTIONS_BLOCK).toContain('limit<=500');
-    expect(CODEGRAPH_INSTRUCTIONS_BLOCK).toContain('codegraph_context');
+    expect(CODEGRAPH_INSTRUCTIONS_BLOCK).toContain('codegraph_wx_context');
     expect(CODEGRAPH_INSTRUCTIONS_BLOCK).toContain('includeCode="if_unique"');
-    expect(CODEGRAPH_INSTRUCTIONS_BLOCK).toContain('codegraph_search(queries=[...])');
+    expect(CODEGRAPH_INSTRUCTIONS_BLOCK).toContain('codegraph_wx_search(queries=[...])');
     expect(CODEGRAPH_INSTRUCTIONS_BLOCK).toMatch(/implementation source[^]*compact declaration pointer/i);
     expect(CODEGRAPH_INSTRUCTIONS_BLOCK).toMatch(/safely truncated[^]*rather than replaced by an outline/i);
     expect(CODEGRAPH_INSTRUCTIONS_BLOCK).toMatch(/trails are off by default/i);
     expect(CODEGRAPH_INSTRUCTIONS_BLOCK).toMatch(/outlineQueries/i);
     expect(CODEGRAPH_INSTRUCTIONS_BLOCK).toMatch(/base-declaration call[^]*sites/i);
-    expect(CODEGRAPH_INSTRUCTIONS_BLOCK).toContain('codegraph_text_search');
-    expect(CODEGRAPH_INSTRUCTIONS_BLOCK).toContain('codegraph_node');
-    expect(CODEGRAPH_INSTRUCTIONS_BLOCK).toContain('codegraph_node(targets=[...])');
+    expect(CODEGRAPH_INSTRUCTIONS_BLOCK).toContain('codegraph_wx_text_search');
+    expect(CODEGRAPH_INSTRUCTIONS_BLOCK).toContain('codegraph_wx_node');
+    expect(CODEGRAPH_INSTRUCTIONS_BLOCK).toContain('codegraph_wx_node(targets=[...])');
     expect(CODEGRAPH_INSTRUCTIONS_BLOCK).toContain('DECLARATION_ONLY');
     expect(CODEGRAPH_INSTRUCTIONS_BLOCK).toMatch(/compact raw-source matches/i);
     expect(CODEGRAPH_INSTRUCTIONS_BLOCK).toMatch(/file.*line.*signature/i);
@@ -130,14 +130,14 @@ describe('MCP codegraph_node context-budget guidance', () => {
 
   it('auto-allows the optimized batch tools for Claude-compatible clients', () => {
     const permissions = getCodeGraphPermissions();
-    expect(permissions).toContain('mcp__codegraph__context');
-    expect(permissions).toContain('mcp__codegraph__text_search');
-    expect(permissions.some((permission) => permission.startsWith('mcp__codegraph__codegraph_'))).toBe(false);
+    expect(permissions).toContain('mcp__codegraph_wx__context');
+    expect(permissions).toContain('mcp__codegraph_wx__text_search');
+    expect(permissions.some((permission) => permission.startsWith('mcp__codegraph_wx__codegraph_'))).toBe(false);
   });
 
   it('does not accept the removed prefixed raw MCP names', async () => {
-    const result = await new ToolHandler(null).execute('codegraph_node', { symbol: 'Widget' });
+    const result = await new ToolHandler(null).execute('codegraph_wx_node', { symbol: 'Widget' });
     expect(result.isError).toBe(true);
-    expect(result.content[0]?.text).toMatch(/Unknown tool: codegraph_node/);
+    expect(result.content[0]?.text).toMatch(/Unknown tool: codegraph_wx_node/);
   });
 });

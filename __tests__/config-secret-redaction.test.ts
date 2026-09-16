@@ -5,8 +5,8 @@
  * `@Value` resolution works, but their values are routinely secrets (DB
  * passwords, API keys, JDBC URLs with embedded creds). CodeGraph must surface
  * the KEY and never the value — not in node metadata (docstring/signature),
- * not via `codegraph_explore`'s verbatim source dump, and not via
- * `codegraph_node` `includeCode`. An agent that genuinely needs a value can
+ * not via `codegraph_wx_explore`'s verbatim source dump, and not via
+ * `codegraph_wx_node` `includeCode`. An agent that genuinely needs a value can
  * read the file itself (a deliberate pull); CodeGraph must never volunteer it.
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
@@ -86,7 +86,7 @@ describe('config secret redaction (#383)', () => {
     }
   });
 
-  it('codegraph_explore surfaces the config key but NEVER the secret value', async () => {
+  it('codegraph_wx_explore surfaces the config key but NEVER the secret value', async () => {
     const res = await handler.execute('explore', {
       query: 'DataConfig dbPass apiKey spring.datasource.password app.api.key',
     });
@@ -95,7 +95,7 @@ describe('config secret redaction (#383)', () => {
     expect(text).not.toContain(SECRET); // ...but the value is never dumped
   });
 
-  it('codegraph_node includeCode returns the key, not the secret value', async () => {
+  it('codegraph_wx_node includeCode returns the key, not the secret value', async () => {
     const res = await handler.execute('node', {
       symbol: 'spring.datasource.password',
       includeCode: true,
