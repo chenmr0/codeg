@@ -76,7 +76,8 @@ describe('MCP codegraph_wx_node context-budget guidance', () => {
 
   it('keeps server instructions aligned with runtime guards', () => {
     expect(Buffer.byteLength(SERVER_INSTRUCTIONS, 'utf8')).toBeLessThan(5_000);
-    expect(SERVER_INSTRUCTIONS).toMatch(/exact file[^]*line[^]*host Read/i);
+    expect(SERVER_INSTRUCTIONS).toContain('codegraph_wx_node(symbol=..., includeCode=true)');
+    expect(SERVER_INSTRUCTIONS).not.toContain('use the host Read tool');
     expect(SERVER_INSTRUCTIONS).toContain('{ file, symbolsOnly: true }');
     expect(SERVER_INSTRUCTIONS).toContain('{ file, offset, limit<=500 }');
     expect(SERVER_INSTRUCTIONS).toMatch(/rejects bare\/full-file reads/i);
@@ -103,29 +104,13 @@ describe('MCP codegraph_wx_node context-budget guidance', () => {
     expect(SERVER_INSTRUCTIONS).not.toMatch(/any time you'd use the `Read` tool/i);
   });
 
-  it('keeps installed agent guidance aligned with runtime guards', () => {
-    expect(Buffer.byteLength(CODEGRAPH_INSTRUCTIONS_BLOCK, 'utf8')).toBeLessThan(3_500);
-    expect(CODEGRAPH_INSTRUCTIONS_BLOCK).toMatch(/exact file[^]*line[^]*host Read/i);
+  it('keeps the approved Chinese agent guidance', () => {
+    expect(CODEGRAPH_INSTRUCTIONS_BLOCK).toContain('## 工具使用规则');
     expect(CODEGRAPH_INSTRUCTIONS_BLOCK).toContain('symbolsOnly=true');
-    expect(CODEGRAPH_INSTRUCTIONS_BLOCK).toContain('limit<=500');
-    expect(CODEGRAPH_INSTRUCTIONS_BLOCK).toContain('codegraph_wx_context');
-    expect(CODEGRAPH_INSTRUCTIONS_BLOCK).toContain('includeCode="if_unique"');
-    expect(CODEGRAPH_INSTRUCTIONS_BLOCK).toContain('codegraph_wx_search(queries=[...])');
-    expect(CODEGRAPH_INSTRUCTIONS_BLOCK).toMatch(/implementation source[^]*compact declaration pointer/i);
-    expect(CODEGRAPH_INSTRUCTIONS_BLOCK).toMatch(/safely truncated[^]*rather than replaced by an outline/i);
-    expect(CODEGRAPH_INSTRUCTIONS_BLOCK).toMatch(/trails are off by default/i);
-    expect(CODEGRAPH_INSTRUCTIONS_BLOCK).toMatch(/outlineQueries/i);
-    expect(CODEGRAPH_INSTRUCTIONS_BLOCK).toMatch(/base-declaration call[^]*sites/i);
-    expect(CODEGRAPH_INSTRUCTIONS_BLOCK).toContain('codegraph_wx_text_search');
-    expect(CODEGRAPH_INSTRUCTIONS_BLOCK).toContain('codegraph_wx_node');
-    expect(CODEGRAPH_INSTRUCTIONS_BLOCK).toContain('codegraph_wx_node(targets=[...])');
-    expect(CODEGRAPH_INSTRUCTIONS_BLOCK).toContain('DECLARATION_ONLY');
-    expect(CODEGRAPH_INSTRUCTIONS_BLOCK).toMatch(/compact raw-source matches/i);
-    expect(CODEGRAPH_INSTRUCTIONS_BLOCK).toMatch(/file.*line.*signature/i);
-    expect(CODEGRAPH_INSTRUCTIONS_BLOCK).toMatch(/refuse to aggregate distinct overloads/i);
-    expect(CODEGRAPH_INSTRUCTIONS_BLOCK).not.toContain('codegraph_codegraph_node');
-    expect(CODEGRAPH_INSTRUCTIONS_BLOCK).toMatch(/Bare\/full-file MCP reads are rejected/i);
-    expect(CODEGRAPH_INSTRUCTIONS_BLOCK).not.toMatch(/Use it INSTEAD of Read/i);
+    expect(CODEGRAPH_INSTRUCTIONS_BLOCK).toContain('limit<=200');
+    expect(CODEGRAPH_INSTRUCTIONS_BLOCK).toContain('codegraph_wx_node(symbol=<符号名>, includeCode=true)');
+    expect(CODEGRAPH_INSTRUCTIONS_BLOCK).toContain('不要一次请求全部同名定义的源码');
+    expect(CODEGRAPH_INSTRUCTIONS_BLOCK).toContain('CodeGraph 已返回足够证据后立即停止');
   });
 
   it('auto-allows the optimized batch tools for Claude-compatible clients', () => {

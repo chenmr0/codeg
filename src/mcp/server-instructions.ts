@@ -1,10 +1,13 @@
 /** Compact routing policy emitted once during MCP initialization. */
 export const SERVER_INSTRUCTIONS = `# CodeGraph — cost-based code intelligence
 
-Use CodeGraph for indexed symbols and relationships, not as a blanket replacement
-for small local reads. If the task already gives an exact file and line and only
-nearby source is needed, use the host Read tool. Use graph tools when a symbol,
-declaration/definition partner, caller, callee, or lifecycle hop must be resolved.
+Prefer CodeGraph when exploring source code. For a known symbol, request its
+implementation directly with \`codegraph_wx_node(symbol=..., includeCode=true)\`.
+For necessary non-symbol local code, use offset + limit<=200 and expand only
+adjacent missing content. Stop once sufficient evidence is available.
+Use native grep/Read only for unindexed files, explicitly reported stale/pending
+indexing, repeated exact-symbol misses, references outside AST coverage, or
+configuration/documentation/Markdown; keep the fallback narrowly scoped.
 
 ## Routing
 

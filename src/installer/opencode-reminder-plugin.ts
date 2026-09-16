@@ -35,7 +35,7 @@ const OUTPUT_SOURCE_RE = /(?:^|[\\\\/\\s(])[^:\\r\\n]*\\.(?:c|h|cc|cpp|cxx|hh|hp
 const SOURCE_DISCOVERY_COMMAND_RE = /(?:^|[|;&]\\s*|\\b)(?:rg|grep|findstr|select-string|get-childitem|gci|dir|ls|get-content|gc|type)\\b/i
 const SYSTEM_REMINDER_MARKER = "[CODEGRAPH_WX_DYNAMIC_SYSTEM_REMINDER]"
 const SYSTEM_REMINDER = SYSTEM_REMINDER_MARKER + "\\n" +
-  "优先使用 CodeGraph wx 系列工具，而不是read、grep、Bash源码搜索等。当前项目源码已建立CodeGraph索引；仅当CodeGraph无结果、目标文件已在本会话修改导致索引stale，或目标内容不受索引覆盖时，才使用原生源码搜索/读取。"
+  "优先使用 CodeGraph wx 系列工具，而不是read、grep、Bash源码搜索等。仅在文件未索引、CodeGraph明确报告索引过期或等待重新索引、连续精确符号查询仍无结果、查找AST图谱可能不覆盖的引用，或读取配置/文档/Markdown时，才回退到相关文件或行的原生搜索/读取。"
 
 function findIndexRoot(start) {
   if (!start || typeof start !== "string") return null

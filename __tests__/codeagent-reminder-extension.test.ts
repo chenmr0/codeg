@@ -9,6 +9,7 @@ describe('CodeAgent CodeGraph native-tool reminder extension', () => {
   let dir: string;
   let afterHook: (input: any, output: any) => Promise<void>;
   let messagesHook: (input: any, output: any) => Promise<void>;
+  let startupHook: (input: any, output: any) => Promise<void>;
   let eventHook: (input: any) => Promise<void>;
 
   const userMsg = (content: unknown) => ({
@@ -33,11 +34,35 @@ describe('CodeAgent CodeGraph native-tool reminder extension', () => {
     });
     afterHook = extension.tool.executeAfter;
     messagesHook = extension.experimental.chat.messagesTransform;
+    startupHook = extension.experimental.chat.systemTransform;
     eventHook = extension.event;
   });
 
   afterEach(() => {
     fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('reuses the short reminder for each subagent startup without duplicating or replacing its prompt', async () => {
+    fs.mkdirSync(path.join(dir, '.codegraph-wx'));
+    for (const agentID of ['agent-1', 'agent-2']) {
+      const output = { system: ['core prompt'] };
+      await startupHook({ agentID }, output);
+      expect(output.system[0]).toBe('core prompt');
+      expect(output.system[1]).toContain('优先使用 CodeGraph wx 系列工具');
+      expect(output.system[1]).toContain('连续精确符号查询仍无结果');
+      expect(output.system[1]).not.toContain('mcp__codegraph_wx__node');
+      await startupHook({ agentID }, output);
+      expect(output.system).toHaveLength(2);
+    }
+  });
+
+  it('skips startup reminders for unindexed projects and main-thread callbacks', async () => {
+    const output = { system: ['core prompt'] };
+    await startupHook({ agentID: 'agent-1' }, output);
+    expect(output.system).toEqual(['core prompt']);
+    fs.mkdirSync(path.join(dir, '.codegraph-wx'));
+    await startupHook({ sessionID: 's1' }, output);
+    expect(output.system).toEqual(['core prompt']);
   });
 
   it('does nothing when the current repository is not indexed', async () => {

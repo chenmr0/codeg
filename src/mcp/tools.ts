@@ -4687,7 +4687,7 @@ export class ToolHandler {
     if (!includeCode) {
       const list = matches.map((n) => `- \`${displaySymbol(n)}\` (${n.kind}) — ${formatDefinitionLocation(n)}`);
       return this.textResult(this.truncateOutput(
-        [header, '', 'Re-query with `includeCode: true` to get every body in one call — no need to pick one first.', '', ...list].join('\n'),
+        [header, '', 'Choose the relevant definition first, then re-query `codegraph_wx_node` with its `file`, `line`, and `includeCode: true`. Do not request every same-named implementation.', '', ...list].join('\n'),
       ));
     }
 
