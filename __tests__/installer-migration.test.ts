@@ -105,6 +105,24 @@ describe('managed installer migration', () => {
   });
 
   for (const location of ['global', 'local'] as const) {
+    it(`CodeAgent/${location}: removes the disabled explore allow rule on reinstall`, () => {
+      const settings = path.join(home, '.cac', 'settings.json');
+      put(settings, JSON.stringify({ permissions: {
+        allow: ['mcp__codegraph_wx__explore', 'mcp__codegraph__explore', 'mcp__codegraph_wx__search', 'Bash(git status)'],
+        deny: ['Bash(rm *)'],
+      } }));
+      codeagentTarget.install(location, { autoAllow: true });
+      const permissions = json(settings).permissions;
+      expect(permissions.allow).not.toContain('mcp__codegraph_wx__explore');
+      expect(permissions.allow).not.toContain('mcp__codegraph__explore');
+      expect(permissions.allow).toContain('mcp__codegraph_wx__search');
+      expect(permissions.allow).toContain('Bash(git status)');
+      expect(permissions.deny).toEqual(['Bash(rm *)']);
+      const first = fs.readFileSync(settings, 'utf8');
+      codeagentTarget.install(location, { autoAllow: true });
+      expect(fs.readFileSync(settings, 'utf8')).toBe(first);
+    });
+
     it(`CodeAgent/${location}: resets fixed extension paths and permissions without matching unrelated basenames`, () => {
       const dir = path.join(home, '.cac');
       const oldFile = path.join(dir, 'extensions', 'codegraph-reminder.ts');

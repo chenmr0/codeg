@@ -42,27 +42,36 @@ describe('CodeAgent CodeGraph native-tool reminder extension', () => {
     fs.rmSync(dir, { recursive: true, force: true });
   });
 
-  it('reuses the short reminder for each subagent startup without duplicating or replacing its prompt', async () => {
+  it('accepts sessionID/model and legacy agentID startup hooks without duplicating or replacing prompts', async () => {
     fs.mkdirSync(path.join(dir, '.codegraph-wx'));
-    for (const agentID of ['agent-1', 'agent-2']) {
+    for (const input of [{ sessionID: 's1', model: {} }, { sessionID: 'agent-1', model: {} },
+      { agentID: 'agent-1' }, { agentID: 'agent-2' }]) {
       const output = { system: ['core prompt'] };
-      await startupHook({ agentID }, output);
+      await startupHook(input, output);
       expect(output.system[0]).toBe('core prompt');
       expect(output.system[1]).toContain('优先使用 CodeGraph wx 系列工具');
       expect(output.system[1]).toContain('连续精确符号查询仍无结果');
       expect(output.system[1]).not.toContain('mcp__codegraph_wx__node');
-      await startupHook({ agentID }, output);
+      await startupHook(input, output);
       expect(output.system).toHaveLength(2);
     }
   });
 
-  it('skips startup reminders for unindexed projects and main-thread callbacks', async () => {
+  it('skips startup reminders for unindexed projects on both hook contracts', async () => {
     const output = { system: ['core prompt'] };
     await startupHook({ agentID: 'agent-1' }, output);
     expect(output.system).toEqual(['core prompt']);
-    fs.mkdirSync(path.join(dir, '.codegraph-wx'));
-    await startupHook({ sessionID: 's1' }, output);
+    await startupHook({ sessionID: 's1', model: {} }, output);
     expect(output.system).toEqual(['core prompt']);
+  });
+
+  it.each([false, true])('injects a SubAgent Grep fallback reminder only with a wx index: %s', async indexed => {
+    if (indexed) fs.mkdirSync(path.join(dir, '.codegraph-wx'));
+    await afterHook({ tool: 'Grep', sessionID: 'agent-1', args: { path: 'src', pattern: 'QueryEngine' } },
+      toolOutput('src/query-engine.ts:12: class QueryEngine {}'));
+    const messages = [userMsg('continue')];
+    await messagesHook({}, { messages });
+    expect(messages[0].message.content.includes('[CODEGRAPH_WX_DYNAMIC_SYSTEM_REMINDER]')).toBe(indexed);
   });
 
   it('does nothing when the current repository is not indexed', async () => {
@@ -214,7 +223,10 @@ describe('CodeAgent CodeGraph native-tool reminder extension', () => {
     expect(messages[0].message.content).toBe('hello');
   });
 
-  it('clears pending reminders when implementation starts or the session ends', async () => {
+  it.each([
+    { type: 'session.idle', sessionID: 's1' },
+    { id: 'event-1', type: 'session.idle', properties: { sessionID: 's1' } },
+  ])('clears pending reminders when implementation starts or the session ends: %j', async idleEvent => {
     fs.mkdirSync(path.join(dir, '.codegraph-wx'));
     const read = () => afterHook(
       { tool: 'read', sessionID: 's1', args: { file_path: 'main.cpp' } },
@@ -231,7 +243,7 @@ describe('CodeAgent CodeGraph native-tool reminder extension', () => {
     await expectCleared();
 
     await read();
-    await eventHook({ type: 'session.idle', sessionID: 's1' });
+    await eventHook(idleEvent);
     await expectCleared();
 
     // Non-idle events and events without a sessionID leave the flag armed.
@@ -245,6 +257,21 @@ describe('CodeAgent CodeGraph native-tool reminder extension', () => {
     const stillArmed2 = [userMsg('hello')];
     await messagesHook({}, { messages: stillArmed2 });
     expect(stillArmed2[0].message.content).toContain('优先使用 CodeGraph wx 系列工具');
+  });
+
+  it('clears edited-file exemptions from idle event properties so a later read can arm a reminder', async () => {
+    fs.mkdirSync(path.join(dir, '.codegraph-wx'));
+    await afterHook({ tool: 'Edit', sessionID: 's1', args: { file_path: 'main.cpp' } }, toolOutput('done'));
+    const read = () => afterHook({ tool: 'Read', sessionID: 's1', args: { file_path: 'main.cpp' } }, toolOutput('source'));
+    await read();
+    const before = [userMsg('continue')];
+    await messagesHook({}, { messages: before });
+    expect(before[0].message.content).toBe('continue');
+    await eventHook({ id: 'event-2', type: 'session.idle', properties: { sessionID: 's1' } });
+    await read();
+    const after = [userMsg('continue')];
+    await messagesHook({}, { messages: after });
+    expect(after[0].message.content).toContain('[CODEGRAPH_WX_DYNAMIC_SYSTEM_REMINDER]');
   });
 
   it('leaves messages untouched when there is no user message to append to', async () => {

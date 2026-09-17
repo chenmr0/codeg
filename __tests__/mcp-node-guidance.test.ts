@@ -104,13 +104,14 @@ describe('MCP codegraph_wx_node context-budget guidance', () => {
     expect(SERVER_INSTRUCTIONS).not.toMatch(/any time you'd use the `Read` tool/i);
   });
 
-  it('keeps the approved Chinese agent guidance', () => {
-    expect(CODEGRAPH_INSTRUCTIONS_BLOCK).toContain('## 工具使用规则');
+  it('keeps the user-provided OceanBase guidance with wx tool names', () => {
+    expect(CODEGRAPH_INSTRUCTIONS_BLOCK).toContain('## codegraph 源码探索协议');
     expect(CODEGRAPH_INSTRUCTIONS_BLOCK).toContain('symbolsOnly=true');
-    expect(CODEGRAPH_INSTRUCTIONS_BLOCK).toContain('limit<=200');
-    expect(CODEGRAPH_INSTRUCTIONS_BLOCK).toContain('codegraph_wx_node(symbol=<符号名>, includeCode=true)');
-    expect(CODEGRAPH_INSTRUCTIONS_BLOCK).toContain('不要一次请求全部同名定义的源码');
-    expect(CODEGRAPH_INSTRUCTIONS_BLOCK).toContain('CodeGraph 已返回足够证据后立即停止');
+    expect(CODEGRAPH_INSTRUCTIONS_BLOCK).toContain('limit<=500');
+    expect(CODEGRAPH_INSTRUCTIONS_BLOCK).toContain('codegraph_wx_node(targets=[...])');
+    expect(CODEGRAPH_INSTRUCTIONS_BLOCK).toContain('**不得再调用 `node` 重读。**');
+    expect(CODEGRAPH_INSTRUCTIONS_BLOCK).toContain('信息充分后停止重复探索');
+    expect(CODEGRAPH_INSTRUCTIONS_BLOCK).not.toMatch(/\bcodegraph_(?!wx_)[a-z][a-z0-9_]*/);
   });
 
   it('auto-allows the optimized batch tools for Claude-compatible clients', () => {

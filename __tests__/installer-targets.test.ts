@@ -946,7 +946,7 @@ describe('Installer targets — partial-state idempotency', () => {
     const claudeMd = path.join(tmpCwd, '.claude', 'CLAUDE.md');
     expect(fs.existsSync(claudeMd)).toBe(true);
     const body = fs.readFileSync(claudeMd, 'utf-8');
-    expect(body).toContain('## 工具使用规则');
+    expect(body).toContain('## codegraph 源码探索协议');
     expect(body).toContain('codegraph_wx_search');
     expect(body).not.toContain('codegraph_wx_explore');
     expect(result.files.find((f) => f.path.endsWith('CLAUDE.md'))?.action).toBe('created');

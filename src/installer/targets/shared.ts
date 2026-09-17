@@ -12,7 +12,8 @@ export function getMcpServerConfig(): { type: string; command: string; args: str
   return { type: 'stdio', command: cli.command, args: [...cli.args, 'serve', '--mcp'] };
 }
 export function getCodeGraphPermissions(): string[] {
-  return ['explore', 'search', 'node', 'context', 'text_search', 'callers', 'callees', 'impact', 'files', 'status']
+  // explore is opt-in; default installs should not pre-authorize it.
+  return ['search', 'node', 'context', 'text_search', 'callers', 'callees', 'impact', 'files', 'status']
     .map(tool => `mcp__codegraph_wx__${tool}`);
 }
 export function assertObject(value: unknown, label: string): asserts value is Record<string, any> {

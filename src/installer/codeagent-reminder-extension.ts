@@ -5,11 +5,12 @@
  * CodeAgent's `tool.executeAfter` hook detects the exact decision point where
  * an agent has started a native grep/read chain. A session-scoped pending flag
  * then lets `experimental.chat.messagesTransform` append the reminder to the
- * last user message of the next model request. Main sessions that never
- * fall back pay no prompt-token cost, and native tool output remains
+ * last user message of the next model request. Native tool output remains
  * untouched.
  *
- * Subagent startup also uses systemTransform to reuse the same short reminder.
+ * Startup also uses systemTransform to reuse the same short reminder. Newer
+ * CodeAgent hooks provide only sessionID/model, so both main and subagent
+ * callbacks must work without agentID.
  * Keep messagesTransform for later native-tool fallback: CodeAgent caches
  * the system-prompt hook result per session/compact cycle (prompt-cache
  * preservation), so it fires once per session and cannot respond to a
@@ -170,8 +171,8 @@ export default async function CodeGraphReminderExtension({ client, directory, wo
     },
     experimental: {
       chat: {
-        systemTransform: async (input, output) => {
-          if (!(input?.agentID || output?.agentID) || !findIndexRoot(projectDirectory)) return
+        systemTransform: async (_input, output) => {
+          if (!findIndexRoot(projectDirectory)) return
           if (!Array.isArray(output?.system)) return
           if (output.system.some(part => typeof part === "string" && part.includes(SYSTEM_REMINDER_MARKER))) return
           output.system.push(SYSTEM_REMINDER)
@@ -217,7 +218,7 @@ export default async function CodeGraphReminderExtension({ client, directory, wo
     },
     event: async (event) => {
       if (event?.type !== "session.idle") return
-      const sessionID = event.sessionID
+      const sessionID = event.sessionID || event.properties?.sessionID
       if (!sessionID) return
       modifiedBySession.delete(sessionID)
       pendingBySession.delete(sessionID)
