@@ -19,6 +19,8 @@ export class ResolutionDiagnostics {
   plannedRefs = 0;
   batches = 0;
   maxBatchRefs = 0;
+  readPages = 0;
+  maxReadRefs = 0;
   knownFiles = 0;
   knownNames: number | 'not-loaded' = 0;
   nameLookup: 'unknown' | 'full' | 'indexed' = 'unknown';
@@ -62,7 +64,8 @@ export class ResolutionDiagnostics {
       edges: this.edges, cache: this.cache, knownFiles: this.knownFiles, knownNames: this.knownNames,
       nameLookup: this.nameLookup, nameQueries: this.nameQueries,
       nameCacheHits: this.nameCacheHits, nameCacheEntries: this.nameCacheEntries, namePromotion: this.namePromotion,
-      plannedRefs: this.plannedRefs, batches: this.batches, maxBatchRefs: this.maxBatchRefs };
+      plannedRefs: this.plannedRefs, batches: this.batches, maxBatchRefs: this.maxBatchRefs,
+      readPages: this.readPages, maxReadRefs: this.maxReadRefs };
     const timings = { ...this.timings, totalMs: performance.now() - this.started };
     return Object.entries(counts).map(([k, v]) => `${k}=${v}`).concat(
       Object.entries(timings).map(([k, v]) => `${k}=${Math.round(v)}ms`),

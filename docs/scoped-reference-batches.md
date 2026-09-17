@@ -9,7 +9,7 @@
 - 兼容 API 改为循环追加，避免同一错误继续影响外部调用；它仍返回完整数组，不承诺内存有界。
 - sync 的 changed、删除目标恢复引用、co-importer 回退三个装载入口不再使用该完整数组 API。
 - 新入口 `ReferenceResolver.resolveFilesAndPersist()` 返回处理条数，不收集全量解析结果或边。
-- 默认最多 10,000 条/批，小任务仍在一个批次完成；无需环境变量开启。该默认值经下述三档对比后选定，原始 5,000 档数据保留为历史对照。
+- API 默认最多 10,000 条/批。为保证 MCP 响应，sync 显式使用 250 条处理批，每批持久化后让出事件循环；数据库每页预读至多 2,000 条，再逐批消费。无需环境变量开启，下述较大批次性能记录保留为历史对照。
 
 ## 分页及恢复保证
 
@@ -19,6 +19,8 @@
 4. 每批复用现有文件/名称/源码缓存，解析、写边后按引用 rowId 删除成功项、把未匹配项标为 failed。比较实际更新/删除条数与本批大小；异常不会悄悄推进游标或清除恢复日志。**不按每页全表 COUNT 校验**。
 5. 已完成的批次保持落库，未完成批次仍可恢复。批间让出事件循环，不持有 SQLite 读事务或遍历器。保持原先幂等写边、rowId 清理和整个 sync 成功后才清除 journal 的机制。
 6. 新分页 SQL 仅按形状和参数个数缓存，既减少重复 prepare，也避免 sql.js 把每一页的新语句保留至连接关闭。
+
+预读页与处理批相互独立：未消费的预读引用仍是数据库中的 pending 记录；中途失败丢弃内存预读页，下一次从数据库重新制定计划。诊断中 `readPages/maxReadRefs` 表示读取页，`batches/maxBatchRefs` 表示处理批。
 
 内存上界针对本次装载的引用、归一化引用、本批解析结果及边；项目级名称集合、已有解析缓存、非 C/C++ 的延迟链式调用队列及 sql.js 本身的内存数据库不在这个上界内。不能把它描述为“整个进程只占 10,000 条引用的内存”。
 
@@ -132,6 +134,6 @@ node scripts/benchmark-scoped-references.cjs 2250000 1 5000 batches release/batc
 
 不需要重新 init 或数据库迁移。使用包含本次构建的安装包，在确认没有另一写者运行后执行 `codegraph sync -v`，让原库继续未完成工作。不要删除 WAL 或恢复日志。
 
-changed 阶段日志新增 `plannedRefs`、`batches`、`maxBatchRefs`；正常完成时 `refs=plannedRefs`，`maxBatchRefs<=10000`，`complete=true`。失败阶段保留逐批累计统计。整个 sync 成功后再确认 pending/journal、关键调用边和符号；其他已有解析错误不由本修复自动消除。
+changed 阶段日志含 `plannedRefs`、`batches`、`maxBatchRefs`、`readPages`、`maxReadRefs`；正常完成时 `refs=plannedRefs`，sync 的 `maxBatchRefs<=250`、`maxReadRefs<=2000`，`complete=true`。失败阶段保留逐批累计统计。整个 sync 成功后再确认 pending/journal、关键调用边和符号；其他已有解析错误不由本修复自动消除。
 
 风险边界：分批持久化时机与显式文件/行顺序不同于旧无 ORDER BY 查询；已经做继承、重载、import 及恢复的差分回归，但不声称穷尽所有语言/框架。无新表/索引构建成本；WAL 高水位和大库写入速度作为独立事项，不能靠本修复保证解决。

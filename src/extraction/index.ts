@@ -71,6 +71,15 @@ const FILE_IO_BATCH_SIZE = 10;
  */
 const SYNC_RECONCILE_YIELD_INTERVAL = 1000;
 
+// Keep the retention fast path and the fallback rewire's identity contract
+// identical. Non-callable signatures may contain mutable initializers.
+function targetIdentity(kind: string, name: string, qualifiedName: string,
+  signature: string | null | undefined, declaration: boolean | undefined): string {
+  return JSON.stringify([kind, name, qualifiedName,
+    kind === 'function' || kind === 'method' ? signature ?? null : null,
+    Boolean(declaration)]);
+}
+
 const EXTRACTION_TIMING_KEYS: ReadonlyArray<keyof ExtractionTimings> = [
   'primaryParseMs',
   'primaryExtractionMs',
@@ -2328,6 +2337,23 @@ export class ExtractionOrchestrator {
     return [...new Set(resurrected.map(ref => ref.filePath).filter((file): file is string => !!file))];
   }
 
+  private tryRetainFileNodes(filePath: string, language: Language,
+    nodes: ExtractionResult['nodes']): boolean {
+    if (language !== 'c' && language !== 'cpp') return false;
+    const byId = new Map(nodes.map(node => [node.id, node]));
+    // Duplicate/foreign IDs retain the original store's insertion semantics.
+    if (byId.size !== nodes.length || nodes.some(node => node.filePath !== filePath)) return false;
+    const previous = this.queries.getNodesByFile(filePath);
+    if (previous.length !== nodes.length || previous.some(old => {
+      const next = byId.get(old.id);
+      return !next || old.language !== next.language ||
+        targetIdentity(old.kind, old.name, old.qualifiedName, old.signature, old.isDeclaration) !==
+        targetIdentity(next.kind, next.name, next.qualifiedName, next.signature, next.isDeclaration);
+    })) return false;
+    this.queries.refreshFileNodes(filePath, nodes);
+    return true;
+  }
+
   /**
    * Store extraction result in database.
    *
@@ -2372,23 +2398,24 @@ export class ExtractionOrchestrator {
     measureStore(detail, 'retryStateMs', () =>
       this.syncRetryState?.beforeStore(filePath, contentHash, content, language, result, existingFile));
 
+    // Missing required fields must keep the original filtered-insertion path.
+    const validNodes = result.nodes.filter((n) => n.id && n.kind && n.name && n.filePath && n.language);
+    const retained = !!existingFile && validNodes.length === result.nodes.length &&
+      measureStore(detail, 'retainMs', () => this.tryRetainFileNodes(filePath, language, validNodes));
+    if (retained && detail) detail.retainedFiles++;
+
     // Snapshot incoming cross-file edges before deleting old nodes.
     // These are edges from nodes in OTHER files → nodes in THIS file.
     // After re-insertion we'll re-wire them to the new node IDs.
     let savedEdges: SavedCrossFileEdge[] = [];
-    if (existingFile) {
+    if (existingFile && !retained) {
       savedEdges = measureStore(detail, 'snapshotMs', () => this.queries.getIncomingCrossFileEdges(filePath));
       measureStore(detail, 'deleteMs', () => this.queries.deleteFile(filePath));
     }
 
-    // Filter out nodes with missing required fields before insertion.
-    // This prevents FK violations when edges reference nodes that would
-    // be silently skipped by insertNode() (see issue #42).
-    const validNodes = result.nodes.filter((n) => n.id && n.kind && n.name && n.filePath && n.language);
-
     // Insert nodes
     if (validNodes.length > 0) {
-      measureStore(detail, 'nodesMs', () => this.queries.insertNodes(validNodes));
+      if (!retained) measureStore(detail, 'nodesMs', () => this.queries.insertNodes(validNodes));
       if (detail) detail.nodeRows += validNodes.length;
     }
 
@@ -2452,19 +2479,12 @@ export class ExtractionOrchestrator {
     savedEdges: SavedCrossFileEdge[],
     newNodes: ExtractionResult['nodes']
   ): void {
-    const identity = (kind: string, name: string, qualifiedName: string,
-      signature: string | null | undefined, declaration: boolean | undefined) =>
-      // Non-callable signatures can contain initializers; changing a variable's
-      // value does not change its identity. Only callables have overloads.
-      JSON.stringify([kind, name, qualifiedName,
-        kind === 'function' || kind === 'method' ? signature ?? null : null,
-        Boolean(declaration)]);
     const byId = new Map(newNodes.map(node => [node.id, node]));
     const identityIndex = new Map<string, string[]>();
     // Deduplicate IDs just as the node table does, not by spelling: distinct
     // overloads and declarations must remain distinct candidates.
     for (const node of byId.values()) {
-      const key = identity(node.kind, node.name, node.qualifiedName, node.signature, node.isDeclaration);
+      const key = targetIdentity(node.kind, node.name, node.qualifiedName, node.signature, node.isDeclaration);
       const ids = identityIndex.get(key);
       if (ids) ids.push(node.id);
       else identityIndex.set(key, [node.id]);
@@ -2483,7 +2503,7 @@ export class ExtractionOrchestrator {
     const resurrected: UnresolvedReference[] = [];
 
     for (const saved of savedEdges) {
-      const key = identity(saved.targetKind, saved.targetName, saved.targetQualifiedName,
+      const key = targetIdentity(saved.targetKind, saved.targetName, saved.targetQualifiedName,
         saved.targetSignature, saved.targetIsDeclaration);
       const matches = identityIndex.get(key);
       // An unchanged overload wins even when several identical declarations

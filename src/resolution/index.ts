@@ -6,8 +6,8 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { Node, UnresolvedReference, Edge } from '../types';
-import { QueryBuilder, SCOPED_REFERENCE_BATCH_SIZE, type PendingReferenceCursor } from '../db/queries';
+import { Node, UnresolvedReference, Edge, Language } from '../types';
+import { QueryBuilder, SCOPED_REFERENCE_BATCH_SIZE, SUPERTYPE_NODE_KINDS, type PendingReferenceCursor } from '../db/queries';
 import {
   UnresolvedRef,
   ResolvedRef,
@@ -50,9 +50,8 @@ import {
 } from './resolver-pool';
 
 /** Node kinds that can declare supertypes (extends/implements). */
-const SUPERTYPE_BEARING_KINDS = new Set<Node['kind']>([
-  'class', 'struct', 'interface', 'trait', 'protocol', 'enum',
-]);
+const SUPERTYPE_BEARING_KINDS = new Set(SUPERTYPE_NODE_KINDS);
+const SCOPED_REFERENCE_READ_PAGE_SIZE = 2_000;
 
 /**
  * Languages whose chained static-factory/fluent calls defer to the conformance
@@ -247,6 +246,7 @@ export class ReferenceResolver {
   private nameCache: LRUCache<string, Node[]>; // name → nodes cache
   private lowerNameCache: LRUCache<string, Node[]>; // lower(name) → nodes cache
   private qualifiedNameCache: LRUCache<string, Node[]>; // qualified_name → nodes cache
+  private supertypeNodeCache: LRUCache<string, Node[]>;
   private methodMatchCache: LRUCache<string, Node[]>;
   private methodOwnerIndexCache: LRUCache<string, Map<string, Node[]>>;
   private nodesByKindCache = new Map<Node['kind'], Node[]>();
@@ -283,6 +283,7 @@ export class ReferenceResolver {
     this.nameCache = new LRUCache(limit);
     this.lowerNameCache = new LRUCache(limit);
     this.qualifiedNameCache = new LRUCache(limit);
+    this.supertypeNodeCache = new LRUCache(limit);
     this.methodMatchCache = new LRUCache(limit);
     this.methodOwnerIndexCache = new LRUCache(limit);
 
@@ -406,6 +407,7 @@ export class ReferenceResolver {
     this.nameCache.clear();
     this.lowerNameCache.clear();
     this.qualifiedNameCache.clear();
+    this.supertypeNodeCache.clear();
     this.methodMatchCache.clear();
     this.methodOwnerIndexCache.clear();
     this.nodesByKindCache.clear();
@@ -632,10 +634,7 @@ export class ReferenceResolver {
         // Matching by simple name (not id) reconciles a type declared in one node
         // (`KF::Builder`) with conformance declared in a separate extension node
         // (`KF.Builder: KFOptionSetter`) — both have name `Builder`.
-        const typeNodes = (language === 'cpp' && typeName.includes('::')
-          ? this.context.getNodesByQualifiedName(typeName)
-          : this.context.getNodesByName(typeName))
-          .filter((n) => SUPERTYPE_BEARING_KINDS.has(n.kind) && n.language === language);
+        const typeNodes = this.getSupertypeNodes(typeName, language);
         if (typeNodes.length === 0) {
           if (!this.equivalenceCachesEnabled) return [];
           this.supertypeMemo.set(memoKey, {
@@ -700,8 +699,8 @@ export class ReferenceResolver {
         // Debug cache-off mode must give the same answer, without retaining an
         // extra graph cache. Normally the preceding failed lookup already
         // supplied both resolved and pending bases to the existing memo.
-        const types = typeName.includes('::') ? this.context.getNodesByQualifiedName(typeName) : this.context.getNodesByName(typeName);
-        return types.some(n => n.language === 'cpp' && SUPERTYPE_BEARING_KINDS.has(n.kind) &&
+        const types = this.getSupertypeNodes(typeName, 'cpp');
+        return types.some(n =>
           (this.queries.getOutgoingEdges(n.id, ['extends', 'implements']).length > 0 || this.queries.getPendingSupertypes(n.id).length > 0));
       },
 
@@ -770,9 +769,21 @@ export class ReferenceResolver {
     };
   }
 
-  /**
-   * Resolve all unresolved references
-   */
+  /** Type candidates depend on nodes, so share the ordinary node-cache lifetime. */
+  private getSupertypeNodes(typeName: string, language: Language): Node[] {
+    if (language !== 'c' && language !== 'cpp') {
+      return this.context.getNodesByName(typeName)
+        .filter(node => SUPERTYPE_BEARING_KINDS.has(node.kind) && node.language === language);
+    }
+    const key = `${language}\0${typeName}`;
+    const cached = this.supertypeNodeCache.get(key);
+    if (cached !== undefined) return cached;
+    const nodes = this.queries.getSupertypeNodes(typeName, language, language === 'cpp' && typeName.includes('::'));
+    this.supertypeNodeCache.set(key, nodes);
+    return nodes;
+  }
+
+  /** Resolve all unresolved references. */
   resolveAll(
     unresolvedRefs: UnresolvedReference[],
     onProgress?: (current: number, total: number) => void,
@@ -1247,6 +1258,7 @@ export class ReferenceResolver {
       throw new Error(`Reference batch size must be between 1 and ${SCOPED_REFERENCE_BATCH_SIZE}`);
     }
     const detail = options.diagnostics;
+    const readSize = Math.max(size, SCOPED_REFERENCE_READ_PAGE_SIZE);
     const plan = measureResolution(detail, 'loadRefsMs',
       () => this.queries.planPendingReferencesByFiles(filePaths));
     if (detail) detail.plannedRefs = plan.total;
@@ -1257,20 +1269,33 @@ export class ReferenceResolver {
     for (const chunk of plan.chunks) {
       let cursor: PendingReferenceCursor | undefined;
       let chunkProcessed = 0;
+      let page: UnresolvedReference[] = [];
+      let pageOffset = 0;
       while (chunkProcessed < chunk.total) {
         const batchDetail = detail ? new ResolutionDiagnostics(detail.scope) : undefined;
         try {
-          const batch = measureResolution(batchDetail, 'loadRefsMs', () => {
-            const refs = this.queries.getPendingReferenceFileBatch(chunk, cursor, size);
-            const last = refs[refs.length - 1];
-            if (!last || last.rowId === undefined || last.filePath === undefined ||
-                (last.filePath === cursor?.filePath && last.rowId <= cursor.rowId) ||
-                chunkProcessed + refs.length > chunk.total) {
-              throw new Error('Scoped reference snapshot changed or cursor made no progress');
+          if (pageOffset === page.length) {
+            page = measureResolution(batchDetail, 'loadRefsMs', () => {
+              const refs = this.queries.getPendingReferenceFileBatch(chunk, cursor, readSize);
+              const last = refs[refs.length - 1];
+              if (!last || last.rowId === undefined || last.filePath === undefined ||
+                  (last.filePath === cursor?.filePath && last.rowId <= cursor.rowId) ||
+                  chunkProcessed + refs.length > chunk.total) {
+                throw new Error('Scoped reference snapshot changed or cursor made no progress');
+              }
+              cursor = { filePath: last.filePath, rowId: last.rowId };
+              return refs;
+            });
+            pageOffset = 0;
+            if (detail) {
+              detail.readPages++;
+              detail.maxReadRefs = Math.max(detail.maxReadRefs, page.length);
             }
-            cursor = { filePath: last.filePath, rowId: last.rowId };
-            return refs;
-          });
+          }
+          // Prefetch only immutable reference fields. Unprocessed rows stay
+          // pending in SQLite, so interruption discards no outstanding work.
+          const batch = page.slice(pageOffset, pageOffset + size);
+          pageOffset += batch.length;
           if (detail) {
             detail.batches++;
             detail.maxBatchRefs = Math.max(detail.maxBatchRefs, batch.length);
@@ -1291,7 +1316,7 @@ export class ReferenceResolver {
           if (detail && batchDetail) detail.add(batchDetail);
         }
         // Yield only between completed writes, with no open SQLite reader or
-        // transaction. A one-page small sync needs no extra event-loop turn.
+        // transaction. A one-batch small sync needs no extra event-loop turn.
         if (processed < plan.total) await new Promise<void>(resolve => setImmediate(resolve));
       }
     }

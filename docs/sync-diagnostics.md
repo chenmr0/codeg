@@ -2,7 +2,9 @@
 
 密集引用分页修复及内存/耗时验证见 [scoped-reference-batches.md](scoped-reference-batches.md)。
 `refs-detail scope=changed` 新增 `plannedRefs`（计划引用数）、`batches`（已开始处理的批数）、
-`maxBatchRefs`（最大批条数，至多 10,000）。成功时 `refs=plannedRefs`；失败时可能只有部分批次完成。
+`maxBatchRefs`（最大处理批条数，sync 使用 250）、`readPages`（数据库读取页数）、
+`maxReadRefs`（最大读取页条数，sync 使用至多 2,000）。每个读取页分成多个处理批，
+每批持久化完成后仍让出事件循环。成功时 `refs=plannedRefs`；失败时可能只有部分批次完成。
 `loadRefsMs` 累计计划及分页查询，不再代表一次性装载整个结果。异常时 `tail-detail.cleanupMs`
 可能包含上个阶段计时标记之后尚未结算的失败区间，不能与 `loadRefsMs` 简单相加。
 
@@ -14,6 +16,12 @@
 [sync] reconcile-io ...
 [sync] reconcile-counts ...
 ```
+
+`failed-ref-retry` 的 `ceiling=500` 只限制历史失败引用：按名称尾段分组，超过 500 条的整组
+暂缓重试，并保留数据库记录。`skippedGroups` / `skippedByCeiling` 分别统计跳过的组数 / 引用数；
+`scanned` 只统计入选的引用，原有 `skipped` 仍表示注释变更过滤的数量。
+变化文件自身的 pending 引用不受该上限限制。取舍是：热门符号删除后恢复，超过上限的历史
+调用边可能暂不修复，直到调用文件重新索引或该组降到上限以内后被再次选中重试。
 
 这些信息仅在 verbose 模式启用，每次调用单独统计。不开启 verbose 时，不创建诊断对象、不执行新增的细粒度计时。诊断不改变扫描范围、忽略规则、时间戳/哈希判断、重试或数据库格式，也不为统计额外扫描、读取文件或执行 Git 命令。
 

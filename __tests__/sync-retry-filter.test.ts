@@ -29,18 +29,18 @@ function seedFailed(count: number, language = 'cpp'): void {
 }
 
 describe('safe-comment retry integration', () => {
-  it('establishes a cold baseline, scans >500 skipped rows, retains foreign refs and falls back on code changes', async () => {
+  it('establishes a cold baseline, scans multiple batches, retains foreign refs and falls back on code changes', async () => {
     const code = 'int target(void) { return 1; }\n';
     write('provider.c', code);
     write('caller.cpp', 'int caller() { return 0; }\n');
     cg = CodeGraph.initSync(directory);
     await cg.indexAll();
-    seedFailed(503);
+    seedFailed(303);
     const log = vi.spyOn(console, 'log').mockImplementation(() => {});
 
     write('provider.c', code + '/* revision 1 */\n');
     await cg.sync({ paths: ['provider.c'], verbose: true });
-    expect(retryLog(log).at(-1)).toMatch(/mode=full .*scanned=503 attempted=503 skipped=0/);
+    expect(retryLog(log).at(-1)).toMatch(/mode=full .*scanned=303 attempted=303 skipped=0/);
     expect(pending()).toHaveLength(0);
 
     seedFailed(1, 'python');
@@ -48,19 +48,38 @@ describe('safe-comment retry integration', () => {
     write('provider.c', code + '/* revision 2 longer */\n');
     const result = await cg.sync({ paths: ['provider.c'], verbose: true });
     expect(result.filesChecked).toBe(1);
-    expect(retryLog(log).at(-1)).toMatch(/mode=safe-comments .*scanned=504 attempted=1 skipped=503/);
+    expect(retryLog(log).at(-1)).toMatch(/mode=safe-comments .*scanned=304 attempted=1 skipped=303/);
 
     log.mockClear();
     vi.stubEnv('CODEGRAPH_NO_SYNC_RETRY_FILTER', '1');
     write('provider.c', code + '/* revision 3 disabled */\n');
     await cg.sync({ paths: ['provider.c'], verbose: true });
-    expect(retryLog(log).at(-1)).toMatch(/mode=full .*scanned=504 attempted=504 skipped=0/);
+    expect(retryLog(log).at(-1)).toMatch(/mode=full .*scanned=304 attempted=304 skipped=0/);
     vi.unstubAllEnvs();
 
     log.mockClear();
     write('provider.c', code.replace('return 1', 'return 200'));
     await cg.sync({ paths: ['provider.c'], verbose: true });
-    expect(retryLog(log).at(-1)).toMatch(/mode=full .*scanned=504 attempted=504 skipped=0/);
+    expect(retryLog(log).at(-1)).toMatch(/mode=full .*scanned=304 attempted=304 skipped=0/);
+  });
+
+  it('caps historical groups without discarding them or capping a changed source file', async () => {
+    write('provider.c', 'int target(void) { return 1; }\n');
+    write('caller.cpp', 'int caller() { return 0; }\n');
+    cg = CodeGraph.initSync(directory); await cg.indexAll();
+    seedFailed(501);
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    write('provider.c', 'int target(void) { return 2; }\n');
+    await cg.sync({ paths: ['provider.c'], verbose: true });
+    expect(retryLog(log).at(-1)).toMatch(/scanned=0 attempted=0 skipped=0 ceiling=500 skippedGroups=1 skippedByCeiling=501/);
+    expect(raw().prepare("SELECT COUNT(*) n FROM unresolved_refs WHERE name_tail='target' AND status='failed'").get().n).toBe(501);
+    expect(pending()).toHaveLength(0);
+
+    write('caller.cpp', `int caller() {\n${'target();\n'.repeat(501)}return 0;\n}\n`);
+    await cg.sync({ paths: ['caller.cpp'] });
+    const caller = cg.getNodesByName('caller')[0]!;
+    expect(cg.getOutgoingEdges(caller.id).filter(edge => edge.kind === 'calls')).toHaveLength(501);
+    expect(raw().prepare("SELECT COUNT(*) n FROM unresolved_refs WHERE name_tail='target'").get().n).toBe(0);
   });
 
   it.each(['after-store', 'during-retry', 'before-ack'])('recovers %s interruption during a no-change next sync', async failureStage => {

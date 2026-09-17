@@ -196,6 +196,42 @@ describe('scoped reference keyset reader', () => {
 });
 
 describe('scoped sync resolution and recovery', () => {
+  it('prefetches bounded pages, yields after 250 writes, and recovers the unused part of a page', async () => {
+    const root = temporary();
+    fs.writeFileSync(path.join(root, 'a.c'), 'int caller(void) { return 0; }\nint target(void) { return 1; }\n');
+    const cg = CodeGraph.initSync(root); graphs.push(cg); await cg.indexAll();
+    const {queries, resolver, db} = internal(cg);
+    const caller = cg.getNodesByName('caller')[0]!;
+    queries.insertUnresolvedRefsBatch(Array.from({length: 2101}, (_, i) => ({
+      fromNodeId: caller.id, referenceName: 'target', referenceKind: 'calls',
+      filePath: 'a.c', language: 'c', line: i + 10, column: 0,
+    })));
+    const reads = vi.spyOn(queries, 'getPendingReferenceFileBatch');
+    const persist = resolver.resolveAndPersist.bind(resolver);
+    const batches: number[] = [];
+    let heartbeatPending: number | undefined;
+    const fault = vi.spyOn(resolver, 'resolveAndPersist').mockImplementation((...args) => {
+      batches.push(args[0].length);
+      if (batches.length === 3) throw new Error('prefetch interruption');
+      const result = persist(...args);
+      if (batches.length === 1) setImmediate(() => { heartbeatPending = queries.getUnresolvedReferencesCount(); });
+      return result;
+    });
+    const detail = new ResolutionDiagnostics();
+    await expect(resolver.resolveFilesAndPersist(['a.c'], undefined, {batchSize:250, diagnostics:detail}))
+      .rejects.toThrow('prefetch interruption');
+    expect(batches).toEqual([250, 250, 250]);
+    expect(reads).toHaveBeenCalledTimes(1);
+    expect(reads.mock.calls[0]![2]).toBe(2000);
+    expect(detail).toMatchObject({readPages:1, maxReadRefs:2000, maxBatchRefs:250});
+    expect(heartbeatPending).toBe(1851);
+    expect(queries.getUnresolvedReferencesCount()).toBe(1601);
+    fault.mockRestore();
+    expect(await resolver.resolveFilesAndPersist(['a.c'], undefined, {batchSize:250})).toBe(1601);
+    expect(queries.getUnresolvedReferencesCount()).toBe(0);
+    expect(db.db.prepare("SELECT COUNT(*) n FROM edges WHERE kind='calls'").get().n).toBe(2101);
+  });
+
   it('completes the original 501-file / 150,000-call sync failure shape', async () => {
     vi.stubEnv('CODEGRAPH_PARSE_WORKERS','2');
     const root = temporary();

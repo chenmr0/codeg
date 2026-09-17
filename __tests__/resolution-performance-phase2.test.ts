@@ -133,6 +133,26 @@ describe('phase 2 exact unresolved-reference cleanup', () => {
     expect(queries.getFailedReferenceRetryPlan(['late_target']).total).toBe(2);
   });
 
+  it('includes 500 failed rows, skips a whole 501-row group, and keeps pending rows separate', () => {
+    const refs = Array.from({ length: 1003 }, (_, i) => ({
+      ...makeRef(i + 1), referenceName: i < 500 ? 'boundary' : 'popular',
+    }));
+    queries.insertUnresolvedRefsBatch(refs);
+    const rows = queries.getUnresolvedReferencesBatchAfter(0, 1003);
+    queries.markReferencesFailedByRowIds(rows.slice(0, 1001).map(row => ({
+      rowId: row.rowId!, referenceName: row.referenceName,
+    })));
+    const plan = queries.getFailedReferenceRetryPlan(['popular', 'boundary', 'boundary'], 500);
+    expect(plan).toMatchObject({ total: 500, skippedGroups: 1, skippedRefs: 501 });
+    expect(plan.groups.map(group => [group.nameTail, group.total])).toEqual([['boundary', 500]]);
+    expect(queries.getFailedReferenceRetryPlan(['popular', 'boundary']).total).toBe(1001);
+    expect(queries.getUnresolvedReferencesCount()).toBe(2);
+    expect(queries.getFailedReferenceRetryPlan([], 500)).toEqual({ groups: [], total: 0, skippedGroups: 0, skippedRefs: 0 });
+    for (const ceiling of [0, -1, NaN, 1.5]) {
+      expect(() => queries.getFailedReferenceRetryPlan(['boundary'], ceiling)).toThrow('ceiling');
+    }
+  });
+
   it('keeps edge identity deduplication while secondary indexes are deferred', async () => {
     connection.beginBulkResolutionEdgeLoad();
     connection.beginBulkResolutionRefLoad();
