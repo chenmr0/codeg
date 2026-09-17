@@ -69,6 +69,7 @@ import { syncNameLookupMode } from './resolution/name-lookup';
 // A 10,000-reference page can hold the MCP event loop for seconds. Sync
 // persists smaller complete batches, yielding with no open reader/transaction.
 const SYNC_REFERENCE_BATCH_SIZE = 250;
+const SYNC_FAILED_REFERENCE_NAME_CEILING = 500;
 
 // Re-export types for consumers
 export * from './types';
@@ -863,14 +864,14 @@ export class CodeGraph {
         tailMark('resurrectedRefsMs');
         // A changed file may introduce a symbol needed by references in files
         // that did not change. Retry only failed rows whose final qualified
-        // name segment matches a node contributed by the changed files. Stream
-        // every matching name in bounded primary-key batches: popular names
-        // must not be skipped wholesale merely because they exceed one batch.
+        // name segment matches a node contributed by the changed files.
+        // Bound historical work for ubiquitous names; keep skipped rows failed.
         const retryFailedReferences = async (allowFilter: boolean): Promise<void> => {
           const planningStarted = performance.now();
           const eligibility = retryState.plan(allowFilter, result.failedRewireSourceFiles);
           const retryPlan = this.queries.getFailedReferenceRetryPlan(
             eligibility.names,
+            SYNC_FAILED_REFERENCE_NAME_CEILING,
           );
           const started = performance.now();
           const planningMs = started - planningStarted;
@@ -947,7 +948,9 @@ export class CodeGraph {
             console.log(`[sync] failed-ref-retry mode=${eligibility.filtered ? 'safe-comments' : 'full'} ` +
               `proofFiles=${eligibility.proofFiles} safeFiles=${eligibility.safeFiles} ` +
               `names=${eligibility.names.length} scanned=${visited} attempted=${attempted} ` +
-              `skipped=${visited - attempted} planMs=${Math.round(planningMs)}ms ` +
+              `skipped=${visited - attempted} ceiling=${SYNC_FAILED_REFERENCE_NAME_CEILING} ` +
+              `skippedGroups=${retryPlan.skippedGroups ?? 0} skippedByCeiling=${retryPlan.skippedRefs ?? 0} ` +
+              `planMs=${Math.round(planningMs)}ms ` +
               `durationMs=${Math.round(performance.now() - started)}ms`);
           }
         };

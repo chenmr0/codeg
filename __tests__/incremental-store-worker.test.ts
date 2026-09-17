@@ -34,7 +34,18 @@ function calls() {
 }
 
 describe('incremental store worker', () => {
-  it('preserves incoming calls on moves, parks renamed targets and heals unchanged callers', async () => {
+  it('retains high-fan-in edge rows on a body edit through the real worker', async () => {
+    const cg = await fixture();
+    const before = raw().prepare("SELECT id,source,target FROM edges WHERE kind='calls' ORDER BY id").all();
+    expect(before).toHaveLength(callers);
+    const replace = vi.spyOn(StoreWriter.prototype, 'replace');
+    write('int worker_target(void) { return 200; }\n');
+    await cg.sync({ paths: ['provider.c'] });
+    expect(replace).toHaveBeenCalledTimes(1);
+    expect(raw().prepare("SELECT id,source,target FROM edges WHERE kind='calls' ORDER BY id").all()).toEqual(before);
+  }, 60_000);
+
+  it('preserves moved targets and retains capped failures until callers are reindexed', async () => {
     const cg = await fixture();
     expect(calls()).toBe(callers);
     const replace = vi.spyOn(StoreWriter.prototype, 'replace');
@@ -55,6 +66,12 @@ describe('incremental store worker', () => {
     expect(raw().prepare("SELECT count(*) AS n FROM unresolved_refs WHERE reference_name = 'worker_target' AND reference_kind = 'calls'").get().n).toBe(callers);
     write('int worker_target(void) { return 4; }\n');
     await cg.sync({ paths: ['provider.c'] });
+    // Historical groups above the sync ceiling remain available for a later
+    // caller reindex; changed-file references themselves are never capped.
+    expect(calls()).toBe(0);
+    expect(raw().prepare("SELECT count(*) AS n FROM unresolved_refs WHERE reference_name = 'worker_target' AND status = 'failed'").get().n).toBe(callers);
+    fs.appendFileSync(path.join(directory!, 'caller.c'), '\n// reindex callers after rename\n');
+    await cg.sync({ paths: ['caller.c'] });
     expect(calls()).toBe(callers);
     fs.unlinkSync(path.join(directory!, 'provider.c'));
     expect((await cg.sync({ paths: ['provider.c'] })).filesRemoved).toBe(1);
@@ -62,6 +79,10 @@ describe('incremental store worker', () => {
     expect(calls()).toBe(0);
     write('int worker_target(void) { return 5; }\n');
     await cg.sync({ paths: ['provider.c'] });
+    expect(calls()).toBe(0);
+    expect(raw().prepare("SELECT count(*) AS n FROM unresolved_refs WHERE reference_name = 'worker_target' AND status = 'failed'").get().n).toBe(callers);
+    fs.appendFileSync(path.join(directory!, 'caller.c'), '\n// reindex callers after restore\n');
+    await cg.sync({ paths: ['caller.c'] });
     expect(calls()).toBe(callers);
     expect(raw().prepare('PRAGMA foreign_key_check').all()).toEqual([]);
   }, 60_000);

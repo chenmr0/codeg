@@ -63,6 +63,10 @@ function isLowValueFile(filePath: string): boolean {
 }
 
 const SQLITE_PARAM_CHUNK_SIZE = 500;
+/** Keep SQL candidate filtering and resolver validation on the same kind set. */
+export const SUPERTYPE_NODE_KINDS: readonly Node['kind'][] = [
+  'class', 'struct', 'interface', 'trait', 'protocol', 'enum',
+];
 
 /** Bounds rows, not just SQL parameters, for incremental reference resolution. */
 export const SCOPED_REFERENCE_BATCH_SIZE = 10000;
@@ -153,6 +157,8 @@ export interface FailedReferenceRetryGroup {
 export interface FailedReferenceRetryPlan {
   groups: FailedReferenceRetryGroup[];
   total: number;
+  skippedGroups?: number;
+  skippedRefs?: number;
 }
 
 /** Last qualified segment that can match a newly-added plain node name. */
@@ -356,6 +362,8 @@ export class QueryBuilder {
     getPendingSupertypes?: SqliteStatement;
     getNodesByName?: SqliteStatement;
     getNodesByQualifiedNameExact?: SqliteStatement;
+    getSupertypeNodesByName?: SqliteStatement;
+    getSupertypeNodesByQualifiedName?: SqliteStatement;
     getNodesByLowerName?: SqliteStatement;
     getUnresolvedCount?: SqliteStatement;
     getUnresolvedBatch?: SqliteStatement;
@@ -646,6 +654,19 @@ export class QueryBuilder {
       returnType: node.returnType ?? null,
       updatedAt: node.updatedAt ?? Date.now(),
     });
+  }
+
+  /** Refresh a file whose node IDs/target identities were verified unchanged. */
+  refreshFileNodes(filePath: string, nodes: Node[]): void {
+    this.db.transaction(() => {
+      // Rebuild everything owned by this file, including failed refs. Incoming
+      // edges from other files still point to the exact same target identities.
+      this.db.prepare('DELETE FROM edges WHERE source IN (SELECT id FROM nodes WHERE file_path = ?)')
+        .run(filePath);
+      this.db.prepare('DELETE FROM unresolved_refs WHERE from_node_id IN (SELECT id FROM nodes WHERE file_path = ?)')
+        .run(filePath);
+      for (const node of nodes) this.updateNode(node);
+    })();
   }
 
   /**
@@ -1022,6 +1043,19 @@ export class QueryBuilder {
     // Re-indexing changes SQLite row order. Many resolver strategies retain
     // the first equally ranked candidate, so use stable symbol order rather
     // than insertion order (which made comment-only sync change targets).
+    return rows.map(rowToNode).sort(compareNodesDeterministically);
+  }
+
+  /** Fetch only eligible type nodes, before constructing/sorting Node objects. */
+  getSupertypeNodes(name: string, language: Language, qualified: boolean): Node[] {
+    const key = qualified ? 'getSupertypeNodesByQualifiedName' : 'getSupertypeNodesByName';
+    if (!this.stmts[key]) {
+      this.stmts[key] = this.db.prepare(
+        `SELECT * FROM nodes WHERE ${qualified ? 'qualified_name' : 'name'} = ? ` +
+        `AND language = ? AND kind IN (${SUPERTYPE_NODE_KINDS.map(kind => `'${kind}'`).join(',')})`
+      );
+    }
+    const rows = this.stmts[key]!.all(name, language) as NodeRow[];
     return rows.map(rowToNode).sort(compareNodesDeterministically);
   }
 
@@ -2707,17 +2741,18 @@ WHERE e.kind = 'imports'
    * Plan a stable retry snapshot for failed references whose final name
    * segment matches symbols introduced by changed files.
    *
-   * The old implementation skipped an entire name once it had more than 500
-   * rows. That bounded memory by sacrificing correctness. The plan keeps only
-   * per-name counts and high-water marks in memory; callers stream the rows in
-   * bounded primary-key batches via getFailedReferenceRetryBatch().
+   * Callers can cap historical retry work per name. Excluded groups stay
+   * failed in the database; pending references are never affected by this cap.
+   * Keep counts/high-water marks only; selected rows are streamed in batches.
    */
-  getFailedReferenceRetryPlan(names: string[]): FailedReferenceRetryPlan {
+  getFailedReferenceRetryPlan(names: string[], perNameCeiling = Infinity): FailedReferenceRetryPlan {
+    if (perNameCeiling !== Infinity && (!Number.isSafeInteger(perNameCeiling) || perNameCeiling < 1)) {
+      throw new Error('Failed-reference name ceiling must be a positive integer or Infinity');
+    }
     const uniqueNames = [...new Set(names.filter((name) => name.length > 0))];
-    if (uniqueNames.length === 0) return { groups: [], total: 0 };
-
-    const groups: FailedReferenceRetryGroup[] = [];
-    let total = 0;
+    const plan: FailedReferenceRetryPlan = { groups: [], total: 0 };
+    if (perNameCeiling !== Infinity) { plan.skippedGroups = 0; plan.skippedRefs = 0; }
+    if (uniqueNames.length === 0) return plan;
     for (let i = 0; i < uniqueNames.length; i += SQLITE_PARAM_CHUNK_SIZE) {
       const chunk = uniqueNames.slice(i, i + SQLITE_PARAM_CHUNK_SIZE);
       const placeholders = chunk.map(() => '?').join(',');
@@ -2734,17 +2769,22 @@ WHERE e.kind = 'imports'
         }>;
       for (const row of rows) {
         const count = Number(row.count);
-        groups.push({
+        if (count > perNameCeiling) {
+          plan.skippedGroups = (plan.skippedGroups ?? 0) + 1;
+          plan.skippedRefs = (plan.skippedRefs ?? 0) + count;
+          continue;
+        }
+        plan.groups.push({
           nameTail: row.name_tail,
           total: count,
           maxRowId: Number(row.max_id),
         });
-        total += count;
+        plan.total += count;
       }
     }
 
-    groups.sort((left, right) => left.nameTail.localeCompare(right.nameTail));
-    return { groups, total };
+    plan.groups.sort((left, right) => left.nameTail.localeCompare(right.nameTail));
+    return plan;
   }
 
   /**
