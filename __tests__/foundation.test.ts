@@ -324,9 +324,9 @@ describe('CODEGRAPH_DIR override (#636)', () => {
   });
 
   describe('codeGraphDirName()', () => {
-    it('defaults to .codegraph when unset', () => {
+    it('defaults to .codegraph-wx when unset', () => {
       delete process.env.CODEGRAPH_DIR;
-      expect(codeGraphDirName()).toBe('.codegraph');
+      expect(codeGraphDirName()).toBe('.codegraph-wx');
     });
 
     it('honors a valid override', () => {
@@ -337,10 +337,10 @@ describe('CODEGRAPH_DIR override (#636)', () => {
     // Anything that isn't a plain segment could escape the project root or
     // clobber it, so it's ignored in favor of the default.
     it.each(['foo/bar', 'a\\b', '..', '../x', '.', '/abs/path', '   ', ''])(
-      'falls back to .codegraph for invalid value %j',
+      'falls back to .codegraph-wx for invalid value %j',
       (bad) => {
         process.env.CODEGRAPH_DIR = bad;
-        expect(codeGraphDirName()).toBe('.codegraph');
+        expect(codeGraphDirName()).toBe('.codegraph-wx');
       }
     );
   });
@@ -384,10 +384,10 @@ describe('CODEGRAPH_DIR override (#636)', () => {
     // Windows side: override dir, same tree. Plant a decoy source file INSIDE
     // the WSL data dir — the override-side index must not pick it up.
     process.env.CODEGRAPH_DIR = '.codegraph-win';
-    fs.writeFileSync(path.join(tempDir, '.codegraph', 'decoy.ts'), 'export function decoyLeak() {}\n');
+    fs.writeFileSync(path.join(tempDir, '.codegraph-wx', 'decoy.ts'), 'export function decoyLeak() {}\n');
     const win = await CodeGraph.init(tempDir, { index: true });
     try {
-      expect(fs.existsSync(path.join(tempDir, '.codegraph', 'codegraph.db'))).toBe(true);
+      expect(fs.existsSync(path.join(tempDir, '.codegraph-wx', 'codegraph.db'))).toBe(true);
       expect(fs.existsSync(path.join(tempDir, '.codegraph-win', 'codegraph.db'))).toBe(true);
       expect(win.searchNodes('onlyReal').length).toBeGreaterThan(0);
       expect(win.searchNodes('decoyLeak')).toEqual([]); // sibling data dir not indexed

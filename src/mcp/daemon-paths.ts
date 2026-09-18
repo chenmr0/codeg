@@ -28,7 +28,12 @@ const POSIX_SOCKET_PATH_LIMIT = 100;
 
 /** Short stable identifier for a project root — used in tmpdir/pipe names. */
 function projectHash(projectRoot: string): string {
-  return crypto.createHash('sha256').update(path.resolve(projectRoot)).digest('hex').slice(0, 16);
+  const root = path.resolve(projectRoot);
+  const directory = path.resolve(getCodeGraphDir(root));
+  // Keep old-index endpoints compatible with running legacy daemons, while
+  // different database directories in the same project get different endpoints.
+  const identity = directory === path.join(root, '.codegraph') ? root : directory;
+  return crypto.createHash('sha256').update(identity).digest('hex').slice(0, 16);
 }
 
 /**

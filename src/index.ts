@@ -58,7 +58,6 @@ import {
   collectPersistedIndexDiagnostics,
   isDeclarationMacroRecoverySkipped,
 } from './extraction/diagnostics';
-import { getCodeGraphDir } from './directory';
 import { deriveProjectNameTokens } from './search/query-utils';
 import { CodeGraphPackageVersion } from './mcp/version';
 import { cancelRawEvidenceScans } from './mcp/raw-source-worker-client';
@@ -199,7 +198,7 @@ export class CodeGraph {
       // Best-effort: ranking still works without it.
     }
     this.fileLock = new FileLock(
-      path.join(getCodeGraphDir(projectRoot), 'codegraph.lock')
+      path.join(path.dirname(db.getPath()), 'codegraph.lock')
     );
     this.orchestrator = new ExtractionOrchestrator(projectRoot, queries);
     this.resolver = createResolver(projectRoot, queries);
@@ -1850,8 +1849,9 @@ export class CodeGraph {
    * WARNING: This permanently deletes all CodeGraph data for the project.
    */
   uninitialize(): void {
+    const directoryName = path.basename(path.dirname(this.db.getPath()));
     this.close();
-    removeDirectory(this.projectRoot);
+    removeDirectory(this.projectRoot, directoryName);
   }
 }
 

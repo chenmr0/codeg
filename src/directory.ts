@@ -7,14 +7,15 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
-/** The default per-project data directory name. */
-const DEFAULT_CODEGRAPH_DIR = '.codegraph';
+/** New indexes use wx; existing indexes remain readable during the transition. */
+const DEFAULT_CODEGRAPH_DIR = '.codegraph-wx';
+const LEGACY_CODEGRAPH_DIR = '.codegraph';
 
 let warnedBadDirName = false;
 
 /**
  * Resolve the per-project data directory name, honoring the `CODEGRAPH_DIR`
- * environment override (default `.codegraph`). The override is a single path
+ * environment override (default `.codegraph-wx`). The override is a single path
  * segment that lives in the project root.
  *
  * Why this exists: two environments that share one working tree must NOT share
@@ -31,16 +32,10 @@ let warnedBadDirName = false;
  * default) rather than risk writing the index outside the project or into the
  * project root itself; we warn once to stderr so the misconfiguration is seen.
  */
-export function codeGraphDirName(): string {
+function configuredDirName(): string | undefined {
   const raw = process.env.CODEGRAPH_DIR?.trim();
-  if (!raw) return DEFAULT_CODEGRAPH_DIR;
-  const invalid =
-    raw === '.' ||
-    raw.includes('..') ||
-    raw.includes('/') ||
-    raw.includes('\\') ||
-    path.isAbsolute(raw);
-  if (invalid) {
+  if (!raw) return undefined;
+  if (!validDirName(raw)) {
     if (!warnedBadDirName) {
       warnedBadDirName = true;
       // stderr only — stdout is the MCP protocol channel.
@@ -49,9 +44,25 @@ export function codeGraphDirName(): string {
           `directory name (no path separators, no "..", not absolute). Using "${DEFAULT_CODEGRAPH_DIR}".`
       );
     }
-    return DEFAULT_CODEGRAPH_DIR;
+    return undefined;
   }
   return raw;
+}
+
+function validDirName(name: string): boolean {
+  return !!name && name !== '.' && !name.includes('..') &&
+    !name.includes('/') && !name.includes('\\') && !path.isAbsolute(name);
+}
+
+/** Preferred directory for new indexes; explicit CODEGRAPH_DIR stays authoritative. */
+export function codeGraphDirName(): string {
+  return configuredDirName() ?? DEFAULT_CODEGRAPH_DIR;
+}
+
+/** Set CODEGRAPH_LEGACY_COMPAT=0 (or false) to stop automatic old-path discovery. */
+export function legacyCompatibilityEnabled(): boolean {
+  const value = process.env.CODEGRAPH_LEGACY_COMPAT?.trim().toLowerCase();
+  return value !== '0' && value !== 'false';
 }
 
 /**
@@ -72,17 +83,25 @@ export const CODEGRAPH_DIR = codeGraphDirName();
  */
 export function isCodeGraphDataDir(name: string): boolean {
   return (
-    name === DEFAULT_CODEGRAPH_DIR ||
+    name === LEGACY_CODEGRAPH_DIR ||
     name === codeGraphDirName() ||
-    name.startsWith(DEFAULT_CODEGRAPH_DIR + '-')
+    name.startsWith(LEGACY_CODEGRAPH_DIR + '-')
   );
 }
 
 /**
- * Get the .codegraph directory path for a project
+ * Resolve the active data directory. Prefer the new database, then optionally
+ * use an existing legacy database in place. An empty new directory does not
+ * hide the old index; an existing but corrupt new database never falls back.
+ * Explicit CODEGRAPH_DIR selects exactly that directory, without fallback.
  */
 export function getCodeGraphDir(projectRoot: string): string {
-  return path.join(projectRoot, codeGraphDirName());
+  const configured = configuredDirName();
+  const preferred = path.join(projectRoot, configured ?? DEFAULT_CODEGRAPH_DIR);
+  if (configured || !legacyCompatibilityEnabled() ||
+      fs.existsSync(path.join(preferred, 'codegraph.db'))) return preferred;
+  const legacy = path.join(projectRoot, LEGACY_CODEGRAPH_DIR);
+  return fs.existsSync(path.join(legacy, 'codegraph.db')) ? legacy : preferred;
 }
 
 /**
@@ -163,8 +182,14 @@ export function createDirectory(projectRoot: string): void {
 /**
  * Remove the .codegraph directory
  */
-export function removeDirectory(projectRoot: string): void {
-  const codegraphDir = getCodeGraphDir(projectRoot);
+export function removeDirectory(projectRoot: string, directoryName?: string): void {
+  // A live CodeGraph instance pins the directory it actually opened, so a
+  // newly created preferred index cannot redirect deletion of an old one.
+  if (directoryName !== undefined && !validDirName(directoryName)) {
+    throw new Error(`Invalid subdirectory name: ${directoryName}`);
+  }
+  const codegraphDir = directoryName === undefined
+    ? getCodeGraphDir(projectRoot) : path.join(projectRoot, directoryName);
 
   if (!fs.existsSync(codegraphDir)) {
     return;

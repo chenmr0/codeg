@@ -2,7 +2,9 @@
 
 > 面向 C/C++ 千万行级存量代码仓的本地代码知识图谱 —— 让 AI 编程助手不再`grep → read → grep → read`地瞎摸，一次查询就能拿到符号、源码、调用链和影响面。
 
-CodeGraph-CPP 基于开源 [CodeGraph](https://github.com/colbymchenry/codegraph) 演进，重点增强 C/C++ 大型代码仓的静态解析能力。项目针对宏、全局变量、结构体字段、`typedef`、头文件原型、`#include` 关系以及 `compile_commands.json` 编译信息等常见难点进行了专项适配，尽可能减少符号丢失、类型误判和跨文件关系断裂。所有数据 100% 留在本地，一个 `.codegraph/` 目录搞定。
+CodeGraph-CPP 基于开源 [CodeGraph](https://github.com/colbymchenry/codegraph) 演进，重点增强 C/C++ 大型代码仓的静态解析能力。项目针对宏、全局变量、结构体字段、`typedef`、头文件原型、`#include` 关系以及 `compile_commands.json` 编译信息等常见难点进行了专项适配，尽可能减少符号丢失、类型误判和跨文件关系断裂。所有数据 100% 留在本地，一个 `.codegraph-wx/` 目录搞定。
+
+> 新建索引默认使用 `.codegraph-wx/codegraph.db`；旧 `.codegraph/codegraph.db` 默认原地兼容，两库并存时优先新库。设置 `CODEGRAPH_LEGACY_COMPAT=0` 可关闭旧路径自动回退。CLI 和 MCP 名称不变，详见[数据库路径兼容说明](docs/database-path-compatibility.md)。
 
 默认索引 **C/C++、Objective-C/Objective-C++、Python、Lua**。设置 `CODEGRAPH_ALL_LANGUAGES=1` 可恢复全部已有语言和格式支持（包括 JS/TS、Vue/Svelte、Java、Rust 等）；`init`、`index`、`sync` 和文件监听使用同一范围。已有索引切换范围后，下一次索引或同步会执行一次完整重建，此后的 `sync` 继续增量更新。环境变量用法及 MCP 注意事项见[语言范围配置](docs/manual/03-core-commands.md#语言范围配置)。
 
@@ -67,7 +69,7 @@ flowchart LR
     S["C / C++ 源代码"] --> P["tree-sitter 解析"]
     P --> E["提取符号实体"]
     P --> R["提取调用、引用、包含等关系"]
-    E --> DB[("本地图谱数据库\n.codegraph/")]
+    E --> DB[("本地图谱数据库\n.codegraph-wx/")]
     R --> DB
     DB --> CLI["CLI 查询"]
     DB --> MCP["MCP 工具"]
@@ -168,7 +170,7 @@ codegraph init -i      # 交互式初始化 + 构建索引
 codegraph status       # 查看索引：节点数、边数、后端类型
 ```
 
-索引数据存在项目根目录 `.codegraph/` 下，**不要提交到代码仓**（加进 `.gitignore`）。
+索引数据存在项目根目录 `.codegraph-wx/` 下，**不要提交到代码仓**（加进 `.gitignore`）。
 
 ```mermaid
 sequenceDiagram
@@ -178,7 +180,7 @@ sequenceDiagram
     U->>T: npm i -g codegraph-cpp
     U->>T: codegraph install
     U->>T: codegraph init -i
-    T-->>U: ✅ 图谱建好（.codegraph/）
+    T-->>U: ✅ 图谱建好（.codegraph-wx/）
     U->>AI: 正常提问（无需特殊指令）
     AI->>T: 自动调用 codegraph 工具
     AI-->>U: 带图谱上下文的答案
@@ -265,7 +267,7 @@ flowchart TB
         S2 --> S4["提取调用、引用、包含和继承关系"]
         S3 --> S5["符号归一化与跨文件关联"]
         S4 --> S5
-        S5 --> DB[("SQLite / FTS5\n.codegraph/codegraph.db")]
+        S5 --> DB[("SQLite / FTS5\n.codegraph-wx/codegraph.db")]
     end
 
     subgraph QUERY["查询阶段"]
@@ -281,7 +283,7 @@ flowchart TB
     class DB store;
 ```
 
-整张图就是项目里一个 `.codegraph/codegraph.db` 文件，可以复制、备份、带走——完全便携。
+整张图就是项目里一个 `.codegraph-wx/codegraph.db` 文件，可以复制、备份、带走——完全便携。
 
 比如这段 C 代码：
 

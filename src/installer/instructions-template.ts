@@ -53,7 +53,9 @@ export const CODEGRAPH_SECTION_END = '<!-- CODEGRAPH_END -->';
 export const CODEGRAPH_INSTRUCTIONS_BLOCK = `${CODEGRAPH_SECTION_START}
 ## CodeGraph
 
-Use CodeGraph only when a \`.codegraph/\` directory exists. If the task already
+Use CodeGraph only when a \`.codegraph-wx/\` directory exists, or a legacy
+\`.codegraph/\` directory exists with legacy compatibility enabled (default;
+disabled by \`CODEGRAPH_LEGACY_COMPAT=0\`). If the task already
 gives an exact file and line and only neighboring code is needed, use host Read;
 reserve CodeGraph for symbol pairing and relationships.
 
@@ -84,5 +86,5 @@ reserve CodeGraph for symbol pairing and relationships.
 - Directory inventory → \`codegraph_files\`. Without MCP, use the equivalent
   \`codegraph query|callers|callees|impact\` commands.
 
-If there is no \`.codegraph/\` directory, skip CodeGraph entirely — indexing is the user's decision.
+If neither supported index directory exists, skip CodeGraph entirely — indexing is the user's decision.
 ${CODEGRAPH_SECTION_END}`;

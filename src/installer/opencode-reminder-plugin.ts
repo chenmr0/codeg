@@ -43,7 +43,13 @@ function findIndexRoot(start) {
   // stray ~/.codegraph directory must not make every unrelated project look
   // indexed.
   const root = resolve(start)
-  return existsSync(join(root, ".codegraph")) ? root : null
+  const configured = process.env.CODEGRAPH_DIR?.trim()
+  const explicit = configured && configured !== "." && !configured.includes("..") &&
+    !configured.includes("/") && !configured.includes(String.fromCharCode(92)) && !isAbsolute(configured)
+  const preferred = explicit ? configured : ".codegraph-wx"
+  if (existsSync(join(root, preferred))) return root
+  const compat = (process.env.CODEGRAPH_LEGACY_COMPAT || "").trim().toLowerCase()
+  return !explicit && compat !== "0" && compat !== "false" && existsSync(join(root, ".codegraph")) ? root : null
 }
 
 function absolutePath(value, directory) {

@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -23,7 +23,22 @@ describe('OpenCode CodeGraph native-tool reminder plugin', () => {
   });
 
   afterEach(() => {
+    vi.unstubAllEnvs();
     fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it.each([
+    ['.codegraph-wx', '0', true],
+    ['.codegraph', '0', false],
+    ['.codegraph', '1', true],
+  ])('respects compatibility for %s with CODEGRAPH_LEGACY_COMPAT=%s', async (directory, compat, expected) => {
+    vi.stubEnv('CODEGRAPH_DIR', '');
+    vi.stubEnv('CODEGRAPH_LEGACY_COMPAT', compat as string);
+    fs.mkdirSync(path.join(dir, directory as string));
+    await afterHook({ tool: 'read', sessionID: 's1', args: { filePath: 'main.cpp' } }, { output: 'source' });
+    const system = { system: ['base'] };
+    await systemHook({ sessionID: 's1' }, system);
+    expect(system.system.join('\n').includes('[CODEGRAPH_DYNAMIC_SYSTEM_REMINDER]')).toBe(expected);
   });
 
   it('does nothing when the current repository is not indexed', async () => {
