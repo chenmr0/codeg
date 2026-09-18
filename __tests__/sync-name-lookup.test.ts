@@ -18,7 +18,7 @@ const access = (cg: CodeGraph) => cg as unknown as { queries: QueryBuilder; db: 
 const sorted = (rows: unknown[]) => rows.sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
 
 describe('medium sync indexed-name epoch', () => {
-  it('preserves >512 changed refs and >500 historical retries without moving the full-name load to the tail', async () => {
+  it('preserves >512 changed refs and >500 eligible historical retries without moving the full-name load to the tail', async () => {
     const run = async (mode: string) => {
       vi.stubEnv('CODEGRAPH_SYNC_NAME_LOOKUP', mode);
       vi.stubEnv('CODEGRAPH_PARSE_WORKERS', '2');
@@ -28,13 +28,19 @@ describe('medium sync indexed-name epoch', () => {
       await cg.indexAll();
       const { queries, db } = access(cg);
       const caller = cg.getNodesByName('caller')[0]!;
-      const seed = db.db.prepare("INSERT INTO unresolved_refs (from_node_id, reference_name, reference_kind, line, col, file_path, language, status, name_tail) VALUES (?, 'late_api', ?, ?, 0, 'old.c', 'c', 'failed', 'late_api')");
+      // Keep each name group below the sync ceiling while retaining a large
+      // total retry workload and both resolvable and incompatible references.
+      const retryNames = Array.from({ length: 13 }, (_, i) => `late_api_${i}`);
+      const seed = db.db.prepare("INSERT INTO unresolved_refs (from_node_id, reference_name, reference_kind, line, col, file_path, language, status, name_tail) VALUES (?, ?, ?, ?, 0, 'old.c', 'c', 'failed', ?)");
       db.db.transaction(() => {
-        for (let i = 0; i < 6262; i++) seed.run(caller.id, i % 3 === 0 ? 'instantiates' : 'calls', i + 100);
+        for (let i = 0; i < 6262; i++) {
+          const name = retryNames[i % retryNames.length];
+          seed.run(caller.id, name, i % 3 === 0 ? 'instantiates' : 'calls', i + 100, name);
+        }
       })();
       for (let i = 0; i < 14; i++) {
         fs.writeFileSync(path.join(root, `added_${i}.c`),
-          (i === 0 ? 'int late_api(void) { return 2; }\n' : '') +
+          (i === 0 ? retryNames.map(name => `int ${name}(void) { return 2; }\n`).join('') : '') +
           `int changed_${i}(void) {\nint value = 0;\n` +
           Array.from({ length: 105 }, (_, n) => `value += ${n % 21 === 0 ? 'absent_api' : 'base'}();\n`).join('') +
           'return value;\n}\n');
@@ -63,7 +69,7 @@ describe('medium sync indexed-name epoch', () => {
         edges: sorted(nodes.flatMap(n => queries.getOutgoingEdges(n.id)).map(({ id: _id, ...edge }) => edge)),
         failed: db.db.prepare('SELECT from_node_id, reference_name, reference_kind, line, col, status, candidates FROM unresolved_refs ORDER BY from_node_id, reference_name, reference_kind, line').all(),
       };
-      expect(db.db.prepare("SELECT COUNT(*) n FROM unresolved_refs WHERE reference_name = 'late_api' AND status = 'failed'").get().n).toBe(2088);
+      expect(db.db.prepare("SELECT COUNT(*) n FROM unresolved_refs WHERE reference_name GLOB 'late_api_*' AND status = 'failed'").get().n).toBe(2088);
       expect(db.db.prepare("SELECT COUNT(*) n FROM unresolved_refs WHERE status = 'pending'").get().n).toBe(0);
       const calls = names.mock.calls.length;
       expect((await cg.sync()).filesAdded).toBe(0);

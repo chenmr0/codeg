@@ -84,10 +84,19 @@ describe('MCP project resolution via roots/list (issue #196)', () => {
     projectDir = fs.mkdtempSync(path.join(os.tmpdir(), 'codegraph-mcp-proj-'));
   });
 
-  afterEach(() => {
-    if (child && !child.killed) {
-      child.kill('SIGKILL');
+  afterEach(async () => {
+    if (child) {
+      const server = child;
       child = null;
+      if (server.exitCode === null && server.signalCode === null) {
+        // EOF reaches the CLI's optional runtime re-exec too. Wait for its
+        // stdio handles before deleting a directory held as cwd on Windows.
+        await new Promise<void>((resolve) => {
+          const timer = setTimeout(() => server.kill('SIGKILL'), 3000);
+          server.once('close', () => { clearTimeout(timer); resolve(); });
+          server.stdin.end();
+        });
+      }
     }
     fs.rmSync(cwdDir, { recursive: true, force: true });
     fs.rmSync(projectDir, { recursive: true, force: true });

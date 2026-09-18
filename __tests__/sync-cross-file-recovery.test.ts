@@ -167,10 +167,11 @@ describe('C/C++ sync cross-file reference recovery', () => {
     expect(hasCall(cg, 'caller', 'late_cpp')).toBe(true);
   });
 
-  it('streams more than 500 same-name failed refs and heals every unchanged C++ caller', async () => {
+  it('streams a same-name group at the retry ceiling and heals every unchanged C++ caller', async () => {
     // Qualified calls no longer emit a duplicate bare-name references row.
-    // Keep the >500 pagination boundary covered with actual call sites.
-    const callerCount = 501;
+    // Exercise two 250-reference batches at the inclusive 500-row ceiling.
+    // Larger groups are deliberately deferred (covered by sync-retry-filter).
+    const callerCount = 500;
     fs.writeFileSync(
       path.join(directory, 'defs.h'),
       'namespace cg_retry { inline int cg_popular_target_v1() { return 1; } }\n'
@@ -217,7 +218,7 @@ describe('C/C++ sync cross-file reference recovery', () => {
         if (
           progress.phase === 'resolving' &&
           progress.total === callerCount &&
-          progress.current === 500
+          progress.current === 250
         ) {
           setImmediate(() => {
             yieldedBetweenRetryBatches = true;

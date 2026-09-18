@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -15,6 +15,7 @@ afterEach(() => {
   vi.restoreAllMocks();
   graph?.close(); graph = undefined;
   if (directory) fs.rmSync(directory, { recursive: true, force: true });
+  vi.unstubAllEnvs();
 });
 const callers = 2100;
 async function fixture(count = callers) {
@@ -23,6 +24,8 @@ async function fixture(count = callers) {
   fs.writeFileSync(path.join(directory, 'caller.c'), Array.from({ length: count }, (_, i) =>
     `int caller_${i}(void) { return worker_target(); }`).join('\n'));
   graph = CodeGraph.initSync(directory);
+  // Once the legacy fixture exists, use automatic discovery for all writes.
+  vi.stubEnv('CODEGRAPH_DIR', '');
   expect((await graph.indexAll()).success).toBe(true);
   return graph;
 }
@@ -33,7 +36,50 @@ function calls() {
   return target ? graph!.getIncomingEdges(target.id).filter(e => e.kind === 'calls').length : 0;
 }
 
-describe('incremental store worker', () => {
+describe.each(['.codegraph', '.codegraph-wx'])('incremental store worker with %s', directoryName => {
+  beforeEach(() => {
+    vi.stubEnv('CODEGRAPH_DIR', directoryName === '.codegraph' ? directoryName : '');
+    vi.stubEnv('CODEGRAPH_LEGACY_COMPAT', '1');
+  });
+
+  it('serves MCP searches on the owning graph while a replacement is in flight', async () => {
+    const cg = await fixture();
+    const { ToolHandler } = require('../dist/mcp/tools');
+    const handler = new ToolHandler(cg);
+    const original = StoreWriter.prototype.replace;
+    let inFlight = false;
+    let started!: () => void;
+    const workerStarted = new Promise<void>(resolve => { started = resolve; });
+    vi.spyOn(StoreWriter.prototype, 'replace').mockImplementation(async function (this: StoreWriterType, request) {
+      inFlight = true;
+      started();
+      try { return await original.call(this, request); }
+      finally { inFlight = false; }
+    });
+    write('int worker_target(void) { return 300; }\n');
+    const sync = cg.sync({ paths: ['provider.c'] });
+    let concurrentRequests = 0;
+    try {
+      await workerStarted;
+      while (inFlight) {
+        const result = await handler.execute('search', { query: 'caller_0' });
+        expect(result.isError, JSON.stringify(result.content)).not.toBe(true);
+        expect(JSON.stringify(result.content)).toContain('caller_0');
+        concurrentRequests++;
+        await new Promise<void>(resolve => setImmediate(resolve));
+      }
+      expect((await sync).filesModified).toBe(1);
+      expect(concurrentRequests).toBeGreaterThan(0);
+      expect(calls()).toBe(callers);
+      expect(fs.existsSync(path.join(directory!, directoryName, 'codegraph.lock'))).toBe(false);
+      const otherDirectory = directoryName === '.codegraph' ? '.codegraph-wx' : '.codegraph';
+      expect(fs.existsSync(path.join(directory!, otherDirectory, 'codegraph.db'))).toBe(false);
+    } finally {
+      await sync;
+      handler.closeAll();
+    }
+  }, 60_000);
+
   it('retains high-fan-in edge rows on a body edit through the real worker', async () => {
     const cg = await fixture();
     const before = raw().prepare("SELECT id,source,target FROM edges WHERE kind='calls' ORDER BY id").all();
