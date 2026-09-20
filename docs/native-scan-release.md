@@ -39,10 +39,21 @@
 
 3. **在目标操作系统上**运行目录与宏相关测试，再分别运行 `npm run validate:rust-scan` 和 `npm run validate:rust-macros`。两者均只使用独立临时目录且无需编译器；只有全部通过才给各自精确 SHA 写入验收记录。重编译会清除旧记录，不能把 Windows 测试结果冒充 Linux 验收。
 4. 收集两个平台的 `dist/native-scan/<platform>-x64/` 和 `dist/native-macros/<platform>-x64/`，保留二进制和 manifest.json。
-5. `npm run check:native-artifacts`，然后普通 `npm pack`。prepack 默认要求两个程序的两平台产物齐全、源码指纹一致且分别通过验收；缺一不可。
+5. 正式发布前运行 `npm run check:native-artifacts`，它严格要求两个程序的两平台产物齐全、源码指纹一致且分别通过验收。普通 `npm pack` 的 prepack 使用 `--allow-unvalidated`：检查四组产物、manifest、版本、源码指纹、二进制 SHA-256 和可执行文件格式，允许缺少目标平台运行验收记录；不会运行扫描器或自动填写验收记录。
 6. `npm run smoke:native-package -- /path/to/package.tgz --macros`：在隔离 npm prefix 安装，再从 PATH 移除 Rust/Cargo，验证目录扫描、宏程序、增删改、空同步和真实 CLI。
 
 `manifest.json` 的哈希用于完整性/一致性校验，不是数字签名，不能取代可信的包来源或软件供应链审查。
+
+### 使用已有原生组件在 Windows 打包
+
+将 `native-scan` 和 `native-macros` 两个目录放入 `dist/`，各自保留 `win32-x64/`、`linux-x64/` 下的二进制及 `manifest.json`。组件必须匹配当前包版本和 Rust 源码。安装开发依赖后直接执行：
+
+```powershell
+npm run build
+npm pack
+```
+
+`build` 会保留这些原生目录，无需 Rust/Cargo，也无需设置打包环境变量。未通过目标平台运行验收的组件可以随包分发，但运行时仍会回退 TypeScript；打包成功不代表目标平台运行验收通过。
 
 ## 自动化
 
@@ -54,7 +65,7 @@
 
 目标已确认：EulerOS 2.0 SP15 x86_64，glibc 2.38。本地 Windows 已能生成 Linux x64 静态候选程序，但没有 Linux/WSL/Docker，**不能只凭交叉编译成功宣称 Linux 已通过运行验收**。
 
-发布者若需先向该机器传送候选包，可显式使用 `CODEGRAPH_PACK_ALLOW_INCOMPLETE=1 npm pack`。这是有提示的候选打包开关，不放宽运行时自动选择：未验收的 Linux 程序仍会回退 TypeScript。
+发布者收集齐四组匹配的原生组件后，可直接 `npm pack` 向该机器传送候选包；无需设置 `CODEGRAPH_PACK_ALLOW_INCOMPLETE`。该历史开关仍用于显式跳过产物检查，不建议用于组件齐全的普通打包。打包不会放宽运行时自动选择：未验收的 Linux 程序仍会回退 TypeScript。
 
 在 EulerOS 安装候选 tgz 后，执行一次以下发行验收（不需要 Rust/Cargo）：
 
