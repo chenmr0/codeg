@@ -35,8 +35,8 @@ export function getMcpServerConfig(): { type: string; command: string; args: str
  * permission strings follow Claude's `mcp__<server>__<tool>` format.
  */
 export function getCodeGraphPermissions(): string[] {
+  // explore is opt-in; default installs should not pre-authorize it.
   return [
-    'mcp__codegraph__explore',
     'mcp__codegraph__search',
     'mcp__codegraph__node',
     'mcp__codegraph__context',

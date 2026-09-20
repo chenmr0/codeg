@@ -88,6 +88,43 @@ describe('Installer targets — contract', () => {
     fs.rmSync(tmpCwd, { recursive: true, force: true });
   });
 
+  for (const id of ['claude', 'codeagent'] as const) {
+    for (const location of ['global', 'local'] as const) {
+      it(id + '/' + location + ': removes obsolete explore grants only with autoAllow and preserves unrelated permissions', () => {
+        const target = getTarget(id)!;
+        const settingsFile = path.join(location === 'global' ? tmpHome : tmpCwd,
+          id === 'claude' ? '.claude' : '.cac', 'settings.json');
+        fs.mkdirSync(path.dirname(settingsFile), { recursive: true });
+        const settings = {
+          permissions: {
+            allow: ['mcp__codegraph__explore', 'mcp__codegraph__codegraph_explore',
+              'mcp__codegraph__search', 'mcp__other__explore', 'Bash(git status)'],
+            deny: ['Bash(rm *)'],
+            ask: ['Bash(git push *)'],
+          },
+          custom: { keep: true },
+        };
+        fs.writeFileSync(settingsFile, JSON.stringify(settings, null, 2) + '\n');
+        const original = fs.readFileSync(settingsFile, 'utf8');
+        target.install(location, { autoAllow: false });
+        expect(fs.readFileSync(settingsFile, 'utf8')).toBe(original);
+        target.install(location, { autoAllow: true });
+        const after = JSON.parse(fs.readFileSync(settingsFile, 'utf8'));
+        expect(after.permissions.allow).not.toContain('mcp__codegraph__explore');
+        expect(after.permissions.allow).not.toContain('mcp__codegraph__codegraph_explore');
+        expect(after.permissions.allow).toContain('mcp__codegraph__search');
+        expect(after.permissions.allow).toContain('mcp__other__explore');
+        expect(after.permissions.allow).toContain('Bash(git status)');
+        expect(after.permissions.deny).toEqual(settings.permissions.deny);
+        expect(after.permissions.ask).toEqual(settings.permissions.ask);
+        expect(after.custom).toEqual(settings.custom);
+        const first = fs.readFileSync(settingsFile, 'utf8');
+        target.install(location, { autoAllow: true });
+        expect(fs.readFileSync(settingsFile, 'utf8')).toBe(first);
+      });
+    }
+  }
+
   for (const target of ALL_TARGETS) {
     describe(target.id, () => {
       const supportedLocations = (['global', 'local'] as const).filter((l) =>
@@ -931,7 +968,7 @@ describe('Installer targets — partial-state idempotency', () => {
     const claudeMd = path.join(tmpCwd, '.claude', 'CLAUDE.md');
     expect(fs.existsSync(claudeMd)).toBe(true);
     const body = fs.readFileSync(claudeMd, 'utf-8');
-    expect(body).toContain('## CodeGraph');
+    expect(body).toContain('## codegraph 源码探索协议');
     expect(body).toContain('codegraph_search');
     expect(body).not.toContain('codegraph_explore');
     expect(result.files.find((f) => f.path.endsWith('CLAUDE.md'))?.action).toBe('created');

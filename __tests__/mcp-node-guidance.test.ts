@@ -103,28 +103,33 @@ describe('MCP codegraph_node context-budget guidance', () => {
     expect(SERVER_INSTRUCTIONS).not.toMatch(/any time you'd use the `Read` tool/i);
   });
 
-  it('keeps installed agent guidance aligned with runtime guards', () => {
-    expect(Buffer.byteLength(CODEGRAPH_INSTRUCTIONS_BLOCK, 'utf8')).toBeLessThan(3_500);
-    expect(CODEGRAPH_INSTRUCTIONS_BLOCK).toMatch(/exact file[^]*line[^]*host Read/i);
+  it('keeps the reviewed Chinese exploration protocol with the existing tool names', () => {
+    expect(CODEGRAPH_INSTRUCTIONS_BLOCK).toContain('## codegraph 源码探索协议');
+    expect(CODEGRAPH_INSTRUCTIONS_BLOCK).toContain('<!-- CODEGRAPH_START -->');
+    expect(CODEGRAPH_INSTRUCTIONS_BLOCK).toContain('<!-- CODEGRAPH_END -->');
+    expect(CODEGRAPH_INSTRUCTIONS_BLOCK).not.toContain('CODEGRAPH_WX_');
+    expect(CODEGRAPH_INSTRUCTIONS_BLOCK).not.toContain('codegraph_wx_');
+    expect(CODEGRAPH_INSTRUCTIONS_BLOCK).toContain('探索已索引源码时');
     expect(CODEGRAPH_INSTRUCTIONS_BLOCK).toContain('symbolsOnly=true');
     expect(CODEGRAPH_INSTRUCTIONS_BLOCK).toContain('limit<=500');
     expect(CODEGRAPH_INSTRUCTIONS_BLOCK).toContain('codegraph_context');
     expect(CODEGRAPH_INSTRUCTIONS_BLOCK).toContain('includeCode="if_unique"');
     expect(CODEGRAPH_INSTRUCTIONS_BLOCK).toContain('codegraph_search(queries=[...])');
-    expect(CODEGRAPH_INSTRUCTIONS_BLOCK).toMatch(/implementation source[^]*compact declaration pointer/i);
-    expect(CODEGRAPH_INSTRUCTIONS_BLOCK).toMatch(/safely truncated[^]*rather than replaced by an outline/i);
-    expect(CODEGRAPH_INSTRUCTIONS_BLOCK).toMatch(/trails are off by default/i);
+    expect(CODEGRAPH_INSTRUCTIONS_BLOCK).toContain('默认 `includeRelations=false`');
     expect(CODEGRAPH_INSTRUCTIONS_BLOCK).toMatch(/outlineQueries/i);
-    expect(CODEGRAPH_INSTRUCTIONS_BLOCK).toMatch(/base-declaration call[^]*sites/i);
+    expect(CODEGRAPH_INSTRUCTIONS_BLOCK).toContain('基类声明和派生实现两端的调用方');
     expect(CODEGRAPH_INSTRUCTIONS_BLOCK).toContain('codegraph_text_search');
     expect(CODEGRAPH_INSTRUCTIONS_BLOCK).toContain('codegraph_node');
     expect(CODEGRAPH_INSTRUCTIONS_BLOCK).toContain('codegraph_node(targets=[...])');
     expect(CODEGRAPH_INSTRUCTIONS_BLOCK).toContain('DECLARATION_ONLY');
-    expect(CODEGRAPH_INSTRUCTIONS_BLOCK).toMatch(/compact raw-source matches/i);
-    expect(CODEGRAPH_INSTRUCTIONS_BLOCK).toMatch(/file.*line.*signature/i);
-    expect(CODEGRAPH_INSTRUCTIONS_BLOCK).toMatch(/refuse to aggregate distinct overloads/i);
+    expect(CODEGRAPH_INSTRUCTIONS_BLOCK).toContain('file');
+    expect(CODEGRAPH_INSTRUCTIONS_BLOCK).toContain('line');
+    expect(CODEGRAPH_INSTRUCTIONS_BLOCK).toContain('signature');
+    expect(CODEGRAPH_INSTRUCTIONS_BLOCK).toContain('关系工具不会聚合不同逻辑重载');
     expect(CODEGRAPH_INSTRUCTIONS_BLOCK).not.toContain('codegraph_codegraph_node');
-    expect(CODEGRAPH_INSTRUCTIONS_BLOCK).toMatch(/Bare\/full-file MCP reads are rejected/i);
+    expect(CODEGRAPH_INSTRUCTIONS_BLOCK).toContain('裸调用 `codegraph_node(file=<文件>)`');
+    expect(CODEGRAPH_INSTRUCTIONS_BLOCK).toContain('**不得再调用 `node` 重读。**');
+    expect(CODEGRAPH_INSTRUCTIONS_BLOCK).toContain('信息充分后停止重复探索');
     expect(CODEGRAPH_INSTRUCTIONS_BLOCK).not.toMatch(/Use it INSTEAD of Read/i);
   });
 
@@ -132,6 +137,7 @@ describe('MCP codegraph_node context-budget guidance', () => {
     const permissions = getCodeGraphPermissions();
     expect(permissions).toContain('mcp__codegraph__context');
     expect(permissions).toContain('mcp__codegraph__text_search');
+    expect(permissions).not.toContain('mcp__codegraph__explore');
     expect(permissions.some((permission) => permission.startsWith('mcp__codegraph__codegraph_'))).toBe(false);
   });
 
