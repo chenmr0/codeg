@@ -84,10 +84,10 @@ describe('MCP codegraph_node context-budget guidance', () => {
     expect(SERVER_INSTRUCTIONS).toMatch(/ONE `codegraph_(?:node|context).*targets/i);
     expect(SERVER_INSTRUCTIONS).toContain('codegraph_node(targets=[...])');
     expect(SERVER_INSTRUCTIONS).toMatch(/Preflight is decided by the 20K character budget/i);
-    expect(SERVER_INSTRUCTIONS).toMatch(/queries=.*multi-pattern raw-source scan/i);
+    expect(SERVER_INSTRUCTIONS).toMatch(/"queries":[^]*multi-pattern raw-source scan/i);
     expect(SERVER_INSTRUCTIONS).toMatch(/implementation source[^]*compact[^]*declaration pointer/i);
     expect(SERVER_INSTRUCTIONS).toMatch(/virtual-dispatch[^]*family/i);
-    expect(SERVER_INSTRUCTIONS).toContain('includeCode: "if_unique"');
+    expect(SERVER_INSTRUCTIONS).toContain('"includeCode": "if_unique"');
     expect(SERVER_INSTRUCTIONS).toMatch(/safely truncated[^]*rather than replaced by an outline/i);
     expect(SERVER_INSTRUCTIONS).toMatch(/trails are off[^]*by default/i);
     expect(SERVER_INSTRUCTIONS).toMatch(/selected container[^]*text[^]*file windows/i);
@@ -114,7 +114,7 @@ describe('MCP codegraph_node context-budget guidance', () => {
     expect(CODEGRAPH_INSTRUCTIONS_BLOCK).toContain('symbolsOnly=true');
     expect(CODEGRAPH_INSTRUCTIONS_BLOCK).toContain('limit<=500');
     expect(CODEGRAPH_INSTRUCTIONS_BLOCK).toContain('codegraph_context');
-    expect(CODEGRAPH_INSTRUCTIONS_BLOCK).toContain('includeCode="if_unique"');
+    expect(CODEGRAPH_INSTRUCTIONS_BLOCK).toContain('"includeCode": "if_unique"');
     expect(CODEGRAPH_INSTRUCTIONS_BLOCK).toContain('实现源码和紧凑的声明位置指针');
     expect(CODEGRAPH_INSTRUCTIONS_BLOCK).toContain('CODEGRAPH_SEARCH_FUZZY=1');
     expect(CODEGRAPH_INSTRUCTIONS_BLOCK).toContain('codegraph_search(queries=[...])');

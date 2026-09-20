@@ -12,12 +12,15 @@ outline → symbol sequence or replace Read with whole-file/window-by-window dum
   includeCode=true, includeRelations=false)\`.
 - Exact file and line, only nearby source needed →
   \`codegraph_node(file=..., offset=..., limit<=500)\`; request only needed lines.
-- Symbol lookup → \`codegraph_search\`. Batch 2–8 names with
-  \`queries=[...]\`; true misses share one multi-pattern raw-source scan. Search
-  defaults to strict case-sensitive lookup. Fuzzy suggestions, case correction,
-  and owner recovery require server environment \`CODEGRAPH_SEARCH_FUZZY=1\`;
+- Symbol lookup → \`codegraph_search\`. When 2–8 independent names are already
+  known, batch them in ONE call using JSON arguments:
+  \`{"queries":[{"query":"SymbolA"},{"query":"SymbolB"}],"includeCode":"if_unique"}\`.
+  Each \`query\` contains only a symbol name or callable signature; options such as
+  \`includeCode\` are separate JSON fields, never text appended to \`query\`.
+  True misses share one multi-pattern raw-source scan. Search
+  defaults to strict case-sensitive lookup.
   exact raw-source fallback applies in either mode. Set
-  \`includeCode: "if_unique"\` for implementation source plus a compact
+  \`"includeCode": "if_unique"\` for implementation source plus a compact
   declaration pointer in the same response. Oversized source is safely truncated
   rather than replaced by an outline. Do not reread sufficient returned source;
   fetch only missing portions if truncated/unavailable. \`path\` is a soft hint:

@@ -174,7 +174,7 @@ codegraph_node(
   outlineLimit=30
 )
 \`\`\`
-从大纲选出测试符号后，使用 \`search(includeCode="if_unique")\`、\`node(symbol=...)\` 或合并到 \`context\`；不得直接 \`Read\` 整个测试文件。
+从大纲选出测试符号后，使用带独立字段 \`"includeCode": "if_unique"\` 的 \`search\`、\`node(symbol=...)\` 或合并到 \`context\`；不得直接 \`Read\` 整个测试文件。
 #### 修改 inner-table schema：事实来源 + 生成结果一次取齐
 正确：
 \`\`\`text
