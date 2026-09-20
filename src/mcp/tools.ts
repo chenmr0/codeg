@@ -623,15 +623,15 @@ export const tools: ToolDefinition[] = [
   {
     name: 'search',
     description:
-      'Search 1–8 symbol names, qualified names, or callable signatures. Defaults to strict case-sensitive lookup; case correction, fuzzy suggestions, and owner recovery require server environment CODEGRAPH_SEARCH_FUZZY=1. Batch with `queries`; true misses share one exact raw-source scan. `path` is a soft disambiguation hint: matching candidates are narrowed and ranked, while a miss keeps all exact candidates with a warning. Use line/signature for stronger assertions. `includeCode="if_unique"` returns one implementation body plus compact declaration pointers; oversized source is safely truncated. Natural-language questions and literal values are rejected.',
+      'Search 1–8 symbol names, qualified names, or callable signatures. Defaults to strict case-sensitive lookup; Batch 2–8 already-known independent names in ONE call with `queries`; true misses share one exact raw-source scan. `path` is a soft disambiguation hint: matching candidates are narrowed and ranked, while a miss keeps all exact candidates with a warning. Use line/signature for stronger assertions. Set the separate JSON field `"includeCode": "if_unique"` to return one implementation body plus compact declaration pointers; never append options to `query`. Oversized source is safely truncated. Natural-language questions and literal values are rejected.',
     inputSchema: {
       type: 'object',
       properties: {
         query: {
           type: 'string',
           description:
-            '符号名或限定名（例如 "signIn"、"rtl::OString"、"Session.request"）。' +
-            '禁止传入：十六进制值(0x...)、自然语言问题、空格分隔的命令/描述',
+            '单个符号名、限定名或可调用签名（例如 "signIn"、"rtl::OString"、"Session.request"）。多个独立符号用 queries 数组一次查询。' +
+            'includeCode 等选项必须作为独立 JSON 字段，不能拼进 query 字符串。禁止传入十六进制值(0x...)、自然语言问题、空格分隔的命令/描述。',
         },
         queries: {
           type: 'array',
@@ -677,7 +677,7 @@ export const tools: ToolDefinition[] = [
         },
         includeCode: {
           type: 'string',
-          description: 'For one logical overload, return implementation source plus compact declaration pointers. Oversized source is safely truncated, never silently replaced by an outline.',
+          description: 'For one logical overload, return implementation source plus compact declaration pointers. Applies to all queries unless overridden per item. Oversized source is safely truncated, never silently replaced by an outline.',
           enum: ['never', 'if_unique'],
           default: 'never',
         },
@@ -1904,10 +1904,13 @@ export class ToolHandler {
     if (nlCheck.isNatural) {
       return this.textResult([
         includeCodeCorrection,
-        `codegraph_search 需要传入符号名，不支持自然语言描述或非符号内容。\n\n` +
+        `codegraph_search 的每个 query 字段只接收一个符号名、限定名或可调用签名，不支持自然语言描述或附加工具参数。\n\n` +
         `收到的查询: "${query}"\n` +
         `检测到: ${nlCheck.reason}\n\n` +
-        `→ 请从你的问题中提取关键符号名，直接搜索符号名。\n`,
+        `→ includeCode 等选项必须作为独立 JSON 字段，不能拼进 query 字符串。\n` +
+        `单查参数示例：{"query":"SymbolA","includeCode":"if_unique"}\n` +
+        `已知 2–8 个独立符号时，使用一次 queries 批量调用，不要逐个调用：\n` +
+        `{"queries":[{"query":"SymbolA"},{"query":"SymbolB"}],"includeCode":"if_unique"}\n`,
       ].filter(Boolean).join('\n\n'));
     }
 
