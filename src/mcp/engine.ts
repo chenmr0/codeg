@@ -231,10 +231,9 @@ export class MCPEngine {
   /**
    * Reconcile the index with the current filesystem once, right after open —
    * catches edits, adds, deletes, and `git pull`/`checkout` changes made while
-   * no watcher was running. Runs in the background; ToolHandler gives every
-   * concurrent request the same bounded wait. If the interaction budget
-   * expires, requests proceed with an explicit project-wide stale warning and
-   * this promise keeps running to completion.
+   * no watcher was running. Queries proceed immediately with a project-wide
+   * stale warning while this promise runs in the background. An explicit
+   * positive interaction budget opts into a shared bounded wait.
    */
   private catchUpSync(): void {
     const cg = this.cg;

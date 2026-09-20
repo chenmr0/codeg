@@ -1,8 +1,7 @@
 /**
- * MCP catch-up interaction budget — concurrent tool calls share one bounded
- * wait for the engine's post-open filesystem reconcile. Fast catch-up stays
- * strongly consistent; slow catch-up continues in the background while every
- * released response carries an explicit project-wide stale warning.
+ * MCP catch-up defaults to nonblocking queries with a project-wide stale
+ * warning. An explicit positive interaction budget enables one shared wait
+ * for the engine's post-open filesystem reconcile.
  *
  * Background: `MCPEngine.catchUpSync()` fires `cg.sync()` in the background.
  * Before this fix it was fire-and-forget — a tool call could race past it
@@ -15,7 +14,7 @@
  * including completion, timeout, concurrency, and failure semantics.
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
@@ -32,11 +31,14 @@ describe('MCP catch-up gate', () => {
   let handler: ToolHandler;
 
   beforeEach(async () => {
+    vi.stubEnv('CODEGRAPH_MCP_CATCHUP_BUDGET_MS', '');
     testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'codegraph-catchup-gate-'));
     fs.mkdirSync(path.join(testDir, 'src'));
     fs.writeFileSync(
       path.join(testDir, 'src', 'survivor.ts'),
-      'export function survivor() { return 1; }\n',
+      'export function survivor() { return 1; }\n' +
+      'export function sibling() { return 2; }\n' +
+      'export function thirdSymbol() { return 3; }\n',
     );
     fs.writeFileSync(
       path.join(testDir, 'src', 'deleted-later.ts'),
@@ -52,10 +54,59 @@ describe('MCP catch-up gate', () => {
     try { handler.closeAll(); } catch { /* ignore */ }
     try { cg.unwatch(); } catch { /* ignore */ }
     try { cg.close(); } catch { /* ignore */ }
+    vi.unstubAllEnvs();
+    vi.restoreAllMocks();
+    vi.useRealTimers();
     if (fs.existsSync(testDir)) fs.rmSync(testDir, { recursive: true, force: true });
   });
 
-  it('awaits the gate before serving the first tool call', async () => {
+  it.each(['single', 'batch', 'sequential', 'concurrent'])('serves %s queries immediately while default catch-up is pending', async mode => {
+    // Do not advance fake timers: even a zero-delay timer would keep the
+    // query pending. The nonblocking path must not depend on any timer.
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    let resolveGate!: () => void;
+    handler.setCatchUpGate(new Promise<void>(resolve => { resolveGate = resolve; }));
+    const names = ['survivor', 'sibling', 'thirdSymbol'];
+    const run = async () => {
+      if (mode === 'single') return [await handler.execute('search', { query: names[0] })];
+      if (mode === 'batch') return [await handler.execute('search', { queries: names })];
+      if (mode === 'concurrent') return Promise.all(names.map(query => handler.execute('search', { query })));
+      const results = [];
+      for (const query of names) results.push(await handler.execute('search', { query }));
+      return results;
+    };
+    const request = run();
+    try {
+      const results = await Promise.race([
+        request,
+        new Promise<null>(resolve => setImmediate(() => resolve(null))),
+      ]);
+      expect(results, 'queries must finish without advancing timers or resolving sync').not.toBeNull();
+      for (const result of results!) {
+        expect(result.isError).toBeFalsy();
+        expect(result.content[0].text).toContain('Index refresh is still running');
+      }
+      const text = results!.map(result => result.content[0].text).join('\n');
+      for (const name of mode === 'single' ? names.slice(0, 1) : names) expect(text).toContain(name);
+    } finally {
+      resolveGate();
+      await request;
+    }
+  });
+
+  it('keeps raw-source fallback available for a symbol added during catch-up', async () => {
+    handler.setCatchUpGate(new Promise<void>(() => {}));
+    fs.appendFileSync(path.join(testDir, 'src', 'survivor.ts'),
+      'export function addedDuringCatchUp() { return 4; }\n');
+    const result = await handler.execute('search', { query: 'addedDuringCatchUp', path: 'src/survivor.ts' });
+    expect(result.isError).toBeFalsy();
+    expect(result.content[0].text).toContain('Index refresh is still running');
+    expect(result.content[0].text).toContain('RAW_MATCHES');
+    expect(result.content[0].text).toContain('addedDuringCatchUp');
+  });
+
+  it('waits before the first tool call when a positive environment budget is configured', async () => {
+    vi.stubEnv('CODEGRAPH_MCP_CATCHUP_BUDGET_MS', '1000');
     let gateResolved = false;
     const gate = new Promise<void>((resolve) => {
       setTimeout(() => { gateResolved = true; resolve(); }, 80);
@@ -129,16 +180,18 @@ describe('MCP catch-up gate', () => {
     expect(fresh.content[0].text).not.toMatch(/index refresh/i);
   });
 
-  it('catch-up reconciles a deleted file before the first tool call sees it', async () => {
+  it('removes a deleted file from subsequent queries after background catch-up completes', async () => {
     // Simulate the empty-project / deleted-files startup case: file is in
     // the DB (we indexed it above) but vanishes from disk before the MCP
-    // server's first query. The catch-up sync, awaited via the gate,
-    // must remove the row so the first tool call returns no hit.
+    // server's first query. Once background catch-up completes, subsequent
+    // queries must stop seeing the deleted row.
     fs.unlinkSync(path.join(testDir, 'src', 'deleted-later.ts'));
 
     // Push the actual catch-up sync as the gate — same flow the MCP engine
     // uses (`cg.sync()` returns a Promise<SyncResult>, the wrapper voids it).
-    handler.setCatchUpGate(cg.sync().then(() => undefined));
+    const sync = cg.sync().then(() => undefined);
+    handler.setCatchUpGate(sync);
+    await sync;
 
     const res = await handler.execute('search', { query: 'deletedLater' });
     expect(res.isError).toBeFalsy();
@@ -147,13 +200,14 @@ describe('MCP catch-up gate', () => {
   });
 
   it('catch-up that converges the project to 0 files clears all rows', async () => {
-    // Worst case: every source file is gone between sessions. Without the
-    // gate, the first tool call serves whatever was in the DB. With the
-    // gate + the orchestrator's filesystem reconcile, the DB drains.
+    // Every source file is gone between sessions. Background reconcile still
+    // drains the database even though queries no longer wait for it.
     fs.unlinkSync(path.join(testDir, 'src', 'survivor.ts'));
     fs.unlinkSync(path.join(testDir, 'src', 'deleted-later.ts'));
 
-    handler.setCatchUpGate(cg.sync().then(() => undefined));
+    const sync = cg.sync().then(() => undefined);
+    handler.setCatchUpGate(sync);
+    await sync;
 
     const res = await handler.execute('search', { query: 'survivor' });
     expect(res.isError).toBeFalsy();
@@ -185,6 +239,7 @@ describe('MCP catch-up gate', () => {
   });
 
   it('validates the environment budget and permits an explicit zero budget', () => {
+    expect(MCP_CATCH_UP_DEFAULT_BUDGET_MS).toBe(0);
     expect(resolveMcpCatchUpBudgetMs(undefined)).toBe(MCP_CATCH_UP_DEFAULT_BUDGET_MS);
     expect(resolveMcpCatchUpBudgetMs('')).toBe(MCP_CATCH_UP_DEFAULT_BUDGET_MS);
     expect(resolveMcpCatchUpBudgetMs('invalid')).toBe(MCP_CATCH_UP_DEFAULT_BUDGET_MS);

@@ -72,14 +72,14 @@ import { formatSourceRange } from '../source-location';
 const MAX_OUTPUT_LENGTH = 15000;
 
 /**
- * Maximum time a tool call waits for the startup filesystem catch-up. Most
- * no-change reconciles finish inside this window; a pathological changed file
- * must not make the MCP surface appear hung for tens of seconds.
+ * Startup catch-up runs in the background by default. Queries use the current
+ * index with a freshness warning; callers can explicitly opt into a bounded
+ * wait through CODEGRAPH_MCP_CATCHUP_BUDGET_MS.
  */
-export const MCP_CATCH_UP_DEFAULT_BUDGET_MS = 5_000;
+export const MCP_CATCH_UP_DEFAULT_BUDGET_MS = 0;
 const MCP_CATCH_UP_MAX_BUDGET_MS = 60_000;
 
-/** Resolve CODEGRAPH_MCP_CATCHUP_BUDGET_MS without letting bad input disable the gate. */
+/** Resolve the optional startup wait; invalid input retains the nonblocking default. */
 export function resolveMcpCatchUpBudgetMs(raw: string | undefined): number {
   if (raw === undefined || raw.trim() === '') return MCP_CATCH_UP_DEFAULT_BUDGET_MS;
   const parsed = Number(raw);
@@ -1224,11 +1224,10 @@ export class ToolHandler {
   // once and every later tool call reuses the result — never shelling out to
   // git on the hot path. `undefined` = not computed yet; `null` = no mismatch.
   private worktreeMismatchCache: Map<string, WorktreeIndexMismatch | null> = new Map();
-  // Shared startup-reconcile gate. Every concurrent request observes the same
-  // state: all wait until catch-up finishes or its interaction budget expires.
-  // After budget expiry the sync continues in the background and responses get
-  // a project-wide stale notice until completion. A failure remains visible
-  // instead of silently blessing the previous index as fresh.
+  // Shared startup-reconcile state. Queries proceed immediately by default;
+  // an explicit positive budget makes requests share one wait deadline.
+  // Background sync keeps a project-wide stale notice visible until completion,
+  // including failures instead of blessing the previous index as fresh.
   private catchUpState: CatchUpState | null = null;
   // Daemon sessions may execute concurrently. AsyncLocalStorage keeps one
   // request's cancellation signal attached to its raw-evidence subprocess
@@ -1245,10 +1244,9 @@ export class ToolHandler {
   }
 
   /**
-   * Engine-only: register the catch-up sync promise. Tool calls share a bounded
-   * wait; expiry releases them with an explicit stale notice while the promise
-   * keeps running. Rejections never become tool errors, but remain visible as a
-   * conservative freshness warning.
+   * Engine-only: register background catch-up and track its freshness warning.
+   * Queries proceed immediately unless a positive wait budget is configured.
+   * Rejections never become tool errors, but remain visible as a warning.
    */
   setCatchUpGate(p: Promise<void> | null, budgetMs?: number): void {
     const previous = this.catchUpState;
@@ -1275,11 +1273,16 @@ export class ToolHandler {
     };
     this.catchUpState = state;
 
-    state.timer = setTimeout(() => {
-      state.timer = null;
+    if (state.budgetMs === 0) {
+      // No timer/event-loop turn is needed for the default nonblocking path.
       state.releaseNow();
-    }, state.budgetMs);
-    state.timer.unref?.();
+    } else {
+      state.timer = setTimeout(() => {
+        state.timer = null;
+        state.releaseNow();
+      }, state.budgetMs);
+      state.timer.unref?.();
+    }
 
     // Attach both handlers immediately so even an already-rejected promise is
     // observed. The completion branch only clears this exact generation; a
@@ -1721,8 +1724,8 @@ export class ToolHandler {
     args: Record<string, unknown>,
   ): Promise<ToolResult> {
     try {
-      // Wait for startup reconciliation only up to its shared interaction
-      // budget. Expiry does not cancel sync; the captured admission is attached
+      // Capture startup freshness immediately by default (or after an explicit
+      // shared wait budget). This does not cancel sync; admission is attached
       // to this response even if catch-up finishes while the query is running,
       // because the query may already have observed the previous index state.
       const catchUpAdmission = await this.awaitCatchUpBudget();
