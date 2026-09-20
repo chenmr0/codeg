@@ -76,7 +76,8 @@ describe('MCP codegraph_node context-budget guidance', () => {
 
   it('keeps server instructions aligned with runtime guards', () => {
     expect(Buffer.byteLength(SERVER_INSTRUCTIONS, 'utf8')).toBeLessThan(5_000);
-    expect(SERVER_INSTRUCTIONS).toMatch(/exact file[^]*line[^]*host Read/i);
+    expect(SERVER_INSTRUCTIONS).toMatch(/exact file[^]*line[^]*codegraph_node\(file=/i);
+    expect(SERVER_INSTRUCTIONS).not.toContain('use the host Read tool');
     expect(SERVER_INSTRUCTIONS).toContain('{ file, symbolsOnly: true }');
     expect(SERVER_INSTRUCTIONS).toContain('{ file, offset, limit<=500 }');
     expect(SERVER_INSTRUCTIONS).toMatch(/rejects bare\/full-file reads/i);
@@ -109,11 +110,13 @@ describe('MCP codegraph_node context-budget guidance', () => {
     expect(CODEGRAPH_INSTRUCTIONS_BLOCK).toContain('<!-- CODEGRAPH_END -->');
     expect(CODEGRAPH_INSTRUCTIONS_BLOCK).not.toContain('CODEGRAPH_WX_');
     expect(CODEGRAPH_INSTRUCTIONS_BLOCK).not.toContain('codegraph_wx_');
-    expect(CODEGRAPH_INSTRUCTIONS_BLOCK).toContain('探索已索引源码时');
+    expect(CODEGRAPH_INSTRUCTIONS_BLOCK).toContain('最小充分上下文');
     expect(CODEGRAPH_INSTRUCTIONS_BLOCK).toContain('symbolsOnly=true');
     expect(CODEGRAPH_INSTRUCTIONS_BLOCK).toContain('limit<=500');
     expect(CODEGRAPH_INSTRUCTIONS_BLOCK).toContain('codegraph_context');
     expect(CODEGRAPH_INSTRUCTIONS_BLOCK).toContain('includeCode="if_unique"');
+    expect(CODEGRAPH_INSTRUCTIONS_BLOCK).toContain('实现源码和紧凑的声明位置指针');
+    expect(CODEGRAPH_INSTRUCTIONS_BLOCK).toContain('CODEGRAPH_SEARCH_FUZZY=1');
     expect(CODEGRAPH_INSTRUCTIONS_BLOCK).toContain('codegraph_search(queries=[...])');
     expect(CODEGRAPH_INSTRUCTIONS_BLOCK).toContain('默认 `includeRelations=false`');
     expect(CODEGRAPH_INSTRUCTIONS_BLOCK).toMatch(/outlineQueries/i);
@@ -122,6 +125,8 @@ describe('MCP codegraph_node context-budget guidance', () => {
     expect(CODEGRAPH_INSTRUCTIONS_BLOCK).toContain('codegraph_node');
     expect(CODEGRAPH_INSTRUCTIONS_BLOCK).toContain('codegraph_node(targets=[...])');
     expect(CODEGRAPH_INSTRUCTIONS_BLOCK).toContain('DECLARATION_ONLY');
+    expect(CODEGRAPH_INSTRUCTIONS_BLOCK).toContain('Scan incomplete');
+    expect(CODEGRAPH_INSTRUCTIONS_BLOCK).toContain('项目级提示');
     expect(CODEGRAPH_INSTRUCTIONS_BLOCK).toContain('file');
     expect(CODEGRAPH_INSTRUCTIONS_BLOCK).toContain('line');
     expect(CODEGRAPH_INSTRUCTIONS_BLOCK).toContain('signature');

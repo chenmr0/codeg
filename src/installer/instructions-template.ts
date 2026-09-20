@@ -17,6 +17,7 @@ export const CODEGRAPH_INSTRUCTIONS_BLOCK = `${CODEGRAPH_SECTION_START}
 - 已知文件、不知道符号：\`codegraph_node(file=<文件>, symbolsOnly=true, outlineQuery=<可选名称片段>, outlineLimit<=30)\`。
 - 已知名称/复制来的函数签名，但不确定位置或重载：一个目标用 \`codegraph_search(query=<名称或完整签名>, includeCode="if_unique")\`；2–8 个名称用一次 \`codegraph_search(queries=[...])\`，禁止循环单查询。
 - 已知精确符号和位置：\`codegraph_node(symbol=<符号>, file=<可选文件>, line=<可选行>, includeCode=true, includeRelations=false)\`。
+- 已知精确文件和行号，只需附近源码：\`codegraph_node(file=<文件>, offset=<起始行>, limit=<必要行数，最多500>)\`；无需先查目录、大纲或符号。
 - 已知 1–8 个精确实现目标：优先一次 \`codegraph_node(targets=[...])\` 原生批量；它与 \`codegraph_context(targets=[...])\` 使用同一个 implementation bundle。不要循环单目标 \`codegraph_node\`。
 - 查调用方/被调用方/影响：\`codegraph_callers\` / \`codegraph_callees\` / \`codegraph_impact\`。
 已知符号、签名、文本锚点或精确文件范围时直接从对应入口开始，不需要先查目录或大纲。
@@ -29,9 +30,9 @@ codegraph_search(
   includeCode="if_unique"
 )
 \`\`\`
-- 若候选收敛为一个逻辑符号/重载，结果直接包含声明和定义两端源码（若两端均已索引）；声明和对应定义视为同一个逻辑结果。**不得再调用 \`node\` 重读。**
-- 若仍有多个重载/同名符号，结果只返回候选，不猜测、不内联源码；复制候选 \`signature\`，或使用 \`path\`/\`line\` 消歧。
-- 限定 owner 写错但 leaf symbol 存在时，工具先返回结构化 owner 纠正候选并跳过全仓 raw 扫描；从候选修正限定名，不得转用 Grep。
+- 若候选收敛为一个逻辑符号/重载，结果优先返回实现源码和紧凑的声明位置指针；没有配对实现时返回声明。声明和对应定义视为同一个逻辑结果。已返回且足够使用的源码，**不得再调用 \`node\` 重读。**若提示源码被截断或不可用，仅补取任务所需的缺失部分。
+- 若仍有多个重载/同名符号，结果只返回候选，不猜测、不内联源码；复制候选 \`signature\`，或使用匹配的 \`path\` + \`line\` 消歧。\`path\` 是软提示：路径不匹配时仍返回精确候选并告警，不代表符号不存在。
+- \`search\` 默认严格区分大小写；仅当服务端设置 \`CODEGRAPH_SEARCH_FUZZY=1\` 时才启用大小写纠正、模糊建议和 owner 恢复。owner 恢复仅适用于 owner 本身未被索引的情况；已有 owner 缺少该成员时，不内联其他 owner 的同名实现。返回纠正候选时按候选修正限定名，不用 Grep 重复核对；两种模式均保留精确原文兜底。
 - 支持带返回类型及常见 \`const\`、\`override\`、\`final\`、\`noexcept\` 尾限定的 C/C++ 完整签名。
 多个独立名称必须合并：
 \`\`\`text
@@ -94,7 +95,7 @@ codegraph_node(
 - 裸调用 \`codegraph_node(file=<文件>)\`；
 - 按 \`offset\` 连续翻页读取文件。
 工具会自动处理常见参数偏差：
-- 符号大小写不一致时，尝试大小写不敏感的精确纠正；仍有多个候选时保持歧义，不猜测。
+- \`node\` / \`context\` 和关系工具遇到符号大小写不一致时，尝试大小写不敏感的精确纠正；仍有多个候选时保持歧义，不猜测。\`search\` 的纠错开关见第 2 节。
 - \`node\` 单文件窗口和 \`node.targets\`/\`context\` region 超过 500 行时自动截断到 500；输出仍受字符预算约束，不需要先失败再重试。
 - target 同时包含 \`file + text + offset + limit\` 时不再报参数冲突：显式窗口优先返回，\`text\` 只验证锚点是否位于该窗口，并在标签中报告命中/未命中。
 - \`search.query\`、\`context.symbol\` 和关系工具的 \`symbol\` 可直接接收 callable signature。
@@ -110,15 +111,15 @@ codegraph_node(
 - 已知精确文件且还需要符号/范围：将 \`{file, text}\` 合并进一次 \`node.targets\`（或等价的 \`context.targets\`），不要额外调用 \`text_search\`。
 - 生成文件默认跳过；但当 \`path\` 精确指向单个生成文件时会自动纳入。目录级搜索生成产物时才显式传 \`includeGenerated=true\`。
 - 修改 inner-table schema 时，\`ob_inner_table_schema_def.py\` 是事实来源，生成的 \`ob_inner_table_schema.*.cpp\` 是校验目标。一次 \`node.targets\` 同时取得 definition 的精确文本区域和生成函数/尾部锚点；禁止按窗口翻页生成文件。修改 \`.py\` 后应在 \`src/share/inner_table\` 按脚本说明运行 \`python2.6 generate_inner_table_schema.py\`，再编译/测试验证；只有生成器不可用时才允许手改生成产物，并明确说明原因。
-- \`CONFIRMED_ABSENT\` 表示完整当前源码范围确认不存在；\`DECLARATION_ONLY\` 表示精确 overload 只有声明、没有配对的索引定义，并已附完整标识符出现证据；\`RAW_MATCHES\` 已附 grep 等价证据。三者均不得再用 Grep 重复复核；只有 \`INCONCLUSIVE\` 才需要缩窄范围重试。
+- \`CONFIRMED_ABSENT\` 表示本次搜索范围已完整核对且无匹配；\`DECLARATION_ONLY\` 仅表示该精确 overload 没有配对的索引定义；\`RAW_MATCHES\` 已附原文命中。不要用 Grep 重复复核已有证据；若出现 \`INCONCLUSIVE\` 或 \`Scan incomplete\`，且任务仍需缺失证据，应缩窄范围补查，不得据此断言源码不存在。
 仅在以下情况使用 \`grep\`、\`glob\` 或 \`Read\`：
 1. 文件未被索引；
-2. pending-sync/stale 提示明确点名该文件（stale 只作用于列出的文件）；
-3. 大小写纠正、完整签名、\`file\`/\`line\` 消歧后精确符号仍失败；
+2. pending-sync/stale 提示明确点名该文件；启动补同步未完成或失败的项目级提示还可能涉及其他最近修改的文件，按需直接读取目标范围，无需等待同步；
+3. 核对大小写、完整签名及 \`file\`/\`line\` 消歧后，精确查询和适用的工具内兜底仍无法提供所需证据；
 4. 最窄 \`path\` 的 \`text_search\` 仍失败，或内容不在已索引源码中；
 5. 配置、文档或 Markdown；
 6. 修改后读取尚未同步的当前源码。
-回退前必须说明：\`codegraph 回退原因：<条件和证据>\`。禁止用原生工具复核非空的 codegraph 结果。
+回退前必须说明：\`codegraph 回退原因：<条件和证据>\`。除上述过时、未覆盖或缺失证据的情况外，不用原生工具重复核对已返回的 codegraph 内容。
 ### 7. 信息充分与停止条件
 不存在固定的 codegraph 调用次数、首个 Edit 时点或“每文件一个窗口”限制。开始修改前应拿到任务实际需要的充分信息：待修改源码/结构、相关直接关系、精确编辑位置和必要测试/注册点。
 信息充分后停止重复探索。不得为了“更完整”而预防性读取无关文件、全部调用方/被调用方或相邻实现；codegraph 已返回的源码视为已读。
