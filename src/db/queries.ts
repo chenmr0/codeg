@@ -1050,8 +1050,12 @@ export class QueryBuilder {
   getSupertypeNodes(name: string, language: Language, qualified: boolean): Node[] {
     const key = qualified ? 'getSupertypeNodesByQualifiedName' : 'getSupertypeNodesByName';
     if (!this.stmts[key]) {
+      // Fresh indexes have no planner statistics until after resolution. Without
+      // the hint SQLite may scan every node of this language for each type name.
+      const column = qualified ? 'qualified_name' : 'name';
+      const index = qualified ? 'idx_nodes_qualified_name' : 'idx_nodes_name';
       this.stmts[key] = this.db.prepare(
-        `SELECT * FROM nodes WHERE ${qualified ? 'qualified_name' : 'name'} = ? ` +
+        `SELECT * FROM nodes INDEXED BY ${index} WHERE ${column} = ? ` +
         `AND language = ? AND kind IN (${SUPERTYPE_NODE_KINDS.map(kind => `'${kind}'`).join(',')})`
       );
     }

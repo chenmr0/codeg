@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { DatabaseConnection } from '../src/db';
+import { createDatabase } from '../src/db/sqlite-adapter';
 import { QueryBuilder, SUPERTYPE_NODE_KINDS } from '../src/db/queries';
 import { ReferenceResolver } from '../src/resolution';
 import type { ResolutionContext } from '../src/resolution/types';
@@ -29,6 +30,45 @@ const context = (resolver: ReferenceResolver) =>
   (resolver as unknown as {context: ResolutionContext}).context;
 
 describe('filtered supertype candidates', () => {
+  it('uses exact-name indexes before the first ANALYZE, including on a read-only connection', () => {
+    const db = connection.getDb();
+    expect(db.prepare("SELECT name FROM sqlite_master WHERE name = 'sqlite_stat1'").get()).toBeUndefined();
+    queries.insertNodes([
+      node('owner', 'class', 'cpp', 'N::Target'),
+      ...Array.from({ length: 128 }, (_, i) => node(`other-${i}`, 'variable', 'cpp', `N::Other${i}`)),
+    ]);
+
+    const check = (source: typeof db, candidateQueries: QueryBuilder) => {
+      const prepare = vi.spyOn(source, 'prepare');
+      expect(candidateQueries.getSupertypeNodes('Target', 'cpp', false).map(n => n.id)).toEqual(['owner']);
+      expect(candidateQueries.getSupertypeNodes('N::Target', 'cpp', true).map(n => n.id)).toEqual(['owner']);
+
+      for (const [field, value, index] of [
+        ['name', 'Target', 'idx_nodes_name'],
+        ['qualified_name', 'N::Target', 'idx_nodes_qualified_name'],
+      ]) {
+        const sql = prepare.mock.calls.find(([query]) =>
+          query.includes(`WHERE ${field} = ?`) && query.includes('AND language = ? AND kind IN'))?.[0];
+        expect(sql).toBeDefined();
+        const plan = source.prepare(`EXPLAIN QUERY PLAN ${sql}`).all(value, 'cpp') as Array<{ detail: string }>;
+        expect(plan.some(row => row.detail.includes(`USING INDEX ${index} `))).toBe(true);
+        expect(plan.some(row => row.detail.includes('idx_nodes_language'))).toBe(false);
+      }
+      prepare.mockRestore();
+    };
+
+    check(db, queries);
+    if (connection.getBackend() === 'node-sqlite') {
+      const opened = createDatabase(path.join(root, 'graph.db'), { readOnly: true });
+      try {
+        opened.db.pragma('query_only = ON');
+        check(opened.db, new QueryBuilder(opened.db));
+      } finally {
+        opened.db.close();
+      }
+    }
+  });
+
   it('matches the old language/kind filter and stable ordering for both name forms', () => {
     const nodes = SUPERTYPE_NODE_KINDS.map((kind, i) => node(`type-${i}`, kind));
     nodes.push(node('namespace', 'namespace'), node('method', 'method'), node('variable', 'variable'),
