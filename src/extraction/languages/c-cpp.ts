@@ -1906,7 +1906,8 @@ export const cppExtractor: LanguageExtractor = {
       const child = node.namedChild(i);
       if (!child) continue;
       if (child.type === 'enum_specifier' && getChildByField(child, 'body')) return 'enum';
-      if (child.type === 'struct_specifier' && getChildByField(child, 'body')) return 'struct';
+      if ((child.type === 'struct_specifier' || child.type === 'union_specifier')
+        && getChildByField(child, 'body')) return 'struct';
     }
     return undefined;
   },

@@ -6,11 +6,9 @@ import { CodeGraph } from '../src';
 
 /**
  * Regression test for the C `typedef struct/enum Tag { ... } A, B;` multi-alias
- * declaration. tree-sitter's `type_definition.declarator` field points only at
- * the first declarator, so the second+ aliases and the struct/enum tag name were
- * silently dropped. The fix (`emitTypedefAliasNodes`) 补建s the missing names as
- * kind=type_alias nodes — no edges, no signature — without touching the primary
- * struct/enum node (its name, kind, fields, and location stay byte-identical).
+ * declaration. Reading a single `declarator` field drops the second+ aliases.
+ * Enumerate declarator fields, preserve the primary type's field ownership,
+ * and retain tags as real struct/enum nodes rather than inventing aliases.
  */
 describe('c typedef multi-alias extraction', () => {
   let dir: string;
@@ -71,9 +69,9 @@ describe('c typedef multi-alias extraction', () => {
     expect(byName('MsgBlock')[0]!.kind).toBe('type_alias');
     expect(byName('MsgBlock')[0]!.start_line).toBe(1);
 
-    // struct tag 名补建为 type_alias
+    // struct tag retains its actual type, rather than becoming a typedef alias.
     expect(byName('MsgCB')).toHaveLength(1);
-    expect(byName('MsgCB')[0]!.kind).toBe('type_alias');
+    expect(byName('MsgCB')[0]!.kind).toBe('struct');
 
     // 不加任何 type_of 边
     expect(typeOf).toBe(0);

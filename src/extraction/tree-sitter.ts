@@ -936,6 +936,8 @@ export class TreeSitterExtractor {
   private source: string;
   private tree: Tree | null = null;
   private nodes: Node[] = [];
+  private cppEnumValues = new Set<string>();
+  private cppTypeScopes = new Set<string>();
   private edges: Edge[] = [];
   private unresolvedReferences: UnresolvedReference[] = [];
   private errors: ExtractionError[] = [];
@@ -2717,6 +2719,12 @@ export class TreeSitterExtractor {
     }
 
     this.nodes.push(newNode);
+    if (this.language === 'cpp' && kind === 'enum_member') {
+      this.cppEnumValues.add(newNode.qualifiedName);
+    }
+    if (this.language === 'cpp' && ['class', 'struct', 'enum', 'type_alias', 'namespace'].includes(kind)) {
+      this.cppTypeScopes.add(newNode.qualifiedName);
+    }
 
     // Add containment edge from parent
     if (this.nodeStack.length > 0) {
@@ -4903,6 +4911,16 @@ export class TreeSitterExtractor {
         // function name from inside the function_declarator so headers get
         // function nodes for their public API.
         if (hasFunctionDeclarator(child)) {
+          // The grammar cannot distinguish a scoped enumerator from a type in
+          // `Widget value(Mode::ON)`. Only reclassify with local enum evidence;
+          // unknown qualified names must remain eligible as parameter types.
+          if (this.isCppEnumValueInitializer(child)) {
+            const name = cppCallableDeclaratorName(child, this.source);
+            if (name) this.createNode(declaratorKind, name, node, {
+              docstring, isExported, signature: getNodeText(node, this.source),
+            });
+            continue;
+          }
           // function_declarator inside a `declaration` has a `declarator` field
           // (e.g. `int foo();` → function_declarator → declarator → identifier).
           // When tree-sitter-c misparses the prototype as `field_declaration`
@@ -4934,7 +4952,7 @@ export class TreeSitterExtractor {
           if (innerDecl) {
             const idNode = unwrapDeclarator(innerDecl);
             if (idNode && (idNode.type === 'identifier' || idNode.type === 'field_identifier')) {
-              const rawFnName = cppCallableDeclaratorName(node, this.source)
+              const rawFnName = cppCallableDeclaratorName(child, this.source)
                 ?? getNodeText(idNode, this.source);
               const fnName = this.language === 'cpp'
                 ? normalizeCppCallableName(
@@ -4955,6 +4973,14 @@ export class TreeSitterExtractor {
                 const declSpan = node.endPosition.row - node.startPosition.row;
                 const declLen = node.endIndex - node.startIndex;
                 const oversized = declSpan > 100 || declLen > 2000;
+                if (oversized && this.macroNameLookup.has(fnName)) {
+                  // The enclosing damaged declaration's type belongs to its
+                  // first declarator, not to a later statement macro. Require
+                  // a local prefix before using it as declaration evidence.
+                  const start = this.source.lastIndexOf('\n', child.startIndex - 1) + 1;
+                  const prefix = this.source.slice(start, child.startIndex).trim();
+                  if (!prefix || /\b(?:return|if|while|case|throw)\b/.test(prefix)) continue;
+                }
                 const posNode = oversized ? child : node;
                 const signature = oversized
                   ? this.source.substring(child.startIndex, child.endIndex)
@@ -5095,16 +5121,40 @@ export class TreeSitterExtractor {
   }
 
   /**
-   * Extract a type alias (e.g. `export type X = ...` in TypeScript).
-   * For languages like Go, resolveTypeAliasKind detects when the type_spec
-   * wraps a struct or interface definition and creates the correct node kind.
-   * Returns true if children should be skipped (struct/interface handled body visiting).
+   * Reinterpret a grammar ambiguity only with scoped enum evidence.
    */
+  private isCppEnumValueInitializer(node: SyntaxNode): boolean {
+    if (this.language !== 'cpp') return false;
+    const fn = node.type === 'function_declarator' ? node : null;
+    const params = fn && getChildByField(fn, 'parameters');
+    if (!params?.namedChildCount) return false;
+    return params.namedChildren.every(param => {
+      const type = getChildByField(param, 'type');
+      if (param.type !== 'parameter_declaration' || param.namedChildCount !== 1
+        || type?.type !== 'qualified_identifier') return false;
+      const value = getNodeText(type, this.source).replace(/\s*::\s*/g, '::');
+      if (value.startsWith('::')) return this.cppEnumValues.has(value.slice(2));
+      let scope = this.buildQualifiedName('').replace(/::$/, '');
+      while (scope) {
+        if (this.cppEnumValues.has(`${scope}::${value}`)) return true;
+        // A nearer type/namespace binds the first component. Do not fall
+        // through to a same-spelled outer enum when its member is unknown.
+        if (this.cppTypeScopes.has(`${scope}::${value.split('::')[0]}`)) return false;
+        const end = scope.lastIndexOf('::');
+        scope = end < 0 ? '' : scope.slice(0, end);
+      }
+      return this.cppEnumValues.has(value);
+    });
+  }
+
+  /** Extract aliases, preserving the existing owner for inline type bodies. */
   private extractTypeAlias(node: SyntaxNode): boolean {
     if (!this.extractor) return false;
 
-    const name = this.collectHealthyTypedefNames(node)?.[0]
-      ?? extractName(node, this.source, this.extractor);
+    const name = node.type === 'type_definition'
+      && ['c', 'cpp', 'objc'].includes(this.language)
+      ? this.collectTypedefNames(node).aliases[0] ?? extractName(node, this.source, this.extractor)
+      : extractName(node, this.source, this.extractor);
     if (name === '<anonymous>') return false;
     const docstring = getPrecedingDocstring(node, this.source);
     const isExported = this.extractor.isExported?.(node, this.source);
@@ -5216,47 +5266,24 @@ export class TreeSitterExtractor {
     return false;
   }
 
-  /** Read every declarator field of a healthy C/C++ typedef, not its base type. */
-  private collectHealthyTypedefNames(node: SyntaxNode): string[] | null {
-    if ((this.language !== 'c' && this.language !== 'cpp')
-      || node.type !== 'type_definition' || node.hasError) return null;
+  /** Read only declarator slots, never the aliased type or parameter names. */
+  private collectTypedefNames(node: SyntaxNode): { aliases: string[]; tag?: SyntaxNode } {
     const aliases: string[] = [];
-    for (let i = 0; i < node.namedChildCount; i++) {
-      if (node.fieldNameForNamedChild(i) !== 'declarator') continue;
-      let current = node.namedChild(i);
-      let depth = 0;
-      while (current && !['identifier', 'type_identifier'].includes(current.type)) {
-        if (++depth > 32 || ![
-          'pointer_declarator', 'reference_declarator', 'array_declarator',
-          'function_declarator', 'parenthesized_declarator',
-        ].includes(current.type)) return null;
-        // Never descend into type/parameters/array bounds. An unsupported
-        // declarator keeps the existing recovery path for the whole typedef.
-        current = getChildByField(current, 'declarator')
-          ?? (current.type === 'parenthesized_declarator' ? current.namedChild(0) : null);
-      }
-      if (!current) return null;
-      aliases.push(getNodeText(current, this.source));
-    }
-    return aliases.length ? aliases : null;
-  }
-
-  /** Keep legacy recovery and tag presentation for unsupported/damaged declarations. */
-  private collectTypedefNames(node: SyntaxNode): { aliases: string[]; tag?: string } {
-    const healthyAliases = this.collectHealthyTypedefNames(node);
-    const aliases: string[] = healthyAliases ?? [];
-    let tag: string | undefined;
+    let tag: SyntaxNode | undefined;
     for (let i = 0; i < node.namedChildCount; i++) {
       const child = node.namedChild(i);
       if (!child) continue;
-      if (!healthyAliases && child.type === 'type_identifier') {
-        const name = getNodeText(child, this.source);
-        if (name) aliases.push(name);
-      } else if (child.type === 'struct_specifier' || child.type === 'enum_specifier') {
+      if (node.fieldNameForNamedChild(i) === 'declarator') {
+        let declarator: SyntaxNode | null = child;
+        while (declarator && !['type_identifier', 'identifier'].includes(declarator.type)) {
+          declarator = getChildByField(declarator, 'declarator')
+            ?? (declarator.type === 'parenthesized_declarator' ? declarator.namedChild(0) : null);
+        }
+        if (declarator) aliases.push(getNodeText(declarator, this.source));
+      } else if (['struct_specifier', 'union_specifier', 'enum_specifier'].includes(child.type)) {
         const nameNode = getChildByField(child, 'name');
-        if (nameNode && nameNode.type === 'type_identifier'
-          && !(this.language === 'cpp' && hasAnonymousCppEnumBase(child, this.source))) {
-          tag = getNodeText(nameNode, this.source);
+        if (nameNode && nameNode.type === 'type_identifier') {
+          tag = child;
         }
       }
     }
@@ -5266,8 +5293,7 @@ export class TreeSitterExtractor {
   /**
    * 为 typedef 多别名声明补建被丢弃的别名 / 标签节点（不加边、不设 signature）。
    * 主节点（第一个 declarator，已含字段）由 extractTypeAlias 上游逻辑建立，
-   * primaryName 为主名；此处仅为「其余别名」和「struct/enum tag 名」各建一个
-   * kind=type_alias 节点，使其能被 query / codegraph_search / codegraph_node 命中。
+   * primaryName 为主名；其余声明符建 type_alias，tag 按实际类型建节点。
    * 节点定位取自 type_definition 整块，故 codegraph_node <别名> 带 includeCode 时
    * 可看到完整 typedef 声明源码。
    *
@@ -5294,7 +5320,14 @@ export class TreeSitterExtractor {
       });
     };
     for (const a of aliases) emit(a);
-    if (tag) emit(tag);
+    if (tag) {
+      const nameNode = getChildByField(tag, 'name');
+      const name = nameNode && getNodeText(nameNode, this.source);
+      if (name && !seen.has(name)) this.createNode(
+        tag.type === 'enum_specifier' ? 'enum' : 'struct', name, tag,
+        { isExported: primaryNode.isExported, isDeclaration: !getChildByField(tag, 'body') },
+      );
+    }
   }
 
   /**

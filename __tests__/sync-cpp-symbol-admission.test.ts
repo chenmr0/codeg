@@ -47,6 +47,32 @@ function snapshot(graph: CodeGraph) {
 }
 
 describe('symbol-admission changes through index and sync', () => {
+  it('keeps typedef and enum-initializer corrections identical across sync and fresh indexing', async () => {
+    const root = project();
+    const writePhase = (dir: string, phase: number) => {
+      fs.writeFileSync(path.join(dir, 'api.hpp'), 'typedef unsigned Word;\n'
+        + `typedef Word ${phase ? 'Next' : 'First'}[4], *Pointer;\n`
+        + (phase ? 'struct Mode { using VALUE = int; };\n' : 'enum class Mode { VALUE };\n')
+        + 'int object(Mode::VALUE);\nint first(int), second(double);\n');
+    };
+    writePhase(root, 0);
+    const graph = CodeGraph.initSync(root); graphs.push(graph);
+    await graph.indexAll();
+    for (const phase of [1, 0]) {
+      writePhase(root, phase);
+      await graph.sync({paths:['api.hpp']});
+      const freshRoot = project(); writePhase(freshRoot, phase);
+      const fresh = CodeGraph.initSync(freshRoot); graphs.push(fresh);
+      await fresh.indexAll();
+      expect(snapshot(graph)).toEqual(snapshot(fresh));
+      expect(graph.getNodesByName('object')).toEqual([
+        expect.objectContaining({kind:phase ? 'function' : 'variable'}),
+      ]);
+      expect(graph.getNodesByName('Word')).toHaveLength(1);
+      expect(graph.getNodesByName(phase ? 'First' : 'Next')).toEqual([]);
+    }
+  }, 30_000);
+
   it('keeps qualified method identities consistent when namespaces change during sync', async () => {
     const root = project();
     const writeNamespace = (dir: string, ns: string) => {
