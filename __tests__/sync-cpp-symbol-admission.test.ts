@@ -47,6 +47,27 @@ function snapshot(graph: CodeGraph) {
 }
 
 describe('symbol-admission changes through index and sync', () => {
+  it('keeps qualified method identities consistent when namespaces change during sync', async () => {
+    const root = project();
+    const writeNamespace = (dir: string, ns: string) => {
+      fs.writeFileSync(path.join(dir, 'api.hpp'), `namespace ${ns} {\nstruct Box { int run(); };\nint Box::run() { return 1; }\n}\n`);
+      fs.writeFileSync(path.join(dir, 'use.cpp'), `#include "api.hpp"\nint caller() { ${ns}::Box box; return box.run(); }\n`);
+    };
+    writeNamespace(root, 'first');
+    const graph = CodeGraph.initSync(root); graphs.push(graph);
+    await graph.indexAll();
+    for (const ns of ['second', 'first']) {
+      writeNamespace(root, ns);
+      await graph.sync();
+      const freshRoot = project(); writeNamespace(freshRoot, ns);
+      const fresh = CodeGraph.initSync(freshRoot); graphs.push(fresh);
+      await fresh.indexAll();
+      expect(snapshot(graph)).toEqual(snapshot(fresh));
+      expect(graph.getNodesByName('run').every(n => n.qualifiedName === `${ns}::Box::run`)).toBe(true);
+      expect(graph.getNodesByName('run')).toHaveLength(2);
+    }
+  }, 30_000);
+
   it('keeps full-index and incremental graphs equal through macro and static-member changes', async () => {
     const root = project(); write(root,0);
     const graph = CodeGraph.initSync(root); graphs.push(graph);

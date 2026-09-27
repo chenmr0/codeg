@@ -376,17 +376,9 @@ int g_after = 7;
     expect(result.nodes.find(n => n.kind === 'variable' && n.name === 'g_after')).toBeDefined();
   });
 
-  // ── P. C struct field macro members all extracted (struct survives) ──
-  // Regression for the BBRF_SIMPLE_COMM_RESP_STRU loss: object-like macros on
-  // their own lines inside a C `typedef struct { ... }` field list are parsed
-  // by tree-sitter as field_declarations whose `type` is the macro name — the
-  // macro member is mistaken for the field's type, with the next macro member
-  // becoming the field_identifier declarator. preParse must NOT replace these
-  // (else `0;` breaks the field list and the whole struct is lost), and
-  // extractField must lift the type-position macro into a field node too so
-  // every macro member is queryable (VOS_MSG_HEADER would otherwise be dropped
-  // while BBRF_MSG_HEADER is kept as the declarator).
-  it('extracts every object-like macro member of a C struct body as a field (struct survives)', () => {
+  // The struct and its actual generated fields must survive. Macro invocation
+  // names themselves are not field declarations, even in type-position ASTs.
+  it('extracts generated C struct members without macro-name placeholder fields', () => {
     const macroNames = new Set(['VOS_MSG_HEADER', 'BBRF_MSG_HEADER']);
     const code = `
 typedef struct {
@@ -396,12 +388,16 @@ typedef struct {
 } BBRF_SIMPLE_COMM_RESP_STRU;
 int g_after = 7;
 `;
-    const result = extractFromSource('test.h', code, undefined, undefined, macroNames);
+    const result = extractFromSource('test.h', code, undefined, undefined, macroNames, undefined, [
+      {name:'VOS_MSG_HEADER', parameters:null, replacement:'int sender;'},
+      {name:'BBRF_MSG_HEADER', parameters:null, replacement:'int receiver;'},
+    ]);
     const s = result.nodes.find(n => n.kind === 'struct' && n.name === 'BBRF_SIMPLE_COMM_RESP_STRU');
     expect(s).toBeDefined();
-    // Both macro members must be queryable as fields, not just the second one.
-    expect(result.nodes.find(n => n.kind === 'field' && n.name === 'VOS_MSG_HEADER')).toBeDefined();
-    expect(result.nodes.find(n => n.kind === 'field' && n.name === 'BBRF_MSG_HEADER')).toBeDefined();
+    expect(result.nodes.find(n => n.kind === 'field' && n.name === 'VOS_MSG_HEADER')).toBeUndefined();
+    expect(result.nodes.find(n => n.kind === 'field' && n.name === 'BBRF_MSG_HEADER')).toBeUndefined();
+    expect(result.nodes.find(n => n.kind === 'field' && n.name === 'sender')).toBeDefined();
+    expect(result.nodes.find(n => n.kind === 'field' && n.name === 'receiver')).toBeDefined();
     // The real field after the macro members must survive.
     expect(result.nodes.find(n => n.kind === 'field' && n.name === 'ucExeRslt')).toBeDefined();
     // Code after the struct must not be swallowed by the struct's ERROR recovery.

@@ -42,8 +42,9 @@ function extractCppReceiverType(node: SyntaxNode, source: string): string | unde
   if (!declarator) return undefined;
   const qid = findDeclaratorQualifiedId(declarator);
   if (!qid) return undefined;
-  const parts = getNodeText(qid, source).trim().split('::').map(part => part.trim()).filter(Boolean);
-  return parts.length > 1 ? parts.slice(0, -1).join('::') : undefined;
+  const text = getNodeText(qid, source).trim();
+  const parts = text.split('::').map(part => part.trim()).filter(Boolean);
+  return parts.length > 1 ? (text.startsWith('::') ? '::' : '') + parts.slice(0, -1).join('::') : undefined;
 }
 
 /**
@@ -1583,6 +1584,17 @@ function cCppIsMacroInvocationMisparse(
   // parse recovers the expanded callable with its real name.
   const typeNode = getChildByField(node, 'type');
   if (typeNode?.text.trim() === name) return true;
+  // OUTER(INNER(arg)) can become a declaration with OUTER as its type and
+  // the entire INNER(arg) wrapped as a parenthesized declarator. A genuine
+  // parenthesized function name has the opposite shape: (INNER)(arg).
+  // A valid declaration may also wrap its complete declarator, as in
+  // `Result (INNER(int));`. Reject only the damaged recovery shape here.
+  let declarator = getChildByField(node, 'declarator');
+  while (declarator && ['pointer_declarator', 'reference_declarator'].includes(declarator.type)) {
+    declarator = getChildByField(declarator, 'declarator') ?? declarator.namedChild(0);
+  }
+  if (node.hasError && declarator?.type === 'parenthesized_declarator'
+    && declarator.namedChildren.some(c => c.type === 'function_declarator')) return true;
   // A bare macro invocation is also parsed as a no-return-type declaration
   // at class/file scope. A real typed function sharing a macro's name has a
   // type prefix; a constructor has the enclosing class's name. Keep both.

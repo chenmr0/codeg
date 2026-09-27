@@ -1872,8 +1872,9 @@ export class TreeSitterExtractor {
       if (!parsed) continue;
       if (this.cppSourceScope().isExecutable(match.index)
         || this.cppSourceScope().isDirective(match.index)) continue;
-      const { name, qualifiedName } = parsed;
+      const { name, receiverType } = parsed;
       const line = lineForOffset(match.index);
+      const qualifiedName = `${this.qualifyCppReceiver(receiverType, line)}::${name}`;
       const lineStart = lineStarts[line - 1]!;
       const column = match.index - lineStart;
       if (this.nodes.some(node =>
@@ -2654,9 +2655,13 @@ export class TreeSitterExtractor {
     }
 
     if ((this.language === 'c' || this.language === 'cpp')
-      && (kind === 'variable' || kind === 'constant')) {
+      && kind !== 'file' && kind !== 'macro' && kind !== 'import') {
       const scope = this.cppSourceScope();
-      if (scope.isExecutable(node.startIndex) || scope.isDirective(node.startIndex)) return null;
+      if (/^(?:if|else|switch|case|default|for|while|do|break|continue|goto|return)$/.test(name)
+        || scope.isDirective(node.startIndex)) return null;
+      if ((kind === 'variable' || kind === 'constant'
+        || kind === 'function' && node.type === 'ERROR' && !this.isInsideClassLikeNode())
+        && scope.isExecutable(node.startIndex)) return null;
     }
 
     const id = generateNodeId(this.filePath, kind, name, node.startPosition.row + 1);
@@ -2937,6 +2942,56 @@ export class TreeSitterExtractor {
       }
     }
     return name;
+  }
+
+  /** A relative out-of-line receiver is resolved in the current namespace,
+   * not in a method/class body. Merge a partially qualified namespace once. */
+  private qualifyCppReceiver(receiver: string, sourceLine?: number): string {
+    if (receiver.startsWith('::')) return receiver.slice(2);
+    let namespace: Node | undefined;
+    if (sourceLine !== undefined) {
+      // The text-recovery pass runs after the traversal stack was unwound.
+      // Use the narrowest already-extracted namespace containing this site.
+      for (const candidate of this.nodes) {
+        if (candidate.kind === 'namespace' && candidate.startLine <= sourceLine
+          && candidate.endLine >= sourceLine
+          && (!namespace || candidate.endLine - candidate.startLine <= namespace.endLine - namespace.startLine)) namespace = candidate;
+      }
+    }
+    for (let i = this.nodeStack.length - 1; i >= 0; i--) {
+      const scope = this.nodes.find(n => n.id === this.nodeStack[i]);
+      if (scope?.kind !== 'namespace') continue;
+      namespace ??= scope;
+      break;
+    }
+    if (namespace) {
+      const parts = namespace.qualifiedName.split('::');
+      for (let start = 0; start < parts.length; start++) {
+        const suffix = parts.slice(start).join('::');
+        if (receiver.startsWith(suffix + '::')) {
+          return [...parts.slice(0, start), receiver].join('::');
+        }
+      }
+      return `${namespace.qualifiedName}::${receiver}`;
+    }
+    return receiver;
+  }
+
+  private isMisparsedCallable(name: string, node: SyntaxNode): boolean {
+    if (this.extractor?.isMisparsedFunction?.(name, node, this.macroNameLookup)) return true;
+    if ((this.language === 'c' || this.language === 'cpp') && this.macroNameLookup.has(name)) {
+      const type = getChildByField(node, 'type');
+      // An empty closing macro from the preceding declaration is not a
+      // return type for the next declaration-producing macro invocation.
+      if (type && this.globalBodylessMacroNames?.has(type.text.trim())) return true;
+      const originalLine = this.originalSource.slice(this.originalLineStart(node.startPosition.row + 1),
+        this.originalLineStart(node.startPosition.row + 2) || undefined).trimStart();
+      if (originalLine.startsWith(name) && /^\s*\(/.test(originalLine.slice(name.length))) {
+        const owner = this.nodes.find(n => n.id === this.nodeStack.at(-1));
+        if (!owner || !['class', 'struct'].includes(owner.kind) || owner.name.replace(/<.*$/, '') !== name) return true;
+      }
+    }
+    return false;
   }
 
   /**
@@ -3241,7 +3296,7 @@ export class TreeSitterExtractor {
 
     // Check for misparse artifacts (e.g. C++ macros causing "namespace detail" functions)
     // Skip the node but still visit the body for calls and structural nodes
-    if (this.extractor.isMisparsedFunction?.(name, node, this.macroNameLookup)) {
+    if (this.isMisparsedCallable(name, node)) {
       if ((this.language === 'c' || this.language === 'cpp') && node.hasError) {
         // A damaged macro call can absorb a later class into its parameter
         // list. Rejecting the wrapper must not discard that source-written
@@ -3283,7 +3338,17 @@ export class TreeSitterExtractor {
       isStatic,
       returnType,
     });
-    if (!funcNode) return;
+    if (!funcNode) {
+      // An invalid macro-body function can span later, genuine declarations
+      // in an error-recovered AST. Reject its identity, but still recover
+      // source-written declarations outside the directive/executable scope.
+      if (this.language === 'c' || this.language === 'cpp') {
+        const body = this.extractor.resolveBody?.(node, this.extractor.bodyField)
+          ?? getChildByField(node, this.extractor.bodyField);
+        if (body) this.visitFunctionBody(body, '');
+      }
+      return;
+    }
 
     // Extract type annotations (parameter types and return type)
     this.extractTypeAnnotations(node, funcNode.id);
@@ -3578,7 +3643,7 @@ export class TreeSitterExtractor {
     }
 
     // Check for misparse artifacts (e.g. C++ "switch" inside macro-confused class body)
-    if (this.extractor.isMisparsedFunction?.(name, node, this.macroNameLookup)) {
+    if (this.isMisparsedCallable(name, node)) {
       const body = this.extractor.resolveBody?.(node, this.extractor.bodyField)
         ?? getChildByField(node, this.extractor.bodyField);
       if (body) {
@@ -3603,7 +3668,7 @@ export class TreeSitterExtractor {
       isDeclaration: isDeclaration || undefined,
     };
     if (receiverType) {
-      extraProps.qualifiedName = `${receiverType}::${name}`;
+      extraProps.qualifiedName = `${this.language === 'cpp' ? this.qualifyCppReceiver(receiverType) : receiverType}::${name}`;
     }
 
     const methodNode = this.createNode('method', name, node, extraProps);
@@ -4046,7 +4111,7 @@ export class TreeSitterExtractor {
             const fnName = this.language === 'cpp'
               ? normalizeCppCallableName(rawFnName)
               : rawFnName;
-            if (fnName && !this.extractor.isMisparsedFunction?.(fnName, node, this.macroNameLookup)) {
+            if (fnName && !this.isMisparsedCallable(fnName, node)) {
               const returnType = this.extractor.getReturnType?.(node, this.source);
               const signature = this.extractor.getSignature?.(node, this.source);
               this.createNode('method', fnName, node, {
@@ -4077,27 +4142,19 @@ export class TreeSitterExtractor {
           current = inner;
         }
         if (current && current.type === 'field_identifier') {
-          fieldEntries.push({ name: getNodeText(current, this.source), posNode: current });
+          const name = getNodeText(current, this.source);
+          const type = getChildByField(node, 'type');
+          // Two standalone member macros can be recovered as TYPE NAME with
+          // a missing ';'. Neither token declares a data member. Real typed
+          // fields (including fields sharing macro names) retain declarators.
+          if (type && this.macroNameLookup.has(name) && this.macroNameLookup.has(type.text.trim())
+            && type.endPosition.row < current.startPosition.row
+            && node.children.some(c => c.type === ';' && c.isMissing)) continue;
+          fieldEntries.push({ name, posNode: current });
         }
-        // C/C++ struct field macro member: a macro on its own line inside a
-        // struct/class body (e.g. `typedef struct { VOS_MSG_HEADER; BBRF_MSG_HEADER; ... }`)
-        // is parsed by tree-sitter as a field_declaration whose `type` is the
-        // macro name (a type_identifier) — the macro member was mistaken for
-        // the field's type, with the NEXT macro member becoming the
-        // field_identifier declarator. extractField only collects
-        // field_identifiers, so the type-position macro is silently dropped
-        // (VOS_MSG_HEADER lost while BBRF_MSG_HEADER is kept). Extract that
-        // type_identifier as a field too so every macro member is queryable.
-        // Restricted to names in globalMacroNames: a real type like `MyStruct`
-        // is NOT a macro and must stay a type (it lives in the signature, not
-        // as a field node).
-        else if (current && current.type === 'type_identifier'
-          && this.globalMacroNames && this.globalMacroNames.has(getNodeText(current, this.source))
-          // Object-like field macros remain queryable. A function-like macro
-          // invocation is a wrapper, not a field named after its return type.
-          && !/^\s*\(/.test(this.source.slice(current.endIndex, node.endIndex))) {
-          fieldEntries.push({ name: getNodeText(current, this.source), posNode: current });
-        }
+        // A type_identifier remains a type even when an unrelated project
+        // file defines a macro with that name. Declaration-macro recovery
+        // owns actual generated members; never mint placeholder fields here.
       }
       if (fieldEntries.length > 0) {
         // Build type text from the type-child for the signature
@@ -4240,7 +4297,7 @@ export class TreeSitterExtractor {
         }
         if (funcDecl) {
           const fnName = extractName(funcDecl);
-          if (fnName && !this.extractor!.isMisparsedFunction?.(fnName, innerFd, this.macroNameLookup)) {
+          if (fnName && !this.isMisparsedCallable(fnName, innerFd)) {
             this.createNode('function', fnName, innerFd, {
               signature: this.source.substring(innerFd.startIndex, innerFd.endIndex),
               isDeclaration: true,
@@ -4886,7 +4943,7 @@ export class TreeSitterExtractor {
                 )
                 : rawFnName;
               if (fnName && !C_CPP_KEYWORD_NAMES.has(fnName)
-                && !this.extractor.isMisparsedFunction?.(fnName, node, this.macroNameLookup)) {
+                && !this.isMisparsedCallable(fnName, node)) {
                 // Guard against tree-sitter error-recovery `declaration` nodes
                 // that span an entire namespace/file (caused by macro
                 // replacement erasing braces, or by the Most Vexing Parse
@@ -5031,6 +5088,7 @@ export class TreeSitterExtractor {
     }
     if (!qualified) return this.buildQualifiedName(name);
     const full = getNodeText(qualified, this.source).replace(/\s*::\s*/g, '::').trim();
+    if (!full.includes('::')) return this.buildQualifiedName(name);
     const scope = this.buildQualifiedName('');
     return full.startsWith('::') ? full.slice(2)
       : scope && full.startsWith(scope) ? full : this.buildQualifiedName(full);

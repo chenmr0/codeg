@@ -217,7 +217,7 @@ IMPL(Worker)
 }
 }`).nodes;
     for (const name of ['front', 'back']) {
-      const method = nodes.find(n => n.kind === 'method' && n.qualifiedName === 'Worker::'+name);
+      const method = nodes.find(n => n.kind === 'method' && n.qualifiedName === 'sample::Worker::'+name);
       expect(method).toBeDefined();
       expect(method?.isDeclaration).not.toBe(true);
     }
