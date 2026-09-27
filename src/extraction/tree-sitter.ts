@@ -40,6 +40,7 @@ import {
   type CppMacroDefinition,
 } from './declaration-macros';
 import { isWasmRuntimeCorruptionError } from './wasm-errors';
+import { CCppSourceScope } from './c-cpp-source-scope';
 
 // Re-export for backward compatibility
 export { generateNodeId } from './tree-sitter-helpers';
@@ -698,6 +699,17 @@ function parseSourceSpelledCppCallable(header: string): SourceSpelledCppCallable
   const isConversionOperator = /^operator\s+[A-Za-z_:]/.test(name);
   if (!prefix && !isCtorOrDtor && !isConversionOperator) return null;
   if (/^(?:return|if|for|while|switch|case|throw)\b/.test(prefix)) return null;
+  // A nonempty expression ("!", "member_(", "arg,") is not a return
+  // type. Ignore balanced template/decltype content, but require a type-like
+  // outer prefix; operators in a template argument remain valid.
+  let typePrefix = prefix.replace(/\bdecltype\s*\((?:[^()]|\([^()]*\))*\)/g, 'decltype_type');
+  for (let previous = ''; previous !== typePrefix;) {
+    previous = typePrefix;
+    typePrefix = typePrefix.replace(/<[^<>]*>/g, '');
+  }
+  if (prefix && (!/[A-Za-z_]/.test(typePrefix)
+    || /[^\w\s:*&]/.test(typePrefix)
+    || /^(?:new|delete|co_return|co_await)\b/.test(typePrefix))) return null;
 
   return {
     prefix,
@@ -940,7 +952,9 @@ export class TreeSitterExtractor {
   /** Built only when a declaration-shaped macro needs source line mapping. */
   private originalLineStarts: number[] | null = null;
   private lexicalCompoundEnds: Map<number, number> = new Map();
-  private lexicalExecutableRanges: SourceRange[] | null = null;
+  private sourceScope: CCppSourceScope | null = null;
+  private declarationMacroTypeSource: string | null = null;
+  private isolatedDeclarationSource: string | null = null;
   private lexicalNonFileScopeRanges: SourceRange[] | null = null;
   private lexicalDirectiveRanges: Array<SourceRange & {row:number; endPosition:{row:number; column:number}}> = [];
   /** Damaged C++ type wrappers can absorb a later, separately written function. */
@@ -1509,8 +1523,12 @@ export class TreeSitterExtractor {
   ): string {
     if (!this.tree || !this.extractor) return expandedSource;
     const lines = expandedSource.split('\n');
+    // Use the shared literal masker, including multi-line C++ raw strings.
+    // Braces/quotes in their payload must not change continuation boundaries.
+    const scanLines = maskCStyleCommentsAndLiterals(expandedSource).split('\n');
     const originalLines = this.originalSource.split('\n');
     const kept = new Set<number>();
+    const typeContexts = new Map<number, string[] | null>();
     const root = this.tree.rootNode;
     const containerTypes = new Set<string>([
       'namespace_definition',
@@ -1533,7 +1551,20 @@ export class TreeSitterExtractor {
 
     for (const line of invocationLines) {
       const row = Math.max(0, line - 1);
+      const namespaces: string[] = [];
+      let insideType = false;
       const originalLine = originalLines[row] ?? '';
+      // Some declaration macros supply the function's opening brace and a
+      // separate statement macro supplies its close. This auxiliary parse
+      // needs only that callable's declaration. Close a proven standalone
+      // macro-opened body locally so unrelated later braces cannot absorb
+      // subsequent declarations. Class/namespace openers are never closed here.
+      if (scanLines[row]?.includes('{')
+        && !maskCStyleCommentsAndLiterals(originalLine).includes('{')
+        && new CCppSourceScope(lines[row]!).hasUnclosedStandaloneBody()) {
+        lines[row] += ' }';
+        scanLines[row] += ' }';
+      }
       const column = originalLine.search(/\S/);
       let current: SyntaxNode | null = root.descendantForPosition({
         row,
@@ -1541,6 +1572,12 @@ export class TreeSitterExtractor {
       });
       let depth = 0;
       while (current && depth++ < 128) {
+        if (current.type === 'namespace_definition') {
+          const name = getChildByField(current, 'name')?.text;
+          if (name) namespaces.unshift(name);
+        } else if (this.extractor.classTypes.includes(current.type) || this.extractor.structTypes.includes(current.type)) {
+          insideType = true;
+        }
         if (containerTypes.has(current.type)) {
           let accessSections = accessSectionsByContainer.get(current.id);
           if (!accessSections) {
@@ -1584,10 +1621,31 @@ export class TreeSitterExtractor {
         current = current.parent;
       }
 
-      this.keepDeclarationContinuationLines(lines, line, kept);
+      this.keepDeclarationContinuationLines(scanLines, line, kept);
+      // A namespace declaration cannot be a class member. Its expanded
+      // syntax is stronger evidence than a damaged AST that swallowed this
+      // later invocation into an earlier class body.
+      typeContexts.set(line, insideType && !/^\s*namespace\s*\{/.test(lines[row] ?? '') ? null : namespaces);
     }
 
-    return lines.map((text, index) => kept.has(index + 1) ? text : '').join('\n');
+    this.declarationMacroTypeSource = lines.map((text, index) => {
+      const context = typeContexts.get(index + 1);
+      return context ? context.map(name => `namespace ${name} { `).join('') + text + ' }'.repeat(context.length) : '';
+    }).join('\n');
+    // A complete anonymous-namespace expansion is self-contained. Parse it
+    // separately from neighboring statement macros, including its qualified
+    // member definitions and registration variables. Partition these lines
+    // rather than parsing their (often large) generated bodies twice.
+    const isolated = new Set<number>();
+    for (const line of invocationLines) {
+      if (typeContexts.get(line) && /^\s*namespace\s*\{/.test(lines[line - 1] ?? '')
+        && /[;}]\s*$/.test(maskCStyleCommentsAndLiterals(lines[line - 1]!))
+        && new CCppSourceScope(lines[line - 1]!).isBalanced()) isolated.add(line);
+    }
+    this.isolatedDeclarationSource = isolated.size
+      ? this.declarationMacroTypeSource.split('\n').map((text, i) => isolated.has(i + 1) ? text : '').join('\n')
+      : null;
+    return lines.map((text, index) => kept.has(index + 1) && !isolated.has(index + 1) ? text : '').join('\n');
   }
 
   /** Keep a split declaration/function body following an expanded invocation. */
@@ -1598,9 +1656,13 @@ export class TreeSitterExtractor {
   ): void {
     let parenDepth = 0;
     let braceDepth = 0;
-    let bodyStarted = false;
+    let pending = false;
     let blockComment = false;
-    const lastRow = Math.min(lines.length - 1, Math.max(0, startLine - 1) + 512);
+    // A function/class body can legitimately exceed 512 lines. Cutting its
+    // closing brace off corrupts every later declaration in the sparse parse.
+    // Invocation admission already excludes executable-body macros, so these
+    // scans cover declaration bodies rather than every call within them.
+    const lastRow = lines.length - 1;
 
     for (let row = Math.max(0, startLine - 1); row <= lastRow; row++) {
       kept.add(row + 1);
@@ -1620,6 +1682,8 @@ export class TreeSitterExtractor {
           continue;
         }
         if (char === '/' && text[i + 1] === '/') break;
+        if (/\s/.test(char)) continue;
+        pending = true;
         if (char === '"' || char === "'") {
           const quote = char;
           for (i++; i < text.length; i++) {
@@ -1630,88 +1694,29 @@ export class TreeSitterExtractor {
         }
         if (char === '(') parenDepth++;
         else if (char === ')' && parenDepth > 0) parenDepth--;
-        else if (char === '{' && parenDepth === 0) {
-          bodyStarted = true;
+        else if (char === '{') {
           braceDepth++;
-        } else if (char === '}' && bodyStarted && --braceDepth === 0) {
-          return;
-        } else if (char === ';' && !bodyStarted && parenDepth === 0) {
-          return;
+        } else if (char === '}') {
+          if (braceDepth === 0) return;
+          if (--braceDepth === 0 && parenDepth === 0) pending = false;
+        } else if (char === ';' && braceDepth === 0 && parenDepth === 0) {
+          pending = false;
         }
       }
+      // An invocation can expand to several complete declarations followed by
+      // a function header. Finishing the first class/semicolon on this line
+      // does not finish that later header; inspect the entire expanded line.
+      if (!pending && braceDepth === 0 && parenDepth === 0 && !blockComment) return;
     }
   }
 
   /** Lexically identify balanced function/lambda bodies even in a damaged AST. */
   private isInsideLexicalExecutableBody(offset: number): boolean {
-    if (this.lexicalExecutableRanges === null) {
-      const source = this.originalSource;
-      const ranges: SourceRange[] = [];
-      const stack: Array<{ executable: boolean; start: number }> = [];
-      let executableDepth = 0;
-      let segmentStart = 0;
-      let parenDepth = 0;
-      let bracketDepth = 0;
-      for (let i = 0; i < source.length; i++) {
-        const char = source[i]!;
-        if (char === '"' || char === "'") {
-          const quote = char;
-          for (i++; i < source.length; i++) {
-            if (source[i] === '\\') i++;
-            else if (source[i] === quote) break;
-          }
-        } else if (char === '/' && source[i + 1] === '/') {
-          const end = source.indexOf('\n', i + 2);
-          i = (end === -1 ? source.length : end) - 1;
-        } else if (char === '/' && source[i + 1] === '*') {
-          const end = source.indexOf('*/', i + 2);
-          i = (end === -1 ? source.length : end + 2) - 1;
-        } else if (char === '#' && /^\s*$/.test(source.slice(source.lastIndexOf('\n', i - 1) + 1, i))) {
-          // Braces inside a multi-line macro definition are preprocessing
-          // tokens, not lexical C/C++ scopes.
-          let end = source.indexOf('\n', i + 1);
-          while (end !== -1 && source[end - 1] === '\\') end = source.indexOf('\n', end + 1);
-          i = end === -1 ? source.length : end;
-          segmentStart = i + 1;
-        } else if (char === '(') parenDepth++;
-        else if (char === ')' && parenDepth > 0) parenDepth--;
-        else if (char === '[') bracketDepth++;
-        else if (char === ']' && bracketDepth > 0) bracketDepth--;
-        else if (char === '{' && parenDepth === 0 && bracketDepth === 0) {
-          const parentExecutable = executableDepth > 0;
-          const context = source.slice(segmentStart, i).trim();
-          const declarationContainer = /\b(?:namespace|class|struct|union|enum)\b[\s\S]*$/.test(context);
-          const callableHeader = /\)[\s\S]*(?:const|volatile|noexcept|override|final|requires|->|:)?\s*$/.test(context)
-            || /\][\s\S]*(?:\([^)]*\))?\s*$/.test(context);
-          const executable = parentExecutable || (!declarationContainer && callableHeader);
-          stack.push({ executable, start: i });
-          if (executable) executableDepth++;
-          segmentStart = i + 1;
-        } else if (char === '}' && parenDepth === 0 && bracketDepth === 0) {
-          const entry = stack.pop();
-          if (entry?.executable) {
-            executableDepth--;
-            if (executableDepth === 0) ranges.push({ start: entry.start + 1, end: i });
-          }
-          segmentStart = i + 1;
-        } else if (char === ';' && parenDepth === 0 && bracketDepth === 0) {
-          segmentStart = i + 1;
-        }
-      }
-      this.lexicalExecutableRanges = ranges;
-    }
-    // Top-level executable ranges are disjoint and appended in source order.
-    // Locate the first range whose end is after the offset instead of scanning
-    // every function body for every declaration-macro candidate.
-    let low = 0;
-    let high = this.lexicalExecutableRanges.length;
-    while (low < high) {
-      const mid = (low + high) >>> 1;
-      if (this.lexicalExecutableRanges[mid]!.end <= offset) low = mid + 1;
-      else high = mid;
-    }
-    const range = this.lexicalExecutableRanges[low];
-    return !!range && offset >= range.start && offset < range.end;
+    return this.cppSourceScope().isExecutable(offset);
+  }
+
+  private cppSourceScope(): CCppSourceScope {
+    return this.sourceScope ??= new CCppSourceScope(this.originalSource);
   }
 
   private lexicalCompoundEnd(start: number): number {
@@ -1828,6 +1833,8 @@ export class TreeSitterExtractor {
 
       const parsed = parseSourceSpelledCppCallable(source.slice(match.index, open));
       if (!parsed) continue;
+      if (this.cppSourceScope().isExecutable(match.index)
+        || this.cppSourceScope().isDirective(match.index)) continue;
       const { name, qualifiedName } = parsed;
       const line = lineForOffset(match.index);
       const lineStart = lineStarts[line - 1]!;
@@ -1877,6 +1884,10 @@ export class TreeSitterExtractor {
     );
     this.timings.declarationMacroExpansionMs =
       performance.now() - expansionStarted;
+    if (expanded.truncated) {
+      this.errors.push({ filePath: this.filePath, severity: 'warning', code: 'declaration_macro_expansion_limit',
+        message: 'Declaration macro expansion budget reached; some remaining generated symbols may be missing.' });
+    }
     if (expanded.source === this.originalSource || expanded.invocationLines.size === 0) return;
 
     const recoverySourceStarted = performance.now();
@@ -1895,13 +1906,72 @@ export class TreeSitterExtractor {
     // Deliberately omit macroDefinitions to prevent recursive auxiliary parses.
     // A one-shot Parser is never shared with the worker's long-lived parser.
     const auxiliaryParseStarted = performance.now();
-    const recovered = this.extractDeclarationRecoverySource(recoverySource);
+    const declarationSource = new CCppSourceScope(recoverySource).maskExecutableBodies(recoverySource, expanded.invocationLines);
+    const recovered = this.extractDeclarationRecoverySource(declarationSource);
+    if (this.isolatedDeclarationSource) {
+      const isolated = this.extractDeclarationRecoverySource(this.isolatedDeclarationSource);
+      for (const node of isolated.nodes) if (node.kind !== 'file' && node.kind !== 'namespace') recovered.nodes.push(node);
+      const isolatedById = new Map(isolated.nodes.map(n => [n.id, n]));
+      for (const edge of isolated.edges) if (edge.kind === 'contains') {
+        const parent = isolatedById.get(edge.source);
+        const actualParent = parent?.kind === 'namespace'
+          ? this.nodes.find(n => n.kind === 'namespace' && n.qualifiedName === parent.qualifiedName
+            && n.startLine <= parent.startLine && n.endLine >= parent.startLine)
+          : undefined;
+        recovered.edges.push(actualParent ? { ...edge, source: actualParent.id } : edge);
+      }
+    }
+    // A statement-heavy macro body can still damage an otherwise complete
+    // generated type. Retry only when an expanded line proves a named type
+    // body exists but the auxiliary AST lost it. The smaller input retains
+    // declaration/context lines; only the missing types and their contained
+    // symbols are admitted, never its stray function/variable interpretations.
+    const typeKinds = new Set(['class', 'struct', 'enum']);
+    const typeKey = (node: Node): string => `${node.startLine}:${node.name}`;
+    const presentTypes = new Set(recovered.nodes.filter(n => typeKinds.has(n.kind)).map(typeKey));
+    const missingTypes = new Set<string>();
+    const typeSource = this.declarationMacroTypeSource;
+    if (typeSource) {
+      const typeLines = maskCStyleCommentsAndLiterals(typeSource).split('\n');
+      for (const line of expanded.invocationLines) {
+        for (const match of (typeLines[line - 1] ?? '').matchAll(/\b(?:class|struct|union|enum(?:\s+class)?)\s+([A-Za-z_]\w*)\s*(?::[^;{}]+)?\{/g)) {
+          const key = `${line}:${match[1]}`;
+          if (!presentTypes.has(key)) missingTypes.add(key);
+        }
+      }
+    }
+    if (typeSource && missingTypes.size > 0 && typeSource !== declarationSource) {
+      const missingLines = new Set([...missingTypes].map(key => Number(key.slice(0, key.indexOf(':')))));
+      const isolatedTypes = typeSource.split('\n').map((line, i) => missingLines.has(i + 1) ? line : '').join('\n');
+      const fallback = this.extractDeclarationRecoverySource(isolatedTypes);
+      const admitted = new Set(fallback.nodes.filter(n => typeKinds.has(n.kind) && missingTypes.has(typeKey(n))).map(n => n.id));
+      const children = new Map<string, string[]>();
+      for (const edge of fallback.edges) if (edge.kind === 'contains') {
+        const list = children.get(edge.source) ?? [];
+        list.push(edge.target); children.set(edge.source, list);
+      }
+      for (const id of admitted) for (const child of children.get(id) ?? []) admitted.add(child);
+      const existing = new Set(recovered.nodes.map(n => n.id));
+      const fallbackById = new Map(fallback.nodes.map(n => [n.id, n]));
+      for (const node of fallback.nodes) if (admitted.has(node.id) && !existing.has(node.id)) recovered.nodes.push(node);
+      for (const edge of fallback.edges) if (edge.kind === 'contains' && admitted.has(edge.target)) {
+        const parent = fallbackById.get(edge.source);
+        const actualParent = parent?.kind === 'namespace' && !admitted.has(parent.id)
+          ? this.nodes.find(n => n.kind === 'namespace' && n.qualifiedName === parent.qualifiedName
+            && n.startLine <= parent.startLine && n.endLine >= parent.startLine)
+          : undefined;
+        recovered.edges.push(actualParent ? { ...edge, source: actualParent.id } : edge);
+      }
+    }
     this.timings.declarationMacroAuxParseMs =
       performance.now() - auxiliaryParseStarted;
-    const recoveredNodes = recovered.nodes;
+    // A macro may put a declaration and its definition on the same original
+    // line (and hence ID). Keep the final definition just as the store does.
+    const recoveredNodes = [...new Map(recovered.nodes.map(node => [node.id, node])).values()];
     const recoveredEdges = recovered.edges;
 
     const mergeStarted = performance.now();
+    const originalLines = this.originalSource.split('\n');
 
     const recoverableKinds = new Set<NodeKind>([
       'class', 'struct', 'enum', 'enum_member', 'interface', 'trait',
@@ -1964,6 +2034,9 @@ export class TreeSitterExtractor {
       ) {
         continue;
       }
+      const originalLine = originalLines[node.startLine - 1] ?? '';
+      node.startColumn = Math.max(0, originalLine.search(/\S/));
+      if (node.endLine === node.startLine) node.endColumn = originalLine.trimEnd().length;
       this.nodes.push(node);
       existingIds.add(node.id);
       generatedIds.add(node.id);
@@ -2215,10 +2288,20 @@ export class TreeSitterExtractor {
         (this.language === 'c' || this.language === 'cpp') &&
         this.isBrokenTypeSplitDeclaration(node) &&
         (this.rescueSplitPrototypeExprStmt(node.nextNamedSibling) !== null ||
-          this.rescuePointerInitExprStmtName(node.nextNamedSibling) !== null)
+          this.isSplitVariableAssignment(node.nextNamedSibling))
       ) {
         skipChildren = true;
       } else {
+        // Error recovery can wrap a real type definition in a declaration
+        // whose declarator belongs to a later macro. Preserve that direct
+        // type child, as the function-definition wrapper path already does.
+        if ((this.language === 'c' || this.language === 'cpp') && node.hasError) {
+          const inlineType = getChildByField(node, 'type');
+          if (inlineType && getChildByField(inlineType, 'body')
+            && ['class_specifier', 'struct_specifier', 'union_specifier', 'enum_specifier'].includes(inlineType.type)) {
+            this.visitNode(inlineType);
+          }
+        }
         this.extractVariable(node);
         // C/C++: a declaration may wrap an ERROR child — stacked attribute
         // macros (e.g. `EXTERN VOS_VOID TlmFree(...) CALLEE_RET_ALIGN();`) can
@@ -2249,7 +2332,7 @@ export class TreeSitterExtractor {
       !this.isInsideCompoundStatement(node)
     ) {
       const inner = node.namedChild(0);
-      if (inner?.type === 'assignment_expression') {
+      if (inner?.type === 'assignment_expression' && this.isSplitVariableAssignment(node)) {
         const left = inner.namedChild(0);
         if (left?.type === 'identifier') {
           const name = getNodeText(left, this.source);
@@ -2531,6 +2614,12 @@ export class TreeSitterExtractor {
     // and would cause FK violations when edges reference them (see issue #42)
     if (!name) {
       return null;
+    }
+
+    if ((this.language === 'c' || this.language === 'cpp')
+      && (kind === 'variable' || kind === 'constant')) {
+      const scope = this.cppSourceScope();
+      if (scope.isExecutable(node.startIndex) || scope.isDirective(node.startIndex)) return null;
     }
 
     const id = generateNodeId(this.filePath, kind, name, node.startPosition.row + 1);
@@ -2939,6 +3028,23 @@ export class TreeSitterExtractor {
     return node.children.some((c) => c.isMissing && c.type === ';');
   }
 
+  /** Only recover an assignment when its adjacent broken type declaration
+   * proves that this is one split declaration. Header/include statement
+   * fragments and assignments under damaged function bodies are not symbols.
+   */
+  private isSplitVariableAssignment(node: SyntaxNode | null): boolean {
+    if (!node || node.type !== 'expression_statement'
+      || !this.isBrokenTypeSplitDeclaration(node.previousNamedSibling)) return false;
+    const assignment = node.namedChild(0);
+    if (assignment?.type !== 'assignment_expression') return false;
+    const left = assignment.namedChild(0), right = assignment.namedChild(1);
+    if (!left || !right || !['identifier', 'pointer_expression'].includes(left.type)) return false;
+    if (left.type === 'pointer_expression' && this.rescuePointerInitExprStmtName(node) === null) return false;
+    if (maskCStyleCommentsAndLiterals(this.source.slice(left.endIndex, right.startIndex)).trim() !== '=') return false;
+    return !this.isInsideLexicalExecutableBody(left.startIndex)
+      && /^\s*$/.test(this.source.slice(node.previousNamedSibling!.endIndex, left.startIndex));
+  }
+
   /**
    * C/C++: recover a typedef enum split by an unresolved statement wrapper.
    *
@@ -3099,6 +3205,22 @@ export class TreeSitterExtractor {
     // Check for misparse artifacts (e.g. C++ macros causing "namespace detail" functions)
     // Skip the node but still visit the body for calls and structural nodes
     if (this.extractor.isMisparsedFunction?.(name, node, this.macroNameLookup)) {
+      if ((this.language === 'c' || this.language === 'cpp') && node.hasError) {
+        // A damaged macro call can absorb a later class into its parameter
+        // list. Rejecting the wrapper must not discard that source-written
+        // definition. Only accept a complete type starting on its own line,
+        // outside a proven executable body/directive; never promote locals.
+        const declarator = getChildByField(node, 'declarator');
+        for (const type of declarator?.descendantsOfType(['class_specifier', 'struct_specifier', 'union_specifier', 'enum_specifier']) ?? []) {
+          const scope = this.cppSourceScope();
+          if (!getChildByField(type, 'body') || scope.isExecutable(type.startIndex) || scope.isDirective(type.startIndex)) continue;
+          const start = this.originalLineStart(type.startPosition.row + 1);
+          if (!/^[ \t]*$/.test(this.originalSource.slice(start, type.startIndex))) continue;
+          const typeName = extractName(type, this.source, this.extractor);
+          if (this.nodes.some(n => n.name === typeName && n.startLine === type.startPosition.row + 1)) continue;
+          this.visitNode(type);
+        }
+      }
       const body = this.extractor.resolveBody?.(node, this.extractor.bodyField)
         ?? getChildByField(node, this.extractor.bodyField);
       if (body) {
@@ -3318,7 +3440,8 @@ export class TreeSitterExtractor {
     // Ordinary fields (including function pointers) use field_declaration.
     // Return-typed member templates instead use declaration below a
     // template_declaration and must be handled here as methods.
-    return node.descendantsOfType('function_declarator').length > 0;
+    return node.descendantsOfType('function_declarator').length > 0
+      || node.namedChildren.some(child => child.type === 'operator_cast');
   }
 
   /**
@@ -3886,7 +4009,7 @@ export class TreeSitterExtractor {
             const fnName = this.language === 'cpp'
               ? normalizeCppCallableName(rawFnName)
               : rawFnName;
-            if (fnName) {
+            if (fnName && !this.extractor.isMisparsedFunction?.(fnName, node, this.macroNameLookup)) {
               const returnType = this.extractor.getReturnType?.(node, this.source);
               const signature = this.extractor.getSignature?.(node, this.source);
               this.createNode('method', fnName, node, {
@@ -3932,7 +4055,10 @@ export class TreeSitterExtractor {
         // is NOT a macro and must stay a type (it lives in the signature, not
         // as a field node).
         else if (current && current.type === 'type_identifier'
-          && this.globalMacroNames && this.globalMacroNames.has(getNodeText(current, this.source))) {
+          && this.globalMacroNames && this.globalMacroNames.has(getNodeText(current, this.source))
+          // Object-like field macros remain queryable. A function-like macro
+          // invocation is a wrapper, not a field named after its return type.
+          && !/^\s*\(/.test(this.source.slice(current.endIndex, node.endIndex))) {
           fieldEntries.push({ name: getNodeText(current, this.source), posNode: current });
         }
       }
@@ -4814,6 +4940,15 @@ export class TreeSitterExtractor {
         // Initializer only lives on init_declarator
         const valueNode = child.type === 'init_declarator'
           ? getChildByField(child, 'value') : null;
+        if (valueNode?.type === 'argument_list' && this.macroNameLookup.has(name)) {
+          // Statement-macro masking can manufacture `TYPE_MACRO CALL(args)
+          // 0;` as a declaration spanning two invocations. Its terminator
+          // belongs to a parse placeholder, not the original source. A real
+          // typed direct initializer (even sharing a macro name) has its own
+          // source semicolon and remains eligible.
+          const terminator = node.children.find(c => c.type === ';' && !c.isMissing);
+          if (!terminator || this.originalSource[terminator.startIndex] !== ';') continue;
+        }
         const initValue = valueNode
           ? getNodeText(valueNode, this.source).slice(0, 100) : undefined;
         const initSignature = initValue
@@ -4824,6 +4959,7 @@ export class TreeSitterExtractor {
           signature: initSignature,
           isExported,
           isDeclaration: isExternDecl,
+          qualifiedName: this.qualifiedVariableName(child, resolved, name),
         });
       }
     } else {
@@ -4845,6 +4981,22 @@ export class TreeSitterExtractor {
         }
       }
     }
+  }
+
+  /** Keep the owner of an out-of-class static-member definition. Unwrapping
+   * to its leaf name is for display/identity, not for semantic qualification.
+   */
+  private qualifiedVariableName(declarator: SyntaxNode, leaf: SyntaxNode, name: string): string {
+    let qualified: SyntaxNode | null = null;
+    for (let at: SyntaxNode | null = leaf; at; at = at.parent) {
+      if (at.type === 'qualified_identifier') qualified = at;
+      if (at.id === declarator.id) break;
+    }
+    if (!qualified) return this.buildQualifiedName(name);
+    const full = getNodeText(qualified, this.source).replace(/\s*::\s*/g, '::').trim();
+    const scope = this.buildQualifiedName('');
+    return full.startsWith('::') ? full.slice(2)
+      : scope && full.startsWith(scope) ? full : this.buildQualifiedName(full);
   }
 
   /**
@@ -6392,6 +6544,41 @@ export class TreeSitterExtractor {
 
     const visitForCallsAndStructure = (node: SyntaxNode): void => {
       const nodeType = node.type;
+
+      // Explicit instantiations are file/namespace declarations, even when
+      // error recovery has placed their AST under an earlier macro function.
+      if (this.language === 'cpp' && nodeType === 'template_instantiation'
+        && !this.cppSourceScope().isExecutable(node.startIndex)
+        && !this.cppSourceScope().isDirective(node.startIndex)) {
+        const saved = _functionId && this.nodeStack.at(-1) === _functionId ? this.nodeStack.pop() : undefined;
+        try { this.extractCppTemplateInstantiation(node); }
+        finally { if (saved) this.nodeStack.push(saved); }
+        return;
+      }
+
+      // A broken preprocessor branch can extend an AST function body past
+      // its real source closing brace. Recover a following global only when
+      // the source scanner independently recognized this body's entry and
+      // proves the declaration is now outside it. Do not promote declarations
+      // from a body whose lexical entry itself could not be established.
+      if ((this.language === 'c' || this.language === 'cpp') && nodeType === 'declaration'
+        && this.isInsideLexicalExecutableBody(body.startIndex + 1)
+        && !this.isInsideLexicalExecutableBody(node.startIndex)
+        && !this.cppSourceScope().isDirective(node.startIndex)
+        && !this.isInsideClassLikeNode()) {
+        // Suppressed macro wrappers never pushed a function node. Preserve
+        // their namespace (and any intact inline type in this declaration).
+        const saved = _functionId && this.nodeStack.at(-1) === _functionId ? this.nodeStack.pop() : undefined;
+        try {
+          const inlineType = getChildByField(node, 'type');
+          if (inlineType && getChildByField(inlineType, 'body')
+            && ['class_specifier', 'struct_specifier', 'union_specifier', 'enum_specifier'].includes(inlineType.type)) {
+            this.visitNode(inlineType);
+          }
+          this.extractVariable(node);
+        } finally { if (saved) this.nodeStack.push(saved); }
+        return;
+      }
 
       // Rocket route-registration macros (`routes![…]` / `catchers![…]`): the
       // handler paths live in a raw token tree the call walker can't see.

@@ -1140,6 +1140,22 @@ export class ExtractionOrchestrator {
     this.globalMacroDefinitions = null;
   }
 
+  private invalidateMacroContext(filePath: string, content?: string): void {
+    if (this.globalMacroNames === null) return;
+    const language = EXTENSION_MAP[path.extname(filePath).toLowerCase()];
+    if (language !== 'c' && language !== 'cpp' && language !== 'objc') return;
+    // A removed file or a changed macro owner can invalidate names, bodyless
+    // macros and expanded declarations together. Ordinary consumers retain
+    // warm context without another project scan. Check the old graph too:
+    // deleting the last #define leaves no directive in the new source.
+    if (content === undefined || /^\s*#\s*define\b/m.test(content)
+      || this.queries.hasMacrosInFile(filePath)) {
+      this.globalMacroNames = null;
+      this.globalBodylessMacroNames = null;
+      this.globalMacroDefinitions = null;
+    }
+  }
+
   /**
    * Build a filesystem-backed ResolutionContext sufficient for framework
    * detection. Graph-query methods (getNodesByName etc.) return empty because
@@ -2708,6 +2724,7 @@ export class ExtractionOrchestrator {
         else diagnostics.counts.existsChecks++;
       }
       if (missingFromScan || (!nativeCapture.snapshot && !fs.existsSync(path.join(this.rootDir, tracked.path)))) {
+        this.invalidateMacroContext(tracked.path);
         // Deleting the target cascades its incoming edges even though callers
         // in other files are unchanged. Preserve stamped resolution edges as
         // pending refs so this same sync can rebind them or park them for a
@@ -2796,12 +2813,14 @@ export class ExtractionOrchestrator {
       if (diagnostics) diagnostics.io.hashMs += performance.now() - hashStarted;
 
       if (!tracked) {
+        this.invalidateMacroContext(filePath, content);
         filesToIndex.push(filePath);
         filesAdded++;
       } else if (
         needsDeclarationMacroRecovery ||
         tracked.contentHash !== contentHash
       ) {
+        this.invalidateMacroContext(filePath, content);
         filesToIndex.push(filePath);
         filesModified++;
       } else if (diagnostics) {

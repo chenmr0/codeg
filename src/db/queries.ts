@@ -343,6 +343,7 @@ export class QueryBuilder {
     deleteNodesByFile?: SqliteStatement;
     getNodeById?: SqliteStatement;
     getNodesByFile?: SqliteStatement;
+    hasMacrosInFile?: SqliteStatement;
     getNodesByKind?: SqliteStatement;
     getClassesContainingMethod?: SqliteStatement;
     insertEdge?: SqliteStatement;
@@ -826,6 +827,14 @@ export class QueryBuilder {
     }
     const rows = this.stmts.getNodesByFile.all(filePath) as NodeRow[];
     return rows.map(rowToNode);
+  }
+
+  /** Avoid materializing all symbols just to invalidate cached macro context. */
+  hasMacrosInFile(filePath: string): boolean {
+    this.stmts.hasMacrosInFile ??= this.db.prepare(
+      "SELECT 1 FROM nodes WHERE file_path = ? AND kind = 'macro' LIMIT 1",
+    );
+    return Boolean(this.stmts.hasMacrosInFile.get(filePath));
   }
 
   /**

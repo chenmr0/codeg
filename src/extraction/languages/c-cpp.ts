@@ -1583,6 +1583,19 @@ function cCppIsMacroInvocationMisparse(
   // parse recovers the expanded callable with its real name.
   const typeNode = getChildByField(node, 'type');
   if (typeNode?.text.trim() === name) return true;
+  // A bare macro invocation is also parsed as a no-return-type declaration
+  // at class/file scope. A real typed function sharing a macro's name has a
+  // type prefix; a constructor has the enclosing class's name. Keep both.
+  if (!typeNode) {
+    let owner = node.parent;
+    while (owner && !['class_specifier', 'struct_specifier', 'translation_unit'].includes(owner.type)) owner = owner.parent;
+    const ownerName = owner && owner.type !== 'translation_unit'
+      ? getChildByField(owner, 'name')?.text.replace(/<.*$/, '').trim() : undefined;
+    if (ownerName !== name.replace(/^~/, '')) {
+      const prefix = node.text.trimStart().replace(/^(?:(?:static|inline|constexpr|virtual)\s+)+/, '');
+      if (prefix.startsWith(name) && /^\s*\(/.test(prefix.slice(name.length))) return true;
+    }
+  }
   // A macro invocation `MACRO(args) { body }` that tree-sitter misparses as a
   // function_definition / declaration always appears INSIDE a function body —
   // its direct parent is a `compound_statement`, because macros are invoked in
@@ -1599,6 +1612,9 @@ function cCppIsMacroInvocationMisparse(
   // compound_statement), so a type-field check alone cannot tell them apart.
   const parent = node.parent;
   if (parent && parent.type === 'compound_statement') return true;
+  const previous = node.previousSibling;
+  if (parent?.type === 'ERROR' && previous &&
+      (previous.type === 'if' || previous.type === 'ERROR') && previous.text.trim() === 'if') return true;
   return false;
 }
 

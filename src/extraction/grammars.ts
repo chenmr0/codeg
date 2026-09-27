@@ -416,6 +416,13 @@ export function maskCStyleCommentsAndLiterals(source: string): string {
       }
     }
 
+    // Apostrophes within numeric tokens are C++ digit separators, not the
+    // start of a character literal. Do not mask the rest of a function/file.
+    if (c === "'" && /[0-9a-fA-F]/.test(next)
+      && /\b(?:0[xX][\da-fA-F']*|\d[\d']*)$/.test(source.slice(Math.max(0, i - 128), i))) {
+      i++;
+      continue;
+    }
     if (c === '"' || c === "'") {
       const quote = c;
       let end = i + 1;

@@ -32,12 +32,14 @@ export interface DeclarationMacroExpansion {
   /** 1-indexed source lines on which a declaration-producing invocation began. */
   invocationLines: Set<number>;
   expandedMacroNames: Set<string>;
+  /** Remaining source was not inspected after the bounded expansion budget. */
+  truncated?: boolean;
 }
 
 const MAX_DEFINITION_BYTES = 64 * 1024;
 const MAX_EXPANSION_BYTES = 256 * 1024;
 const MAX_EXPANSION_DEPTH = 24;
-const MAX_SOURCE_INVOCATIONS = 4096;
+const MAX_SOURCE_INVOCATIONS = 8192;
 
 function isIdentStart(char: string): boolean {
   if (!char) return false;
@@ -328,12 +330,43 @@ function replaceFormal(text: string, formal: string, value: string): string {
   return text.replace(new RegExp(`\\b${escaped}\\b`, 'g'), value);
 }
 
+const uncommentedReplacements = new WeakMap<CppMacroDefinition, { raw: string; text: string }>();
+
+function isDigit(char: string | undefined): boolean {
+  return char !== undefined && char >= '0' && char <= '9';
+}
+
+function skipPreprocessingNumber(text: string, start: number): number {
+  if (!isDigit(text[start]) && !(text[start] === '.' && isDigit(text[start + 1]))) return start;
+  let end = start + 1;
+  while (end < text.length) {
+    const next = text[end]!;
+    if (isIdentPart(next) || next === '.' || next === "'" && isIdentPart(text[end + 1] ?? '')) end++;
+    else if ((next === '+' || next === '-') && /[eEpP]/.test(text[end - 1]!)) end++;
+    else break;
+  }
+  return end;
+}
+
 function applyArguments(
   definition: CppMacroDefinition,
   args: string[],
   expandedArgs: string[] = args,
 ): string | null {
-  if (definition.parameters === null) return definition.replacement;
+  let replacement = definition.replacement;
+  if (replacement.includes('//')) {
+    const cached = uncommentedReplacements.get(definition);
+    if (cached?.raw === replacement) replacement = cached.text;
+    else {
+      const text = eraseLineComments(replacement);
+      uncommentedReplacements.set(definition, { raw: replacement, text });
+      replacement = text;
+    }
+  }
+  // Comments belong to the definition, not the outer invocation receiving
+  // its tokens. Otherwise `#define ALIAS value // note` consumes the rest of
+  // a containing declaration when substituted into a larger macro.
+  if (definition.parameters === null) return replacement;
   const parameters = definition.parameters;
   const variadicIndex = definition.variadicParameter
     ? parameters.indexOf(definition.variadicParameter)
@@ -359,7 +392,7 @@ function applyArguments(
     expandedValues.set('__VA_ARGS__', expandedValues.get(definition.variadicParameter) ?? '');
   }
 
-  let result = definition.replacement;
+  let result = replacement;
   // GNU comma swallowing: `, ##__VA_ARGS__` disappears with an empty pack.
   const variadicValue = definition.variadicParameter
     ? (values.get(definition.variadicParameter) ?? '')
@@ -437,6 +470,15 @@ function expandText(
       const end = skipBlockComment(text, i);
       out += text.slice(i, end);
       i = end;
+      continue;
+    }
+    // A preprocessing number is one token, including identifier suffixes.
+    // In `123suffix` the suffix must not be expanded as a macro before a
+    // surrounding declaration macro pastes/stringifies the complete token.
+    const numberEnd = skipPreprocessingNumber(text, i);
+    if (numberEnd > i) {
+      out += text.slice(i, numberEnd);
+      i = numberEnd;
       continue;
     }
     if (!isIdentStart(char)) {
@@ -648,6 +690,8 @@ export function expandDeclarationMacros(
       i = end;
       continue;
     }
+    const numberEnd = skipPreprocessingNumber(source, i);
+    if (numberEnd > i) { i = numberEnd; continue; }
     if (!isIdentStart(char)) {
       i++;
       continue;
@@ -728,5 +772,6 @@ export function expandDeclarationMacros(
     cursor = replacement.end;
   }
   chunks.push(source.slice(cursor));
-  return { source: chunks.join(''), invocationLines, expandedMacroNames };
+  const truncated = i < source.length && /\S/.test(source.slice(i));
+  return { source: chunks.join(''), invocationLines, expandedMacroNames, ...(truncated ? { truncated } : {}) };
 }

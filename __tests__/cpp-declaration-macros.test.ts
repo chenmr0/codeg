@@ -17,6 +17,23 @@ beforeAll(async () => {
 });
 
 describe('C/C++ declaration macro expansion', () => {
+  it('preserves the tail of a generated file with more than 4096 declarations', () => {
+    const definitions = scanCppMacroDefinitions('#define DECL(name) int name;');
+    const source = Array.from({length:5000}, (_, i) => `DECL(value_${i})`).join('\n');
+    const result = expandDeclarationMacros(source, definitions);
+    expect(result.invocationLines.size).toBe(5000);
+    expect(result.source).toContain('int value_4999;');
+    expect(result.truncated).not.toBe(true);
+  });
+
+  it('reports when the bounded expansion budget leaves source uninspected', () => {
+    const definitions = scanCppMacroDefinitions('#define DECL(name) int name;');
+    const source = Array.from({length:9000}, (_, i) => `DECL(value_${i})`).join('\n');
+    const result = expandDeclarationMacros(source, definitions);
+    expect(result.truncated).toBe(true);
+    expect(result.source).toContain('DECL(value_8999)');
+  });
+
   it('recovers same-file class specializations without changing line count', () => {
     const source = [
       '#define REGISTER(type, text) \\',
