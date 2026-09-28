@@ -657,6 +657,106 @@ export class QueryBuilder {
     });
   }
 
+  /** Bounded candidate facts used only by the narrow append-retention proof. */
+  getAppendNameCandidates(name: string, limit: number): Node[] {
+    return (this.db.prepare('SELECT * FROM nodes WHERE name=? LIMIT ?').all(name, limit) as NodeRow[]).map(rowToNode);
+  }
+
+  /** Indexed target-name probes also find affected callers in unchanged files. */
+  getExactMatchSourceFilesForNames(names: readonly string[]): string[] {
+    if (!names.length) return [];
+    const rows = this.db.prepare(`SELECT DISTINCT s.file_path FROM nodes t INDEXED BY idx_nodes_lower_name
+      JOIN edges e ON e.target=t.id JOIN nodes s ON s.id=e.source
+      WHERE lower(t.name) IN (SELECT value FROM json_each(?)) AND s.language IN ('c','cpp')
+      AND json_extract(CASE WHEN json_valid(e.metadata) THEN e.metadata ELSE '{}' END,'$.resolvedBy')='exact-match'`)
+      .all(JSON.stringify(names)) as Array<{file_path:string}>;
+    return rows.map(row => row.file_path);
+  }
+
+  /** Stamped exact resolutions only; unknown/legacy edges are rebuilt normally. */
+  getAppendResolutionEdges(filePath: string, limit: number): Array<{ id: number; ref: UnresolvedReference }> {
+    const rows = this.db.prepare(`SELECT e.id,e.source,e.kind,e.line,e.col,e.metadata,n.language
+      FROM nodes n JOIN edges e ON e.source=n.id JOIN nodes t ON t.id=e.target WHERE n.file_path=? AND
+      t.name=json_extract(CASE WHEN json_valid(e.metadata) THEN e.metadata ELSE '{}' END,'$.refName') AND
+      json_extract(CASE WHEN json_valid(e.metadata) THEN e.metadata ELSE '{}' END,'$.resolvedBy')='exact-match'
+      ORDER BY e.id LIMIT ?`).all(filePath, limit) as Array<{
+        id:number; source:string; kind:EdgeKind; line:number|null; col:number|null; metadata:string; language:Language;
+      }>;
+    return rows.flatMap(row => {
+      const meta = safeJsonParse<Record<string, unknown>>(row.metadata, {});
+      if (typeof meta.refName !== 'string' || typeof meta.confidence !== 'number' ||
+          row.line === null || row.col === null || (row.language !== 'c' && row.language !== 'cpp')) return [];
+      return [{ id: row.id, ref: { fromNodeId: row.source, referenceName: meta.refName,
+        referenceKind: (typeof meta.refKind === 'string' ? meta.refKind : row.kind) as EdgeKind,
+        line: row.line, column: row.col, filePath, language: row.language } }];
+    });
+  }
+
+  /** Keep stable node rows and selected stamped edges in one atomic file write. */
+  storeAppendDelta(bundle: {
+    file: FileRecord; fileNode: Node; added: Node[]; edges: Edge[];
+    refs: UnresolvedReference[]; retainedEdgeIds: number[]; journalKey: string;
+  }): void {
+    try {
+      this.db.transaction(() => {
+        // Until admission finishes, a crash must replay the retained references.
+        this.setMetadata(bundle.journalKey, '1');
+        this.db.prepare(`DELETE FROM edges WHERE source IN (SELECT id FROM nodes WHERE file_path=?)
+          AND id NOT IN (SELECT value FROM json_each(?))`)
+          .run(bundle.file.path, JSON.stringify(bundle.retainedEdgeIds));
+        this.db.prepare('DELETE FROM unresolved_refs WHERE from_node_id IN (SELECT id FROM nodes WHERE file_path=?)')
+          .run(bundle.file.path);
+        this.updateNode(bundle.fileNode);
+        this.insertNodes(bundle.added);
+        this.insertEdges(bundle.edges);
+        this.insertUnresolvedRefsBatch(bundle.refs);
+        this.upsertFile(bundle.file);
+      })();
+    } catch (error) { this.clearCache(); throw error; }
+  }
+
+  /**
+   * Re-admit retained resolutions after dependency invalidation or a crash.
+   * Page by primary key; each page atomically inserts refs before deleting its
+   * edges. An interruption leaves the marker and unvisited edges recoverable.
+   * No unbounded reference array or original-source cache is retained.
+   */
+  async requeueAppendDeltaEdges(filePath: string, names?: readonly string[]): Promise<number> {
+    if (names && names.length === 0) return 0;
+    const meta = "CASE WHEN json_valid(e.metadata) THEN e.metadata ELSE '{}' END";
+    const statement = this.db.prepare(`SELECT e.id,e.source,e.kind,e.line,e.col,e.metadata,n.language
+      FROM nodes n JOIN edges e ON e.source=n.id WHERE n.file_path=? AND e.id>?
+      AND json_extract(${meta},'$.resolvedBy')='exact-match'
+      ${names ? `AND lower(json_extract(${meta},'$.refName')) IN (SELECT value FROM json_each(?))` : ''}
+      ORDER BY e.id LIMIT 1000`);
+    const namesJson = names ? JSON.stringify(names) : undefined;
+    let after = 0, count = 0;
+    for (;;) {
+      const rows = statement.all(filePath, after, ...(namesJson ? [namesJson] : [])) as Array<{
+        id:number; source:string; kind:EdgeKind; line:number|null; col:number|null; metadata:string; language:Language;
+      }>;
+      if (!rows.length) break;
+      const refs: UnresolvedReference[] = [], ids: number[] = [];
+      for (const row of rows) {
+        const data = safeJsonParse<Record<string, unknown>>(row.metadata, {});
+        if (typeof data.refName !== 'string' || row.line === null || row.col === null) continue;
+        refs.push({ fromNodeId: row.source, referenceName: data.refName,
+          referenceKind: (typeof data.refKind === 'string' ? data.refKind : row.kind) as EdgeKind,
+          line: row.line, column: row.col, filePath, language: row.language });
+        ids.push(row.id);
+      }
+      this.db.transaction(() => {
+        this.insertUnresolvedRefsBatch(refs);
+        this.db.prepare('DELETE FROM edges WHERE id IN (SELECT value FROM json_each(?))').run(JSON.stringify(ids));
+      })();
+      after = rows[rows.length - 1]!.id;
+      count += refs.length;
+      await new Promise<void>(resolve => setImmediate(resolve));
+    }
+    return count;
+  }
+
+
   /** Refresh a file whose node IDs/target identities were verified unchanged. */
   refreshFileNodes(filePath: string, nodes: Node[]): void {
     this.db.transaction(() => {
@@ -2766,13 +2866,21 @@ WHERE e.kind = 'imports'
     const plan: FailedReferenceRetryPlan = { groups: [], total: 0 };
     if (perNameCeiling !== Infinity) { plan.skippedGroups = 0; plan.skippedRefs = 0; }
     if (uniqueNames.length === 0) return plan;
+    // Sampled statistics can make SQLite prefer the status index and scan the
+    // entire failed backlog for EVERY name batch. The partial tail index is a
+    // covering lookup for this query. Bulk loading may temporarily remove it;
+    // detect availability per call, keeping the legacy query in that window.
+    const failedTailIndex = this.db.prepare(
+      "SELECT 1 FROM sqlite_master WHERE type='index' AND tbl_name='unresolved_refs' " +
+      "AND name='idx_unresolved_failed_tail'"
+    ).get() ? ' INDEXED BY idx_unresolved_failed_tail' : '';
     for (let i = 0; i < uniqueNames.length; i += SQLITE_PARAM_CHUNK_SIZE) {
       const chunk = uniqueNames.slice(i, i + SQLITE_PARAM_CHUNK_SIZE);
       const placeholders = chunk.map(() => '?').join(',');
       const rows = this.db
         .prepare(
           `SELECT name_tail, COUNT(*) AS count, MAX(id) AS max_id ` +
-            `FROM unresolved_refs WHERE status = 'failed' ` +
+            `FROM unresolved_refs${failedTailIndex} WHERE status = 'failed' ` +
             `AND name_tail IN (${placeholders}) GROUP BY name_tail`
         )
         .all(...chunk) as Array<{

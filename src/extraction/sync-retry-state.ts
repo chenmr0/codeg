@@ -2,6 +2,7 @@ import { createHash } from 'crypto';
 import type { QueryBuilder } from '../db/queries';
 import type { ExtractionResult, FileRecord, Language, UnresolvedReference } from '../types';
 import { EXTRACTION_VERSION } from './extraction-version';
+import { APPEND_DELTA_JOURNAL } from './append-delta';
 
 const VERSION = `1:${EXTRACTION_VERSION}`;
 const DONE = 'sync-retry:done:';
@@ -230,7 +231,11 @@ export class SyncRetryState {
         version: VERSION, contentHash: pending.contentHash, fingerprint: pending.fingerprint,
       }) : null;
       changes[PENDING + filePath] = null;
+      changes[APPEND_DELTA_JOURNAL + filePath] = null;
     }
+    // Also acknowledge unchanged callers invalidated by same-name additions.
+    // The index mutex excludes other syncs; keep this atomic with retry proof promotion.
+    for (const { key } of this.queries.getMetadataByPrefix(APPEND_DELTA_JOURNAL)) changes[key] = null;
     // Atomic promotion + journal removal. Failure leaves recoverable work.
     this.queries.applyMetadataChanges(changes);
   }

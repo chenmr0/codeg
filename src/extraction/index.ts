@@ -54,6 +54,8 @@ import { ReconcileDiagnostics, type ScanDiagnostics } from './sync-diagnostics';
 import { StoreDiagnostics, measureStore } from './store-diagnostics';
 import { filterGitPaths } from './git-paths';
 import type { SyncRetryState } from './sync-retry-state';
+import { AppendDeltaState } from './append-delta';
+import { EXTRACTION_VERSION } from './extraction-version';
 import { collectHybridFiles, HybridScanFallback, planSupplementRoots } from './hybrid-scan';
 import { RUST_SCAN_PROTOCOL, runRustScan, rustScanMode, automaticRustScanStatus, verifyRustSnapshot, type RustScanCapture } from './rust-scan';
 
@@ -2847,6 +2849,7 @@ export class ExtractionOrchestrator {
     let storeMs = 0;
     const storeDetail = verbose ? new StoreDiagnostics() : undefined;
     const extractionTimingTotals: ExtractionTimings = {};
+    let appendDelta: AppendDeltaState | undefined;
 
     if (total > 0) {
       const hasReconcileFileList = fullProjectFiles !== undefined;
@@ -2874,6 +2877,16 @@ export class ExtractionOrchestrator {
         this.detectedFrameworkNames === null ? getContextFiles() : undefined,
       );
       frameworkDetectionMs = performance.now() - frameworkStarted;
+      // Retention requires a complete input epoch. Scoped watcher syncs cannot
+      // prove that an unreported header/config change did not alter resolution.
+      if (!scopedPaths?.length && filesRemoved === 0 && filesAdded === 0 &&
+          frameworkNames.length === 0 && this.frameworkDetectionErrors.length === 0 &&
+          this.syncRetryState && !this.syncRetryState.hasWork &&
+          process.env.CODEGRAPH_NO_APPEND_DELTA !== '1' &&
+          this.queries.getMetadata('indexed_with_extraction_version') === String(EXTRACTION_VERSION)) {
+        await loadGrammarsForLanguages(['c', 'cpp']);
+        appendDelta = new AppendDeltaState(this.queries, this.syncRetryState);
+      }
 
       const needsCppMacroContext = neededLanguages.some(
         (language) => language === 'c' || language === 'cpp' || language === 'objc',
@@ -3043,7 +3056,10 @@ export class ExtractionOrchestrator {
               ? item.language
               : detectLanguage(item.filePath, item.content);
             if (item.result.nodes.length > 0 || item.result.errors.length === 0) {
-              if (replaceFileStore && this.queries.hasManyIncomingEdges(item.filePath)) {
+              if (appendDelta?.tryStore(item.filePath, item.content, language, item.stats, item.result)) {
+                // Stable symbols and proven resolutions were retained atomically.
+                // Deferred invalidation below handles changes in later files.
+              } else if (replaceFileStore && this.queries.hasManyIncomingEdges(item.filePath)) {
                 // Journal on the owning sync before handing writes over. It
                 // retains the index mutex/file lock and awaits this one file;
                 // no later replacement or resolution can overlap the worker.
@@ -3099,6 +3115,12 @@ export class ExtractionOrchestrator {
       }
     }
 
+    if (appendDelta) {
+      const affected = await appendDelta.finish(filesErrored === 0 && syncErrors.length === 0 &&
+        changedFilePaths.length === filesToIndex.length);
+      for (const file of affected) resurrectedReferenceSourceFiles.add(file);
+      log('append-delta ' + Object.entries(appendDelta.counts).map(([key, value]) => key + '=' + value).join(' '));
+    }
     log(
       `phases reconcile=${Math.round(reconcileMs)}ms ` +
       `framework=${Math.round(frameworkDetectionMs)}ms ` +

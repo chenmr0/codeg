@@ -53,6 +53,7 @@ import { ContextBuilder, createContextBuilder } from './context';
 import { Mutex, FileLock, canonicalFilePath } from './utils';
 import { FileWatcher, WatchOptions, PendingFile, LockUnavailableError } from './sync';
 import { EXTRACTION_VERSION } from './extraction/extraction-version';
+import { recoverAppendDeltas } from './extraction/append-delta';
 import { getLanguageScopeKey, withLanguageScope } from './extraction/language-scope';
 import { SyncRetryState } from './extraction/sync-retry-state';
 import { StoreWriter, type ReplaceFileStore } from './extraction/store-writer';
@@ -788,6 +789,7 @@ export class CodeGraph {
           walValve.start();
         }
 
+        const recoveredDeltaFiles = await recoverAppendDeltas(this.queries);
         const repairedIncludeFiles = this.queries.repairLegacyCppIncludes();
         const retryState = new SyncRetryState(this.queries);
         const recoveredRetryFiles = retryState.filePaths;
@@ -814,7 +816,7 @@ export class CodeGraph {
         if (options.verbose) tailCheckpoint = performance.now();
         retryState.finishPrimaryExtraction();
         const referenceFiles = [...new Set([
-          ...(result.changedFilePaths ?? []), ...recoveredRetryFiles, ...repairedIncludeFiles,
+          ...(result.changedFilePaths ?? []), ...recoveredRetryFiles, ...repairedIncludeFiles, ...recoveredDeltaFiles,
         ])];
 
         // Fold extraction writes before resolution starts reading the changed
