@@ -29,6 +29,24 @@ describe('macro context baseline and protocol', () => {
     expect((await buildMacroContext(root, ['a.h', 'b.h'])).definitions.map(d => d.name)).toEqual(['X', 'SAFE', 'SAME']);
     expect((await buildMacroContext(root, ['b.h'])).definitions.map(d => d.name)).toEqual(['X']);
   });
+  it.each(['', 'ASCII', '中文😀', '\ud800', '\udfff', 'a\0b', 'e\u0301', '\ufeff', '\t  '])(
+    'preserves exact macro strings including unusual UTF-16: %j', value => {
+      const replacement = `emit("${value}", long_argument_name, long_variadic_name)`;
+      const source = '#define LONG_EMPTY_MACRO\r\n' +
+        '#define LONG_FUNCTION_MACRO(long_argument_name, long_variadic_name...) ' + replacement + '\r\n' +
+        '#define STANDARD_VARIADIC_MACRO(...) forward(__VA_ARGS__)\r\n';
+      const contribution = scanMacroContribution(source);
+      expect(contribution.names).toEqual(['LONG_EMPTY_MACRO', 'LONG_FUNCTION_MACRO', 'STANDARD_VARIADIC_MACRO']);
+      expect(contribution.bodyless).toEqual(['LONG_EMPTY_MACRO']);
+      expect(contribution.definitions).toEqual([
+        { name: 'LONG_EMPTY_MACRO', parameters: null, replacement: '' },
+        { name: 'LONG_FUNCTION_MACRO', parameters: ['long_argument_name', 'long_variadic_name'],
+          variadicParameter: 'long_variadic_name', replacement },
+        { name: 'STANDARD_VARIADIC_MACRO', parameters: ['__VA_ARGS__'],
+          variadicParameter: '__VA_ARGS__', replacement: 'forward(__VA_ARGS__)' },
+      ]);
+    },
+  );
   it('falls back completely when the independent helper is missing', async () => {
     fs.writeFileSync(path.join(root, 'a.h'), '#define A 1\n');
     vi.stubEnv('CODEGRAPH_RUST_MACROS', '1'); vi.stubEnv('CODEGRAPH_RUST_MACROS_PATH', path.join(root, 'missing.exe'));

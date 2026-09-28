@@ -21,21 +21,34 @@ export interface MacroContext {
   metrics: MacroScanMetrics;
 }
 
+/**
+ * Regex captures and slices can retain the entire source as their V8 parent
+ * string. Detach strings that outlive this file before accumulating the global
+ * context (also used by native per-file/full fallback and verify mode).
+ * UTF-16 preserves every JS code unit, including unpaired surrogates; UTF-8
+ * would replace those. slice/concat alone do not guarantee an independent copy.
+ */
+function detachMacroString(value: string): string {
+  return value.length === 0 ? '' : Buffer.from(value, 'utf16le').toString('utf16le');
+}
+
 export function scanMacroContribution(source: string, metrics?: MacroScanMetrics): MacroContribution {
   // Preserve the original regexes, including their whitespace/matching quirks.
   // A performance port must not silently change macro recovery semantics.
   const names: string[] = [], bodyless: string[] = [];
   let started = performance.now();
   const nameRegex = /^\s*#\s*define\s+([A-Za-z_]\w*)/gm;
-  for (let m; (m = nameRegex.exec(source)) !== null;) names.push(m[1]!);
+  for (let m; (m = nameRegex.exec(source)) !== null;) names.push(detachMacroString(m[1]!));
   if (metrics) metrics.namesMs += performance.now() - started;
   started = performance.now();
   const bodylessRegex = /^\s*#\s*define\s+([A-Za-z_]\w*)(?!\s*\()(?:[ \t]*(?:\/\/[^\n]*|\/\*[\s\S]*?\*\/[ \t]*)?)?[ \t]*$/gm;
-  for (let m; (m = bodylessRegex.exec(source)) !== null;) bodyless.push(m[1]!);
+  for (let m; (m = bodylessRegex.exec(source)) !== null;) bodyless.push(detachMacroString(m[1]!));
   if (metrics) metrics.bodylessMs += performance.now() - started;
   started = performance.now();
   const definitions = scanCppMacroDefinitions(source).map(({ name, parameters, variadicParameter, replacement }) =>
-    ({ name, parameters, ...(variadicParameter === undefined ? {} : { variadicParameter }), replacement }));
+    ({ name: detachMacroString(name), parameters: parameters?.map(detachMacroString) ?? null,
+      ...(variadicParameter === undefined ? {} : { variadicParameter: detachMacroString(variadicParameter) }),
+      replacement: detachMacroString(replacement) }));
   if (metrics) metrics.definitionsMs += performance.now() - started;
   return { names, bodyless, definitions };
 }

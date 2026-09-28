@@ -15,7 +15,9 @@
 
 宏上下文使用独立门槛：Windows/Linux x64 且 C-family 候选至少 5000 个时，只有 `codegraph-macros` 的版本、源码指纹、SHA-256 和 `macro-parity-v1` 目标平台验收戳都匹配才自动运行。小上下文保持 TypeScript；特殊文件逐项回退，进程/协议错误则丢弃部分结果并由 TypeScript 完整重建。`CODEGRAPH_RUST_MACROS=0` 强制关闭，`1` 强制尝试开发候选，`verify` 双跑并采用 TypeScript。
 
-安装脚本只在 Linux 恢复随包程序的执行权限（解决 Windows 打包导致的 mode 丢失），不执行扫描器，不下载，不编译。若禁止安装脚本且安装文件没有执行位，需要管理员手动修正该程序的权限；无法修正时仍回退。
+安装脚本先检查随包程序的版本、源码指纹、SHA-256 和可执行文件格式，并在 Linux 恢复执行权限（解决 Windows 打包导致的 mode 丢失）。Windows/Linux x64 上若缺少匹配的目标平台验收记录，会自动执行已有的 `validate:rust-scan` / `validate:rust-macros` 真实差分验收：只读写独立临时样例，不扫描业务目录、不打开业务索引、不下载、不编译。只有验收通过并重新核对记录后才允许自动加速；已有匹配记录时跳过重复验收。两个组件分别处理，任一失败或超时（每个最多 60 秒）均输出原因并保留 TypeScript 回退，安装本身可以完成。
+
+建议 `npm install -g --foreground-scripts /path/to/package.tgz` 显示验收结果。若使用 `--ignore-scripts`，自动验收和执行权限修复均不会进行，可在安装目录手动运行上述两个验收命令；安装目录需要可写以保存记录。运行时的校验与场景回退规则不变，无需重建已有索引。
 
 ## 与社区分发方案的关系
 
@@ -53,7 +55,7 @@ npm run build
 npm pack
 ```
 
-`build` 会保留这些原生目录，无需 Rust/Cargo，也无需设置打包环境变量。未通过目标平台运行验收的组件可以随包分发，但运行时仍会回退 TypeScript；打包成功不代表目标平台运行验收通过。
+`build` 会保留这些原生目录，无需 Rust/Cargo，也无需设置打包环境变量。未通过目标平台运行验收的组件可以随包分发，并在目标机安装时自动验收；验收未通过时运行仍会回退 TypeScript。打包成功不代表目标平台运行验收通过。
 
 ## 自动化
 
@@ -65,9 +67,9 @@ npm pack
 
 目标已确认：EulerOS 2.0 SP15 x86_64，glibc 2.38。本地 Windows 已能生成 Linux x64 静态候选程序，但没有 Linux/WSL/Docker，**不能只凭交叉编译成功宣称 Linux 已通过运行验收**。
 
-发布者收集齐四组匹配的原生组件后，可直接 `npm pack` 向该机器传送候选包；无需设置 `CODEGRAPH_PACK_ALLOW_INCOMPLETE`。该历史开关仍用于显式跳过产物检查，不建议用于组件齐全的普通打包。打包不会放宽运行时自动选择：未验收的 Linux 程序仍会回退 TypeScript。
+发布者收集齐四组匹配的原生组件后，可直接 `npm pack` 向该机器传送候选包；无需设置 `CODEGRAPH_PACK_ALLOW_INCOMPLETE`。该历史开关仍用于显式跳过产物检查，不建议用于组件齐全的普通打包。打包不会填写 Linux 验收记录，记录由目标机安装时的真实验收生成。
 
-在 EulerOS 安装候选 tgz 后，执行一次以下发行验收（不需要 Rust/Cargo）：
+在 EulerOS 使用 `npm install -g --foreground-scripts /path/to/package.tgz` 安装时会自动验收（不需要 Rust/Cargo）。需要手动重验或执行额外安装冒烟测试时：
 
 ```bash
 nativePackageDir="$(npm root -g)/@sdd/codegraph-wx"

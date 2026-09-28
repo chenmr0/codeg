@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
-import { artifactApi, checkExecutable } from './rust-scan-release-lib.mjs';
+import { artifactApi, checkExecutable, nativeSourceHash } from './rust-scan-release-lib.mjs';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const api = artifactApi(root), require = createRequire(import.meta.url);
 const key = `${process.platform}-${process.arch}`, spec = api.RUST_SCAN_TARGETS[key];
@@ -16,12 +16,16 @@ const binary = path.join(root, 'dist/native-scan', key, spec.executable);
 const manifestPath = path.join(path.dirname(binary), 'manifest.json');
 const manifest = api.checkRustScanArtifact(binary, process.platform, process.arch, api.rustScanPackageVersion(), false);
 checkExecutable(fs.readFileSync(binary), process.platform);
+if (manifest.sourceHash !== nativeSourceHash(root)) throw new Error('Stale scan helper source hash');
 if (process.platform !== 'win32') fs.chmodSync(binary, 0o755);
 // A failed revalidation must not leave a stale success stamp behind.
 delete manifest.validation;
 fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
 process.env.CODEGRAPH_RUST_SCAN_PATH = binary;
 process.env.CODEGRAPH_HYBRID_SCAN = '0';
+// Release fixtures include every supported language, independently of the
+// user's indexing scope. This setting affects only this validator process.
+process.env.CODEGRAPH_ALL_LANGUAGES = '1';
 delete process.env.CODEGRAPH_DIR;
 const { scanDirectory } = require(path.join(root, 'dist/extraction'));
 const { ScanDiagnostics } = require(path.join(root, 'dist/extraction/sync-diagnostics'));
