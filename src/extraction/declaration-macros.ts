@@ -27,6 +27,47 @@ export interface CppMacroDefinition {
   end?: number;
 }
 
+/** Original UTF-16 range and recursively expanded replacement of one invocation. */
+export interface DeclarationMacroCandidate {
+  start: number;
+  end: number;
+  expansion: string;
+}
+
+/**
+ * A bounded token replacement that cannot escape its initializer expression.
+ * This is a lexical boundary proof, not declaration/expression type inference.
+ * Reject structural tokens even in nested bodies; uncertain syntax keeps the
+ * recovery path. Never use this predicate to suppress top-level declarations.
+ */
+export function preservesInitializerBoundary(text: string): boolean {
+  if (!text.trim() || text.length >= MAX_EXPANSION_BYTES || /R"|\\|\?\?|<%|%>|<:|:>|%:/.test(text)) return false;
+  const stack: string[] = [];
+  for (let i = 0; i < text.length;) {
+    const char = text[i]!;
+    if (char === '"' || char === "'") {
+      const end = skipQuoted(text, i);
+      if (end <= i + 1 || text[end - 1] !== char || /[\r\n]/.test(text.slice(i, end))) return false;
+      i = end;
+      continue;
+    }
+    if (char === '/' && text[i + 1] === '/') return false;
+    if (char === '/' && text[i + 1] === '*') {
+      const end = text.indexOf('*/', i + 2);
+      if (end < 0) return false;
+      i = end + 2;
+      continue;
+    }
+    if ('{};#'.includes(char)) return false;
+    if (char === '(' || char === '[') stack.push(char);
+    else if (char === ')' || char === ']') {
+      if (stack.pop() !== (char === ')' ? '(' : '[')) return false;
+    }
+    i++;
+  }
+  return stack.length === 0;
+}
+
 export interface DeclarationMacroExpansion {
   source: string;
   /** 1-indexed source lines on which a declaration-producing invocation began. */
@@ -604,7 +645,7 @@ function definitionForOffset(
 export function expandDeclarationMacros(
   source: string,
   projectDefinitions: readonly CppMacroDefinition[],
-  isDeclarationScope?: (line: number, column: number) => boolean,
+  isDeclarationScope?: (line: number, column: number, candidate: DeclarationMacroCandidate) => boolean,
   isLexicallyDeclarationScope?: (line: number, column: number) => boolean,
 ): DeclarationMacroExpansion {
   const globalIndex = definitionIndex(projectDefinitions);
@@ -745,7 +786,7 @@ export function expandDeclarationMacros(
     // actually create declaration syntax. The predicate is pure, so this
     // preserves the accepted replacement set while avoiding expensive scope
     // analysis for ordinary expression/statement macros.
-    if (isDeclarationScope && !isDeclarationScope(line, column)) continue;
+    if (isDeclarationScope && !isDeclarationScope(line, column, { start, end, expansion: expanded })) continue;
 
     const original = source.slice(start, end);
     const newlineCount = (original.match(/\n/g) ?? []).length;

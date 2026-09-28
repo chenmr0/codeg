@@ -37,6 +37,8 @@ import {
 } from '../resolution/frameworks';
 import {
   expandDeclarationMacros,
+  preservesInitializerBoundary,
+  type DeclarationMacroCandidate,
   type CppMacroDefinition,
 } from './declaration-macros';
 import { isWasmRuntimeCorruptionError } from './wasm-errors';
@@ -719,8 +721,35 @@ function parseSourceSpelledCppCallable(header: string): SourceSpelledCppCallable
   };
 }
 
-function anonymousCppTypeName(node: SyntaxNode): string | null {
-  if (getChildByField(node, 'name')) return null;
+/** Recover only an explicit anonymous enum head, never a named/scoped enum. */
+function hasAnonymousCppEnumBase(node: SyntaxNode, source: string): boolean {
+  if (node.type !== 'enum_specifier') return false;
+  const body = getChildByField(node, 'body');
+  if (!body || body.lastChild?.type !== '}' || body.lastChild.isMissing) return false;
+  // Some grammar recoveries put the underlying type in `name` and ':' in
+  // ERROR. The original head is the witness; a qualifier like n::T is not.
+  const head = maskCStyleCommentsAndLiterals(source.slice(node.startIndex, body.startIndex));
+  const keyword = /^enum\b/.exec(head);
+  if (!keyword) return false;
+  let i = keyword[0].length;
+  const skipSpace = () => { while (i < head.length && /\s/.test(head[i]!)) i++; };
+  skipSpace();
+  while (head.startsWith('[[', i)) {
+    let depth = 1;
+    i += 2;
+    while (i < head.length && depth > 0) {
+      if (head.startsWith('[[', i)) { depth++; i += 2; }
+      else if (head.startsWith(']]', i)) { depth--; i += 2; }
+      else i++;
+    }
+    if (depth !== 0) return false;
+    skipSpace();
+  }
+  return head[i] === ':' && head[i + 1] !== ':';
+}
+
+function anonymousCppTypeName(node: SyntaxNode, source?: string): string | null {
+  if (getChildByField(node, 'name') && !(source && hasAnonymousCppEnumBase(node, source))) return null;
   if (node.type === 'enum_specifier') return '(anonymous enum)';
   if (node.type === 'union_specifier') return '(anonymous union)';
   if (node.type === 'struct_specifier') return '(anonymous struct)';
@@ -1478,7 +1507,7 @@ export class TreeSitterExtractor {
    * implementation details as symbols. The raw tree is sufficient for this
    * boundary check even when the invocation itself is an ERROR node.
    */
-  private isDeclarationMacroScope(line: number, column: number): boolean {
+  private isDeclarationMacroScope(line: number, column: number, candidate: DeclarationMacroCandidate): boolean {
     if (!this.tree) return false;
     const sourceOffset = this.originalLineStart(line) + column;
     if ((this.language === 'c' || this.language === 'cpp')
@@ -1489,6 +1518,14 @@ export class TreeSitterExtractor {
     });
     let depth = 0;
     while (current && depth++ < 128) {
+      // A healthy, closed initializer already belongs to the primary AST.
+      // Only suppress auxiliary declarations if the FULL replacement cannot
+      // close any surrounding delimiter or emit declaration/body separators.
+      // BRIDGE-style macros that close the array and declare symbols must pass.
+      if (current.type === 'initializer_list' && !current.hasError &&
+          current.lastChild?.type === '}' && !current.lastChild.isMissing &&
+          candidate.start > current.startIndex && candidate.end < current.endIndex &&
+          preservesInitializerBoundary(candidate.expansion)) return false;
       if (current.type === 'compound_statement') {
         // Error recovery sometimes extends a function's compound_statement far
         // beyond its real closing brace. Ignore that stale AST ancestor only
@@ -1876,7 +1913,7 @@ export class TreeSitterExtractor {
     const expanded = expandDeclarationMacros(
       this.originalSource,
       this.globalMacroDefinitions,
-      (line, column) => this.isDeclarationMacroScope(line, column),
+      (line, column, candidate) => this.isDeclarationMacroScope(line, column, candidate),
       (line, column) => {
         const sourceOffset = this.originalLineStart(line) + column;
         return !this.isInsideLexicalExecutableBody(sourceOffset);
@@ -3710,13 +3747,13 @@ export class TreeSitterExtractor {
     if (!body && !isForwardDeclaration) return;
 
     const anonymousName = !nameOverride && (this.language === 'c' || this.language === 'cpp')
-      ? anonymousCppTypeName(node)
+      ? anonymousCppTypeName(node, this.source)
       : null;
     const name = nameOverride ?? anonymousName ?? extractName(node, this.source, this.extractor);
     const docstring = getPrecedingDocstring(node, this.source);
     const visibility = this.extractor.getVisibility?.(node);
     const isExported = this.extractor.isExported?.(node, this.source);
-    const declaredTypeName = (this.language === 'c' || this.language === 'cpp')
+    const declaredTypeName = !anonymousName && (this.language === 'c' || this.language === 'cpp')
       ? getCppDeclaredTypeName(node, this.source)
       : null;
     const explicitQualifiedName = declaredTypeName?.qualifiedName
@@ -5008,7 +5045,8 @@ export class TreeSitterExtractor {
   private extractTypeAlias(node: SyntaxNode): boolean {
     if (!this.extractor) return false;
 
-    const name = extractName(node, this.source, this.extractor);
+    const name = this.collectHealthyTypedefNames(node)?.[0]
+      ?? extractName(node, this.source, this.extractor);
     if (name === '<anonymous>') return false;
     const docstring = getPrecedingDocstring(node, this.source);
     const isExported = this.extractor.isExported?.(node, this.source);
@@ -5051,7 +5089,7 @@ export class TreeSitterExtractor {
       const innerEnum = this.findChildByTypes(node, this.extractor.enumTypes);
       if (innerEnum) {
         const anonymousName = (this.language === 'c' || this.language === 'cpp')
-          ? anonymousCppTypeName(innerEnum)
+          ? anonymousCppTypeName(innerEnum, this.source)
           : null;
         if (anonymousName) this.createNode('enum', anonymousName, innerEnum);
         this.extractInheritance(innerEnum, enumNode.id);
@@ -5120,25 +5158,46 @@ export class TreeSitterExtractor {
     return false;
   }
 
-  /**
-   * 收集 C/C++ typedef 声明的全部名字：type_definition 的直接 type_identifier
-   * 子节点（即各 typedef 别名），以及 struct_specifier / enum_specifier 的标签名。
-   * tree-sitter 的 type_definition.declarator 字段只指向第一个 declarator，
-   * 其余别名是兄弟 type_identifier 子节点、tag 在 specifier 的 name 字段，
-   * 它们都没有字段指向 —— 本方法把它们一次性收集齐，供补建节点。
-   */
-  private collectTypedefNames(node: SyntaxNode): { aliases: string[]; tag?: string } {
+  /** Read every declarator field of a healthy C/C++ typedef, not its base type. */
+  private collectHealthyTypedefNames(node: SyntaxNode): string[] | null {
+    if ((this.language !== 'c' && this.language !== 'cpp')
+      || node.type !== 'type_definition' || node.hasError) return null;
     const aliases: string[] = [];
+    for (let i = 0; i < node.namedChildCount; i++) {
+      if (node.fieldNameForNamedChild(i) !== 'declarator') continue;
+      let current = node.namedChild(i);
+      let depth = 0;
+      while (current && !['identifier', 'type_identifier'].includes(current.type)) {
+        if (++depth > 32 || ![
+          'pointer_declarator', 'reference_declarator', 'array_declarator',
+          'function_declarator', 'parenthesized_declarator',
+        ].includes(current.type)) return null;
+        // Never descend into type/parameters/array bounds. An unsupported
+        // declarator keeps the existing recovery path for the whole typedef.
+        current = getChildByField(current, 'declarator')
+          ?? (current.type === 'parenthesized_declarator' ? current.namedChild(0) : null);
+      }
+      if (!current) return null;
+      aliases.push(getNodeText(current, this.source));
+    }
+    return aliases.length ? aliases : null;
+  }
+
+  /** Keep legacy recovery and tag presentation for unsupported/damaged declarations. */
+  private collectTypedefNames(node: SyntaxNode): { aliases: string[]; tag?: string } {
+    const healthyAliases = this.collectHealthyTypedefNames(node);
+    const aliases: string[] = healthyAliases ?? [];
     let tag: string | undefined;
     for (let i = 0; i < node.namedChildCount; i++) {
       const child = node.namedChild(i);
       if (!child) continue;
-      if (child.type === 'type_identifier') {
+      if (!healthyAliases && child.type === 'type_identifier') {
         const name = getNodeText(child, this.source);
         if (name) aliases.push(name);
       } else if (child.type === 'struct_specifier' || child.type === 'enum_specifier') {
         const nameNode = getChildByField(child, 'name');
-        if (nameNode && nameNode.type === 'type_identifier') {
+        if (nameNode && nameNode.type === 'type_identifier'
+          && !(this.language === 'cpp' && hasAnonymousCppEnumBase(child, this.source))) {
           tag = getNodeText(nameNode, this.source);
         }
       }
