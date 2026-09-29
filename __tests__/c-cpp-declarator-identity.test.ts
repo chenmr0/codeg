@@ -33,11 +33,11 @@ describe.each(['c', 'cpp'] as const)('%s typedef declarator identity', language 
     expect(aliases(source)).toEqual(names);
   });
 
-  it('preserves the existing tag and field ownership contract', () => {
+  it('keeps a real tag as a struct while preserving typedef field ownership', () => {
     const r = run('typedef struct Tag { int value; } Alias, *Pointer;');
     expect(r.nodes).toEqual(expect.arrayContaining([
       expect.objectContaining({ kind: 'struct', name: 'Alias' }),
-      expect.objectContaining({ kind: 'type_alias', name: 'Tag' }),
+      expect.objectContaining({ kind: 'struct', name: 'Tag' }),
       expect.objectContaining({ kind: 'type_alias', name: 'Pointer' }),
       expect.objectContaining({ kind: 'field', qualifiedName: 'Alias::value' }),
     ]));

@@ -936,8 +936,10 @@ export class TreeSitterExtractor {
   private source: string;
   private tree: Tree | null = null;
   private nodes: Node[] = [];
-  private cppEnumValues = new Set<string>();
+  private cppEnumValues = new Map<string, number[][]>();
   private cppTypeScopes = new Set<string>();
+  private localMacroProof: Map<string, { offset: number; empty: boolean; callable: boolean }> | null = null;
+  private localMacroProofEnd = Infinity;
   private edges: Edge[] = [];
   private unresolvedReferences: UnresolvedReference[] = [];
   private errors: ExtractionError[] = [];
@@ -2720,7 +2722,9 @@ export class TreeSitterExtractor {
 
     this.nodes.push(newNode);
     if (this.language === 'cpp' && kind === 'enum_member') {
-      this.cppEnumValues.add(newNode.qualifiedName);
+      const paths = this.cppEnumValues.get(newNode.qualifiedName) ?? [];
+      paths.push(this.cppConditionalPath(node));
+      this.cppEnumValues.set(newNode.qualifiedName, paths);
     }
     if (this.language === 'cpp' && ['class', 'struct', 'enum', 'type_alias', 'namespace'].includes(kind)) {
       this.cppTypeScopes.add(newNode.qualifiedName);
@@ -2985,13 +2989,45 @@ export class TreeSitterExtractor {
     return receiver;
   }
 
+  /** A deliberately narrow proof, not a C preprocessor. Stop at includes,
+   * conditionals or undef: their effects require translation-unit context. */
+  private hasLocalEmptyMacroPrefix(typeName: string, callableName: string, offset: number): boolean {
+    if (!this.fileMacroNames.has(typeName) || !this.fileMacroNames.has(callableName)) return false;
+    if (!this.localMacroProof) {
+      this.localMacroProof = new Map();
+      const source = maskCStyleCommentsAndLiterals(this.originalSource);
+      const directives = /^[ \t]*#[ \t]*([A-Za-z_]+)([^\r\n]*)/gm;
+      for (const match of source.matchAll(directives)) {
+        if (match[1] !== 'define' || match[2]!.includes('\\')) {
+          this.localMacroProofEnd = match.index!;
+          break;
+        }
+        const definition = /^[ \t]+([A-Za-z_]\w*)(.*)$/.exec(match[2]!);
+        if (!definition) { this.localMacroProofEnd = match.index!; break; }
+        // Use the original replacement: masking a string literal must not
+        // turn a nonempty object-like macro into an empty one.
+        const original = this.originalSource.slice(match.index!, match.index! + match[0].length);
+        const raw = /^[ \t]*#[ \t]*define[ \t]+[A-Za-z_]\w*(.*)$/.exec(original);
+        this.localMacroProof.set(definition[1]!, { offset: match.index!,
+          empty: definition[2]!.trim() === '' && !/["']/.test(raw?.[1] ?? ''),
+          callable: definition[2]!.startsWith('(') });
+      }
+    }
+    const type = this.localMacroProof.get(typeName);
+    const callable = this.localMacroProof.get(callableName);
+    return offset < this.localMacroProofEnd && !!type?.empty && type.offset < offset
+      && !!callable?.callable && callable.offset < offset;
+  }
+
   private isMisparsedCallable(name: string, node: SyntaxNode): boolean {
     if (this.extractor?.isMisparsedFunction?.(name, node, this.macroNameLookup)) return true;
     if ((this.language === 'c' || this.language === 'cpp') && this.macroNameLookup.has(name)) {
       const type = getChildByField(node, 'type');
-      // An empty closing macro from the preceding declaration is not a
-      // return type for the next declaration-producing macro invocation.
-      if (type && this.globalBodylessMacroNames?.has(type.text.trim())) return true;
+      // Project-wide names are not proof of visibility in this translation
+      // unit. Only reject a locally proven empty-prefix/callable-macro pair.
+      if (type && this.globalBodylessMacroNames?.has(type.text.trim())
+        && this.hasLocalEmptyMacroPrefix(type.text.trim(), name,
+          this.originalLineStart(node.startPosition.row + 1))) return true;
       const originalLine = this.originalSource.slice(this.originalLineStart(node.startPosition.row + 1),
         this.originalLineStart(node.startPosition.row + 2) || undefined).trimStart();
       if (originalLine.startsWith(name) && /^\s*\(/.test(originalLine.slice(name.length))) {
@@ -5120,6 +5156,22 @@ export class TreeSitterExtractor {
       : scope && full.startsWith(scope) ? full : this.buildQualifiedName(full);
   }
 
+  /** Branch identities, including header guards, from outermost to innermost.
+   * A first #if arm and its #else/#elif arm must never share an identity. */
+  private cppConditionalPath(node: SyntaxNode): number[] {
+    const path: number[] = [];
+    let alternative: number | undefined;
+    for (let parent = node.parent; parent; parent = parent.parent) {
+      if (['preproc_else', 'preproc_elif', 'preproc_elifdef'].includes(parent.type)) {
+        alternative ??= parent.id;
+      } else if (['preproc_if', 'preproc_ifdef', 'preproc_ifndef'].includes(parent.type)) {
+        path.push(alternative ?? parent.id);
+        alternative = undefined;
+      }
+    }
+    return path.reverse();
+  }
+
   /**
    * Reinterpret a grammar ambiguity only with scoped enum evidence.
    */
@@ -5128,22 +5180,26 @@ export class TreeSitterExtractor {
     const fn = node.type === 'function_declarator' ? node : null;
     const params = fn && getChildByField(fn, 'parameters');
     if (!params?.namedChildCount) return false;
+    const branch = this.cppConditionalPath(node);
+    const isKnownValue = (name: string): boolean => !this.cppTypeScopes.has(name)
+      && (this.cppEnumValues.get(name)?.some(path =>
+        path.every((id, index) => branch[index] === id)) ?? false);
     return params.namedChildren.every(param => {
       const type = getChildByField(param, 'type');
       if (param.type !== 'parameter_declaration' || param.namedChildCount !== 1
         || type?.type !== 'qualified_identifier') return false;
       const value = getNodeText(type, this.source).replace(/\s*::\s*/g, '::');
-      if (value.startsWith('::')) return this.cppEnumValues.has(value.slice(2));
+      if (value.startsWith('::')) return isKnownValue(value.slice(2));
       let scope = this.buildQualifiedName('').replace(/::$/, '');
       while (scope) {
-        if (this.cppEnumValues.has(`${scope}::${value}`)) return true;
+        if (isKnownValue(`${scope}::${value}`)) return true;
         // A nearer type/namespace binds the first component. Do not fall
         // through to a same-spelled outer enum when its member is unknown.
         if (this.cppTypeScopes.has(`${scope}::${value.split('::')[0]}`)) return false;
         const end = scope.lastIndexOf('::');
         scope = end < 0 ? '' : scope.slice(0, end);
       }
-      return this.cppEnumValues.has(value);
+      return isKnownValue(value);
     });
   }
 
@@ -5282,7 +5338,8 @@ export class TreeSitterExtractor {
         if (declarator) aliases.push(getNodeText(declarator, this.source));
       } else if (['struct_specifier', 'union_specifier', 'enum_specifier'].includes(child.type)) {
         const nameNode = getChildByField(child, 'name');
-        if (nameNode && nameNode.type === 'type_identifier') {
+        if (nameNode && nameNode.type === 'type_identifier'
+          && !(this.language === 'cpp' && hasAnonymousCppEnumBase(child, this.source))) {
           tag = child;
         }
       }

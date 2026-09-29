@@ -15,6 +15,8 @@ and adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixes
 
+- C/C++ 声明准入不再凭跨文件空宏名冲突删除真实函数；枚举初始化推断按条件分支及类型证据保守判定，保持函数与调用关系。兼容 typedef 标签类型和匿名枚举底层类型修复；提取版本 26，已有版本 25 索引需完整重建。见 [声明证据安全说明](docs/cpp-declaration-evidence-safety.md)。
+
 - 修复 C/C++ 健康数组初始化表达式被误送入声明宏恢复的问题，避免 MAME T11 操作码表受无关宏污染后反复超时及后续 sync 重试；保留结构宏生成声明、主解析引用和旧失败索引恢复能力，同属提取版本 25。验证见 docs/cpp-initializer-macro-recovery.md。
 
 - 修复健康 C/C++ typedef 将基础类型误建为别名、漏掉复杂声明符及名字包含数组长度的问题；修正匿名枚举底层类型误作枚举名和成员归属，保留原有 tag 展示与不确定声明恢复路径。提取版本由 24 升级为 25，旧索引需全量重建以修正未变化文件；验证范围见 docs/cpp-declarator-identity.md。
