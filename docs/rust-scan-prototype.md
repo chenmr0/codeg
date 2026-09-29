@@ -69,7 +69,7 @@ time env CODEGRAPH_RUST_SCAN=0 codegraph sync -v
 ## 当前保守边界
 
 - 只接入有 `.codegraphignore` 否定规则、原本走完整文件系统遍历的项目。Git-only、显式 hybrid 路径和局部 watcher 核对不被替换。
-- 初版拒绝非 ASCII 源码路径/目录、符号链接、转义/字符类/花括号等复杂忽略模式；遇到任一不支持项，整轮 Rust 结果丢弃并走 TS。带 ASCII 后缀且明确不参与索引的普通文件（如中文 Markdown）可跳过；非 ASCII 扩展名仍回退，避免 Unicode 大小写转换导致漏选源码。
+- 支持正向 ASCII 字母数字字符类，例如 `[568]`、`[is]`、`[a-z0-9]`，可用于根/嵌套忽略规则、目录规则及 `!` 重新纳入规则。范围端点须同为数字、大写字母或小写字母且顺序递增。非 ASCII 源码路径/目录、符号链接、转义、花括号、否定字符类（如 `[!ab]`、`[^ab]`）、其他未验证或不完整字符类仍整轮回退 TS。带 ASCII 后缀且明确不参与索引的普通文件（如中文 Markdown）可跳过；非 ASCII 扩展名仍回退，避免 Unicode 大小写转换导致漏选源码。
 - 根默认规则、根 `.gitignore`、根 `.git/info/exclude`、`.codegraphignore` 及其父目录扩展规则按同一来源和顺序提供给 Rust；不读取用户全局 Git excludes。嵌套规则逐层应用，不能默认套用 Rust 库所有行为。[Rust matcher API](https://docs.rs/ignore/latest/ignore/gitignore/struct.GitignoreBuilder.html)
 - 原生 I/O 错误、无效规则、深度/文件/输出限制都不是“空目录”；不使用部分清单删除索引。
 - 路径、扩展名、去重、数字范围、元数据计数和协议版本均在 TS 再检查。mtime 沿用 Node 浮点毫秒再取 floor 的比较方式。

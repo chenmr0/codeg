@@ -87,7 +87,7 @@ describe.skipIf(!available)('real Rust scanner differential gate', () => {
   });
 
   it('falls back as a whole for unsupported patterns and Unicode filenames', () => {
-    write('src/a.c'); write('.gitignore', '[ab].c\n'); compare('fallback');
+    write('src/a.c'); write('.gitignore', '[!ab].c\n'); compare('fallback');
     write('.gitignore', ''); write('src/中文.c'); compare('fallback');
   });
 
@@ -121,9 +121,62 @@ describe.skipIf(!available)('real Rust scanner differential gate', () => {
     expect(runRustGitFilter(dir, ['build/\n*.tmp\n!/keep.tmp\n'], candidates)).toMatchObject({
       included: [0, 3, 4],
     });
-    expect(() => runRustGitFilter(dir, ['[ab].c\n'], candidates)).toThrow('unsupported-rule');
+    expect(() => runRustGitFilter(dir, ['[!ab].c\n'], candidates)).toThrow('unsupported-rule');
     expect(runRustGitFilter(dir, [], [...candidates, '中文.c']).deferred).toEqual([5]);
   });
+
+  it('keeps native scanning with the NR whitelist and root/nested character classes', () => {
+    write('.codegraphignore', '/*\n!/aiotcode/\n!/ctcode/\n!/rsspcode/\n!/testNR/TestCode/\n!/testNR_RSSP/TestCode/\n');
+    const rules: string[] = ['# 中文注释 [ignored]', 'testNR/build/ut/[a-z0-9]*-[a-z0-9]*.json'];
+    for (const project of ['testNR', 'testNR_RSSP']) {
+      const suffix = project === 'testNR_RSSP' ? '_RSSP' : '';
+      for (const chip of ['SD618[568]', '80[12]1', 'SD6138', 'SD6130', 'SD6613']) {
+        for (const extension of ['cfg', 'h']) {
+          rules.push(`${project}/TestCode/infra_stub/bbmng/${chip}${suffix}/[is]t_lte_bbmng_cfg_table.${extension}`);
+        }
+      }
+      for (const chip of ['SD6185', 'SD6186', 'SD6188', '8011', '8021', 'SD6138', 'SD6130', 'SD6613', 'SD6189', '8031']) {
+        for (const prefix of ['i', 's', 'x', 'I']) {
+          write(`${project}/TestCode/infra_stub/bbmng/${chip}${suffix}/${prefix}t_lte_bbmng_cfg_table.h`);
+        }
+      }
+    }
+    write('.gitignore', rules.join('\n') + '\n');
+    write('aiotcode/a.h'); write('ctcode/a.h'); write('rsspcode/a.h');
+    write('testNR/build/ut/a1-b2.json'); write('outside/no.h');
+    write('aiotcode/.gitignore', 'generated[0-9]/\n[is]kip.h\n![s]kip.h\n');
+    write('aiotcode/generated1/no.h'); write('aiotcode/generatedx/yes.h');
+    write('aiotcode/ikip.h'); write('aiotcode/skip.h');
+    compare();
+    const files = scanDirectory(dir);
+    expect(files).toContain('testNR/TestCode/infra_stub/bbmng/SD6189/it_lte_bbmng_cfg_table.h');
+    expect(files).not.toContain('testNR/TestCode/infra_stub/bbmng/SD6185/it_lte_bbmng_cfg_table.h');
+    expect(files).toContain('aiotcode/skip.h');
+    expect(files).not.toContain('aiotcode/ikip.h');
+    expect(files).not.toContain('aiotcode/generated1/no.h');
+  });
+
+  it('matches ASCII classes, case folding, directory rules and negations against JS', () => {
+    // Include every printable ASCII character safe in a protocol candidate,
+    // including punctuation immediately outside alphabetic/numeric ranges.
+    const chars = Array.from({ length: 95 }, (_, i) => String.fromCharCode(i + 32))
+      .filter(c => !'/\\:'.includes(c));
+    const candidates = chars.flatMap(c => [`src/v${c}.h`, `src/v${c}/file.h`, `deep/src/v${c}.h`]);
+    for (const cls of ['[568]', '[is]', '[12]', '[a-z0-9]', '[a-zA-Z0-9]', '[A-Z]', '[a-a]', '[0-0]', '[za0-3]']) {
+      for (const rules of [`src/v${cls}.h\n`, `**/v${cls}.h\n`, `src/v${cls}/\n`,
+        `*.h\n!src/v${cls}.h\n`, `src/v${cls}/\n!src/v${cls}/file.h\n`]) {
+        const matcher = ignore().add(rules);
+        const expected = candidates.map((file, i) => matcher.ignores(file) ? -1 : i).filter(i => i >= 0);
+        expect(runRustGitFilter(dir, [rules], candidates).included, rules).toEqual(expected);
+      }
+    }
+  });
+
+  it.each(['[]', '[ab', 'ab]', '[!ab]', '[^ab]', '[[:alpha:]]', '[[ab]]',
+    '[z-a]', '[A-z]', '[9-a]', '[a-]', '[-a]', '[a-b-c]', '[a/b]'])(
+    'retains whole-scan fallback for unverified character classes: %s', cls => {
+      write('.gitignore', `${cls}.h\n`); write('src/a.h'); compare('fallback');
+    });
 
   it('matches the JS root matcher across supported glob and negation shapes', () => {
     const candidates = ['foo', 'foo/a.c', 'deep/foo', 'deep/foo/a.c', 'a/x/b.c', 'a/x/y/b.c',

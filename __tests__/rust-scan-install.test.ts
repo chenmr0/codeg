@@ -19,7 +19,7 @@ function manifest(kind: string) {
 }
 function stamp(kind: string) {
   const value = manifest(kind);
-  value.validation = { suite: kind === 'scan' ? 'native-parity-v2' : 'macro-parity-v1',
+  value.validation = { suite: kind === 'scan' ? 'native-parity-v3' : 'macro-parity-v1',
     platform: 'linux', arch: 'x64', sha256: value.sha256, passed: true };
   write(path.join(folder(kind), 'manifest.json'), JSON.stringify(value));
 }

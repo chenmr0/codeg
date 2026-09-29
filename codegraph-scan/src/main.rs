@@ -64,17 +64,59 @@ struct Response {
 
 type ScanResult<T> = Result<T, &'static str>;
 
+// Admit positive ASCII alphanumeric classes whose interpretation agrees with
+// the JS `ignore` matcher. Do not pass arbitrary classes through to globset:
+// e.g. [!a] is negated there but means literal ! or a in the JS matcher.
+fn validate_classes(text: &str) -> ScanResult<()> {
+    let bytes = text.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b']' {
+            return Err("unsupported-rule");
+        }
+        if bytes[i] != b'[' {
+            i += 1;
+            continue;
+        }
+        i += 1;
+        let start = i;
+        while i < bytes.len() && bytes[i] != b']' {
+            let first = bytes[i];
+            if !first.is_ascii_alphanumeric() {
+                return Err("unsupported-rule");
+            }
+            i += 1;
+            if bytes.get(i) == Some(&b'-') {
+                let last = *bytes.get(i + 1).ok_or("unsupported-rule")?;
+                // Cross-category/reversed ranges have surprising JS regex
+                // semantics; keep those on the authoritative TS path.
+                let same_category = (first.is_ascii_digit() && last.is_ascii_digit())
+                    || (first.is_ascii_lowercase() && last.is_ascii_lowercase())
+                    || (first.is_ascii_uppercase() && last.is_ascii_uppercase());
+                if !same_category || first > last {
+                    return Err("unsupported-rule");
+                }
+                i += 2;
+            }
+        }
+        if i == start || bytes.get(i) != Some(&b']') {
+            return Err("unsupported-rule");
+        }
+        i += 1;
+    }
+    Ok(())
+}
+
 fn validate_rule(line: &str) -> ScanResult<()> {
     let text = line.trim_end_matches('\r');
     if text.is_empty() || text.starts_with('#') {
         return Ok(());
     }
-    // First prototype deliberately excludes escape/class/brace and Unicode
-    // folding differences between the JS ignore matcher and globset.
+    // Keep escape/brace and Unicode folding differences on the JS path.
     if !text.is_ascii()
         || text
             .bytes()
-            .any(|c| c == 0 || c == b'\\' || b"[]{}".contains(&c))
+            .any(|c| c == 0 || c == b'\\' || b"{}".contains(&c))
     {
         return Err("unsupported-rule");
     }
@@ -82,7 +124,7 @@ fn validate_rule(line: &str) -> ScanResult<()> {
     {
         return Err("unsupported-rule");
     }
-    Ok(())
+    validate_classes(text)
 }
 
 fn matcher(root: &Path, lines: &[String]) -> ScanResult<Gitignore> {
@@ -436,8 +478,39 @@ mod tests {
         for rule in ["*.c", "!/src/", "**/foo*", "# comment", "name with space/"] {
             assert!(validate_rule(rule).is_ok());
         }
-        for rule in ["[ab].c", "a\\ b", "中文/", " trailing", "foo/../bar/"] {
+        for rule in ["[!ab].c", "a\\ b", "中文/", " trailing", "foo/../bar/"] {
             assert!(validate_rule(rule).is_err());
+        }
+    }
+    #[test]
+    fn positive_ascii_classes() {
+        for rule in [
+            "[ab].c",
+            "SD618[568]/[is]t_table.h",
+            "80[12]1/",
+            "[a-z0-9]*-[a-z0-9]*.json",
+            "![A-Z][a-zA-Z0-9].h",
+            "[a-a].c",
+        ] {
+            assert!(validate_rule(rule).is_ok(), "{rule}");
+        }
+        for rule in [
+            "[]",
+            "[ab",
+            "ab]",
+            "[!ab]",
+            "[^ab]",
+            "[[:alpha:]]",
+            "[[ab]]",
+            "[z-a]",
+            "[A-z]",
+            "[9-a]",
+            "[a-]",
+            "[-a]",
+            "[a-b-c]",
+            "[a/b]",
+        ] {
+            assert!(validate_rule(rule).is_err(), "{rule}");
         }
     }
     #[test]

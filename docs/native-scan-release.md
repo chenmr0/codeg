@@ -13,6 +13,8 @@
 
 缺失、损坏、未验证、不可执行或场景不支持时回退 TypeScript。日志的 `nativeStatus=used` 才表示实际使用了 Rust；`nativeReason` 说明为何回退。没有跨轮源码缓存，没有更改数据库结构，不需要重新 init。
 
+目录扫描支持 `[568]`、`[is]`、`[a-z0-9]` 等正向 ASCII 字母数字字符类，保留 `.gitignore`、`.git/info/exclude`、`.codegraphignore` 与嵌套忽略规则的既有语义。此修复需要更新原生程序，单独替换 JavaScript 不会让旧程序支持新规则。`native-parity-v3` 验收增加白名单内外字符类、嵌套规则和重新纳入规则的真实差分样例；Linux 候选仍须在 Linux 上通过验收才能自动启用。否定字符类、跨类别/逆序范围等未验证形式继续保守回退。
+
 宏上下文使用独立门槛：Windows/Linux x64 且 C-family 候选至少 5000 个时，只有 `codegraph-macros` 的版本、源码指纹、SHA-256 和 `macro-parity-v1` 目标平台验收戳都匹配才自动运行。小上下文保持 TypeScript；特殊文件逐项回退，进程/协议错误则丢弃部分结果并由 TypeScript 完整重建。`CODEGRAPH_RUST_MACROS=0` 强制关闭，`1` 强制尝试开发候选，`verify` 双跑并采用 TypeScript。
 
 安装脚本先检查随包程序的版本、源码指纹、SHA-256 和可执行文件格式，并在 Linux 恢复执行权限（解决 Windows 打包导致的 mode 丢失）。Windows/Linux x64 上若缺少匹配的目标平台验收记录，会自动执行已有的 `validate:rust-scan` / `validate:rust-macros` 真实差分验收：只读写独立临时样例，不扫描业务目录、不打开业务索引、不下载、不编译。只有验收通过并重新核对记录后才允许自动加速；已有匹配记录时跳过重复验收。两个组件分别处理，任一失败或超时（每个最多 60 秒）均输出原因并保留 TypeScript 回退，安装本身可以完成。

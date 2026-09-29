@@ -70,16 +70,29 @@ fixture('Unicode documentation', { '报告.md': '', 'docs/说明.txt': '', 'src/
 for (const name of ['src/中文.c', '中文/a.c', 'src/中文.Kt', 'templates/中文.json', 'src/中文.routes']) {
   fixture('Unicode source fallback: ' + name, { [name]: '', 'src/a.c': '' }, 'fallback');
 }
-fixture('complex rule fallback', { '.gitignore': '[ab].c\n', 'src/a.c': '' }, 'fallback');
+fixture('ASCII character classes in whitelist and nested ignores', {
+  '.codegraphignore': '/*\n!/aiotcode/\n!/ctcode/\n!/rsspcode/\n!/testNR/TestCode/\n!/testNR_RSSP/TestCode/\n',
+  '.gitignore': 'testNR/build/ut/[a-z0-9]*-[a-z0-9]*.json\ntestNR/TestCode/SD618[568]/[is]t_table.h\ntestNR_RSSP/TestCode/80[12]1_RSSP/[is]t_table.h\n',
+  'testNR/TestCode/SD6185/it_table.h': '', 'testNR/TestCode/SD6188/st_table.h': '',
+  'testNR/TestCode/SD6186/It_table.h': '', 'testNR/TestCode/SD6189/it_table.h': '',
+  'testNR/TestCode/SD6185/xt_table.h': '', 'testNR_RSSP/TestCode/8011_RSSP/it_table.h': '',
+  'testNR_RSSP/TestCode/8031_RSSP/it_table.h': '', 'testNR/build/ut/a1-b2.json': '',
+  'aiotcode/.gitignore': 'generated[0-9]/\n[is]kip.h\n![s]kip.h\n',
+  'aiotcode/generated1/no.h': '', 'aiotcode/generatedx/yes.h': '',
+  'aiotcode/ikip.h': '', 'aiotcode/skip.h': '', 'ctcode/a.c': '', 'rsspcode/a.c': '',
+});
+fixture('complex rule fallback', { '.gitignore': '[!ab].c\n', 'src/a.c': '' }, 'fallback');
 fixture('link fallback', { 'real/a.c': '' }, 'fallback', dir => {
   fs.symlinkSync(path.join(dir, 'real'), path.join(dir, 'alias'), process.platform === 'win32' ? 'junction' : 'dir');
 });
 {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cg-native-filter-release-'));
   try {
-    const rootRules = ['build/\n*.tmp\n!/keep.tmp\n/ROOT/*\n!/ROOT/keep.c\nlocked/\n!locked/child.c\n'];
+    const rootRules = ['build/\n*.tmp\n!/keep.tmp\n/ROOT/*\n!/ROOT/keep.c\nlocked/\n!locked/child.c\n',
+      'src/[a-z0-9].h\n!src/[is].h\nchip[568]/\n'];
     const candidates = ['src/a.c', 'build/no.c', 'deep/value.tmp', 'keep.tmp',
-      'ROOT/no.c', 'ROOT/keep.c', 'root/KEEP.C', '.hidden.c', 'dir/a space.c', 'locked/child.c', '中文.c'];
+      'ROOT/no.c', 'ROOT/keep.c', 'root/KEEP.C', '.hidden.c', 'dir/a space.c', 'locked/child.c',
+      'src/a.h', 'src/I.h', 'src/s.h', 'src/0.h', 'src/Z.h', 'src/_.h', 'chip5/a.h', 'chip9/a.h', '中文.c'];
     const matcher = ignore({ ignorecase: true });
     for (const group of rootRules) matcher.add(group);
     const expected = candidates.map((candidate, index) => matcher.ignores(candidate) ? -1 : index).filter(index => index >= 0);
