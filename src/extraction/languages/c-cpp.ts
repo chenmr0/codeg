@@ -1597,10 +1597,11 @@ function cCppIsMacroInvocationMisparse(
     && declarator.namedChildren.some(c => c.type === 'function_declarator')) return true;
   // A bare macro invocation is also parsed as a no-return-type declaration
   // at class/file scope. A real typed function sharing a macro's name has a
-  // type prefix; a constructor has the enclosing class's name. Keep both.
+  // type prefix; a constructor has the enclosing class/struct/union's name.
+  // Keep both, using the nearest type even when a union is nested in a class.
   if (!typeNode) {
     let owner = node.parent;
-    while (owner && !['class_specifier', 'struct_specifier', 'translation_unit'].includes(owner.type)) owner = owner.parent;
+    while (owner && !['class_specifier', 'struct_specifier', 'union_specifier', 'translation_unit'].includes(owner.type)) owner = owner.parent;
     const ownerName = owner && owner.type !== 'translation_unit'
       ? getChildByField(owner, 'name')?.text.replace(/<.*$/, '').trim() : undefined;
     if (ownerName !== name.replace(/^~/, '')) {

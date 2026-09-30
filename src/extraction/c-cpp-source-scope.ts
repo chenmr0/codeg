@@ -79,13 +79,15 @@ export class CCppSourceScope {
       else if (char === ']') state.brackets = Math.max(0, state.brackets - 1);
       else if (char === '{' && state.parens === 0 && state.brackets === 0) {
         const header = code.slice(state.header, i).trim();
-        // A type template parameter is not the declaration's container.
-        const bare = stripTemplateParameters(header);
+        // Template parameters and attributes are not the declaration's
+        // container or callable parameter list.
+        const bare = stripDeclarationAttributes(stripTemplateParameters(header)).trim();
         const callable = /\)\s*(?:(?:const|volatile|noexcept|override|final)\b\s*|&&?\s*)*(?:(?:->|requires\b|:)\s*[\s\S]*)?$/.test(bare)
           && !/^\s*(?:return|case)\b/.test(bare);
         // A base class can be decltype(factory()); that trailing ')' does
-        // not turn the class body into executable code. A base-list colon
-        // precedes its first '(' (unlike a constructor initializer list).
+        // not turn the class body into executable code. After stripping
+        // attributes such as alignas(alignof(T)), a base-list colon precedes
+        // its first '(' (unlike a constructor initializer list).
         const beforeParen = bare.split('(', 1)[0]!;
         const baseList = /(^|[^:]):([^:]|$)/.test(beforeParen);
         const container = /^(?:(?:inline|export|typedef)\s+)*(?:namespace|class|struct|union|enum)\b/.test(bare)
@@ -161,6 +163,29 @@ export class CCppSourceScope {
     }
     return lo > 0 && offset < ranges[lo - 1]!.end;
   }
+}
+
+/** Ignore attribute arguments while classifying a declaration header. The
+ * source is already masked, so delimiters inside comments/literals are inert.
+ * Keep unmatched groups intact rather than inventing a declaration boundary.
+ */
+function stripDeclarationAttributes(header: string): string {
+  const attribute = /\[\[|\b(?:alignas|__attribute__|__declspec)\s*\(/g;
+  let result = '', offset = 0;
+  for (let match; (match = attribute.exec(header));) {
+    const start = match[0] === '[[' ? match.index : attribute.lastIndex - 1;
+    const open = header[start]!, close = open === '[' ? ']' : ')';
+    let depth = 1, end = start + 1;
+    for (; end < header.length && depth > 0; end++) {
+      if (header[end] === open) depth++;
+      else if (header[end] === close) depth--;
+    }
+    if (depth > 0) break;
+    result += header.slice(offset, match.index) + ' ';
+    offset = end;
+    attribute.lastIndex = end;
+  }
+  return result + header.slice(offset);
 }
 
 function stripTemplateParameters(header: string): string {

@@ -34,6 +34,47 @@ class Gauge { public:
     expect(cpp(source).nodes.some(n => n.name === 'local')).toBe(false);
   });
 
+  it.each([
+    'alignas(16)',
+    'alignas(alignof(Base))',
+  ])('keeps macro members of a class with %s and a decltype base', attributes => {
+    const source = `#define METHOD(name) int name();
+#define FIELD(name) int name;
+struct Base {};
+Base makeBase();
+struct ${attributes} Derived : decltype(makeBase()) {
+  METHOD(run)
+  FIELD(value)
+};
+struct Derived make() { int local_only = 0; return {}; }`;
+    const scope = new CCppSourceScope(source);
+    expect(scope.isExecutable(source.indexOf('METHOD(run)'))).toBe(false);
+    expect(scope.isExecutable(source.indexOf('local_only'))).toBe(true);
+    const result = cpp(source);
+    expect(result.errors).toEqual([]);
+    expect(result.nodes).toContainEqual(expect.objectContaining({kind:'method', qualifiedName:'Derived::run'}));
+    expect(result.nodes).toContainEqual(expect.objectContaining({kind:'field', qualifiedName:'Derived::value'}));
+    expect(result.nodes.some(n => n.name === 'local_only')).toBe(false);
+    expect(result.nodes.filter(n => n.name === 'METHOD' || n.name === 'FIELD').every(n => n.kind === 'macro')).toBe(true);
+  });
+
+  it.each([
+    '[[gnu::aligned(16)]]',
+    '__attribute__((aligned(16)))',
+    '__declspec(align(16))',
+    '[[deprecated("legacy")]] alignas(16)',
+  ])(
+    'distinguishes type attributes %s from function parameter lists', attributes => {
+      const source = `struct ${attributes} Derived : decltype(factory()) { int member; };
+struct Result ${attributes} make() { int local_only; return {}; }`;
+      const scope = new CCppSourceScope(source);
+      expect(scope.isExecutable(source.indexOf('member'))).toBe(false);
+      expect(scope.isExecutable(source.indexOf('local_only'))).toBe(true);
+      expect(scope.maskExecutableBodies(source)).toContain('int member;');
+      expect(scope.maskExecutableBodies(source)).not.toContain('local_only');
+    },
+  );
+
   it.each(['REPORT_VALUE', 'describe_fields'])('keeps expanded methods, not the %s invocation wrapper', macro => {
     const source = `#define ${macro}(arg) int report() const { return 1; }
 struct Gauge {
@@ -65,6 +106,38 @@ struct Widget { Widget(); ~Widget(); operator bool() const; };`).nodes;
     for (const name of ['Widget', '~Widget', 'operator bool']) {
       expect(nodes).toContainEqual(expect.objectContaining({kind:'method', name}));
     }
+  });
+
+  it.each([
+    { constructor: 'Variant();', nested: false },
+    { constructor: 'Variant() : value(0) {}', nested: false },
+    { constructor: 'Variant();', nested: true },
+    { constructor: 'Variant() : value(0) {}', nested: true },
+  ])('keeps a union constructor sharing an inactive macro name: $constructor, nested=$nested', ({constructor, nested}) => {
+    const result = cpp(`#define Variant(x) impl(x)
+#undef Variant
+${nested ? 'struct Outer {' : ''}
+  union Variant { int value; ${constructor} };
+${nested ? '};' : ''}`);
+    expect(result.errors).toEqual([]);
+    const constructors = result.nodes.filter(n => n.kind === 'method' && n.name === 'Variant');
+    expect(constructors).toEqual([
+      expect.objectContaining({qualifiedName:nested ? 'Outer::Variant::Variant' : 'Variant::Variant'}),
+    ]);
+    expect(constructors[0]!.isDeclaration === true).toBe(constructor.endsWith(';'));
+  });
+
+  it.each([
+    'int name() { return 1; } int name();',
+    'int name(); int name() { return 1; }',
+  ])('prefers the macro-generated function definition in either order: %s', replacement => {
+    const result = cpp(`#define MAKE(name) ${replacement}\nMAKE(run)\n`);
+    expect(result.errors).toEqual([]);
+    const functions = result.nodes.filter(n => n.kind === 'function' && n.name === 'run');
+    expect(functions).toHaveLength(1);
+    expect(functions[0]!.isDeclaration).not.toBe(true);
+    expect(functions[0]!.signature).toBe('int run()');
+    expect(result.edges.filter(e => e.kind === 'contains' && e.target === functions[0]!.id)).toHaveLength(1);
   });
 
   it.each(['fragment.hpp', 'fragment.ipp'])('does not turn assignments in %s into declarations', file => {

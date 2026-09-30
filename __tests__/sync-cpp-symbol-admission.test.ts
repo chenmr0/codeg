@@ -41,12 +41,88 @@ function write(root: string, phase: number) {
 function snapshot(graph: CodeGraph) {
   const db = (graph as any).db.db;
   return {
-    nodes: db.prepare('SELECT id,kind,name,qualified_name,file_path,start_line,end_line,start_column,end_column,signature,is_declaration FROM nodes ORDER BY id').all(),
+    nodes: db.prepare('SELECT id,kind,name,qualified_name,file_path,start_line,end_line,start_column,end_column,signature,is_declaration,is_static FROM nodes ORDER BY id').all(),
     edges: db.prepare('SELECT source,target,kind,line,col,provenance FROM edges ORDER BY source,target,kind,line,col,provenance').all(),
   };
 }
 
 describe('symbol-admission changes through index and sync', () => {
+  it('persists separate macro overloads and owners through removal and restoration', async () => {
+    const root = project();
+    const writePhase = (dir: string, phase: number) => {
+      fs.writeFileSync(path.join(dir, 'api.hpp'), '#define MAKE() '
+        + `struct A { ${phase ? '' : 'static '}int run(int); ${phase ? '' : 'int run(double);'} }; `
+        + 'struct B { int run(int); }; '
+        + 'int A::run(int value) { return value; }\nMAKE()\n');
+    };
+    const check = (graph: CodeGraph, phase: number) => {
+      const methods = graph.getNodesByName('run');
+      expect(methods).toHaveLength(phase ? 2 : 3);
+      const a = methods.filter(n => n.qualifiedName === 'A::run');
+      expect(a.find(n => !n.isDeclaration)?.isStatic).toBe(!phase);
+      expect(methods.find(n => n.qualifiedName === 'B::run')?.isStatic).toBe(false);
+      const db = (graph as any).db.db;
+      const wrongOwners = db.prepare("SELECT p.qualified_name AS parent, n.qualified_name AS child FROM edges e JOIN nodes p ON p.id=e.source JOIN nodes n ON n.id=e.target WHERE e.kind='contains' AND p.kind='struct' AND n.kind='method'").all();
+      expect(wrongOwners.every((r: {parent:string; child:string}) => r.child.startsWith(r.parent+'::'))).toBe(true);
+    };
+    writePhase(root, 0);
+    const graph = CodeGraph.initSync(root); graphs.push(graph);
+    await graph.indexAll();
+    check(graph, 0);
+    for (const phase of [1, 0]) {
+      writePhase(root, phase);
+      await graph.sync({paths:['api.hpp']});
+      check(graph, phase);
+      const freshRoot = project(); writePhase(freshRoot, phase);
+      const fresh = CodeGraph.initSync(freshRoot); graphs.push(fresh);
+      await fresh.indexAll();
+      expect(snapshot(graph)).toEqual(snapshot(fresh));
+    }
+  }, 30_000);
+
+  it('persists attributed macro members, union constructors and definitions through sync', async () => {
+    const root = project();
+    const writePhase = (dir: string, phase: number) => {
+      const functionBody = phase
+        ? 'int name() { return 1; } int name();'
+        : 'int name(); int name() { return 1; }';
+      fs.writeFileSync(path.join(dir, 'members.hpp'), `#define METHOD(name) int name();
+struct Base {};
+Base makeBase();
+struct ${phase ? 'alignas(16) ' : ''}Derived : decltype(makeBase()) {
+  METHOD(run)
+};
+`);
+      fs.writeFileSync(path.join(dir, 'union.hpp'), '#define Variant(x) impl(x)\n#undef Variant\n'
+        + `union Variant { int value; Variant() : value(${phase}) {} };\n`);
+      fs.writeFileSync(path.join(dir, 'generated.hpp'), `#define MAKE(name) ${functionBody}\nMAKE(generated)\n`);
+    };
+    const assertSymbols = (graph: CodeGraph) => {
+      expect(graph.getNodesByName('run')).toContainEqual(
+        expect.objectContaining({kind:'method', qualifiedName:'Derived::run'}),
+      );
+      expect(graph.getNodesByName('Variant')).toContainEqual(
+        expect.objectContaining({kind:'method', qualifiedName:'Variant::Variant', isDeclaration:false}),
+      );
+      expect(graph.getNodesByName('generated')).toEqual([
+        expect.objectContaining({kind:'function', signature:'int generated()', isDeclaration:false}),
+      ]);
+    };
+    writePhase(root, 0);
+    const graph = CodeGraph.initSync(root); graphs.push(graph);
+    await graph.indexAll();
+    assertSymbols(graph);
+    for (const phase of [1, 0]) {
+      writePhase(root, phase);
+      await graph.sync({paths:['members.hpp','union.hpp','generated.hpp']});
+      assertSymbols(graph);
+      const freshRoot = project(); writePhase(freshRoot, phase);
+      const fresh = CodeGraph.initSync(freshRoot); graphs.push(fresh);
+      await fresh.indexAll();
+      expect(snapshot(graph)).toEqual(snapshot(fresh));
+    }
+  }, 30_000);
+
   it('keeps typedef and enum-initializer corrections identical across sync and fresh indexing', async () => {
     const root = project();
     const writePhase = (dir: string, phase: number) => {

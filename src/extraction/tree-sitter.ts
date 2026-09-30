@@ -43,6 +43,7 @@ import {
 } from './declaration-macros';
 import { isWasmRuntimeCorruptionError } from './wasm-errors';
 import { CCppSourceScope } from './c-cpp-source-scope';
+import { macroSemanticId, macroFinalIds, macroWrittenAnchor, preferMacroDefinition } from './c-cpp-macro-identity';
 
 // Re-export for backward compatibility
 export { generateNodeId } from './tree-sitter-helpers';
@@ -988,6 +989,8 @@ export class TreeSitterExtractor {
   private sourceScope: CCppSourceScope | null = null;
   private declarationMacroTypeSource: string | null = null;
   private isolatedDeclarationSource: string | null = null;
+  private useMacroSemanticIds = false;
+  private macroPrimarySyntax = new Map<Node, SyntaxNode>();
   private lexicalNonFileScopeRanges: SourceRange[] | null = null;
   private lexicalDirectiveRanges: Array<SourceRange & {row:number; endPosition:{row:number; column:number}}> = [];
   /** Damaged C++ type wrappers can absorb a later, separately written function. */
@@ -1346,6 +1349,7 @@ export class TreeSitterExtractor {
 
   /** Delete the current native tree once and clear the reference first. */
   private releaseTree(): void {
+    this.macroPrimarySyntax.clear();
     const tree = this.tree;
     this.tree = null;
     tree?.delete();
@@ -1489,16 +1493,17 @@ export class TreeSitterExtractor {
       throw new Error(`Failed to create isolated parser for language: ${this.language}`);
     }
     try {
-      return extractFromSource(
+      const extractor = new TreeSitterExtractor(
         this.filePath,
         source,
         this.language,
-        undefined,
         this.globalMacroNames ?? undefined,
         this.globalBodylessMacroNames ?? undefined,
         undefined,
         parser,
       );
+      extractor.useMacroSemanticIds = true;
+      return extractor.extract();
     } finally {
       parser.delete();
     }
@@ -1943,6 +1948,12 @@ export class TreeSitterExtractor {
     // All primary-tree work is complete at this point. Release it before any
     // auxiliary parse so no nested extraction shares a live tree with another
     // Parser in the same web-tree-sitter runtime.
+    const primaryIdentities = new Map<Node, string>();
+    for (const node of this.nodes) {
+      if (expanded.invocationLines.has(node.startLine) && node.kind !== 'file') {
+        primaryIdentities.set(node, macroSemanticId(node, this.macroPrimarySyntax.get(node) ?? null, this.originalSource));
+      }
+    }
     this.releaseTree();
 
     // Deliberately omit macroDefinitions to prevent recursive auxiliary parses.
@@ -2007,10 +2018,77 @@ export class TreeSitterExtractor {
     }
     this.timings.declarationMacroAuxParseMs =
       performance.now() - auxiliaryParseStarted;
-    // A macro may put a declaration and its definition on the same original
-    // line (and hence ID). Keep the final definition just as the store does.
-    const recoveredNodes = [...new Map(recovered.nodes.map(node => [node.id, node])).values()];
+    // Auxiliary IDs already distinguish owners and full callable declarators.
+    // Merge declaration metadata only within the same semantic identity.
+    const recoveredById = new Map<string, Node>();
+    for (const node of recovered.nodes) {
+      const existing = recoveredById.get(node.id);
+      recoveredById.set(node.id, existing ? preferMacroDefinition(existing, node) : node);
+    }
+    // A source-written callable after an attribute macro is already owned by
+    // the primary parse. Sparse parsing may reconstruct a different namespace;
+    // match only its unchanged source suffix/parameter position, never merely
+    // its name (a macro can generate another owner's same-name method).
+    const sourceAliases = new Map<string,string>();
+    const expandedLines = expanded.source.split('\n');
+    const sourceLines = this.originalSource.split('\n');
+    const sourceCandidates = new Map<number, Array<[Node, string]>>();
+    for (const entry of primaryIdentities) if (macroWrittenAnchor(entry[0])) {
+      const list = sourceCandidates.get(entry[0].startLine) ?? [];
+      list.push(entry); sourceCandidates.set(entry[0].startLine, list);
+    }
+    for (const node of recoveredById.values()) {
+      const anchor = macroWrittenAnchor(node);
+      if (!anchor || anchor.line !== node.startLine || !sourceCandidates.has(node.startLine)) continue;
+      const original = sourceLines[node.startLine-1] ?? '', expandedLine = expandedLines[node.startLine-1] ?? '';
+      let common = 0;
+      while (common < original.length && common < expandedLine.length
+        && original[original.length-1-common] === expandedLine[expandedLine.length-1-common]) common++;
+      if (anchor.column < expandedLine.length-common) continue;
+      for (const [primary, semanticId] of sourceCandidates.get(node.startLine)!) {
+        const at = macroWrittenAnchor(primary)!;
+        if (primary.kind !== node.kind || primary.name !== node.name || at.line !== anchor.line
+          || at.callable !== anchor.callable || at.column < original.length-common
+          || at.column-original.length !== anchor.column-expandedLine.length) continue;
+        sourceAliases.set(node.id, semanticId);
+        node.qualifiedName = primary.qualifiedName;
+        break;
+      }
+    }
+    const aliasedNodes = [...recoveredById.values()];
+    recoveredById.clear();
+    for (const node of aliasedNodes) {
+      node.id = sourceAliases.get(node.id) ?? node.id;
+      const existing = recoveredById.get(node.id);
+      recoveredById.set(node.id, existing ? preferMacroDefinition(existing, node) : node);
+    }
+    const recoveredNodes = [...recoveredById.values()];
     const recoveredEdges = recovered.edges;
+    for (const edge of recoveredEdges) {
+      edge.source = sourceAliases.get(edge.source) ?? edge.source;
+      edge.target = sourceAliases.get(edge.target) ?? edge.target;
+    }
+    const finalIds = macroFinalIds(recoveredNodes, primaryIdentities);
+    for (const node of recoveredNodes) node.id = finalIds.get(node.id) ?? node.id;
+    for (const edge of recoveredEdges) {
+      edge.source = finalIds.get(edge.source) ?? edge.source;
+      edge.target = finalIds.get(edge.target) ?? edge.target;
+    }
+    const primaryIdChanges = new Map<string, string>();
+    for (const [node, semanticId] of primaryIdentities) {
+      const finalId = finalIds.get(semanticId);
+      if (finalId && finalId !== node.id) {
+        primaryIdChanges.set(node.id, finalId);
+        node.id = finalId;
+      }
+    }
+    for (const edge of this.edges) {
+      edge.source = primaryIdChanges.get(edge.source) ?? edge.source;
+      edge.target = primaryIdChanges.get(edge.target) ?? edge.target;
+    }
+    for (const ref of this.unresolvedReferences) ref.fromNodeId = primaryIdChanges.get(ref.fromNodeId) ?? ref.fromNodeId;
+    recoveredById.clear();
+    for (const node of recoveredNodes) recoveredById.set(node.id, node);
 
     const mergeStarted = performance.now();
     const originalLines = this.originalSource.split('\n');
@@ -2021,8 +2099,8 @@ export class TreeSitterExtractor {
       'variable', 'constant',
     ]);
     const existingIds = new Set(this.nodes.map(node => node.id));
+    const existingById = new Map(this.nodes.map(node => [node.id, node]));
     const generatedIds = new Set<string>();
-    const recoveredById = new Map(recoveredNodes.map(node => [node.id, node]));
     const recoveredParent = new Map<string, string>();
     for (const edge of recoveredEdges) {
       if (edge.kind === 'contains') recoveredParent.set(edge.target, edge.source);
@@ -2069,11 +2147,16 @@ export class TreeSitterExtractor {
       if (
         !recoverableKinds.has(node.kind) ||
         !expanded.invocationLines.has(node.startLine) ||
-        existingIds.has(node.id) ||
         expanded.expandedMacroNames.has(node.name) ||
         isRedundantSourceSpelledDefinition(node) ||
         isTemplateParameterArtifact(node)
       ) {
+        continue;
+      }
+      const existing = existingById.get(node.id);
+      if (existing) {
+        Object.assign(existing, preferMacroDefinition(existing, node));
+        generatedIds.add(node.id);
         continue;
       }
       const originalLine = originalLines[node.startLine - 1] ?? '';
@@ -2720,6 +2803,8 @@ export class TreeSitterExtractor {
       }
     }
 
+    if (this.useMacroSemanticIds) newNode.id = macroSemanticId(newNode, node, this.originalSource);
+    else if (this.globalMacroDefinitions?.length) this.macroPrimarySyntax.set(newNode, node);
     this.nodes.push(newNode);
     if (this.language === 'cpp' && kind === 'enum_member') {
       const paths = this.cppEnumValues.get(newNode.qualifiedName) ?? [];
@@ -2736,7 +2821,7 @@ export class TreeSitterExtractor {
       if (parentId) {
         this.edges.push({
           source: parentId,
-          target: id,
+          target: newNode.id,
           kind: 'contains',
         });
       }
@@ -2771,10 +2856,11 @@ export class TreeSitterExtractor {
       updatedAt: Date.now(),
       ...extra,
     };
+    if (this.useMacroSemanticIds) newNode.id = macroSemanticId(newNode, null, this.originalSource);
     this.nodes.push(newNode);
     const parentId = this.nodeStack[this.nodeStack.length - 1];
     if (parentId) {
-      this.edges.push({ source: parentId, target: id, kind: 'contains' });
+      this.edges.push({ source: parentId, target: newNode.id, kind: 'contains' });
     }
     return newNode;
   }
