@@ -47,6 +47,36 @@ function snapshot(graph: CodeGraph) {
 }
 
 describe('symbol-admission changes through index and sync', () => {
+  it('persists source members of macro types with the same ownership after sync and rebuild', async () => {
+    const writePhase = (dir: string, phase: number) => {
+      fs.writeFileSync(path.join(dir, 'macros.hpp'), '#define NAME(n) generated_##n\n#define TYPE(n) class NAME(n)\n#define CTOR(n) public: NAME(n)()\n');
+      fs.writeFileSync(path.join(dir, 'api.hpp'), '#include "macros.hpp"\nTYPE(Owner)\n{\n'
+        + ` CTOR(Owner) {}\npublic:\n ${phase ? 'long caption' : 'int value'};\n`
+        + ' static constexpr int limit = 4;\n void namespace_push();\n void run() { int local_only; }\n};\n');
+    };
+    const root = project(); writePhase(root, 0);
+    const graph = CodeGraph.initSync(root); graphs.push(graph);
+    await graph.indexAll();
+    for (const phase of [1, 0]) {
+      writePhase(root, phase);
+      await graph.sync({paths:['api.hpp']});
+      const freshRoot = project(); writePhase(freshRoot, phase);
+      const fresh = CodeGraph.initSync(freshRoot); graphs.push(fresh);
+      await fresh.indexAll();
+      expect(snapshot(graph)).toEqual(snapshot(fresh));
+      const field = graph.getNodesByName(phase ? 'caption' : 'value');
+      expect(field).toHaveLength(1);
+      expect(field[0]).toMatchObject({kind:'field',qualifiedName:`generated_Owner::${phase ? 'caption' : 'value'}`});
+      expect(graph.getNodesByName('limit')).toContainEqual(expect.objectContaining({kind:'field',isStatic:true}));
+      expect(graph.getNodesByName('namespace_push')).toContainEqual(expect.objectContaining({kind:'method'}));
+      expect(graph.getNodesByName('local_only')).toEqual([]);
+      const db = (graph as any).db.db;
+      const parents = db.prepare("SELECT p.qualified_name AS parent FROM edges e JOIN nodes p ON p.id=e.source WHERE e.kind='contains' AND e.target=?").all(field[0].id);
+      expect(parents).toEqual([{parent:'generated_Owner'}]);
+    }
+    expect((await graph.sync()).filesModified).toBe(0);
+  }, 30_000);
+
   it('persists separate macro overloads and owners through removal and restoration', async () => {
     const root = project();
     const writePhase = (dir: string, phase: number) => {

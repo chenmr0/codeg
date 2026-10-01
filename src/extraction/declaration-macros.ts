@@ -637,6 +637,36 @@ function definitionForOffset(
   return globalDefinitions.get(name);
 }
 
+/** Resolve only a macro at the head of a possible type body. This is used by
+ * the auxiliary declaration pass, never to admit primary variable guesses.
+ * Keep source ordering for local definitions and the normal expansion bounds.
+ */
+export function createMacroTypeHeaderResolver(source: string, definitions: readonly CppMacroDefinition[]): (header: string, offset: number) => string | undefined {
+  const globals = definitionIndex(definitions).definitions;
+  const locals = new Map<string, CppMacroDefinition[]>();
+  for (const definition of scanCppMacroDefinitions(source)) {
+    const values = locals.get(definition.name) ?? [];
+    values.push(definition); locals.set(definition.name, values);
+  }
+  return (header, offset) => {
+    if (header.length > MAX_DEFINITION_BYTES) return undefined;
+    // A healthy source-spelled type name must not be rewritten because an
+    // unrelated project file defines an object macro with that same name.
+    if (/^(?:class|struct|union)\b/.test(header)
+      && !/^(?:class|struct|union)\s+[A-Za-z_]\w*\s*\(/.test(header)) return undefined;
+    const name = /^([A-Za-z_]\w*)\s*(?:\(|$)/.exec(header)?.[1];
+    if (!/^(?:class|struct|union)\b/.test(header)
+      && (!name || !definitionForOffset(name, offset, globals, locals))) return undefined;
+    const lookup: MacroLookup = { get: key => definitionForOffset(key, offset, globals, locals) };
+    const expanded = expandText(header, lookup, 0, new Set()).trim();
+    // Only a type header, not a complete declaration or a macro that closes
+    // another scope, can prove ownership of the following source brace.
+    if (expanded === header || expanded.length > MAX_EXPANSION_BYTES || /[{};#]/.test(expanded)
+      || !/^(?:class|struct|union)\s+[A-Za-z_]\w*\b/.test(expanded)) return undefined;
+    return expanded;
+  };
+}
+
 /**
  * Expand declaration-producing macro invocations while preserving the source's
  * line count. The optional predicate lets the caller reject function-body
@@ -647,6 +677,7 @@ export function expandDeclarationMacros(
   projectDefinitions: readonly CppMacroDefinition[],
   isDeclarationScope?: (line: number, column: number, candidate: DeclarationMacroCandidate) => boolean,
   isLexicallyDeclarationScope?: (line: number, column: number) => boolean,
+  isTypeNameExpansion?: (start: number, end: number, expansion: string) => boolean,
 ): DeclarationMacroExpansion {
   const globalIndex = definitionIndex(projectDefinitions);
   const globalDefinitions = globalIndex.definitions;
@@ -779,7 +810,8 @@ export function expandDeclarationMacros(
     if (applied === null) continue;
     const stack = new Set<string>([name]);
     const expanded = expandText(applied, expansionDefinitions, 1, stack);
-    if (!looksLikeDeclaration(expanded) && !isStructuralExpansion(expanded)) continue;
+    if (!looksLikeDeclaration(expanded) && !isStructuralExpansion(expanded)
+      && !isTypeNameExpansion?.(start, end, expanded)) continue;
     if (expanded.length > MAX_EXPANSION_BYTES) continue;
     // Scope classification may build lexical executable ranges and query the
     // raw AST. Delay that work until expansion has proven this invocation can

@@ -1,7 +1,7 @@
 import { maskCStyleCommentsAndLiterals } from './grammars';
 
 interface Range { start: number; end: number; insideType?: boolean }
-interface State { stack: Array<boolean | 'type'>; parens: number; brackets: number; header: number }
+interface State { stack: Array<boolean | 'type' | 'macro-type'>; parens: number; brackets: number; header: number }
 interface Conditional { entry: State; branches: State[]; hasElse: boolean }
 
 /** Source evidence independent of tree-sitter's error-recovered parent chain.
@@ -14,19 +14,30 @@ export class CCppSourceScope {
   private readonly directives: Range[] = [];
   private readonly unclosedStandaloneBody: boolean;
   private readonly balanced: boolean;
+  private readonly macroTypeBodies = new Set<number>();
+  private readonly macroTypeHeaders: Range[] = [];
+  private readonly macroTypeRanges: Range[] = [];
+  private readonly macroTypeNames = new Set<string>();
 
-  constructor(source: string) {
+  constructor(source: string, resolveMacroTypeHeader?: (header: string, offset: number) => string | undefined) {
     const code = maskCStyleCommentsAndLiterals(source);
     let state: State = { stack: [], parens: 0, brackets: 0, header: 0 };
     const conditions: Conditional[] = [];
     const copy = (s: State): State => ({ ...s, stack: [...s.stack] });
     let activeStart: number | null = null;
     let activeInsideType = false;
+    let macroStart: number | null = null;
     const transition = (offset: number): void => {
+      const macroActive = state.stack.includes('macro-type');
+      if (macroActive && macroStart === null) macroStart = offset;
+      if (!macroActive && macroStart !== null) {
+        this.macroTypeRanges.push({ start: macroStart, end: offset });
+        macroStart = null;
+      }
       const active = state.stack.includes(true);
       if (active && activeStart === null) {
         activeStart = offset;
-        activeInsideType = state.stack.includes('type');
+        activeInsideType = state.stack.includes('type') || state.stack.includes('macro-type');
       }
       if (!active && activeStart !== null) {
         this.executable.push({ start: activeStart, end: offset, insideType: activeInsideType });
@@ -81,7 +92,9 @@ export class CCppSourceScope {
         const header = code.slice(state.header, i).trim();
         // Template parameters and attributes are not the declaration's
         // container or callable parameter list.
-        const bare = stripDeclarationAttributes(stripTemplateParameters(header)).trim();
+        let bare = stripDeclarationAttributes(stripTemplateParameters(header)).trim();
+        const macroType = !state.stack.includes(true) ? resolveMacroTypeHeader?.(bare, i - header.length) : undefined;
+        if (macroType) bare = macroType;
         const callable = /\)\s*(?:(?:const|volatile|noexcept|override|final)\b\s*|&&?\s*)*(?:(?:->|requires\b|:)\s*[\s\S]*)?$/.test(bare)
           && !/^\s*(?:return|case)\b/.test(bare);
         // A base class can be decltype(factory()); that trailing ')' does
@@ -92,8 +105,13 @@ export class CCppSourceScope {
         const baseList = /(^|[^:]):([^:]|$)/.test(beforeParen);
         const container = /^(?:(?:inline|export|typedef)\s+)*(?:namespace|class|struct|union|enum)\b/.test(bare)
           && (!callable || baseList);
+        if (macroType && container) {
+          this.macroTypeBodies.add(i);
+          this.macroTypeHeaders.push({ start: state.header, end: i });
+          for (const name of macroType.match(/[A-Za-z_]\w*/g) ?? []) this.macroTypeNames.add(name);
+        }
         const lambda = /(?:^|[=({,:])\s*\[[^\]]*\]\s*(?:\([^)]*\))?\s*(?:mutable\s*)?(?:noexcept\s*)?(?:->[^;{}]+)?$/.test(bare);
-        state.stack.push(container && !/\bnamespace\b/.test(bare) ? 'type'
+        state.stack.push(container && !/\bnamespace\b/.test(bare) ? (macroType ? 'macro-type' : 'type')
           : !container && (state.stack.includes(true) || lambda || callable));
         state.header = i + 1;
         transition(i + 1);
@@ -116,6 +134,13 @@ export class CCppSourceScope {
   isDirective(offset: number): boolean { return this.contains(this.directives, offset); }
   hasUnclosedStandaloneBody(): boolean { return this.unclosedStandaloneBody; }
   isBalanced(): boolean { return this.balanced; }
+  isMacroTypeBody(offset: number): boolean { return this.macroTypeBodies.has(offset); }
+  isMacroTypeDeclaration(start: number, end: number, name: string, callable: boolean): boolean {
+    if (this.isExecutable(start) || this.isDirective(start)) return false;
+    return this.contains(this.macroTypeHeaders, start) && this.contains(this.macroTypeHeaders, end - 1)
+      || callable && this.macroTypeNames.has(name)
+        && this.contains(this.macroTypeRanges, start) && this.contains(this.macroTypeRanges, end - 1);
+  }
 
   /** Auxiliary declaration parsing needs body boundaries, not statements.
    * Preserve every offset/newline so recovered declarations still map back to

@@ -15,6 +15,8 @@ and adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixes
 
+- 修复宏生成 C/C++ 类型的后续源码成员丢失，并保留正确的字段类型、所属类型和源码位置；修复 `namespace_push` 等合法方法名被误过滤。提取版本升至 28，旧索引需完整重建。见 [符号提取修复说明](docs/cpp-symbol-admission.md)。
+
 - C/C++ 声明准入不再凭跨文件空宏名冲突删除真实函数；枚举初始化推断按条件分支及类型证据保守判定，保持函数与调用关系。兼容 typedef 标签类型和匿名枚举底层类型修复；提取版本 26，已有版本 25 索引需完整重建。见 [声明证据安全说明](docs/cpp-declaration-evidence-safety.md)。
 
 - 修复 C/C++ 健康数组初始化表达式被误送入声明宏恢复的问题，避免 MAME T11 操作码表受无关宏污染后反复超时及后续 sync 重试；保留结构宏生成声明、主解析引用和旧失败索引恢复能力，同属提取版本 25。验证见 docs/cpp-initializer-macro-recovery.md。

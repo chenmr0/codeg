@@ -1745,7 +1745,7 @@ export const cExtractor: LanguageExtractor = {
   isMisparsedFunction: (name, node, macroNames) => {
     // C macros cause tree-sitter to misparse macro invocations as function
     // definitions when the shape matches NAME(params) { body }.
-    if (name.startsWith('namespace')) return true;
+    if (/^namespace(?:\s|$)/.test(name)) return true;
     const cppKeywords = ['switch', 'if', 'for', 'while', 'do', 'case', 'return'];
     if (cppKeywords.includes(name)) return true;
     return cCppIsMacroInvocationMisparse(name, node, macroNames);
@@ -1917,7 +1917,7 @@ export const cppExtractor: LanguageExtractor = {
     // namespace blocks as function_definitions (e.g. name = "namespace detail").
     // Also filter C++ keywords that tree-sitter occasionally misinterprets as
     // function/method names (e.g. switch statements inside macro-confused scopes).
-    if (name.startsWith('namespace')) return true;
+    if (/^namespace(?:\s|$)/.test(name)) return true;
     const cppKeywords = ['switch', 'if', 'for', 'while', 'do', 'case', 'return'];
     if (cppKeywords.includes(name)) return true;
     // Filter out macro names that tree-sitter misparses as functions.
