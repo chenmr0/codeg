@@ -45,6 +45,28 @@ describe('declaration names backed by their own declarators', () => {
 
 describe('enum-value initialization versus callable declarations', () => {
   it.each([
+    'enum class 状态 { ON }; 状态 object(状态::ON);',
+    String.raw`enum class \u72b6\u6001 { ON }; \u72b6\u6001 object(\u72b6\u6001::ON);`,
+    'enum class Κατάσταση { ΕΝΕΡΓΟ }; Κατάσταση object(Κατάσταση::ΕΝΕΡΓΟ);',
+    'enum class Mode { 启用 }; Mode object(Mode::启用);',
+    'namespace 状态空间 { enum class Mode { ON }; } 状态空间::Mode object(状态空间::Mode::ON);',
+    'enum class Mode { ON }; using ::Mode; using ::Mode; Mode object(Mode::ON);',
+    'namespace actual { enum class Mode { ON }; using actual::Mode; using ::actual::Mode; Mode object(actual::Mode::ON); }',
+    'enum class 状态 { 启用 }; using ::状态; 状态 object(状态::启用);',
+    'namespace 实际 { enum class 状态 { 启用 }; } namespace 本地 { using 实际::状态; 状态 object(状态::启用); }',
+  ])('retains Unicode and redundant imported enum identities: %s', source => {
+    expect(extract(source).filter(n => n.name === 'object')).toEqual([expect.objectContaining({kind:'variable'})]);
+  });
+
+  it('keeps Unicode type imports and incompatible branch bindings conservative', () => {
+    expect(extract('enum class 状态 { 启用 }; namespace 实际 { struct 状态 { using 启用 = int; }; } '
+      + 'namespace 本地 { using 实际::状态; int api(状态::启用); }'))
+      .toContainEqual(expect.objectContaining({kind:'function',name:'api'}));
+    expect(extract('enum class Mode { ON }; namespace actual { struct Mode { using ON = int; }; }\n'
+      + 'namespace local {\n#if FEATURE\nusing actual::Mode;\n#endif\nMode api(Mode::ON);\n}'))
+      .toContainEqual(expect.objectContaining({kind:'function',name:'api'}));
+  });
+  it.each([
     ['using actual::Mode;', 'Mode::ON'],
     ['namespace view = actual;', 'view::Mode::ON'],
     ['using namespace actual;', 'Mode::ON'],

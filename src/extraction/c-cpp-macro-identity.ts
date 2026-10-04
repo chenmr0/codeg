@@ -1,5 +1,6 @@
 import type { Node as SyntaxNode } from 'web-tree-sitter';
 import type { Node } from '../types';
+import type { CppTypeBindings } from './cpp-type-bindings';
 import { generateNodeId } from './tree-sitter-helpers';
 import { cppIdentityTokens, cppParameterTypes, cppTemplateIdentity, cppTemplateParameterName, cppCallableReturnType } from './c-cpp-macro-types';
 
@@ -38,7 +39,7 @@ function semanticQualifiedName(symbol: Node, syntax: SyntaxNode | null): string 
   return qualified;
 }
 
-export function macroSemanticId(symbol: Node, syntax: SyntaxNode | null, source: string): string {
+export function macroSemanticId(symbol: Node, syntax: SyntaxNode | null, source: string, bindings?: CppTypeBindings): string {
   if (symbol.kind === 'file' || symbol.kind === 'macro' || symbol.kind === 'import') return symbol.id;
   const qualifiedName = semanticQualifiedName(symbol, syntax);
   const {normalize, templates, callableNormalizer} = cppTemplateIdentity(syntax, qualifiedName, source);
@@ -49,7 +50,7 @@ export function macroSemanticId(symbol: Node, syntax: SyntaxNode | null, source:
     const parameters = declarator?.childForFieldName('parameters');
     if (declarator && parameters) {
       parameterPosition = parameters.startPosition;
-      const types = cppParameterTypes(parameters, source, normalize);
+      const types = cppParameterTypes(parameters, source, normalize, bindings);
       const normalizeSignature = callableNormalizer(parameters);
       const qualifiers = declarator.namedChildren.filter(child => child.startIndex >= parameters.endIndex
         && ['type_qualifier','ref_qualifier','requires_clause'].includes(child.type))
@@ -57,7 +58,7 @@ export function macroSemanticId(symbol: Node, syntax: SyntaxNode | null, source:
       // The recovery parser can mask trailing const while retaining its offsets.
       if (!qualifiers.includes('const') && /^\s+const\b/.test(source.slice(declarator.endIndex, syntax!.endIndex))) qualifiers.push('const');
       callable = [types, qualifiers, templates,
-        templates.length ? cppCallableReturnType(declarator, source, normalizeSignature) : null];
+        templates.length ? cppCallableReturnType(declarator, source, normalizeSignature, bindings) : null];
     } else {
       // Without a complete declarator, keep separate evidence rather than
       // merging overloads on a shared/truncated display-signature prefix.

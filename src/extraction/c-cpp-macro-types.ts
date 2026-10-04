@@ -1,10 +1,13 @@
 import type { Node as SyntaxNode } from 'web-tree-sitter';
+import type { CppTypeBindings } from './cpp-type-bindings';
 
 // Preserve literals and token boundaries; whitespace/comments are not identity.
 export function cppIdentityTokens(text: string): string[] {
-  return (text.match(/"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|\/\*[\s\S]*?\*\/|\/\/[^\r\n]*|[A-Za-z_$][\w$]*|\d+|::|&&|\.\.\.|[^\s]/g) ?? [])
+  return (text.match(/"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|\/\*[\s\S]*?\*\/|\/\/[^\r\n]*|(?:[\p{ID_Start}_$]|\\u[\da-fA-F]{4}|\\U[\da-fA-F]{8})(?:[\p{ID_Continue}$]|\\u[\da-fA-F]{4}|\\U[\da-fA-F]{8})*|\d+|::|&&|\.\.\.|[^\s]/gu) ?? [])
     .filter(token => !token.startsWith('/*') && !token.startsWith('//'));
 }
+
+export const isCppIdentityIdentifier = (text: string): boolean => /^(?:[\p{ID_Start}_$]|\\u[\da-fA-F]{4}|\\U[\da-fA-F]{8})(?:[\p{ID_Continue}$]|\\u[\da-fA-F]{4}|\\U[\da-fA-F]{8})*$/u.test(text);
 
 type Normalize = (text: string, offset?: number) => string;
 const tokens: Normalize = text => cppIdentityTokens(text).join(' ');
@@ -20,21 +23,35 @@ function nestedDeclarator(node: SyntaxNode): SyntaxNode | null {
  * that order, but are not themselves type constructors: int *a[3] is an array
  * of pointers, whereas int (*a)[3] is a pointer to an array.
  */
-function typeOperators(node: SyntaxNode | null, source: string, normalize: Normalize, stop?: SyntaxNode): TypeOperator[] | null {
+function typeOperators(node: SyntaxNode | null, source: string, normalize: Normalize, stop?: SyntaxNode,
+  bindings?: CppTypeBindings, aliases = new Set<number>()): TypeOperator[] | null {
   if (!node || node.id === stop?.id || ['identifier', 'field_identifier', 'type_identifier'].includes(node.type)) return [];
   if (node.type === 'qualified_identifier') {
     let pointer: SyntaxNode | null = node;
     while (pointer?.type === 'qualified_identifier') pointer = pointer.childForFieldName('name');
     if (pointer?.type !== 'pointer_type_declarator') return null;
-    const operators = typeOperators(pointer, source, normalize, stop);
+    const operators = typeOperators(pointer, source, normalize, stop, bindings, aliases);
     const outer = operators?.[operators.length - 1];
     if (!operators || outer?.[0] !== 'pointer') return null;
-    const owner = normalize(source.slice(node.startIndex, pointer.startIndex), node.startIndex).replace(/\s*::$/, '');
+    const writtenOwner = source.slice(node.startIndex, pointer.startIndex);
+    let owner = normalize(writtenOwner, node.startIndex).replace(/\s*::$/, '');
+    if (owner === tokens(writtenOwner).replace(/\s*::$/, '')) {
+      const binding = bindings?.resolve(node, owner);
+      if (binding?.kind === 'nominal') owner = binding.name;
+      else if (binding?.kind === 'alias' && !aliases.has(binding.node.id) && aliases.size < 16) {
+        const next = new Set(aliases).add(binding.node.id);
+        const declared = typeOperators(binding.declarator, source, tokens, undefined, bindings, next);
+        if (declared) {
+          const shape = typeShape(binding.type, binding.qualifiers, declared, source, tokens, bindings, next);
+          if (!shape.operators.length && !shape.qualifiers.length && shape.base.startsWith('::')) owner = shape.base;
+        }
+      }
+    }
     operators[operators.length - 1] = ['member-pointer', outer[1], owner];
     return operators;
   }
   const child = nestedDeclarator(node);
-  const operators = typeOperators(child, source, normalize, stop);
+  const operators = typeOperators(child, source, normalize, stop, bindings, aliases);
   if (!operators) return null;
   const kind = node.type.replace(/^abstract_/, '');
   const extras = node.namedChildren.filter(n => n.id !== child?.id && n.type !== 'comment');
@@ -49,7 +66,7 @@ function typeOperators(node: SyntaxNode | null, source: string, normalize: Norma
   } else if (kind === 'function_declarator') {
     const parameters = node.childForFieldName('parameters');
     if (!parameters) return null;
-    operators.push(['function', cppParameterTypes(parameters, source, normalize),
+    operators.push(['function', cppParameterTypes(parameters, source, normalize, bindings, aliases),
       extras.filter(n => n.id !== parameters.id).map(n => normalize(n.text, n.startIndex))]);
   } else if (kind === 'variadic_declarator') {
     operators.push(['pack']);
@@ -81,30 +98,120 @@ function parameterName(parameter: SyntaxNode): SyntaxNode | null {
 /** C/C++ function parameter identity after array/function adjustment and
  * removal of top-level cv. Apply this recursively to callback parameters too.
  */
-export function cppParameterType(parameter: SyntaxNode, source: string, normalize: Normalize = tokens): string {
+export function cppParameterType(parameter: SyntaxNode, source: string, normalize: Normalize = tokens,
+  bindings?: CppTypeBindings, aliases = new Set<number>()): string {
   if (!parameter.type.endsWith('parameter_declaration')) return normalize(parameter.text, parameter.startIndex);
   const declarator = parameter.childForFieldName('declarator');
-  const operators = typeOperators(declarator, source, normalize);
+  const operators = typeOperators(declarator, source, normalize, undefined, bindings, aliases);
   if (!operators) return normalize(parameterSpelling(parameter, source), parameter.startIndex);
   const equals = parameter.children.find(n => n.type === '=');
   const parts = parameter.namedChildren.filter(n => n.id !== declarator?.id && n.type !== 'comment'
     && (!equals || n.startIndex < equals.startIndex));
-  const qualifiers = parts.filter(n => n.type === 'type_qualifier').map(n => normalize(n.text, n.startIndex)).sort();
-  const base = parts.filter(n => n.type !== 'type_qualifier').map(n => normalize(source.slice(n.startIndex, n.endIndex), n.startIndex)).join(' ');
-  if (operators[0]?.[0] === 'array') operators[0] = ['pointer', []];
-  else if (operators[0]?.[0] === 'function') operators.unshift(['pointer', []]);
-  if (operators[0]?.[0] === 'pointer' || operators[0]?.[0] === 'member-pointer') {
-    const qualifiers = operators[0][1] as string[];
-    operators[0][1] = qualifiers.filter(q => q !== 'const' && q !== 'volatile' && q !== 'restrict');
+  const type = parameter.childForFieldName('type');
+  // Keep annotations or unsupported specifiers instead of erasing them.
+  if (parts.some(n => n.id !== type?.id && n.type !== 'type_qualifier')) return normalize(parameterSpelling(parameter, source), parameter.startIndex);
+  const shape = typeShape(type, parts.filter(n => n.type === 'type_qualifier'), operators, source, normalize, bindings, aliases);
+  if (shape.operators[0]?.[0] === 'array') shape.operators[0] = ['pointer', []];
+  else if (shape.operators[0]?.[0] === 'function') shape.operators.unshift(['pointer', []]);
+  if (shape.operators[0]?.[0] === 'pointer' || shape.operators[0]?.[0] === 'member-pointer') {
+    const qualifiers = shape.operators[0][1] as string[];
+    shape.operators[0][1] = qualifiers.filter(q => q !== 'const' && q !== 'volatile' && q !== 'restrict');
   }
-  return JSON.stringify([base, operators.length ? qualifiers : [], operators]);
+  return JSON.stringify([shape.base, shape.operators.length ? shape.qualifiers : [], shape.operators]);
+}
+
+interface TypeShape { base: string; qualifiers: string[]; operators: TypeOperator[] }
+
+/** Expanding an alias is safe only when every embedded name is bound. Raw
+ * template arguments or array extents cannot be transplanted into the use
+ * site's scope: the same spelling there can denote a different type/value.
+ */
+function stableAliasTarget(type: SyntaxNode, declarator: SyntaxNode | null, bindings: CppTypeBindings,
+  seen: Set<number>): boolean {
+  const stableName = (node: SyntaxNode, spelling: string): boolean => {
+    const binding = bindings.resolve(node, spelling);
+    if (binding?.kind === 'nominal') return true;
+    return binding?.kind === 'alias' && !seen.has(binding.node.id) && seen.size < 16
+      && stableAliasTarget(binding.type, binding.declarator, bindings, new Set(seen).add(binding.node.id));
+  };
+  const name = ['class_specifier', 'struct_specifier', 'union_specifier', 'enum_specifier'].includes(type.type)
+    ? type.childForFieldName('name') : type;
+  if (!['primitive_type', 'sized_type_specifier'].includes(type.type)
+    && (!name || !['identifier', 'type_identifier', 'qualified_identifier'].includes(name.type)
+      || !stableName(name, name.text))) return false;
+  const stableDeclarator = (node: SyntaxNode | null): boolean => {
+    if (!node || ['identifier', 'field_identifier', 'type_identifier'].includes(node.type)) return true;
+    if (node.type === 'qualified_identifier') {
+      let pointer: SyntaxNode | null = node;
+      while (pointer?.type === 'qualified_identifier') pointer = pointer.childForFieldName('name');
+      return pointer?.type === 'pointer_type_declarator'
+        && stableName(node, node.text.slice(0, pointer.startIndex - node.startIndex).replace(/::\s*$/, ''))
+        && stableDeclarator(pointer);
+    }
+    const child = nestedDeclarator(node);
+    const kind = node.type.replace(/^abstract_/, '');
+    const extras = node.namedChildren.filter(n => n.id !== child?.id && n.type !== 'comment');
+    if (!stableDeclarator(child)) return false;
+    if (kind === 'parenthesized_declarator') return !!child && !extras.length;
+    if (['pointer_declarator', 'pointer_type_declarator', 'reference_declarator'].includes(kind)) {
+      return extras.every(n => n.type === 'type_qualifier');
+    }
+    if (kind === 'array_declarator') return extras.every(n => n.type === 'number_literal');
+    if (kind !== 'function_declarator') return false;
+    const parameters = node.childForFieldName('parameters');
+    return !!parameters && extras.every(n => n.id === parameters.id
+      || ['type_qualifier', 'ref_qualifier'].includes(n.type)
+      || n.type === 'noexcept' && !n.namedChildren.length)
+      && parameters.namedChildren.filter(n => n.type !== 'comment').every(p => {
+        const base = p.childForFieldName('type');
+        const declared = p.childForFieldName('declarator');
+        return p.type === 'variadic_parameter' || !!base
+          && p.namedChildren.every(n => n.id === base.id || n.id === declared?.id
+            || n.type === 'type_qualifier' || n.type === 'comment')
+          && stableAliasTarget(base, declared, bindings, seen);
+      });
+  };
+  return stableDeclarator(declarator);
+}
+
+function typeShape(type: SyntaxNode | null, qualifiers: SyntaxNode[], operators: TypeOperator[], source: string,
+  normalize: Normalize, bindings?: CppTypeBindings, aliases = new Set<number>()): TypeShape {
+  let shape: TypeShape = {base:typeSpecifier(type, normalize), qualifiers:[], operators:[]};
+  let name = type;
+  if (type && ['dependent_type', 'class_specifier', 'struct_specifier', 'union_specifier', 'enum_specifier'].includes(type.type)) {
+    name = type.childForFieldName('name') ?? type.namedChildren.find(n => n.type === 'qualified_identifier') ?? type;
+  }
+  // Alpha-normalized bindings are dependent; never resolve them as a
+  // same-spelled concrete class or alias in the surrounding syntax tree.
+  const binding = name && ['identifier', 'type_identifier', 'qualified_identifier'].includes(name.type)
+    && normalize(name.text, name.startIndex) === tokens(name.text) ? bindings?.resolve(name, name.text) : null;
+  if (binding?.kind === 'nominal') shape.base = binding.name;
+  else if (binding?.kind === 'alias' && bindings && !aliases.has(binding.node.id) && aliases.size < 16
+    && stableAliasTarget(binding.type, binding.declarator, bindings, new Set(aliases).add(binding.node.id))) {
+    const next = new Set(aliases).add(binding.node.id);
+    // Alias targets use their own declaration scope, not the template or
+    // function parameter bindings at the use site.
+    const aliasOperators = typeOperators(binding.declarator, source, tokens, undefined, bindings, next);
+    if (aliasOperators) shape = typeShape(binding.type, binding.qualifiers, aliasOperators, source, tokens, bindings, next);
+  }
+  const cv = qualifiers.map(n => normalize(n.text, n.startIndex));
+  const first = shape.operators[0];
+  if (first?.[0] === 'pointer' || first?.[0] === 'member-pointer') first[1] = [...new Set([...(first[1] as string[]), ...cv])].sort();
+  else if (first?.[0] !== 'reference') shape.qualifiers = [...new Set([...shape.qualifiers, ...cv])].sort();
+  shape.operators = [...operators, ...shape.operators];
+  // References introduced through aliases obey reference collapsing.
+  while (shape.operators[0]?.[0] === 'reference' && shape.operators[1]?.[0] === 'reference') {
+    const left = shape.operators.shift()!, right = shape.operators[0]!;
+    right[1] = left[1] === '&' || right[1] === '&' ? '&' : '&&';
+  }
+  return shape;
 }
 
 /** Return types distinguish function templates, including SFINAE overloads.
  * Leading and trailing forms use the same type structure, without the
  * array/function adjustment or cv removal specific to parameters.
  */
-function returnTypeSpecifier(type: SyntaxNode | null, normalize: Normalize): string {
+function typeSpecifier(type: SyntaxNode | null, normalize: Normalize): string {
   if (!type) return '';
   if (type.type === 'dependent_type') {
     // `typename` is optional in C++20 type-only contexts, including a trailing
@@ -130,7 +237,7 @@ function returnTypeSpecifier(type: SyntaxNode | null, normalize: Normalize): str
   return normalize(type.text, type.startIndex);
 }
 
-export function cppCallableReturnType(callable: SyntaxNode, source: string, normalize: Normalize): string {
+export function cppCallableReturnType(callable: SyntaxNode, source: string, normalize: Normalize, bindings?: CppTypeBindings): string {
   const unknown = () => JSON.stringify(['unknown-return', callable.startIndex, normalize(callable.text)]);
   const trailing = callable.namedChildren.find(n => n.type === 'trailing_return_type');
   let declaration: SyntaxNode | null = trailing?.namedChildren.find(n => n.type === 'type_descriptor') ?? null;
@@ -144,18 +251,21 @@ export function cppCallableReturnType(callable: SyntaxNode, source: string, norm
   if (!declaration) return unknown();
   const type = declaration.childForFieldName('type');
   const declarator = declaration.childForFieldName('declarator');
-  const operators = typeOperators(declarator, source, normalize, trailing ? undefined : callable);
-  const qualifiers = declaration.namedChildren.filter(n => n.type === 'type_qualifier').map(n => normalize(n.text, n.startIndex)).sort();
+  const operators = typeOperators(declarator, source, normalize, trailing ? undefined : callable, bindings);
+  const qualifiers = declaration.namedChildren.filter(n => n.type === 'type_qualifier');
   // For unsupported return declarators retain syntax instead of collapsing
   // every unknown return type into the same identity.
-  return JSON.stringify([returnTypeSpecifier(type, normalize), qualifiers,
-    operators ?? normalize(declarator?.text ?? '', declarator?.startIndex)]);
+  if (!operators) return JSON.stringify([typeSpecifier(type, normalize), qualifiers.map(n => normalize(n.text, n.startIndex)),
+    normalize(declarator?.text ?? '', declarator?.startIndex)]);
+  const shape = typeShape(type, qualifiers, operators, source, normalize, bindings);
+  return JSON.stringify([shape.base, shape.qualifiers, shape.operators]);
 }
 
-export function cppParameterTypes(parameters: SyntaxNode, source: string, normalize: Normalize = tokens): string[] {
+export function cppParameterTypes(parameters: SyntaxNode, source: string, normalize: Normalize = tokens,
+  bindings?: CppTypeBindings, aliases = new Set<number>()): string[] {
   const children = parameters.namedChildren.filter(p => p.type !== 'comment');
   if (children.length === 1 && tokens(children[0]!.text) === 'void') return [];
-  return children.map(p => cppParameterType(p, source, normalize));
+  return children.map(p => cppParameterType(p, source, normalize, bindings, aliases));
 }
 
 export function cppTemplateParameterName(parameter: SyntaxNode): SyntaxNode | null {

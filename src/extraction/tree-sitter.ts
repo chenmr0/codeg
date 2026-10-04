@@ -46,6 +46,8 @@ import { isWasmRuntimeCorruptionError } from './wasm-errors';
 import { CCppSourceScope } from './c-cpp-source-scope';
 import { macroSemanticId, macroFinalIds, macroWrittenAnchor, preferMacroDefinition } from './c-cpp-macro-identity';
 import { CppEnumEvidence } from './cpp-enum-evidence';
+import { CppTypeBindings } from './cpp-type-bindings';
+import { cppIdentityTokens, isCppIdentityIdentifier } from './c-cpp-macro-types';
 
 // Re-export for backward compatibility
 export { generateNodeId } from './tree-sitter-helpers';
@@ -994,6 +996,7 @@ export class TreeSitterExtractor {
   private isolatedDeclarationSource: string | null = null;
   private useMacroSemanticIds = false;
   private macroPrimarySyntax = new Map<Node, SyntaxNode>();
+  private macroTypeBindings: CppTypeBindings | undefined;
   private lexicalNonFileScopeRanges: SourceRange[] | null = null;
   private lexicalDirectiveRanges: Array<SourceRange & {row:number; endPosition:{row:number; column:number}}> = [];
   /** Damaged C++ type wrappers can absorb a later, separately written function. */
@@ -1350,8 +1353,14 @@ export class TreeSitterExtractor {
     };
   }
 
+  private cppMacroTypeBindings(): CppTypeBindings | undefined {
+    if (!this.tree) return undefined;
+    return this.macroTypeBindings ??= new CppTypeBindings(this.tree.rootNode);
+  }
+
   /** Delete the current native tree once and clear the reference first. */
   private releaseTree(): void {
+    this.macroTypeBindings = undefined;
     this.macroPrimarySyntax.clear();
     const tree = this.tree;
     this.tree = null;
@@ -1598,6 +1607,36 @@ export class TreeSitterExtractor {
       for (let row = start; row <= end; row++) kept.add(row + 1);
     };
 
+    // Type spelling equivalence needs declaration evidence outside the macro
+    // invocation itself. Keep only referenced type/alias declarations and the
+    // namespace/class/preprocessor shells that establish their lookup scope.
+    const typeNames = new Set<string>();
+    for (const line of invocationLines) for (const token of cppIdentityTokens(lines[line - 1] ?? '')) {
+      if (isCppIdentityIdentifier(token)) typeNames.add(token);
+    }
+    const contextVisited = new Set<number>();
+    for (const declaration of this.cppMacroTypeBindings()?.contextNodes(typeNames) ?? []) {
+      for (let current: SyntaxNode | null = declaration; current && current.type !== 'translation_unit'; current = current.parent) {
+        if (contextVisited.has(current.id)) break;
+        contextVisited.add(current.id);
+        const body = current.childForFieldName('body');
+        if (containerTypes.has(current.type) && body) {
+          keepRows(current.startPosition.row, body.startPosition.row);
+          keepRows(body.endPosition.row, current.endPosition.row);
+        } else if (current === declaration) {
+          keepRows(current.startPosition.row, current.endPosition.row);
+        }
+        if (current.type === 'template_declaration') {
+          const parameters = current.childForFieldName('parameters');
+          keepRows(current.startPosition.row, parameters?.endPosition.row ?? current.startPosition.row);
+        }
+        if (current.type.startsWith('preproc_')) {
+          keepRows(current.startPosition.row, current.startPosition.row);
+          for (const child of current.children) if (child.type === '#endif') keepRows(child.startPosition.row, child.endPosition.row);
+        }
+      }
+    }
+
     for (const line of invocationLines) {
       const row = Math.max(0, line - 1);
       const namespaces: string[] = [];
@@ -1642,14 +1681,7 @@ export class TreeSitterExtractor {
               }
               keepRows(headerStart, body.startPosition.row);
               keepRows(body.endPosition.row, current.endPosition.row);
-              for (const child of body.namedChildren) {
-                if (child.type === 'access_specifier') {
-                  accessSections.push({
-                    startRow: child.startPosition.row,
-                    endRow: child.endPosition.row,
-                  });
-                }
-              }
+              accessSections.push(...this.cppMacroTypeBindings()!.accessSections(body));
             }
           }
 
@@ -1962,7 +1994,7 @@ export class TreeSitterExtractor {
     const primaryIdentities = new Map<Node, string>();
     for (const node of this.nodes) {
       if (expanded.invocationLines.has(node.startLine) && node.kind !== 'file') {
-        primaryIdentities.set(node, macroSemanticId(node, this.macroPrimarySyntax.get(node) ?? null, this.originalSource));
+        primaryIdentities.set(node, macroSemanticId(node, this.macroPrimarySyntax.get(node) ?? null, this.originalSource, this.cppMacroTypeBindings()));
       }
     }
     this.releaseTree();
@@ -2852,7 +2884,7 @@ export class TreeSitterExtractor {
     }
 
     if (this.useMacroSemanticIds) {
-      newNode.id = macroSemanticId(newNode, node, this.originalSource);
+      newNode.id = macroSemanticId(newNode, node, this.originalSource, this.cppMacroTypeBindings());
       // Require a real member declaration directly inside a type, not an
       // initializer identifier, ERROR rescue, or a function-local declaration.
       let declaration: SyntaxNode | null = node;

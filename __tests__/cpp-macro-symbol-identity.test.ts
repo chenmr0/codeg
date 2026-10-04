@@ -22,6 +22,112 @@ function extract(replacement: string, invocation = 'MAKE()') {
 }
 
 describe('identities of symbols sharing a macro invocation line', () => {
+  it.each([
+    ['using Int = int;\n', 'Int', 'int'],
+    ['namespace n { using Int = int; }\n', 'n::Int', 'int'],
+    ['struct C {};\nnamespace n { using Result = C; struct C {}; }\n', 'n::Result', '::C'],
+    ['#if FEATURE\nusing Int = int;\n', 'Int', 'int'],
+  ])('retains source type evidence outside the invocation: %s', (prefix, left, right) => {
+    const result = extract(`template<class T> ${left} run(T); template<class U> ${right} run(U) { return {}; }`,
+      `${prefix}MAKE()\n${prefix.startsWith('#if') ? '#endif' : ''}`);
+    expect(result.nodes.filter(n => n.name === 'run')).toHaveLength(1);
+  });
+
+  it('retains using-directive barriers when pruning macro context', () => {
+    const result = extract('template<class T> C run(T); template<class U> ::C run(U);',
+      'struct C {};\nnamespace n {\nnamespace actual { struct C {}; }\nusing namespace actual;\nMAKE()\n}');
+    expect(result.nodes.filter(n => n.name === 'run')).toHaveLength(2);
+  });
+
+  it.each([
+    ['namespace local {\ninline namespace v1 { using Number = double; }\n', '\n}'],
+    ['namespace local {\nnamespace { using Number = double; }\n', '\n}'],
+    ['struct Base { using Number = double; };\nstruct Derived : Base {\n', '\n};'],
+  ])('preserves overloads with implicitly introduced nearer types: %s', (prefix, suffix) => {
+    const result = extract('template<class T> static constexpr int run(Number) { return 1; } '
+      + 'template<class U> static constexpr int run(int) { return 2; }',
+    `using Number = int;\n${prefix}MAKE()${suffix}`);
+    expect(result.nodes.filter(n => n.name === 'run')).toHaveLength(2);
+  });
+
+  it('looks up out-of-line member parameters in their class scope', () => {
+    const result = extract('template<class T> constexpr int C::run(Number) { return 1; } '
+      + 'template<class U> constexpr int C::run(int) { return 2; }',
+    'using Number = int;\nstruct C { using Number = double;\ntemplate<class T> static constexpr int run(Number);\n'
+      + 'template<class U> static constexpr int run(int);\n};\nMAKE()');
+    const definitions = result.nodes.filter(n => n.name === 'run' && !n.isDeclaration);
+    expect(definitions).toHaveLength(2);
+  });
+
+  it('keeps leading return lookup outside an out-of-line member scope', () => {
+    const result = extract('struct C { using Number = double; template<class T> static int run(Number); }; '
+      + 'template<class U> Number C::run(Number) { return 1; }', 'using Number = int;\nMAKE()');
+    const methods = result.nodes.filter(n => n.name === 'run');
+    expect(methods).toHaveLength(1);
+    expect(methods[0]?.isDeclaration).not.toBe(true);
+  });
+
+  it.each([
+    'struct A { using type = int; }; struct B { using type = double; }; '
+      + 'template<class T> using Select = typename T::type; using Current = A; using Result = Select<Current>; '
+      + 'namespace inner { using Current = B; int run(Result) { return 1; } int run(Select<Current>) { return 2; } }',
+    'constexpr int N = 2; using Result = int (*)[N]; namespace inner { constexpr int N = 3; '
+      + 'int run(Result) { return 1; } int run(int (*value)[N]) { return 2; } }',
+  ])('does not expand an alias through unproven bound names: %s', replacement => {
+    expect(extract(replacement).nodes.filter(n => n.name === 'run')).toHaveLength(2);
+  });
+
+  it.each([
+    'using 整数 = int; template<class 类型> 整数 run(类型); template<class Type> int run(Type) { return 1; }',
+    'struct C {}; using Owner = C; template<class T> int run(int (Owner::*value)(int)); template<class U> int run(int (::C::*input)(signed)) { return 1; }',
+    'template<class T> auto run(T) -> int (*)(signed); template<class U> auto run(U) -> int (*)(int) { return {}; }',
+    'template<class T> auto run(T) -> int (*)(long unsigned int); template<class U> auto run(U) -> int (*)(unsigned long) { return {}; }',
+    'using Int = int; template<class T> Int run(T); template<class U> int run(U) { return 1; }',
+    'using Int = int; template<class T> auto run(T) -> int (*)(Int); template<class U> auto run(U) -> int (*)(int) { return {}; }',
+    'using Int = int; using Number = Int; template<class T> Number run(T); template<class U> signed run(U) { return 1; }',
+    'using Pointer = const int*; template<class T> Pointer run(T); template<class U> const int* run(U) { return {}; }',
+    'typedef int Number, *Pointer; template<class T> Pointer run(T); template<class U> int* run(U) { return {}; }',
+    'using Callback = int(*)(signed); template<class T> Callback run(T); template<class U> auto run(U) -> int (*)(int) { return {}; }',
+    'using Pointer = int*; template<class T> const Pointer* run(T); template<class U> auto run(U) -> int* const* { return {}; }',
+    'using Ref = int&; template<class T> Ref&& run(T); template<class U> int& run(U) { return *static_cast<int*>(nullptr); }',
+    'struct C {}; template<class T> C run(T); template<class U> ::C run(U) { return {}; }',
+    'namespace n { struct C {}; } template<class T> n::C run(T); template<class U> ::n::C run(U) { return {}; }',
+    'struct C {}; using Result = C; template<class C> Result run(C); template<class T> ::C run(T) { return {}; }',
+    'namespace n { using Int = int; template<class T> Int run(T); template<class U> int run(U) { return 1; } }',
+  ])('normalizes proven aliases and nested type equivalence: %s', replacement => {
+    const nodes = extract(replacement).nodes.filter(n => n.name === 'run');
+    expect(nodes).toHaveLength(1);
+    expect(nodes[0]?.isDeclaration).not.toBe(true);
+  });
+
+  it.each([
+    'using Int = long; template<class T> Int run(T); template<class U> int run(U);',
+    'using Int = int; namespace n { using Int = long; template<class T> Int run(T); template<class U> ::Int run(U); }',
+    'struct C {}; namespace n { struct C {}; template<class T> C run(T); template<class U> ::C run(U); }',
+    'struct C {}; namespace n { template<class T> C run(T); struct C {}; template<class U> C run(U); }',
+    'struct C {}; template<class C> C run(C); template<class T> ::C run(T);',
+    'using Pointer = int*; template<class T> const Pointer run(T); template<class U> const int* run(U);',
+    'using Result = External; template<class T> Result run(T); template<class U> int run(U);',
+    'template<class T> auto run(T) -> int(*)(signed char); template<class U> auto run(U) -> int(*)(char);',
+    'template<class T> auto run(T) -> int(*)(long); template<class U> auto run(U) -> int(*)(int);',
+  ])('does not infer unsupported or conflicting type equivalence: %s', replacement => {
+    expect(extract(replacement).nodes.filter(n => n.name === 'run')).toHaveLength(2);
+  });
+
+  it('uses alias declaration-time bindings and does not retain state between parses', () => {
+    const source = 'struct C {}; namespace n { using Result = C; struct C {}; '
+      + 'template<class T> Result run(T); template<class U> ::C run(U) { return {}; } }';
+    expect(extract(source).nodes.filter(n => n.name === 'run')).toHaveLength(1);
+    expect(extract('using Result = long; template<class T> Result run(T); template<class U> int run(U);')
+      .nodes.filter(n => n.name === 'run')).toHaveLength(2);
+  });
+
+  it('does not use a conditional alias outside its proven branch', () => {
+    const result = extract('template<class T> Result run(T); template<class U> int run(U);',
+      '#if FEATURE\nusing Result = int;\n#else\nusing Result = long;\n#endif\nMAKE()');
+    expect(result.nodes.filter(n => n.name === 'run')).toHaveLength(2);
+  });
+
   it.each(['Result', 'Result*', 'int C::*'])('keeps leading return bindings outside parameter scope: %s', result => {
     const parameter = result === 'int C::*' ? 'C' : 'Result';
     const nodes = extract(`struct Result {}; struct C { int value; }; template<class T> ${result} run(T ${parameter}); `

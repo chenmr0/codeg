@@ -1,4 +1,4 @@
-import { cppIdentityTokens } from './c-cpp-macro-types';
+import { cppIdentityTokens, isCppIdentityIdentifier } from './c-cpp-macro-types';
 
 interface ImportBinding { target: string; scope: string; branch: number[] }
 // undefined means absent; null means lookup was bound but could not be proved.
@@ -66,7 +66,7 @@ export class CppEnumEvidence {
     for (const token of [...tokens.slice(1), ';']) {
       if ((token === ',' || token === ';') && depth === 0) {
         const name = part[part.length - 1];
-        if (name && /^[A-Za-z_$][\w$]*$/.test(name)) {
+        if (name && isCppIdentityIdentifier(name)) {
           add(this.bindings, qualify(scope, name), part.filter(t => t !== 'typename').join(''));
         }
         part = [];
@@ -93,8 +93,14 @@ export class CppEnumEvidence {
   private direct(name: string, scope: string, branch: number[], seen: Set<string>): Lookup {
     const full = qualify(scope, name);
     const imports = this.bindings.get(full)?.filter(b => compatible(b.branch, branch)) ?? [];
-    if (imports.length) return this.combine(imports.map(b => certain(b.branch, branch)
-      ? this.lookup(b.target, b.scope, branch, seen) ?? null : null));
+    if (imports.length) return this.combine(imports.map(b => {
+      if (!certain(b.branch, branch)) return null;
+      // A redundant using-declaration can name the entity already declared
+      // in this exact scope. It is not an alias cycle. Do not apply this to
+      // unknown targets or conflicting imported entities.
+      if (b.target === `::${full}` && (this.types.has(full) || this.values.has(full))) return full;
+      return this.lookup(b.target, b.scope, branch, seen) ?? null;
+    }));
     return this.types.has(full) || this.values.has(full) ? full : undefined;
   }
 
@@ -123,7 +129,7 @@ export class CppEnumEvidence {
   }
 
   private lookup(name: string, scope: string, branch: number[], seen: Set<string>): Lookup {
-    if (!/^(?:::)?[A-Za-z_$][\w$]*(?:::[A-Za-z_$][\w$]*)*$/.test(name)) return null;
+    if (!name.replace(/^::/, '').split('::').every(isCppIdentityIdentifier)) return null;
     const key = `${scope}:${name}`;
     if (seen.has(key) || seen.size > 32) return null;
     const next = new Set(seen).add(key);
