@@ -40,6 +40,7 @@ import type { ReExport } from './types';
 import { LRUCache } from './lru-cache';
 import { ResolutionTextCache } from './text-cache';
 import { CppReceiverDeclarationCache } from './cpp-receiver-index';
+import { refineCppOverload } from './cpp-overload';
 import { measureResolution, ResolutionDiagnostics } from './diagnostics';
 import { IndexedNameLookup, syncNameLookupMode, type NameLookupMode } from './name-lookup';
 import { canonicalFilePath, clearCanonicalCache } from '../utils';
@@ -1834,7 +1835,7 @@ export class ReferenceResolver {
       !sameInstantiationLanguageFamily(tgt, ref.language, ref.filePath)
     ) return null;
     if (ref.referenceKind === 'imports' && crossesKnownFamily(tgt, ref.language)) return null;
-    return result;
+    return refineCppOverload(result, target, ref, this.context);
   }
 
   /**
@@ -1852,7 +1853,7 @@ export class ReferenceResolver {
    */
   private gateFrameworkLanguage(result: ResolvedRef | null, ref: UnresolvedRef): ResolvedRef | null {
     if (!result) return result;
-    if (ref.referenceKind === 'instantiates') return this.gateLanguage(result, ref);
+    if (ref.referenceKind === 'instantiates' || ref.language==='cpp' && ref.referenceKind==='calls') return this.gateLanguage(result, ref);
     if (ref.referenceKind !== 'references' && ref.referenceKind !== 'imports') return result;
     const tgt = this.getLanguageFromNodeId(result.targetNodeId);
     if (tgt && ref.language && crossesKnownFamily(tgt, ref.language)) return null;
