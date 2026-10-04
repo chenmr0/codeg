@@ -406,6 +406,7 @@ export class CodeGraph {
       }
       try {
         const scopeChanged = this.needsLanguageScopeRebuild();
+        const extractionChanged = this.isIndexStale();
         if (scopeChanged) {
           // Persist before changing graph data. An interrupted transition must
           // retry even if the next process switches back to the original scope.
@@ -486,7 +487,7 @@ export class CodeGraph {
                     useWorker: this.db.getBackend() === 'node-sqlite',
                   }
                 : null,
-              { force: scopeChanged, reconcile: scopeChanged },
+              { force: scopeChanged || extractionChanged, reconcile: scopeChanged || extractionChanged },
             );
           } finally {
             try {
@@ -574,18 +575,6 @@ export class CodeGraph {
             result.edgesCreated = after.edges - before.edges;
           }
 
-          // Stamp the index with the engine that built it, so `codegraph status`
-          // and `codegraph upgrade` can recommend a re-index when the running
-          // engine produces richer extraction than the one on disk. Only on a
-          // real full index — a sync touches a subset, so it must NOT advance the
-          // extraction stamp (the bulk would still be stale). See extraction-version.ts.
-          if (result.success && result.filesIndexed > 0) {
-            try {
-              this.queries.setMetadata('indexed_with_version', CodeGraphPackageVersion);
-              this.queries.setMetadata('indexed_with_extraction_version', String(EXTRACTION_VERSION));
-            } catch { /* metadata is advisory — never fail an index over it */ }
-          }
-
           // Keep usability and coverage as independent signals. A recoverable
           // resolution/synthesis/framework diagnostic makes the graph
           // incomplete, but does not invalidate the base database. Fatal
@@ -602,6 +591,15 @@ export class CodeGraph {
           const scopeApplied = result.success && !options.signal?.aborted &&
             result.filesErrored === 0 && !hasIncompleteGlobalError && resolutionDiagnostics.length === 0;
           result.complete = scopeApplied && !hasDeclarationMacroRecoverySkip;
+          // A version change forces replacement even for unchanged source.
+          // Do not retire the old stamp after a partial/aborted rebuild: its
+          // next full index must retry every file, not certify mixed content.
+          if (result.complete && (result.filesIndexed > 0 || extractionChanged)) {
+            this.queries.applyMetadataChanges({
+              indexed_with_version: CodeGraphPackageVersion,
+              indexed_with_extraction_version: String(EXTRACTION_VERSION),
+            });
+          }
           // A base-only macro fallback still applied the language selection.
           // Its file diagnostic drives the existing targeted sync retry; do
           // not turn that recoverable warning into a whole-project rebuild
@@ -611,7 +609,7 @@ export class CodeGraph {
               indexed_language_scope: getLanguageScopeKey(),
               language_scope_pending: null,
             };
-            if (scopeChanged) {
+            if (scopeChanged || extractionChanged) {
               // These proofs describe the previous extraction policy. A full
               // rebuild has resolved every retained file, so retire its retry
               // journal and conservatively rebuild proofs on the next edit.

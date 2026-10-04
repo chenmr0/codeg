@@ -45,6 +45,35 @@ describe('declaration names backed by their own declarators', () => {
 
 describe('enum-value initialization versus callable declarations', () => {
   it.each([
+    ['using actual::Mode;', 'Mode::ON'],
+    ['namespace view = actual;', 'view::Mode::ON'],
+    ['using namespace actual;', 'Mode::ON'],
+  ])('binds imports at their declaration point: %s', (binding, parameter) => {
+    const nodes = extract('namespace actual { struct Mode { using ON = int; }; }\n'
+      + `namespace local { ${binding}\nnamespace actual { enum class Mode { ON }; }\nint api(${parameter}); }`);
+    expect(nodes.filter(n => n.name === 'api')).toEqual([expect.objectContaining({kind:'function',isDeclaration:true})]);
+  });
+
+  it.each([
+    'namespace a::b { enum class Mode { ON }; } a::b::Mode object(a::b::Mode::ON);',
+    'namespace actual { enum class Mode { ON }; }\nnamespace local { using actual::Mode; Mode object(Mode::ON); }',
+    'namespace actual { enum class Mode { ON }; }\nnamespace view = actual; namespace other = view; actual::Mode object(other::Mode::ON);',
+    'namespace local { namespace actual { enum class Mode { ON }; } using namespace actual; Mode object(Mode::ON); }',
+    'enum class Mode { ON }; namespace local { namespace empty {} using namespace empty; Mode object(Mode::ON); }',
+    'namespace actual { struct Mode { using ON = int; }; } namespace local { using namespace actual; enum class Mode { ON }; Mode object(Mode::ON); }',
+  ])('retains proven enum values through imports and nearer lookup: %s', source => {
+    expect(extract(source)).toContainEqual(expect.objectContaining({kind:'variable', name:'object'}));
+  });
+
+  it('does not use a sibling-branch directive or unknown import as enum proof', () => {
+    const nodes = extract('enum class Mode { ON }; namespace local { namespace actual { struct Mode { using ON = int; }; }\n'
+      + '#if FEATURE\nusing namespace actual; int api(Mode::ON);\n#else\nMode object(Mode::ON);\n#endif\n}');
+    expect(nodes).toContainEqual(expect.objectContaining({kind:'function',name:'api'}));
+    expect(nodes).toContainEqual(expect.objectContaining({kind:'variable',name:'object'}));
+    expect(extract('enum class Mode { ON }; namespace local { using external::Mode; int api(Mode::ON); }'))
+      .toContainEqual(expect.objectContaining({kind:'function',name:'api'}));
+  });
+  it.each([
     ['namespace actual { using ON = int; }', 'namespace Mode = actual;'],
     ['namespace actual { struct Mode { using ON = int; }; }', 'using actual::Mode;'],
   ])('respects imported names shadowing an outer enum (%s)', (target, binding) => {

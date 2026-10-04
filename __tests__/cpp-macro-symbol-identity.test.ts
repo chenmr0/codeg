@@ -22,7 +22,30 @@ function extract(replacement: string, invocation = 'MAKE()') {
 }
 
 describe('identities of symbols sharing a macro invocation line', () => {
+  it.each(['Result', 'Result*', 'int C::*'])('keeps leading return bindings outside parameter scope: %s', result => {
+    const parameter = result === 'int C::*' ? 'C' : 'Result';
+    const nodes = extract(`struct Result {}; struct C { int value; }; template<class T> ${result} run(T ${parameter}); `
+      + `template<class U> ${result} run(U input) { return {}; }`).nodes.filter(n => n.name === 'run');
+    expect(nodes).toHaveLength(1);
+    expect(nodes[0]?.isDeclaration).not.toBe(true);
+  });
+
   it.each([
+    'template<class T> typename T::type run(T); template<class U> auto run(U) -> U::type { return {}; }',
+    'template<class T> long int run(T); template<class U> long run(U) { return 1; }',
+    'template<class T> signed run(T); template<class U> int run(U) { return 1; }',
+    'template<class T> long unsigned int run(T); template<class U> unsigned long run(U) { return 1; }',
+    'struct Result {}; template<class T> struct Result run(T); template<class U> Result run(U) { return {}; }',
+    'template<class T> auto run(T value) -> decltype(value); template<class U> auto run(U input) -> decltype(input) { return input; }',
+    'template<class T> auto run(T value) -> decltype(value.first); template<class U> auto run(U input) -> decltype(input.first) { return input.first; }',
+    'int run(int C::*p = nullptr); int run(int C::*value) { return 1; }',
+    'int run(int C::* const p); int run(int C::*value) { return 1; }',
+    'int run(int (C::*p)(int) = nullptr); int run(int (C::*value)(int)) { return 1; }',
+    'int run(int (ns::C::*p)(int)); int run(int (ns::C::*value)(int)) { return 1; }',
+    'int run(int (C:: /* owner */ *p)(int)); int run(int (C::*value)(int)) { return 1; }',
+    'template<class T> typename T::type run(T); template<class U> auto run(U) -> typename U::type { return {}; }',
+    'template<class T> typename T::type* run(T); template<class U> auto run(U) -> typename U::type* { return {}; }',
+    'template<class T> const T& run(T); template<class U> auto run(U) -> const U& { return {}; }',
     'template<class T> int run(T value); template<class U> int run(U value) { return 1; }',
     'template<class T = int> int run(T); template<typename U> int run(U) { return 1; }',
     'template<int N = 2> int run(); template<int M> int run() { return M; }',
@@ -66,6 +89,20 @@ describe('identities of symbols sharing a macro invocation line', () => {
     'template<class T> requires Good<T> int run(T); template<class U> requires Other<U> int run(U);',
     'template<class T> int run(T, foreign::T); template<class U> int run(U, foreign::U);',
   ])('preserves real type, binding and constraint distinctions: %s', replacement => {
+    expect(extract(replacement).nodes.filter(n => n.name === 'run')).toHaveLength(2);
+  });
+
+  it.each([
+    'int run(int C::*p); int run(int D::*p);',
+    'template<class T> char run(T); template<class U> signed char run(U);',
+    'template<class T> int run(T); template<class U> long run(U);',
+    'template<class T> auto run(T value) -> decltype(value.first); template<class U> auto run(U input) -> decltype(input.second);',
+    'int run(int (C::*p)(int) const); int run(int (C::*p)(int));',
+    'int run(int (C::*p)(int) &); int run(int (C::*p)(int) &&);',
+    'int run(int (C::*p)(int) noexcept); int run(int (C::*p)(int));',
+    'template<class T> int run(int (T::*p)(int)); template<class T> int run(int (*p)(int));',
+    'template<class T> typename T::type* run(T); template<class U> typename U::type run(U);',
+  ])('keeps member-pointer and template return-type distinctions: %s', replacement => {
     expect(extract(replacement).nodes.filter(n => n.name === 'run')).toHaveLength(2);
   });
 

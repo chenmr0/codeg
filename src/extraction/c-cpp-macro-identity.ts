@@ -1,7 +1,7 @@
 import type { Node as SyntaxNode } from 'web-tree-sitter';
 import type { Node } from '../types';
 import { generateNodeId } from './tree-sitter-helpers';
-import { cppIdentityTokens, cppParameterTypes, cppTemplateIdentity, cppTemplateParameterName } from './c-cpp-macro-types';
+import { cppIdentityTokens, cppParameterTypes, cppTemplateIdentity, cppTemplateParameterName, cppCallableReturnType } from './c-cpp-macro-types';
 
 const writtenAnchors = new WeakMap<Node, {line:number; column:number; callable:string}>();
 export const macroWrittenAnchor = (node: Node) => writtenAnchors.get(node);
@@ -41,7 +41,7 @@ function semanticQualifiedName(symbol: Node, syntax: SyntaxNode | null): string 
 export function macroSemanticId(symbol: Node, syntax: SyntaxNode | null, source: string): string {
   if (symbol.kind === 'file' || symbol.kind === 'macro' || symbol.kind === 'import') return symbol.id;
   const qualifiedName = semanticQualifiedName(symbol, syntax);
-  const {normalize, templates} = cppTemplateIdentity(syntax, qualifiedName, source);
+  const {normalize, templates, callableNormalizer} = cppTemplateIdentity(syntax, qualifiedName, source);
   let callable: unknown = null;
   let parameterPosition: {row:number; column:number} | undefined;
   if (symbol.kind === 'function' || symbol.kind === 'method') {
@@ -50,12 +50,14 @@ export function macroSemanticId(symbol: Node, syntax: SyntaxNode | null, source:
     if (declarator && parameters) {
       parameterPosition = parameters.startPosition;
       const types = cppParameterTypes(parameters, source, normalize);
+      const normalizeSignature = callableNormalizer(parameters);
       const qualifiers = declarator.namedChildren.filter(child => child.startIndex >= parameters.endIndex
         && ['type_qualifier','ref_qualifier','requires_clause'].includes(child.type))
-        .map(child => normalize(source.slice(child.startIndex, child.endIndex)));
+        .map(child => normalizeSignature(source.slice(child.startIndex, child.endIndex)));
       // The recovery parser can mask trailing const while retaining its offsets.
       if (!qualifiers.includes('const') && /^\s+const\b/.test(source.slice(declarator.endIndex, syntax!.endIndex))) qualifiers.push('const');
-      callable = [types, qualifiers, templates];
+      callable = [types, qualifiers, templates,
+        templates.length ? cppCallableReturnType(declarator, source, normalizeSignature) : null];
     } else {
       // Without a complete declarator, keep separate evidence rather than
       // merging overloads on a shared/truncated display-signature prefix.
