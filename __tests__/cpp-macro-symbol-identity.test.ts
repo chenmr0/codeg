@@ -23,6 +23,53 @@ function extract(replacement: string, invocation = 'MAKE()') {
 
 describe('identities of symbols sharing a macro invocation line', () => {
   it.each([
+    'template<class T> int run(T value); template<class U> int run(U value) { return 1; }',
+    'template<class T = int> int run(T); template<typename U> int run(U) { return 1; }',
+    'template<int N = 2> int run(); template<int M> int run() { return M; }',
+    'template<class... T> int run(T...); template<typename... U> int run(U...) { return 1; }',
+    'template<template<class> class C> int run(C<int>); template<template<typename> class D> int run(D<int>) { return 1; }',
+    'int run(int values[3]); int run(int *values) { return 1; }',
+    'int run(const int values[3]); int run(const int *values) { return 1; }',
+    'int run(int values[2][3]); int run(int (*values)[3]) { return 1; }',
+    'int run(int *values[3]); int run(int **values) { return 1; }',
+    'int run(int callback(double)); int run(int (*callback)(double)) { return 1; }',
+    'int run(int (*callback)(int a[3])); int run(int (*cb)(int *a)) { return 1; }',
+    'template<class T> int run(T) requires Good<T>; template<class U> int run(U) requires Good<U> { return 1; }',
+    'template<class T> requires Good<T> int run(T); template<class U> requires Good<U> int run(U) { return 1; }',
+  ])('merges equivalent macro redeclarations: %s', replacement => {
+    const nodes = extract(replacement).nodes.filter(n => n.name === 'run');
+    expect(nodes).toHaveLength(1);
+    expect(nodes[0]?.isDeclaration).not.toBe(true);
+  });
+
+  it.each([
+    'template<class T> struct Box { static int run(T); }; template<class U> int Box<U>::run(U value) { return 1; }',
+    'template<class T> struct Box { template<class U> static int run(T, U); }; template<class V> template<class W> int Box<V>::run(V, W) { return 1; }',
+    'template<class T> struct Box; template<> struct Box<int> { template<class U> static int run(U); }; template<class V> int Box<int>::run(V) { return 1; }',
+  ])('matches renamed class template parameters: %s', replacement => {
+    const methods = extract(replacement).nodes.filter(n => n.kind === 'method');
+    expect(methods).toHaveLength(1);
+    expect(methods[0]?.isDeclaration).not.toBe(true);
+    expect(methods[0]?.isStatic).toBe(true);
+  });
+
+  it.each([
+    'template<class T> int run(); template<int N> int run();',
+    'template<int N> int run(); template<long N> int run();',
+    'template<class T> int run(); template<class... T> int run();',
+    'int run(int (*)[3]); int run(int (*)[4]);',
+    'int run(int (&)[3]); int run(int*);',
+    'int run(int (&)(double)); int run(int (*)(double));',
+    'int run(const int&); int run(int&);',
+    'int run(int (*)(double) noexcept); int run(int (*)(double));',
+    'template<class T> int run(T) requires Good<T>; template<class U> int run(U) requires Other<U>;',
+    'template<class T> requires Good<T> int run(T); template<class U> requires Other<U> int run(U);',
+    'template<class T> int run(T, foreign::T); template<class U> int run(U, foreign::U);',
+  ])('preserves real type, binding and constraint distinctions: %s', replacement => {
+    expect(extract(replacement).nodes.filter(n => n.name === 'run')).toHaveLength(2);
+  });
+
+  it.each([
     'int run(int value) { return value; } int run(double value);',
     'int run(double value); int run(int value) { return value; }',
     'int run(int value) { return value; } double run(double value) { return value; }',

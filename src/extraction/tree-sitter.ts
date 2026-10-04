@@ -940,6 +940,7 @@ export class TreeSitterExtractor {
   private nodes: Node[] = [];
   private cppEnumValues = new Map<string, number[][]>();
   private cppTypeScopes = new Set<string>();
+  private cppImportedBindings = new Map<string, number[][]>();
   private localMacroProof: Map<string, { offset: number; empty: boolean; callable: boolean }> | null = null;
   private localMacroProofEnd = Infinity;
   private edges: Edge[] = [];
@@ -2236,6 +2237,22 @@ export class TreeSitterExtractor {
 
     const nodeType = node.type;
     let skipChildren = false;
+
+    // These bindings need not produce graph type nodes, but they still stop
+    // C++ lookup from falling through to a same-spelled outer enum.
+    if (this.language === 'cpp') {
+      let binding = nodeType === 'namespace_alias_definition' ? getChildByField(node, 'name') : null;
+      if (nodeType === 'using_declaration' && !node.children.some(child => child.type === 'namespace')) {
+        const qualified = node.namedChildren.find(child => child.type === 'qualified_identifier');
+        binding = qualified && getChildByField(qualified, 'name') || null;
+      }
+      if (binding) {
+        const name = this.buildQualifiedName(getNodeText(binding, this.source));
+        const paths = this.cppImportedBindings.get(name) ?? [];
+        paths.push(this.cppConditionalPath(node));
+        this.cppImportedBindings.set(name, paths);
+      }
+    }
 
     // Language-specific custom visitor hook
     if (this.extractor.visitNode) {
@@ -5329,7 +5346,12 @@ export class TreeSitterExtractor {
     const params = fn && getChildByField(fn, 'parameters');
     if (!params?.namedChildCount) return false;
     const branch = this.cppConditionalPath(node);
-    const isKnownValue = (name: string): boolean => !this.cppTypeScopes.has(name)
+    const hasImportedBinding = (name: string): boolean => {
+      const parts = name.split('::');
+      return parts.some((_, index) => this.cppImportedBindings.get(parts.slice(0, index + 1).join('::'))
+        ?.some(path => path.every((id, at) => at >= branch.length || branch[at] === id)));
+    };
+    const isKnownValue = (name: string): boolean => !hasImportedBinding(name) && !this.cppTypeScopes.has(name)
       && (this.cppEnumValues.get(name)?.some(path =>
         path.every((id, index) => branch[index] === id)) ?? false);
     return params.namedChildren.every(param => {
@@ -5340,6 +5362,7 @@ export class TreeSitterExtractor {
       if (value.startsWith('::')) return isKnownValue(value.slice(2));
       let scope = this.buildQualifiedName('').replace(/::$/, '');
       while (scope) {
+        if (hasImportedBinding(`${scope}::${value}`)) return false;
         if (isKnownValue(`${scope}::${value}`)) return true;
         // A nearer type/namespace binds the first component. Do not fall
         // through to a same-spelled outer enum when its member is unknown.

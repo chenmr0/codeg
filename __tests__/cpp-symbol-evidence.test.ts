@@ -44,6 +44,28 @@ describe('declaration names backed by their own declarators', () => {
 });
 
 describe('enum-value initialization versus callable declarations', () => {
+  it.each([
+    ['namespace actual { using ON = int; }', 'namespace Mode = actual;'],
+    ['namespace actual { struct Mode { using ON = int; }; }', 'using actual::Mode;'],
+  ])('respects imported names shadowing an outer enum (%s)', (target, binding) => {
+    const nodes = extract(`enum class Mode { ON };\n${target}\nnamespace local {\n${binding}\n`
+      + 'int api(Mode::ON);\nnamespace nested { int nested_api(Mode::ON); }\n}\n'
+      + 'int object(Mode::ON);');
+    for (const name of ['api', 'nested_api']) {
+      expect(nodes.filter(n => n.name === name)).toEqual([
+        expect.objectContaining({kind:'function', isDeclaration:true}),
+      ]);
+    }
+    expect(nodes).toContainEqual(expect.objectContaining({kind:'variable',name:'object'}));
+  });
+
+  it('does not apply an imported binding to a sibling preprocessor branch', () => {
+    const nodes = extract('enum class Mode { ON };\nnamespace actual { using ON = int; }\nnamespace local {\n'
+      + '#if FEATURE\nnamespace Mode = actual;\nint api(Mode::ON);\n#else\nint object(Mode::ON);\n#endif\n}');
+    expect(nodes).toContainEqual(expect.objectContaining({kind:'function',name:'api'}));
+    expect(nodes).toContainEqual(expect.objectContaining({kind:'variable',name:'object'}));
+  });
+
   it('keeps directly initialized objects with known scoped enum arguments', () => {
     const nodes = extract('namespace sample {\nstruct Item { enum Mode { ON, OFF }; };\n'
       + 'static const Item active(Item::Mode::ON);\nItem other(Item::Mode::OFF);\n'
