@@ -71,6 +71,9 @@ function suffix(ts: string[]): {qualifiers:string; noexcept:boolean} | null {
 function callable(node: Node): Callable | null {
   if(!node.signature || node.typeParameters?.length) return null;
   const ts=tokens(node.signature);
+  // A declaration terminator is not part of its function type. Remove only
+  // this final token, and continue rejecting unsupported suffix syntax.
+  if(node.isDeclaration && ts.at(-1)===';') ts.pop();
   const name=ts.findIndex((t,i)=>t===node.name && ts[i+1]==='(');
   if(name<0) return null;
   let start=name;
@@ -151,8 +154,22 @@ function sourceAt(ref: UnresolvedRef, context: ResolutionContext): {args:string[
   return null;
 }
 
+function hasPossibleMacroExpansion(ts: string[], context: ResolutionContext): boolean {
+  // Source-spelled components are not expanded evidence, including members
+  // after :: (and even keyword-like macro names used as scalar arguments).
+  // A known function-like macro without a following '(' is inert. For other
+  // definitions we cannot prove the active #define/#undef/include environment.
+  return ts.some((token,index)=>identifier(token) && context.getNodesByName(token).some(node=>{
+    if(node.kind!=='macro') return false;
+    const escaped=token.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+    const functionLike=new RegExp(`^\\s*#\\s*define\\s+${escaped}\\(`).test(node.signature ?? '');
+    return !functionLike || ts[index+1]==='(';
+  }));
+}
+
 function argument(ts: string[], site: NonNullable<ReturnType<typeof sourceAt>>,
   context: ResolutionContext): Parameter[] | null {
+  if(hasPossibleMacroExpansion(ts,context)) return null;
   if(ts.length===1) {
     if(/^\d+$/.test(ts[0]!) && Number(ts[0])<=0x7fffffff) return [{kind:'scalar',type:'int'}];
     if(ts[0]==='true'||ts[0]==='false') return [{kind:'scalar',type:'bool'}];
@@ -169,7 +186,6 @@ function argument(ts: string[], site: NonNullable<ReturnType<typeof sourceAt>>,
     if(site.prefix.some((t,i)=>t===head && !(site.prefix[i-1]==='&'
       && (name.length>1 ? site.prefix[i+1]==='::' : [')',',',';'].includes(site.prefix[i+1]!))))) return null;
   }
-  if(context.getNodesByName(head).some(n=>n.kind==='macro')) return null;
   const matches=context.getNodesByQualifiedName(name.join('')).filter(n=>n.language==='cpp');
   if(!matches.length || matches.some(n=>!['function','method'].includes(n.kind))) return null;
   const result:Parameter[]=[];
@@ -198,7 +214,10 @@ function argument(ts: string[], site: NonNullable<ReturnType<typeof sourceAt>>,
 function conversion(actual: Parameter, expected: Parameter, context: ResolutionContext): number | null {
   if(actual.kind==='scalar'||expected.kind==='scalar') {
     if(actual.kind==='scalar'&&expected.kind==='scalar') return actual.type===expected.type?0:null;
-    return expected.kind==='scalar'&&expected.type==='bool'?1:Infinity;
+    // An indexed function is only a witness from a possibly incomplete
+    // address-of overload set. It does not establish a uniquely typed value
+    // which may be converted to bool.
+    return expected.kind==='scalar'&&expected.type==='bool'?null:Infinity;
   }
   if(actual.owner!==expected.owner) {
     if(!actual.owner||!expected.owner) return Infinity;
@@ -221,6 +240,10 @@ export function refineCppOverload(result: ResolvedRef, target: Node | null | und
     && n.filePath===target.filePath && n.startLine===target.startLine && n.startColumn===target.startColumn
     && ['function','method'].includes(n.kind));
   if(group.length<2)return result;
+  // Explicit parameter ranks say nothing about the implicit object's cv/ref
+  // qualification. Do not choose among non-static member overloads until that
+  // receiver evidence is supported. Static members need no implicit object.
+  if(group.some(n=>n.kind==='method' && !n.isStatic)) return null;
   const site=sourceAt(ref,context);
   if(!site)return null;
   const args=site.args.map(a=>argument(a,site,context));
@@ -241,5 +264,9 @@ export function refineCppOverload(result: ResolvedRef, target: Node | null | und
   if(!viable.length||viable.some(v=>v.ranks===null))return null;
   const best=viable.filter(a=>viable.every(b=>a===b || a.ranks!.every((r,i)=>r<=b.ranks![i]!)
     && a.ranks!.some((r,i)=>r<b.ranks![i]!)));
-  return best.length===1?{...result,targetNodeId:best[0]!.node.id}:null;
+  // A conversion-only winner relies on excluding all missing alternatives.
+  // The graph does not prove the address candidate set complete, so retain
+  // such calls as unresolved; an exact positive witness is required here.
+  return best.length===1 && best[0]!.ranks!.every(rank=>rank===0)
+    ? {...result,targetNodeId:best[0]!.node.id}:null;
 }
