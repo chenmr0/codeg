@@ -6,6 +6,7 @@
 
 import { SqliteDatabase, SqliteStatement } from './sqlite-adapter';
 import picomatch from 'picomatch';
+import { createHash } from 'crypto';
 import {
   Node,
   Edge,
@@ -3028,6 +3029,80 @@ WHERE e.kind = 'imports'
         files.add(row.file_path);
       }
       this.setMetadata(key, 'done');
+    })();
+    return [...files];
+  }
+
+  /**
+   * The C++ macro-overload guard consults macro names/signatures across the
+   * graph, including headers which have no edge to a resolved call. Requeue
+   * its calls when that evidence changes, even outside a scoped sync's paths.
+   * Keep the old fingerprint until every edge page is durably replaced by its
+   * original reference. A crash either leaves pending work or repeats this
+   * invalidation; it cannot certify an unvisited edge as current.
+   */
+  async invalidateCppMacroCalls(): Promise<string[]> {
+    const key = 'resolution:cpp-macro-evidence-v1';
+    const macros = this.db.prepare(`SELECT DISTINCT name,signature FROM nodes
+      WHERE kind='macro' ORDER BY name,signature`).all();
+    const fingerprint = createHash('sha256').update(JSON.stringify(macros)).digest('hex');
+    const previous = this.getMetadata(key);
+    if (previous === fingerprint) return [];
+    if (previous === null) {
+      // Establish a pre-extraction baseline. Old content is upgraded through
+      // EXTRACTION_VERSION, not silently migrated by a no-change sync.
+      this.setMetadata(key, fingerprint);
+      return [];
+    }
+
+    // Match refineCppOverload's scope: multiple C++ callables at one anchor.
+    // Other calls and synthesized (unstamped) edges are not affected by this
+    // guard. Failed calls need replay too when a blocking macro disappears.
+    const groups = `SELECT qualified_name,file_path,start_line,start_column,name FROM nodes
+      WHERE language='cpp' AND kind IN ('function','method')
+      GROUP BY qualified_name,file_path,start_line,start_column HAVING COUNT(*)>1`;
+    const statement = this.db.prepare(`WITH overloads AS (${groups})
+      SELECT e.id,e.source,e.line,e.col,e.metadata,s.file_path FROM edges e
+      JOIN nodes s ON s.id=e.source JOIN nodes t ON t.id=e.target
+      JOIN overloads o ON o.qualified_name=t.qualified_name AND o.file_path=t.file_path
+        AND o.start_line=t.start_line AND o.start_column=t.start_column
+      WHERE e.kind='calls' AND s.language='cpp' AND e.id>?
+        AND json_type(CASE WHEN json_valid(e.metadata) THEN e.metadata ELSE '{}' END,'$.refName')='text'
+      ORDER BY e.id LIMIT 1000`);
+    const insert = this.db.prepare(`INSERT INTO unresolved_refs
+      (from_node_id,reference_name,reference_kind,line,col,file_path,language)
+      SELECT ?,?,'calls',?,?,?,'cpp' WHERE NOT EXISTS (
+        SELECT 1 FROM unresolved_refs WHERE from_node_id=? AND reference_name=?
+          AND reference_kind='calls' AND line=? AND col=?)`);
+    const remove = this.db.prepare('DELETE FROM edges WHERE id=?');
+    const files = new Set<string>();
+    let after = 0;
+    for (;;) {
+      const rows = statement.all(after) as Array<{
+        id:number; source:string; line:number|null; col:number|null; metadata:string; file_path:string;
+      }>;
+      if (!rows.length) break;
+      this.db.transaction(() => {
+        for (const edge of rows) {
+          const metadata = safeJsonParse<Record<string, unknown>>(edge.metadata, {});
+          if (typeof metadata.refName !== 'string' || !metadata.refName || edge.line === null || edge.col === null) continue;
+          insert.run(edge.source,metadata.refName,edge.line,edge.col,edge.file_path,
+            edge.source,metadata.refName,edge.line,edge.col);
+          remove.run(edge.id);
+          files.add(edge.file_path);
+        }
+      })();
+      after = rows[rows.length-1]!.id;
+      await new Promise<void>(resolve => setImmediate(resolve));
+    }
+    this.db.transaction(() => {
+      const failed = `language='cpp' AND reference_kind='calls' AND status='failed'
+        AND name_tail IN (SELECT name FROM (${groups}))`;
+      const rows = this.db.prepare(`SELECT DISTINCT file_path FROM unresolved_refs WHERE ${failed}`)
+        .all() as Array<{file_path:string}>;
+      for (const row of rows) files.add(row.file_path);
+      this.db.prepare(`UPDATE unresolved_refs SET status='pending',name_tail='' WHERE ${failed}`).run();
+      this.setMetadata(key, fingerprint);
     })();
     return [...files];
   }

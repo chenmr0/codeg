@@ -168,7 +168,7 @@ function hasPossibleMacroExpansion(ts: string[], context: ResolutionContext): bo
 }
 
 function argument(ts: string[], site: NonNullable<ReturnType<typeof sourceAt>>,
-  context: ResolutionContext): Parameter[] | null {
+  ref: UnresolvedRef, context: ResolutionContext): Parameter[] | null {
   if(hasPossibleMacroExpansion(ts,context)) return null;
   if(ts.length===1) {
     if(/^\d+$/.test(ts[0]!) && Number(ts[0])<=0x7fffffff) return [{kind:'scalar',type:'int'}];
@@ -186,7 +186,13 @@ function argument(ts: string[], site: NonNullable<ReturnType<typeof sourceAt>>,
     if(site.prefix.some((t,i)=>t===head && !(site.prefix[i-1]==='&'
       && (name.length>1 ? site.prefix[i+1]==='::' : [')',',',';'].includes(site.prefix[i+1]!))))) return null;
   }
-  const matches=context.getNodesByQualifiedName(name.join('')).filter(n=>n.language==='cpp');
+  // A graph-wide definition is not proof that its overload was declared at
+  // this call. Use the visible declaration itself; a later definition of that
+  // same function is unnecessary. Include order and complete-class lookup are
+  // outside this bounded proof, so other-file/later nodes provide no witness.
+  const matches=context.getNodesByQualifiedName(name.join('')).filter(n=>n.language==='cpp'
+    && n.filePath===ref.filePath
+    && (n.startLine<ref.line || n.startLine===ref.line && n.startColumn<ref.column));
   if(!matches.length || matches.some(n=>!['function','method'].includes(n.kind))) return null;
   const result:Parameter[]=[];
   const functions=matches.map(node=>({node,fn:callable(node)}));
@@ -246,7 +252,7 @@ export function refineCppOverload(result: ResolvedRef, target: Node | null | und
   if(group.some(n=>n.kind==='method' && !n.isStatic)) return null;
   const site=sourceAt(ref,context);
   if(!site)return null;
-  const args=site.args.map(a=>argument(a,site,context));
+  const args=site.args.map(a=>argument(a,site,ref,context));
   const viable:Array<{node:Node; ranks:number[]|null}>=[];
   for(const node of group) {
     const fn=callable(node);

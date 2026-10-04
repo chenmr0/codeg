@@ -407,6 +407,7 @@ export class CodeGraph {
       try {
         const scopeChanged = this.needsLanguageScopeRebuild();
         const extractionChanged = this.isIndexStale();
+        await this.queries.invalidateCppMacroCalls();
         if (scopeChanged) {
           // Persist before changing graph data. An interrupted transition must
           // retry even if the next process switches back to the original scope.
@@ -501,6 +502,10 @@ export class CodeGraph {
             }
           }
 
+          await this.queries.invalidateCppMacroCalls();
+          const needsResolution = result.filesIndexed > 0 || scopeChanged ||
+            this.queries.getUnresolvedReferencesCount() > 0;
+
           // Phase-boundary fold: backfill the ENTIRE WAL before resolution's first
           // read, so the next phase never pages a bulk-write-sized WAL on the main
           // thread (the post-parse read against a multi-GB WAL is what blew the
@@ -514,7 +519,7 @@ export class CodeGraph {
           // for both Swift and ObjC files) all return false on that initial pass
           // and silently drop themselves. Re-initializing here gives them a
           // chance to see the actual project before resolution runs.
-          if (result.success && (result.filesIndexed > 0 || scopeChanged)) {
+          if (result.success && needsResolution) {
             this.resolver.initialize();
             // Cross-file finalization (e.g. NestJS RouterModule prefixes). Runs
             // before resolution so updated names show up in subsequent reads.
@@ -522,7 +527,7 @@ export class CodeGraph {
           }
 
           // Resolve references to create call/import/extends edges
-          if (result.success && (result.filesIndexed > 0 || scopeChanged)) {
+          if (result.success && needsResolution) {
             // Get count without loading all refs into memory
             const unresolvedCount = this.queries.getUnresolvedReferencesCount();
 
@@ -789,6 +794,7 @@ export class CodeGraph {
 
         const recoveredDeltaFiles = await recoverAppendDeltas(this.queries);
         const repairedIncludeFiles = this.queries.repairLegacyCppIncludes();
+        const recoveredMacroFiles = await this.queries.invalidateCppMacroCalls();
         const retryState = new SyncRetryState(this.queries);
         const recoveredRetryFiles = retryState.filePaths;
         this.orchestrator.setSyncRetryState(retryState);
@@ -813,8 +819,10 @@ export class CodeGraph {
         const hasSuccessfulChangedFiles = (result.changedFilePaths?.length ?? 0) > 0;
         if (options.verbose) tailCheckpoint = performance.now();
         retryState.finishPrimaryExtraction();
+        const macroReferenceFiles = await this.queries.invalidateCppMacroCalls();
         const referenceFiles = [...new Set([
           ...(result.changedFilePaths ?? []), ...recoveredRetryFiles, ...repairedIncludeFiles, ...recoveredDeltaFiles,
+          ...recoveredMacroFiles, ...macroReferenceFiles,
         ])];
 
         // Fold extraction writes before resolution starts reading the changed
