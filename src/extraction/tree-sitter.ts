@@ -2114,6 +2114,19 @@ export class TreeSitterExtractor {
       edge.target = sourceAliases.get(edge.target) ?? edge.target;
     }
     const finalIds = macroFinalIds(recoveredNodes, primaryIdentities);
+    // Context owners on untouched source lines retain their primary identity.
+    // Auxiliary macro IDs must point back to that exact source anchor, rather
+    // than to a legacy line/name hash which can no longer name the owner.
+    const ownerKinds = new Set<NodeKind>(['namespace', 'class', 'struct', 'enum']);
+    const ownerAnchor = (node: Node) => JSON.stringify([
+      node.kind, node.name, node.qualifiedName, node.startLine, node.startColumn,
+    ]);
+    const sourceOwners = new Map(this.nodes.filter(node => ownerKinds.has(node.kind)
+      && !expanded.invocationLines.has(node.startLine)).map(node => [ownerAnchor(node), node.id]));
+    for (const node of recoveredNodes) {
+      const originalId = ownerKinds.has(node.kind) ? sourceOwners.get(ownerAnchor(node)) : undefined;
+      if (originalId) finalIds.set(node.id, originalId);
+    }
     const sourceMemberIds = new Set([...recovered.sourceMemberIds].map(id => {
       const aliased = sourceAliases.get(id) ?? id;
       return finalIds.get(aliased) ?? aliased;
@@ -2166,6 +2179,37 @@ export class TreeSitterExtractor {
       }
       return false;
     };
+    // A damaged primary parse can give a real source member the wrong owner.
+    // Adopt it only after the auxiliary parse proves membership in a generated
+    // type, and only at the identical source range. Qualified names intentionally
+    // differ here; line/name-only matching would merge unrelated namesakes.
+    const sourceRange = (node: Node) => JSON.stringify([
+      node.kind, node.name, node.startLine, node.startColumn, node.endLine, node.endColumn,
+    ]);
+    const sourceByRange = new Map<string, Node[]>();
+    for (const node of this.nodes) {
+      if (expanded.invocationLines.has(node.startLine)) continue;
+      const key = sourceRange(node), entries = sourceByRange.get(key) ?? [];
+      entries.push(node); sourceByRange.set(key, entries);
+    }
+    const adoptedIds = new Map<string, string>();
+    for (const node of recoveredNodes) {
+      if (!isSourceMemberOfGeneratedType(node)) continue;
+      const originals = sourceByRange.get(sourceRange(node)) ?? [];
+      if (originals.length !== 1 || originals[0]!.id === node.id) continue;
+      const original = originals[0]!, previousId = original.id;
+      adoptedIds.set(previousId, node.id);
+      existingIds.delete(previousId); existingById.delete(previousId);
+      original.id = node.id;
+      existingIds.add(node.id); existingById.set(node.id, original);
+    }
+    if (adoptedIds.size) {
+      for (const edge of this.edges) {
+        edge.source = adoptedIds.get(edge.source) ?? edge.source;
+        edge.target = adoptedIds.get(edge.target) ?? edge.target;
+      }
+      for (const ref of this.unresolvedReferences) ref.fromNodeId = adoptedIds.get(ref.fromNodeId) ?? ref.fromNodeId;
+    }
     const isTemplateParameterArtifact = (node: Node): boolean => {
       if (node.kind !== 'field' && node.kind !== 'property' && node.kind !== 'variable') return false;
       let parentId = recoveredParent.get(node.id);
@@ -2831,7 +2875,13 @@ export class TreeSitterExtractor {
         && scope.isExecutable(node.startIndex)) return null;
     }
 
-    const id = generateNodeId(this.filePath, kind, name, node.startPosition.row + 1);
+    // C/C++ permits unrelated scopes and overload declarations on one line.
+    // A line/name-only identity makes the scope stack pick an earlier namesake
+    // and silently loses later declarations when the graph is persisted.
+    const qualifiedName = extra?.qualifiedName ?? this.buildQualifiedName(name);
+    const identitySalt = this.language === 'c' || this.language === 'cpp'
+      ? `${qualifiedName}:${node.startPosition.column}` : undefined;
+    const id = generateNodeId(this.filePath, kind, name, node.startPosition.row + 1, identitySalt);
 
     // Some grammars (e.g. Dart) model a function/method body as a *sibling* of
     // the signature node, so the declaration node's own range is just the
@@ -2851,7 +2901,7 @@ export class TreeSitterExtractor {
       id,
       kind,
       name,
-      qualifiedName: this.buildQualifiedName(name),
+      qualifiedName,
       filePath: this.filePath,
       language: this.language,
       startLine: node.startPosition.row + 1,
