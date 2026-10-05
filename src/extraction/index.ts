@@ -2879,7 +2879,8 @@ export class ExtractionOrchestrator {
       frameworkDetectionMs = performance.now() - frameworkStarted;
       // Retention requires a complete input epoch. Scoped watcher syncs cannot
       // prove that an unreported header/config change did not alter resolution.
-      if (!scopedPaths?.length && filesRemoved === 0 && filesAdded === 0 &&
+      if (neededLanguages.some((language) => language === 'c' || language === 'cpp') &&
+          !scopedPaths?.length && filesRemoved === 0 && filesAdded === 0 &&
           frameworkNames.length === 0 && this.frameworkDetectionErrors.length === 0 &&
           this.syncRetryState && !this.syncRetryState.hasWork &&
           process.env.CODEGRAPH_NO_APPEND_DELTA !== '1' &&
