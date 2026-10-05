@@ -167,6 +167,42 @@ function hasPossibleMacroExpansion(ts: string[], context: ResolutionContext): bo
   }));
 }
 
+function before(line:number, column:number, otherLine:number, otherColumn:number): boolean {
+  return line<otherLine || line===otherLine && column<otherColumn;
+}
+
+function contains(outer:Node, inner:Node): boolean {
+  return outer.filePath===inner.filePath
+    && before(outer.startLine,outer.startColumn,inner.startLine,inner.startColumn)
+    && !before(outer.endLine,outer.endColumn,inner.endLine,inner.endColumn);
+}
+
+/** An out-of-line definition omits `static` even when its member is static.
+ * Recover that property only from the matching declaration in its unique
+ * same-file class, never from a same-named overload or another translation
+ * unit. Missing `static` on a definition is not evidence of non-staticness.
+ */
+function memberIdentity(node:Node, fn:Callable, context:ResolutionContext): {owner:string|null}|null {
+  const ownerName=node.qualifiedName.slice(0,-node.name.length-2);
+  const owners=context.getNodesByQualifiedName(ownerName).filter(n=>n.language==='cpp' && n.filePath===node.filePath);
+  if(owners.length!==1 || !['struct','class','union'].includes(owners[0]!.kind) || owners[0]!.typeParameters?.length) return null;
+  const owner=owners[0]!;
+  // Header identities also require include visibility and dependency-aware
+  // replay after header edits. Neither is proved by this bounded matcher.
+  if(contains(owner,node)) return {owner:node.isStatic?null:ownerName};
+  if(before(node.startLine,node.startColumn,owner.endLine,owner.endColumn)) return null;
+  const identity=(candidate:Callable)=>JSON.stringify([candidate.result,candidate.parameters.map(p=>scalar(p,true)),candidate.qualifiers,candidate.noexcept]);
+  const key=identity(fn);
+  const declarations=context.getNodesByQualifiedName(node.qualifiedName).filter(n=>n.language==='cpp'
+    && n.kind==='method' && contains(owner,n));
+  const matching=declarations.filter(declaration=>{
+    const candidate=callable(declaration);
+    return candidate && candidate.parameters.every(p=>scalar(p,true)!==null) && identity(candidate)===key;
+  });
+  if(!matching.length || matching.some(n=>!!n.isStatic!==!!matching[0]!.isStatic)) return null;
+  return {owner:matching[0]!.isStatic?null:ownerName};
+}
+
 function argument(ts: string[], site: NonNullable<ReturnType<typeof sourceAt>>,
   ref: UnresolvedRef, context: ResolutionContext): Parameter[] | null {
   if(hasPossibleMacroExpansion(ts,context)) return null;
@@ -188,8 +224,8 @@ function argument(ts: string[], site: NonNullable<ReturnType<typeof sourceAt>>,
   }
   // A graph-wide definition is not proof that its overload was declared at
   // this call. Use the visible declaration itself; a later definition of that
-  // same function is unnecessary. Include order and complete-class lookup are
-  // outside this bounded proof, so other-file/later nodes provide no witness.
+  // same function is unnecessary. Other-file/later nodes provide no witness;
+  // a separate identity check may recover an existing method's static flag.
   const matches=context.getNodesByQualifiedName(name.join('')).filter(n=>n.language==='cpp'
     && n.filePath===ref.filePath
     && (n.startLine<ref.line || n.startLine===ref.line && n.startColumn<ref.column));
@@ -201,15 +237,11 @@ function argument(ts: string[], site: NonNullable<ReturnType<typeof sourceAt>>,
     const fn=parsed!;
     const params=fn.parameters.map(p=>scalar(p,true));
     if(params.some(p=>p===null))return null;
-    // A static declaration controls only its matching out-of-line definition,
-    // not the other non-static overloads with the same qualified name.
-    const isStatic=functions.some(f=>f.node.isStatic && f.fn!.result===fn.result
-      && f.fn!.qualifiers===fn.qualifiers
-      && JSON.stringify(f.fn!.parameters.map(p=>scalar(p,true)))===JSON.stringify(params));
     let owner:string|null=null;
-    if(node.kind==='method'&&!isStatic) {
-      owner=nominalOwner(['::',...tokens(node.qualifiedName.slice(0,-node.name.length-2))],site.caller,context);
-      if(!owner) return null;
+    if(node.kind==='method') {
+      const identity=memberIdentity(node,fn,context);
+      if(!identity) return null;
+      owner=identity.owner;
     }
     result.push({kind:'callback',owner,result:fn.result,parameters:params as string[],qualifiers:fn.qualifiers,noexcept:fn.noexcept});
   }
