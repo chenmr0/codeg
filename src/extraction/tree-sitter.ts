@@ -997,6 +997,7 @@ export class TreeSitterExtractor {
   private useMacroSemanticIds = false;
   private macroPrimarySyntax = new Map<Node, SyntaxNode>();
   private macroTypeBindings: CppTypeBindings | undefined;
+  private cppRecoveredDeclarations = new Set<number>();
   private lexicalNonFileScopeRanges: SourceRange[] | null = null;
   private lexicalDirectiveRanges: Array<SourceRange & {row:number; endPosition:{row:number; column:number}}> = [];
   /** Damaged C++ type wrappers can absorb a later, separately written function. */
@@ -1109,6 +1110,7 @@ export class TreeSitterExtractor {
       this.source = this.originalSource;
       this.xMacroConstructs = [];
       this.wrappedCppFunctions = [];
+      this.cppRecoveredDeclarations.clear();
 
       // A self-including X-macro enum is recoverable without a filesystem or a
       // full preprocessor because both the macro data list and the enum live in
@@ -1265,6 +1267,7 @@ export class TreeSitterExtractor {
       if (!this.tree) {
         throw new Error('Parser returned null tree');
       }
+      this.recoverCppCallableDeclarationShapes(parser);
       this.timings.primaryParseMs = performance.now() - primaryParseStarted;
 
       const primaryExtractionStarted = performance.now();
@@ -1351,6 +1354,151 @@ export class TreeSitterExtractor {
       durationMs: Date.now() - startTime,
       timings: this.timings,
     };
+  }
+
+  /**
+   * The C++ grammar sometimes chooses a direct initializer for a single
+   * array-reference/callback parameter. Give just those declaration slots a
+   * temporary null-statement body to select the callable parse, then remove the added
+   * bytes with Tree.edit. Syntax and source positions consequently still refer
+   * to the original file; no synthetic parameter/body escapes into the graph.
+   * Admission needs a complete parameter tree and local type evidence, rather
+   * than treating arbitrary parenthesized initializers as prototypes.
+   */
+  private recoverCppCallableDeclarationShapes(parser: WasmParser): void {
+    if (this.language !== 'cpp' || !this.tree
+      || !/\(\s*(?:[\w\s:]*::\s*)?[*&]/.test(this.source)
+        && !/\(\s*\/[/*]/.test(this.source)) return;
+    const original = this.tree;
+    const root = original.rootNode;
+    const source = this.source.slice(0, root.startIndex) + root.text + this.source.slice(root.endIndex);
+    type Insertion = {offset: number; text: string; point: {row:number; column:number}; declaration?: SyntaxNode};
+    const insertions: Insertion[] = [];
+    const knownType = (type: SyntaxNode, context: SyntaxNode): boolean => {
+      if (['primitive_type', 'sized_type_specifier'].includes(type.type)) return true;
+      if (!['type_identifier', 'qualified_identifier'].includes(type.type)) return false;
+      for (let at: SyntaxNode | null = context; at; at = at.parent) {
+        if (at.type !== 'template_declaration') continue;
+        const parameters = getChildByField(at, 'parameters');
+        for (const parameter of parameters?.namedChildren ?? []) {
+          const name = getChildByField(parameter, 'name') ?? getChildByField(parameter, 'declarator')
+            ?? parameter.namedChildren.find(n => n.type === 'type_identifier');
+          if (name?.text === type.text) return ['type_parameter_declaration',
+            'optional_type_parameter_declaration', 'variadic_type_parameter_declaration'].includes(parameter.type);
+        }
+      }
+      // A named type/alias may be hidden in a reopened namespace, a
+      // conditional branch or an import. Absence of a visible value in this
+      // one AST scope is not proof of type identity.
+      return false;
+    };
+    for (const declaration of original.rootNode.descendantsOfType('declaration')) {
+      const declarator = getChildByField(declaration, 'declarator');
+      const value = declarator?.type === 'init_declarator' && getChildByField(declarator, 'value');
+      const name = declarator && getChildByField(declarator, 'declarator');
+      const terminator = declaration.lastChild;
+      if (!value || value.type !== 'argument_list' || name?.type !== 'identifier'
+        || terminator?.type !== ';' || terminator.isMissing
+        || declaration.childrenForFieldName('declarator').length !== 1
+        || declaration.endIndex - declaration.startIndex > 4096
+        || this.cppSourceScope().isExecutable(declaration.startIndex)
+        || this.cppSourceScope().isDirective(declaration.startIndex)
+        || !/^[\s;]*$/.test(source.slice(value.endIndex, declaration.endIndex))
+        || !value.descendantsOfType(['pointer_expression', 'pointer_type_declarator']).length) continue;
+      insertions.push({offset:value.endIndex, text:'{;}', point:value.endPosition, declaration});
+    }
+    // Unnamed member-function pointers have a second grammar gap: the missing
+    // name can consume the enclosing function definition. Supply a disposable
+    // name only at the grammar's missing member-pointer declarator slot.
+    for (const pointer of original.rootNode.descendantsOfType('pointer_type_declarator')) {
+      const name = getChildByField(pointer, 'declarator');
+      if (!name?.isMissing || pointer.parent?.type !== 'qualified_identifier'
+        || !/^\s*\)\s*\(/.test(source.slice(name.startIndex))
+        || this.cppSourceScope().isDirective(name.startIndex)) continue;
+      let context: SyntaxNode | null = pointer.parent;
+      while (context && !['parameter_declaration', 'argument_list', 'type_descriptor',
+        'type_definition', 'alias_declaration'].includes(context.type)) context = context.parent;
+      if (!context || !['parameter_declaration', 'argument_list'].includes(context.type)) continue;
+      insertions.push({offset:name.startIndex, text:'x', point:name.startPosition});
+    }
+    if (!insertions.length) return;
+    insertions.sort((a, b) => a.offset - b.offset);
+    let active = insertions;
+    for (let attempt = 0; attempt < 2 && active.length; attempt++) {
+      const chunks: string[] = [];
+      let cursor = 0;
+      for (const insertion of active) {
+        chunks.push(source.slice(cursor, insertion.offset), insertion.text);
+        cursor = insertion.offset;
+      }
+      chunks.push(source.slice(cursor));
+      let parseText = chunks.join('');
+      const repaired = parser.parse(index => parseText.slice(index));
+      if (!repaired) return;
+      let delta = 0, rowDelta = 0, previousRow = -1;
+      const positions = active.map(insertion => {
+        const start = insertion.offset + delta;
+        if (insertion.point.row !== previousRow) rowDelta = 0;
+        const column = insertion.point.column + rowDelta;
+        previousRow = insertion.point.row;
+        rowDelta += insertion.text.length;
+        delta += insertion.text.length;
+        return {...insertion, start, column};
+      });
+      const functions = new Map(repaired.rootNode.descendantsOfType('function_definition')
+        .map(fn => [getChildByField(fn, 'body')?.startIndex, fn]));
+      const rejected = new Set<Insertion>();
+      for (let i = 0; i < active.length; i++) {
+        const insertion = active[i]!, position = positions[i]!;
+        if (!insertion.declaration) {
+          const name = repaired.rootNode.descendantForIndex(position.start, position.start + 1);
+          let parameter = name;
+          while (parameter && !['parameter_declaration', 'translation_unit'].includes(parameter.type)) parameter = parameter.parent;
+          if (name?.type !== 'type_identifier' || parameter?.type !== 'parameter_declaration') rejected.add(insertion);
+          continue;
+        }
+        const fn = functions.get(position.start);
+        const declarator = fn && getChildByField(fn, 'declarator');
+        const parameters = declarator && getChildByField(declarator, 'parameters');
+        if (!fn || fn.hasError || !parameters || !parameters.descendantsOfType(['pointer_declarator',
+          'reference_declarator', 'pointer_type_declarator']).length
+          || parameters.namedChildren.filter(parameter => parameter.type !== 'comment').some(parameter => {
+            const type = getChildByField(parameter, 'type');
+            if (!type || !knownType(type, insertion.declaration!)) return true;
+            // A builtin scalar cast cannot be called or subscripted. Once
+            // that outer type is proven, nested callback aliases do not need
+            // speculative lookup to disambiguate a valid initializer.
+            if (['primitive_type', 'sized_type_specifier'].includes(type.type)) return false;
+            return parameter.descendantsOfType('parameter_declaration').some(nested => {
+              const nestedType = getChildByField(nested, 'type');
+              return !nestedType || !knownType(nestedType, insertion.declaration!);
+            });
+          })) rejected.add(insertion);
+      }
+      if (rejected.size) {
+        repaired.delete();
+        active = active.filter(insertion => !rejected.has(insertion));
+        continue;
+      }
+      // Edits run right-to-left so earlier augmented coordinates stay valid.
+      for (const insertion of [...positions].reverse()) {
+        const row = insertion.point.row, column = insertion.column;
+        repaired.edit({startIndex:insertion.start, oldEndIndex:insertion.start + insertion.text.length,
+          newEndIndex:insertion.start, startPosition:{row,column},
+          oldEndPosition:{row,column:column + insertion.text.length}, newEndPosition:{row,column}});
+      }
+      parseText = source;
+      if (!preservesNamedTypeDefinitions(repaired.rootNode, original.rootNode, this.extractor!)) {
+        repaired.delete();
+        return;
+      }
+      for (const insertion of active) {
+        if (insertion.declaration) this.cppRecoveredDeclarations.add(insertion.declaration.startIndex);
+      }
+      original.delete();
+      this.tree = repaired;
+      return;
+    }
   }
 
   private cppMacroTypeBindings(): CppTypeBindings | undefined {
@@ -3611,6 +3759,7 @@ export class TreeSitterExtractor {
       isAsync,
       isStatic,
       returnType,
+      isDeclaration: this.cppRecoveredDeclarations.has(node.startIndex) || undefined,
     });
     if (!funcNode) {
       // An invalid macro-body function can span later, genuine declarations
@@ -3881,6 +4030,7 @@ export class TreeSitterExtractor {
    * Extract a method
    */
   private extractMethod(node: SyntaxNode, isDeclaration = false): void {
+    isDeclaration ||= this.cppRecoveredDeclarations.has(node.startIndex);
     if (!this.extractor) return;
 
     // For languages with receiver types (Go, Rust), include receiver in qualified name
@@ -5058,12 +5208,12 @@ export class TreeSitterExtractor {
       /** Descend through declarator wrappers to find the identifier. Returns the
        *  identifier node, or the deepest unwrapped node if no identifier found. */
       const unwrapDeclarator = (n: SyntaxNode): SyntaxNode | null => {
-        if (n.type === 'identifier') return n;
+        if (n.type === 'identifier' || n.type === 'type_identifier') return n;
         if (n.type === 'init_declarator') {
           const d = getChildByField(n, 'declarator');
           return d ? unwrapDeclarator(d) : null;
         }
-        if (n.type === 'pointer_declarator' || n.type === 'array_declarator' ||
+        if (n.type === 'pointer_declarator' || n.type === 'pointer_type_declarator' || n.type === 'array_declarator' ||
             n.type === 'reference_declarator') {
           const inner = getChildByField(n, 'declarator') || n.namedChild(0);
           const result = inner ? unwrapDeclarator(inner) : null;
@@ -5103,6 +5253,8 @@ export class TreeSitterExtractor {
         // name after the final `::`). Recurse to handle nested qualified
         // identifiers where the deepest identifier may be 2+ levels down.
         if (n.type === 'qualified_identifier') {
+          const memberPointer = n.descendantsOfType('pointer_type_declarator')[0];
+          if (memberPointer) return unwrapDeclarator(memberPointer);
           const findLastId = (qn: SyntaxNode): SyntaxNode | null => {
             let last: SyntaxNode | null = null;
             for (let i = 0; i < qn.namedChildCount; i++) {
@@ -5137,6 +5289,22 @@ export class TreeSitterExtractor {
           if (child && hasFunctionDeclarator(child)) return true;
         }
         return false;
+      };
+
+      const isFunctionPointerVariable = (declarator: SyntaxNode): boolean => {
+        let nearest = '';
+        for (let current: SyntaxNode | null = declarator; current;) {
+          if (['function_declarator', 'pointer_declarator', 'reference_declarator',
+            'array_declarator'].includes(current.type)) nearest = current.type;
+          if (current.type === 'qualified_identifier') {
+            const memberPointer: SyntaxNode | undefined = current.descendantsOfType('pointer_type_declarator')[0];
+            if (memberPointer) { nearest = 'pointer_declarator'; current = memberPointer; continue; }
+            break;
+          }
+          if (['identifier', 'field_identifier', 'type_identifier'].includes(current.type)) break;
+          current = getChildByField(current, 'declarator') ?? current.namedChild(0);
+        }
+        return nearest !== '' && nearest !== 'function_declarator';
       };
 
       // Node types that are declarators (not type specifiers / qualifiers)
@@ -5176,7 +5344,7 @@ export class TreeSitterExtractor {
         // `function_declarator` — not as `function_definition`. Extract the
         // function name from inside the function_declarator so headers get
         // function nodes for their public API.
-        if (hasFunctionDeclarator(child)) {
+        if (hasFunctionDeclarator(child) && !isFunctionPointerVariable(child)) {
           // The grammar cannot distinguish a scoped enumerator from a type in
           // `Widget value(Mode::ON)`. Only reclassify with local enum evidence;
           // unknown qualified names must remain eligible as parameter types.
@@ -5314,7 +5482,7 @@ export class TreeSitterExtractor {
           }
         }
 
-        if (!resolved || resolved.type !== 'identifier') continue;
+        if (!resolved || !['identifier', 'type_identifier'].includes(resolved.type)) continue;
 
         const name = getNodeText(resolved, this.source);
         if (!name) continue;
@@ -5378,7 +5546,7 @@ export class TreeSitterExtractor {
       if (at.type === 'qualified_identifier') qualified = at;
       if (at.id === declarator.id) break;
     }
-    if (!qualified) return this.buildQualifiedName(name);
+    if (!qualified || qualified.descendantsOfType('pointer_type_declarator').length) return this.buildQualifiedName(name);
     const full = getNodeText(qualified, this.source).replace(/\s*::\s*/g, '::').trim();
     if (!full.includes('::')) return this.buildQualifiedName(name);
     const scope = this.buildQualifiedName('');
