@@ -28,7 +28,6 @@ import {
   comparePathSimilarityScores,
   isDistinctiveIdentifier,
   isNaturalLanguageQuery,
-  isNaturalLanguageExploreQuery,
   isTestFile,
   normalizeNameToken,
   normalizePathForComparison,
@@ -3517,7 +3516,7 @@ export class ToolHandler {
 
     // Fast-fail: reject natural-language queries. Explore works best with
     // symbol/file names extracted from the question, not the raw question.
-    const nlCheck = isNaturalLanguageExploreQuery(query);
+    const nlCheck = isNaturalLanguageQuery(query);
     if (nlCheck.isNatural) {
       // Extract any identifier-looking tokens as a hint for the agent.
       const idTokens = query

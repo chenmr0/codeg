@@ -597,29 +597,3 @@ export function isNaturalLanguageQuery(query: string): { isNatural: boolean; rea
 
   return { isNatural: false };
 }
-
-
-/**
- * Explore intentionally accepts a bag of symbol/file names. Keep this separate
- * from search's single-symbol admission: rejecting whitespace here contradicts
- * explore's schema and makes its flow-spine queries impossible.
- * This is a bounded syntax check, not semantic classification of every phrase.
- */
-export function isNaturalLanguageExploreQuery(query: string): { isNatural: boolean; reason?: string } {
-  const terms = query.trim().split(/[\s,;]+/).filter(Boolean);
-  for (const term of terms) {
-    const single = isNaturalLanguageQuery(term);
-    if (single.isNatural) return single;
-    if (!/^(?:::)?[a-zA-Z_$][a-zA-Z0-9_$]*(?:(?:::|[.\/\\-])[a-zA-Z0-9_$-]+)*$/.test(term)) {
-      return { isNatural: true, reason: '请使用符号名、限定名或文件名组成的查询' };
-    }
-  }
-  // Plain grammatical words distinguish common questions from a code-name bag.
-  // Do not reuse STOP_WORDS: it also contains legitimate code terms such as
-  // method, class, and type, which explore explicitly accepts.
-  const prose = /^(?:how|what|where|when|who|which|why|the|a|an|and|but|with|from|does|did|is|are|was|were|me|please)$/;
-  if (terms.length > 1 && terms.some(term => prose.test(term))) {
-    return { isNatural: true, reason: '查询疑似自然语言描述，请只保留关键符号名或文件名' };
-  }
-  return { isNatural: false };
-}
