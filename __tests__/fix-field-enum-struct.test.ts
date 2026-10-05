@@ -8,10 +8,6 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import { extractFromSource } from '../src/extraction';
 import { initGrammars, loadAllGrammars } from '../src/extraction/grammars';
-import * as fs from 'node:fs';
-import * as path from 'node:path';
-
-const OB = 'D:/c_proj/oceanbase';
 
 function kinds(code: string): Record<string, number> {
   const r = extractFromSource('test.cpp', code, 'cpp');
@@ -138,16 +134,32 @@ describe('根因 A 修复 - 类内 type 定义边界', () => {
   });
 });
 
-describe('根因 A 修复 - oceanbase 实际文件', () => {
+describe('根因 A 修复 - OceanBase 结构的自包含回归 fixture', () => {
   beforeAll(async () => {
     await initGrammars();
     await loadAllGrammars();
   });
 
   it('ob_virtual_show_trace.h: SYS_COLUMN 类内 enum 应被提取', () => {
-    const file = `${OB}/src/observer/virtual_table/ob_virtual_show_trace.h`;
-    const source = fs.readFileSync(file, 'utf8');
-    const r = extractFromSource(path.basename(file), source, 'cpp');
+    // Reduced regression shape, not a dependency on a developer's checkout.
+    // Keep nested namespaces, class scope, explicit enum values and a method
+    // after the enum so traversal must resume normally.
+    const source = `
+namespace oceanbase {
+namespace observer {
+class ObVirtualShowTrace {
+public:
+  enum SYS_COLUMN {
+    SVR_IP = 16,
+    SPAN_ID,
+    LOGS,
+  };
+  int inner_get_next_row();
+};
+}
+}
+`;
+    const r = extractFromSource('ob_virtual_show_trace.h', source, 'cpp');
     const enums = r.nodes.filter(n => n.kind === 'enum');
     const members = r.nodes.filter(n => n.kind === 'enum_member');
     // SYS_COLUMN 应被提取为 enum
@@ -156,16 +168,32 @@ describe('根因 A 修复 - oceanbase 实际文件', () => {
     expect(members.some(n => n.name === 'SVR_IP')).toBe(true);
     expect(members.some(n => n.name === 'SPAN_ID')).toBe(true);
     expect(members.some(n => n.name === 'LOGS')).toBe(true);
+    expect(r.nodes.some(n => n.kind === 'method' && n.name === 'inner_get_next_row')).toBe(true);
   });
 
   it('ob_pl_compile_utils.h: CompileType 类内 enum 应被提取', () => {
-    const file = `${OB}/src/pl/ob_pl_compile_utils.h`;
-    const source = fs.readFileSync(file, 'utf8');
-    const r = extractFromSource(path.basename(file), source, 'cpp');
+    const source = `
+namespace oceanbase {
+namespace pl {
+class ObPLCompileUtils {
+public:
+  enum CompileType {
+    COMPILE_INVALID = 0,
+    COMPILE_PROCEDURE,
+    COMPILE_FUNCTION,
+  };
+  static int compile(CompileType type);
+};
+}
+}
+`;
+    const r = extractFromSource('ob_pl_compile_utils.h', source, 'cpp');
     const enums = r.nodes.filter(n => n.kind === 'enum');
     const members = r.nodes.filter(n => n.kind === 'enum_member');
     expect(enums.some(n => n.name === 'CompileType')).toBe(true);
     // CompileType 的成员应以 COMPILE_ 开头（COMPILE_INVALID / COMPILE_PROCEDURE 等）
     expect(members.some(n => n.name?.startsWith('COMPILE_'))).toBe(true);
+    expect(members.map(n => n.name)).toEqual(expect.arrayContaining(['COMPILE_INVALID', 'COMPILE_PROCEDURE', 'COMPILE_FUNCTION']));
+    expect(r.nodes.some(n => n.kind === 'method' && n.name === 'compile')).toBe(true);
   });
 });

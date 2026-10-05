@@ -173,7 +173,6 @@ describe('symlink identity dedup (CODEGRAPH_DEDUP_SYMLINKS default on)', () => {
       let cg: CodeGraph | null = null;
       try {
         execFileSync('git', ['init', '-q'], { cwd: dir, windowsHide: true });
-        execFileSync('git', ['add', 'real.ts'], { cwd: dir, windowsHide: true }); // tracked
         fs.writeFileSync(path.join(dir, 'real.ts'), `export function shared() { return 1; }\n`);
         execFileSync('git', ['add', 'real.ts'], { cwd: dir, windowsHide: true });
         fs.symlinkSync(path.join(dir, 'real.ts'), path.join(dir, 'link.ts')); // untracked symlink

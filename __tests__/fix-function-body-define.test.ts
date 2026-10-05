@@ -8,10 +8,6 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import { extractFromSource } from '../src/extraction';
 import { initGrammars, loadAllGrammars } from '../src/extraction/grammars';
-import * as fs from 'node:fs';
-import * as path from 'node:path';
-
-const OB = 'D:/c_proj/oceanbase';
 
 function macroNames(code: string, lang = 'cpp'): string[] {
   const r = extractFromSource('test.' + lang, code, lang);
@@ -92,12 +88,31 @@ describe('根因 E 修复 - 函数体内 #define 宏提取', () => {
     expect(macroNames(code, 'c')).toContain('FOO');
   });
 
-  it('oceanbase: ob_column_oriented_sstable.cpp ALLOCATE_CG_ITER / FREE_CG_ITER', () => {
-    const file = `${OB}/src/storage/column_store/ob_column_oriented_sstable.cpp`;
-    const source = fs.readFileSync(file, 'utf8');
-    const r = extractFromSource(path.basename(file), source, 'cpp');
+  it('OceanBase 结构的自包含 fixture: 函数内 ALLOCATE_CG_ITER / FREE_CG_ITER', () => {
+    // Preserve the regression shape: class method body, multiline local
+    // function-like macros, use sites, and #undef before leaving the function.
+    const source = [
+      'namespace oceanbase { namespace storage {',
+      'class ObColumnOrientedSSTable { public: int scan(); };',
+      'int ObColumnOrientedSSTable::scan() {',
+      '  #define ALLOCATE_CG_ITER(type, ptr) \\',
+      '    do { ptr = new type(); } while (false)',
+      '  #define FREE_CG_ITER(ptr) \\',
+      '    do { delete ptr; ptr = nullptr; } while (false)',
+      '  int *iter = nullptr;',
+      '  ALLOCATE_CG_ITER(int, iter);',
+      '  FREE_CG_ITER(iter);',
+      '  #undef ALLOCATE_CG_ITER',
+      '  #undef FREE_CG_ITER',
+      '  return 0;',
+      '}',
+      '} }',
+    ].join('\n');
+    const r = extractFromSource('ob_column_oriented_sstable.cpp', source, 'cpp');
     const macros = r.nodes.filter(n => n.kind === 'macro').map(n => n.name);
     expect(macros.some(n => n === 'ALLOCATE_CG_ITER')).toBe(true);
     expect(macros.some(n => n === 'FREE_CG_ITER')).toBe(true);
+    expect(r.nodes.some(n => n.name === 'scan' && n.kind === 'method')).toBe(true);
+    expect(r.unresolvedReferences.filter(ref => ref.referenceKind === 'references').map(ref => ref.referenceName)).not.toContain('ptr');
   });
 });

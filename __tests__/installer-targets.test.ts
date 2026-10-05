@@ -22,6 +22,13 @@ import { ALL_TARGETS, getTarget, resolveTargetFlag } from '../src/installer/targ
 import { uninstallTargets } from '../src/installer';
 import { upsertTomlTable, removeTomlTable, buildTomlTable } from '../src/installer/targets/toml';
 import { cleanupLegacyHooks } from '../src/installer/targets/claude';
+// These legacy adapters are retained as modules but intentionally not exposed
+// by this distribution's registry. Test adapter behavior independently below.
+import { codexTarget } from '../src/installer/targets/codex';
+import { cursorTarget } from '../src/installer/targets/cursor';
+import { hermesTarget } from '../src/installer/targets/hermes';
+import { antigravityTarget } from '../src/installer/targets/antigravity';
+import { kiroTarget } from '../src/installer/targets/kiro';
 
 function mkTmpDir(label: string): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), `cg-targets-${label}-`));
@@ -230,7 +237,7 @@ describe('Installer targets — partial-state idempotency', () => {
   });
 
   it('codex: install writes config.toml but never an AGENTS.md instructions file (#529)', () => {
-    const codex = getTarget('codex')!;
+    const codex = codexTarget;
     const first = codex.install('global', { autoAllow: false });
     const agentsMd = path.join(tmpHome, '.codex', 'AGENTS.md');
     // No instructions file is created, and no file action references it.
@@ -243,7 +250,7 @@ describe('Installer targets — partial-state idempotency', () => {
   });
 
   it('codex: install strips a legacy AGENTS.md codegraph block, keeping user content (#529)', () => {
-    const codex = getTarget('codex')!;
+    const codex = codexTarget;
     const dir = path.join(tmpHome, '.codex');
     fs.mkdirSync(dir, { recursive: true });
     const agentsMd = path.join(dir, 'AGENTS.md');
@@ -474,7 +481,7 @@ describe('Installer targets — partial-state idempotency', () => {
   });
 
   it('kiro: install writes settings/mcp.json (mcpServers.codegraph) and no steering doc (#529)', () => {
-    const kiro = getTarget('kiro')!;
+    const kiro = kiroTarget;
     const result = kiro.install('global', { autoAllow: true });
     const mcp = path.join(tmpHome, '.kiro', 'settings', 'mcp.json');
     const steering = path.join(tmpHome, '.kiro', 'steering', 'codegraph.md');
@@ -487,7 +494,7 @@ describe('Installer targets — partial-state idempotency', () => {
   });
 
   it('kiro: install deletes a leftover steering codegraph.md (self-heal) (#529)', () => {
-    const kiro = getTarget('kiro')!;
+    const kiro = kiroTarget;
     const steering = path.join(tmpHome, '.kiro', 'steering', 'codegraph.md');
     fs.mkdirSync(path.dirname(steering), { recursive: true });
     fs.writeFileSync(steering, `${LEGACY_BLOCK}\n`);
@@ -498,7 +505,7 @@ describe('Installer targets — partial-state idempotency', () => {
   });
 
   it('kiro: install preserves a pre-existing sibling MCP server in mcp.json', () => {
-    const kiro = getTarget('kiro')!;
+    const kiro = kiroTarget;
     const mcp = path.join(tmpHome, '.kiro', 'settings', 'mcp.json');
     fs.mkdirSync(path.dirname(mcp), { recursive: true });
     fs.writeFileSync(mcp, JSON.stringify({
@@ -513,7 +520,7 @@ describe('Installer targets — partial-state idempotency', () => {
   });
 
   it('kiro: uninstall strips codegraph but leaves sibling MCP servers intact', () => {
-    const kiro = getTarget('kiro')!;
+    const kiro = kiroTarget;
     const mcp = path.join(tmpHome, '.kiro', 'settings', 'mcp.json');
     fs.mkdirSync(path.dirname(mcp), { recursive: true });
     fs.writeFileSync(mcp, JSON.stringify({
@@ -529,7 +536,7 @@ describe('Installer targets — partial-state idempotency', () => {
   });
 
   it('kiro: uninstall removes a leftover steering codegraph.md file outright', () => {
-    const kiro = getTarget('kiro')!;
+    const kiro = kiroTarget;
     const steering = path.join(tmpHome, '.kiro', 'steering', 'codegraph.md');
     fs.mkdirSync(path.dirname(steering), { recursive: true });
     fs.writeFileSync(steering, `${LEGACY_BLOCK}\n`);
@@ -539,7 +546,7 @@ describe('Installer targets — partial-state idempotency', () => {
   });
 
   it('kiro: uninstall removes our steering doc but leaves a sibling (product.md) untouched', () => {
-    const kiro = getTarget('kiro')!;
+    const kiro = kiroTarget;
     const sibling = path.join(tmpHome, '.kiro', 'steering', 'product.md');
     const ours = path.join(tmpHome, '.kiro', 'steering', 'codegraph.md');
     fs.mkdirSync(path.dirname(sibling), { recursive: true });
@@ -554,7 +561,7 @@ describe('Installer targets — partial-state idempotency', () => {
   });
 
   it('kiro: local install writes ./.kiro/settings/mcp.json and no steering doc (#529)', () => {
-    const kiro = getTarget('kiro')!;
+    const kiro = kiroTarget;
     const result = kiro.install('local', { autoAllow: true });
     const paths = result.files.map((f) => f.path.replace(/\\/g, '/'));
     expect(paths.some((p) => p.endsWith('/.kiro/settings/mcp.json'))).toBe(true);
@@ -562,7 +569,7 @@ describe('Installer targets — partial-state idempotency', () => {
   });
 
   it('antigravity: install writes to LEGACY ~/.gemini/antigravity/mcp_config.json when no migration marker', () => {
-    const antigravity = getTarget('antigravity')!;
+    const antigravity = antigravityTarget;
     antigravity.install('global', { autoAllow: true });
 
     const legacyFile = path.join(tmpHome, '.gemini', 'antigravity', 'mcp_config.json');
@@ -574,7 +581,7 @@ describe('Installer targets — partial-state idempotency', () => {
   });
 
   it('antigravity: install writes to UNIFIED ~/.gemini/config/mcp_config.json when .migrated marker present', () => {
-    const antigravity = getTarget('antigravity')!;
+    const antigravity = antigravityTarget;
     // Plant the migration marker — same signal Antigravity itself drops
     // when it migrates a user's config.
     const unifiedDir = path.join(tmpHome, '.gemini', 'config');
@@ -592,7 +599,7 @@ describe('Installer targets — partial-state idempotency', () => {
   });
 
   it('antigravity: install writes to UNIFIED path when ~/.gemini/config/mcp_config.json already exists (even without marker)', () => {
-    const antigravity = getTarget('antigravity')!;
+    const antigravity = antigravityTarget;
     // Antigravity creates this file on first launch post-migration — its
     // presence is the second signal we accept, in case the .migrated
     // marker semantics change across Antigravity versions.
@@ -607,7 +614,7 @@ describe('Installer targets — partial-state idempotency', () => {
   });
 
   it('antigravity: entry has NO `type` field (Antigravity rejects entries with it)', () => {
-    const antigravity = getTarget('antigravity')!;
+    const antigravity = antigravityTarget;
     // Marker → unified path; doesn't matter which path, just inspect the entry shape.
     fs.mkdirSync(path.join(tmpHome, '.gemini', 'config'), { recursive: true });
     fs.writeFileSync(path.join(tmpHome, '.gemini', 'config', '.migrated'), '');
@@ -623,7 +630,7 @@ describe('Installer targets — partial-state idempotency', () => {
   });
 
   it('antigravity: install migrates a legacy codegraph entry to the unified path when marker appears', () => {
-    const antigravity = getTarget('antigravity')!;
+    const antigravity = antigravityTarget;
     // Simulate: user installed on the legacy path, then Antigravity
     // migrated their config (dropped the `.migrated` marker + created
     // the unified file). Re-running codegraph install should land
@@ -648,7 +655,7 @@ describe('Installer targets — partial-state idempotency', () => {
   });
 
   it('antigravity: install preserves a sibling MCP server in mcp_config.json (legacy path)', () => {
-    const antigravity = getTarget('antigravity')!;
+    const antigravity = antigravityTarget;
     const mcpFile = path.join(tmpHome, '.gemini', 'antigravity', 'mcp_config.json');
     fs.mkdirSync(path.dirname(mcpFile), { recursive: true });
     fs.writeFileSync(mcpFile, JSON.stringify({
@@ -663,7 +670,7 @@ describe('Installer targets — partial-state idempotency', () => {
   });
 
   it('antigravity: install preserves Antigravity-managed fields on sibling servers (e.g. disabled flag)', () => {
-    const antigravity = getTarget('antigravity')!;
+    const antigravity = antigravityTarget;
     // Antigravity adds `"disabled": true` to entries the user disables via
     // the IDE. Install must not clobber that on sibling entries.
     fs.mkdirSync(path.join(tmpHome, '.gemini', 'config'), { recursive: true });
@@ -685,7 +692,7 @@ describe('Installer targets — partial-state idempotency', () => {
   });
 
   it('antigravity: uninstall removes only codegraph, sibling MCP server survives', () => {
-    const antigravity = getTarget('antigravity')!;
+    const antigravity = antigravityTarget;
     const mcpFile = path.join(tmpHome, '.gemini', 'antigravity', 'mcp_config.json');
     fs.mkdirSync(path.dirname(mcpFile), { recursive: true });
     fs.writeFileSync(mcpFile, JSON.stringify({
@@ -701,7 +708,7 @@ describe('Installer targets — partial-state idempotency', () => {
   });
 
   it('antigravity: uninstall sweeps BOTH legacy and unified paths (handles migration half-state)', () => {
-    const antigravity = getTarget('antigravity')!;
+    const antigravity = antigravityTarget;
     // User had codegraph in BOTH files (e.g. legacy install + post-migration
     // re-install before our migration cleanup landed). Uninstall must clean
     // both so a "fresh slate" really is fresh.
@@ -726,7 +733,7 @@ describe('Installer targets — partial-state idempotency', () => {
   });
 
   it('antigravity: rejects --location=local with a clear note (global-only IDE)', () => {
-    const antigravity = getTarget('antigravity')!;
+    const antigravity = antigravityTarget;
     expect(antigravity.supportsLocation('local')).toBe(false);
     const result = antigravity.install('local', { autoAllow: true });
     expect(result.files).toEqual([]);
@@ -734,7 +741,7 @@ describe('Installer targets — partial-state idempotency', () => {
   });
 
   it('antigravity: does not write GEMINI.md (only gemini target owns instructions)', () => {
-    const antigravity = getTarget('antigravity')!;
+    const antigravity = antigravityTarget;
     antigravity.install('global', { autoAllow: true });
     const geminiMd = path.join(tmpHome, '.gemini', 'GEMINI.md');
     expect(fs.existsSync(geminiMd)).toBe(false);
@@ -742,7 +749,7 @@ describe('Installer targets — partial-state idempotency', () => {
 
   it('gemini + antigravity: both installed coexist (separate MCP files, shared GEMINI.md)', () => {
     const gemini = getTarget('gemini')!;
-    const antigravity = getTarget('antigravity')!;
+    const antigravity = antigravityTarget;
     gemini.install('global', { autoAllow: true });
     antigravity.install('global', { autoAllow: true });
 
@@ -760,7 +767,7 @@ describe('Installer targets — partial-state idempotency', () => {
   });
 
   it('hermes: install adds codegraph MCP server and cli toolset, preserving existing yaml', () => {
-    const hermes = getTarget('hermes')!;
+    const hermes = hermesTarget;
     const config = path.join(tmpHome, '.hermes', 'config.yaml');
     fs.mkdirSync(path.dirname(config), { recursive: true });
     fs.writeFileSync(config, [
@@ -792,7 +799,7 @@ describe('Installer targets — partial-state idempotency', () => {
   });
 
   it('hermes: uninstall removes only codegraph MCP server and toolset entry', () => {
-    const hermes = getTarget('hermes')!;
+    const hermes = hermesTarget;
     const config = path.join(tmpHome, '.hermes', 'config.yaml');
     fs.mkdirSync(path.dirname(config), { recursive: true });
 
@@ -812,7 +819,7 @@ describe('Installer targets — partial-state idempotency', () => {
   // the next sibling key, truncated the cli block, and spliced `- mcp-codegraph`
   // at indent 4 BEFORE the existing items — producing unparseable YAML.
   it('hermes: install preserves PyYAML-default list-at-same-indent style (issue #456)', () => {
-    const hermes = getTarget('hermes')!;
+    const hermes = hermesTarget;
     const config = path.join(tmpHome, '.hermes', 'config.yaml');
     fs.mkdirSync(path.dirname(config), { recursive: true });
     const original = [
@@ -859,7 +866,7 @@ describe('Installer targets — partial-state idempotency', () => {
   });
 
   it('hermes: uninstall reverses the install on a PyYAML-default config', () => {
-    const hermes = getTarget('hermes')!;
+    const hermes = hermesTarget;
     const config = path.join(tmpHome, '.hermes', 'config.yaml');
     fs.mkdirSync(path.dirname(config), { recursive: true });
     const original = [
@@ -930,7 +937,7 @@ describe('Installer targets — partial-state idempotency', () => {
   });
 
   it('codex: user-added key inside [mcp_servers.codegraph] survives idempotent re-install', () => {
-    const codex = getTarget('codex')!;
+    const codex = codexTarget;
     codex.install('global', { autoAllow: false });
     const tomlPath = path.join(tmpHome, '.codex', 'config.toml');
     const original = fs.readFileSync(tomlPath, 'utf-8');
@@ -1327,24 +1334,25 @@ describe('Installer targets — partial-state idempotency', () => {
 });
 
 describe('Installer targets — registry', () => {
-  it('getTarget returns the right target for each id', () => {
-    expect(getTarget('claude')?.id).toBe('claude');
-    expect(getTarget('cursor')?.id).toBe('cursor');
-    expect(getTarget('codex')?.id).toBe('codex');
-    expect(getTarget('opencode')?.id).toBe('opencode');
-    expect(getTarget('codeagent')?.id).toBe('codeagent');
-    expect(getTarget('hermes')?.id).toBe('hermes');
-    expect(getTarget('gemini')?.id).toBe('gemini');
-    expect(getTarget('antigravity')?.id).toBe('antigravity');
-    expect(getTarget('kiro')?.id).toBe('kiro');
+  it('exposes exactly the supported distribution targets in stable order', () => {
+    expect(ALL_TARGETS.map((target) => target.id)).toEqual(['opencode', 'codeagent', 'claude', 'gemini']);
+    for (const id of ['opencode', 'codeagent', 'claude', 'gemini']) {
+      expect(getTarget(id)?.id).toBe(id);
+    }
     expect(getTarget('not-a-real-target')).toBeUndefined();
+  });
+
+  it.each(['cursor', 'codex', 'hermes', 'antigravity', 'kiro'])('keeps unsupported target %s out of registry and explicit CLI selection', (id) => {
+    expect(getTarget(id)).toBeUndefined();
+    expect(() => resolveTargetFlag(id, 'global')).toThrow(`Unknown --target id(s): ${id}`);
+    expect(() => resolveTargetFlag(`claude,${id}`, 'global')).toThrow(/Unknown --target/);
   });
 
   it('resolveTargetFlag handles auto/all/none/csv', () => {
     expect(resolveTargetFlag('none', 'global')).toEqual([]);
     expect(resolveTargetFlag('all', 'global').length).toBe(ALL_TARGETS.length);
-    const csv = resolveTargetFlag('claude,cursor', 'global');
-    expect(csv.map((t) => t.id)).toEqual(['claude', 'cursor']);
+    const csv = resolveTargetFlag('claude,opencode', 'global');
+    expect(csv.map((t) => t.id)).toEqual(['claude', 'opencode']);
   });
 
   it('resolveTargetFlag throws on unknown id', () => {
@@ -1534,14 +1542,14 @@ describe('Installer — uninstallTargets sweep (codegraph uninstall)', () => {
 
   it('a --target subset removes only the chosen agents, leaving siblings configured', () => {
     getTarget('claude')!.install('global', { autoAllow: true });
-    getTarget('cursor')!.install('global', { autoAllow: true });
+    getTarget('opencode')!.install('global', { autoAllow: true });
 
     const reports = uninstallTargets(resolveTargetFlag('claude', 'global'), 'global');
 
     expect(reports.map((r) => r.id)).toEqual(['claude']);
     expect(reports[0].status).toBe('removed');
-    // Cursor was not in the subset — still configured.
-    expect(getTarget('cursor')!.detect('global').alreadyConfigured).toBe(true);
+    // OpenCode was not in the subset — still configured.
+    expect(getTarget('opencode')!.detect('global').alreadyConfigured).toBe(true);
     expect(getTarget('claude')!.detect('global').alreadyConfigured).toBe(false);
   });
 });
@@ -1551,7 +1559,7 @@ describe('Installer — Cursor rules file cleanup on uninstall', () => {
   let tmpCwd: string;
   let origCwd: string;
   let homeRestore: { restore: () => void };
-  const cursor = getTarget('cursor')!;
+  const cursor = cursorTarget;
 
   beforeEach(() => {
     tmpHome = mkTmpDir('cur-home');

@@ -352,14 +352,16 @@ describe('MCP Input Validation', () => {
   });
 
   it('should truncate oversized tool output', async () => {
-    // Force a huge result set through codegraph_search; the response must be
-    // truncated with the sentinel rather than flooding the agent's context.
+    // Strict search looks up exact names. Use many exact candidates and long
+    // paths so even the supported 100-result limit exceeds the output budget.
+    // The response must truncate with the sentinel, not take the no-match path.
     const many = Array.from({ length: 3000 }, (_, i) => ({
       node: {
         id: `n${i}`,
-        name: `symbol_${i}_${'x'.repeat(40)}`,
+        name: 'oversizedSymbol',
+        qualifiedName: 'oversizedSymbol',
         kind: 'function',
-        filePath: `src/very/deep/path/file_${i}.ts`,
+        filePath: `src/${'deep/'.repeat(40)}file_${i}.ts`,
         startLine: 1,
         endLine: 2,
         language: 'typescript',
@@ -368,14 +370,16 @@ describe('MCP Input Validation', () => {
     }));
     const fakeCg = {
       searchNodes: () => many,
-      getNodesByName: () => [],
+      getNodesByName: () => many.map(({ node }) => node),
     };
     const fakeHandler = new ToolHandler(fakeCg as unknown as CodeGraph);
 
-    const result = await fakeHandler.execute('search', { query: 'x' });
+    const result = await fakeHandler.execute('search', { query: 'oversizedSymbol', limit: 100 });
 
-    expect(result.isError).toBeFalsy();
+    expect(result.isError, result.content[0].text).toBeFalsy();
+    expect(result.content[0].text).toContain('oversizedSymbol');
     expect(result.content[0].text).toContain('... (output truncated)');
+    expect(result.content[0].text.length).toBeLessThan(15100);
   });
 
   it('should reject non-string symbol in codegraph_impact', async () => {
