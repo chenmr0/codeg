@@ -356,7 +356,7 @@ function getIncompleteIndexHints(diagnostics: IndexDiagnostic[]): string[] {
 
   if (codes.has('synthesis_skipped_memory') || codes.has('synthesis_stopped_memory')) {
     hints.push(
-      'Increase available V8/system memory headroom before running "codegraph index" again; ' +
+      'Increase available V8/system memory headroom before running "codegraph sync" again; ' +
       'a retry under the same memory conditions may remain incomplete.'
     );
   }
@@ -366,8 +366,8 @@ function getIncompleteIndexHints(diagnostics: IndexDiagnostic[]): string[] {
       'CODEGRAPH_NO_SYNTHESIS=1 only if complete graph coverage is required.'
     );
   }
-  if (codes.has('synthesis_pass_failed') || codes.has('synthesis_failed')) {
-    hints.push('Fix the reported synthesis failure before retrying "codegraph index".');
+  if (codes.has('synthesis_pass_failed') || codes.has('synthesis_failed') || codes.has('synthesis_incremental_failed')) {
+    hints.push('Fix the reported synthesis failure before retrying "codegraph sync".');
   }
   if (codes.has('framework_detection_failed') || codes.has('framework_post_extract_failed')) {
     hints.push('Fix the reported framework resolver failure before retrying "codegraph index".');
@@ -825,7 +825,7 @@ program
       const totalChanges = result.filesAdded + result.filesModified + result.filesRemoved;
 
       if (totalChanges === 0) {
-        clack.log.info('Already up to date');
+        clack.log.info(result.complete === false ? 'No source changes; graph coverage is incomplete' : 'Already up to date');
       } else {
         clack.log.success(`Synced ${formatNumber(totalChanges)} changed files`);
         const details: string[] = [];
@@ -837,7 +837,11 @@ program
         clack.log.info(`${details.join(', ')} ${getGlyphs().dash} ${formatNumber(result.nodesUpdated)} nodes in ${formatDuration(Math.round(syncPipelineMs))}`);
       }
 
-      clack.outro('Done');
+      if (result.complete === false) {
+        for (const diagnostic of result.errors ?? []) clack.log.warn(diagnostic.message);
+        for (const hint of getIncompleteIndexHints(result.errors ?? [])) clack.log.info(hint);
+      }
+      clack.outro(result.complete === false ? 'Sync usable with incomplete graph coverage' : 'Done');
       cg.destroy();
     } catch (err) {
       if (!options.quiet) {

@@ -292,8 +292,8 @@ describe('base-only index completeness diagnostics', () => {
       };
       const unrelated: ExtractionError = {
         severity: 'error',
-        code: 'synthesis_failed',
-        message: 'Synthetic edge coverage is incomplete.',
+        code: 'framework_post_extract_failed',
+        message: 'Framework post-extraction coverage is incomplete.',
       };
       queries.upsertFile({ ...tracked!, errors: [degradation] });
       queries.setMetadata('index_completeness', 'incomplete');

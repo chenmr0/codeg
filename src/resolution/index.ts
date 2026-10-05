@@ -899,6 +899,11 @@ export class ReferenceResolver {
     this.deferredChainRefs.push(...refs);
   }
 
+  private journalDeferredConformance(refs: readonly UnresolvedRef[]): void {
+    const rowIds = refs.flatMap(ref => ref.rowId === undefined ? [] : [ref.rowId]);
+    this.queries.journalDeferredConformanceReferences(rowIds);
+  }
+
   /** Exact membership, with the same false result when no lookup is prepared. */
   private hasKnownName(name: string): boolean {
     return this.knownNames ? this.knownNames.has(name) : this.indexedNames?.has(name) ?? false;
@@ -1195,7 +1200,9 @@ export class ReferenceResolver {
       !Number.isSafeInteger(ref.rowId) || ref.rowId! <= 0)) {
       throw new Error('Scoped reference cleanup requires database row IDs');
     }
+    const deferredStart = this.deferredChainRefs.length;
     const result = this.resolveAll(unresolvedRefs, onProgress, diagnostics, nameLookup);
+    this.journalDeferredConformance(this.deferredChainRefs.slice(deferredStart));
     let removedPending = 0;
 
     // Create edges from resolved references
@@ -1389,6 +1396,13 @@ export class ReferenceResolver {
     const deferred = this.deferredChainRefs;
     this.deferredChainRefs = [];
     if (deferred.length === 0) return 0;
+    // Persist the exact outstanding rows before the final pass. If it throws
+    // or the process stops, an ordinary orphan sweep can recover them without
+    // re-extracting source or retrying every historical failed reference.
+    const durable = deferred.filter((ref): ref is UnresolvedRef & { rowId: number } =>
+      ref.rowId !== undefined);
+    this.journalDeferredConformance(durable);
+    this.queries.markReferencesPendingByRowIds(durable.map(ref => ref.rowId));
 
     // Read fresh edges (the main pass built the implements/extends edges after
     // these refs were deferred). matchDottedCallChain now resolves a method on a
@@ -1404,13 +1418,17 @@ export class ReferenceResolver {
       const match = this.gateLanguage(chainMatch, ref);
       if (match) resolved.push(match);
     }
-    if (resolved.length === 0) return 0;
+    if (resolved.length === 0) {
+      this.queries.markReferencesFailedByRowIds(durable);
+      return 0;
+    }
 
     const edges = this.createEdges(resolved);
     if (edges.length > 0) {
       this.queries.insertEdges(edges);
       this.clearCaches();
     }
+    this.queries.markReferencesFailedByRowIds(durable);
     return edges.length;
   }
 
@@ -1427,6 +1445,7 @@ export class ReferenceResolver {
       bulkEdgeLoad?: { begin: () => void; end: () => void | Promise<void> };
       bulkRefLoad?: { begin: () => void; end: () => void | Promise<void> };
       onSynthesisProgress?: (current: number, total: number) => void;
+      replaySynthesis?: boolean;
     }
   ): Promise<ResolutionResult> {
     this.warmCaches();
@@ -1490,6 +1509,7 @@ export class ReferenceResolver {
         const batch = this.queries.getUnresolvedReferencesBatchAfter(afterRowId, batchSize);
         if (batch.length === 0) break;
 
+        const deferredStart = this.deferredChainRefs.length;
         let result: ResolutionResult;
         if (pool && poolReady && ResolverPool.worthParallel(batch.length)) {
           try {
@@ -1521,6 +1541,10 @@ export class ReferenceResolver {
           sequentialBatches++;
           result = this.resolveAll(batch);
         }
+
+        // Journal before any cleanup/yield can lose the in-memory deferred
+        // queue, including results admitted from read-only resolver workers.
+        this.journalDeferredConformance(this.deferredChainRefs.slice(deferredStart));
 
         // Persist edges immediately
         const edges = this.createEdges(result.resolved);
@@ -1602,7 +1626,8 @@ export class ReferenceResolver {
     try {
       const synthesis = await synthesizeCallbackEdges(
         this.queries,
-        this.context
+        this.context,
+        { replaceExisting: options?.replaySynthesis },
       );
       aggregateStats.byMethod['callback-synthesis'] = synthesis.edgesAdded;
       diagnostics.push(...synthesis.diagnostics);

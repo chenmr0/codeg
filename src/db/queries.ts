@@ -2067,6 +2067,15 @@ export class QueryBuilder {
     }
   }
 
+  /** Remove only explicitly owned heuristic edges before a full synthesis replay. */
+  deleteSynthesizedEdges(owners: readonly string[]): number {
+    if (owners.length === 0) return 0;
+    const placeholders = owners.map(() => '?').join(',');
+    return this.db.prepare(`DELETE FROM edges WHERE provenance = 'heuristic'
+      AND CASE WHEN json_valid(metadata) THEN json_extract(metadata, '$.synthesizedBy') END
+        IN (${placeholders})`).run(...owners).changes;
+  }
+
   /**
    * Start a SQLite-backed staging area for optional synthesis edges. Main
    * synthesis passes must all read the same committed graph snapshot; staging
@@ -2808,6 +2817,49 @@ WHERE e.kind = 'imports'
     return changed;
   }
 
+  /** Preserve exact deferred rows before first-pass cleanup parks them. */
+  journalDeferredConformanceReferences(rowIds: readonly number[]): void {
+    if (rowIds.length === 0) return;
+    const changes: Record<string, string> = { index_conformance_pending: '1' };
+    for (const id of rowIds) changes[`resolution-deferred:${id}`] = String(id);
+    this.applyMetadataChanges(changes);
+  }
+
+  /** Recover only journaled rows, never every historical failed reference. */
+  recoverDeferredConformanceReferences(): void {
+    if (this.getMetadata('index_conformance_pending') === null) return;
+    const rows = this.db.prepare(`SELECT key,value FROM project_metadata
+      WHERE key >= 'resolution-deferred:' AND key < 'resolution-deferred;'`);
+    const update = this.db.prepare("UPDATE unresolved_refs SET status = 'pending' WHERE id = ?");
+    this.db.transaction(() => {
+      for (const row of rows.iterate() as Iterable<{ key: string; value: string }>) {
+        const id = Number(row.value);
+        if (!Number.isSafeInteger(id) || id < 1 || row.key !== `resolution-deferred:${id}`) {
+          throw new Error('Invalid deferred-reference journal; run "codegraph index --force" to rebuild it.');
+        }
+        update.run(id);
+      }
+    })();
+  }
+
+  /** A complete full synthesis and conformance pass has covered this journal. */
+  clearDeferredConformanceReferences(): void {
+    if (this.getMetadata('index_conformance_pending') === null) return;
+    this.db.transaction(() => {
+      this.db.exec(`DELETE FROM project_metadata WHERE key >= 'resolution-deferred:' AND key < 'resolution-deferred;'`);
+      this.db.exec("DELETE FROM project_metadata WHERE key = 'index_conformance_pending'");
+    })();
+  }
+
+  /** Write ahead of a required final resolution pass, using its exact row IDs. */
+  markReferencesPendingByRowIds(rowIds: number[]): void {
+    if (rowIds.length === 0) return;
+    const statement = this.db.prepare("UPDATE unresolved_refs SET status = 'pending' WHERE id = ?");
+    this.db.transaction(() => {
+      for (const id of rowIds) statement.run(id);
+    })();
+  }
+
   /** Park database-backed references that a completed pass could not resolve. */
   markReferencesFailedByRowIds(
     refs: Array<{ rowId: number; referenceName: string }>
@@ -3307,6 +3359,7 @@ WHERE e.kind = 'imports'
       this.db.exec('DELETE FROM nodes');
       this.db.exec('DELETE FROM files');
       this.db.exec("DELETE FROM project_metadata WHERE key GLOB 'sync-retry:*'");
+      this.db.exec("DELETE FROM project_metadata WHERE key GLOB 'resolution-deferred:*' OR key = 'index_conformance_pending'");
     })();
   }
 }

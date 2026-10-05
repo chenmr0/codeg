@@ -6,12 +6,13 @@
  */
 
 import * as path from 'path';
-import { existsSync } from 'fs';
+import { existsSync, statSync } from 'fs';
 import {
   Node,
   Edge,
   FileRecord,
   ExtractionResult,
+  ExtractionError,
   Subgraph,
   TraversalOptions,
   SearchOptions,
@@ -71,6 +72,16 @@ import { syncNameLookupMode } from './resolution/name-lookup';
 // persists smaller complete batches, yielding with no open reader/transaction.
 const SYNC_REFERENCE_BATCH_SIZE = 250;
 const SYNC_FAILED_REFERENCE_NAME_CEILING = 500;
+const SYNTHESIS_PENDING = 'index_synthesis_pending';
+const SYNC_FAILURE_BASELINE = 'index_sync_failure_baseline';
+// Version 1 requires a durable completion proof from the full synthesis tail.
+// Pre-proof indexes may have silently discarded sync synthesis diagnostics.
+const SYNTHESIS_VERSION = '1';
+const SYNTHESIS_COMPLETED_VERSION = 'index_synthesis_completed_version';
+
+function isSynthesisDiagnostic(diagnostic: Pick<ExtractionError, 'code'>): boolean {
+  return diagnostic.code?.startsWith('synthesis_') ?? false;
+}
 
 // Re-export types for consumers
 export * from './types';
@@ -502,9 +513,24 @@ export class CodeGraph {
             }
           }
 
+          // A successful derived tail cannot certify extraction failures from
+          // this same run, even if the process stops before final bookkeeping.
+          if (result.filesErrored > 0 || result.errors.some(diagnostic =>
+            isDeclarationMacroRecoverySkipped(diagnostic) ||
+            (!diagnostic.filePath && diagnostic.severity === 'error'))) {
+            this.queries.applyMetadataChanges({
+              index_completeness: 'incomplete',
+              index_diagnostics: JSON.stringify([
+                ...this.getIndexCompleteness().diagnostics,
+                ...collectPersistedIndexDiagnostics(result.errors, result.filesErrored),
+              ]),
+            });
+          }
+
           await this.queries.invalidateCppMacroCalls();
           const needsResolution = result.filesIndexed > 0 || scopeChanged ||
-            this.queries.getUnresolvedReferencesCount() > 0;
+            this.queries.getUnresolvedReferencesCount() > 0 || this.needsSynthesisRetry() ||
+            this.queries.getMetadata(SYNTHESIS_COMPLETED_VERSION) !== SYNTHESIS_VERSION;
 
           // Phase-boundary fold: backfill the ENTIRE WAL before resolution's first
           // read, so the next phase never pages a bulk-write-sized WAL on the main
@@ -551,15 +577,11 @@ export class CodeGraph {
                   current,
                   total,
                 });
-              }
+              },
+              { freshIndex: freshDb },
             );
             resolutionDiagnostics = resolution.diagnostics ?? [];
 
-            // Second pass: chained calls whose method lives on a supertype the
-            // receiver conforms to (protocol-extension / inherited / default-
-            // interface). Needs the implements/extends edges the main pass just
-            // built, so it runs after resolution (#750).
-            this.resolver.resolveChainedCallsViaConformance();
           }
 
           // Stop the valve and drain any in-flight/backpressure, then refresh
@@ -587,19 +609,33 @@ export class CodeGraph {
           if (resolutionDiagnostics.length > 0) {
             result.errors.push(...resolutionDiagnostics);
           }
+          // A no-op index did not repeat any post-processing. Never erase a
+          // persisted coverage warning merely because there were no new files.
+          if (!needsResolution) {
+            result.errors.push(...this.getIndexCompleteness().diagnostics);
+          }
           const hasIncompleteGlobalError = result.errors.some(
-            (diagnostic) => diagnostic.severity === 'error' && !diagnostic.filePath
+            (diagnostic) => diagnostic.severity === 'error' && !diagnostic.filePath &&
+              !isSynthesisDiagnostic(diagnostic)
           );
           const hasDeclarationMacroRecoverySkip = result.errors.some(
             isDeclarationMacroRecoverySkipped
           );
           const scopeApplied = result.success && !options.signal?.aborted &&
-            result.filesErrored === 0 && !hasIncompleteGlobalError && resolutionDiagnostics.length === 0;
-          result.complete = scopeApplied && !hasDeclarationMacroRecoverySkip;
+            result.filesErrored === 0 && !hasIncompleteGlobalError &&
+            !resolutionDiagnostics.some(diagnostic => !isSynthesisDiagnostic(diagnostic));
+          result.complete = scopeApplied && !hasDeclarationMacroRecoverySkip &&
+            !result.errors.some(isSynthesisDiagnostic);
+          // Synthesis does not change extraction policy. A skipped tail must
+          // retry that tail, not force a full re-extraction on the next sync.
+          if (this.queries.getMetadata(SYNTHESIS_PENDING) && scopeApplied) {
+            this.queries.setMetadata(SYNTHESIS_PENDING,
+              hasDeclarationMacroRecoverySkip ? 'incomplete' : 'complete');
+          }
           // A version change forces replacement even for unchanged source.
           // Do not retire the old stamp after a partial/aborted rebuild: its
           // next full index must retry every file, not certify mixed content.
-          if (result.complete && (result.filesIndexed > 0 || extractionChanged)) {
+          if (scopeApplied && !hasDeclarationMacroRecoverySkip && (result.filesIndexed > 0 || extractionChanged)) {
             this.queries.applyMetadataChanges({
               indexed_with_version: CodeGraphPackageVersion,
               indexed_with_extraction_version: String(EXTRACTION_VERSION),
@@ -625,6 +661,7 @@ export class CodeGraph {
             this.queries.applyMetadataChanges(metadata);
           }
           try {
+            this.queries.applyMetadataChanges({ [SYNC_FAILURE_BASELINE]: null });
             this.queries.setMetadata(
               'index_completeness',
               result.complete ? 'complete' : 'incomplete'
@@ -722,7 +759,13 @@ export class CodeGraph {
       failedFilePaths: [...failed],
       changedFilePaths: after.filter(file => !failed.has(file.path)).map(file => file.path),
     };
-    if (!index.success || !index.complete) throw new SyncIncompleteError(result);
+    const synthesisOnlyIncomplete = index.filesErrored === 0 &&
+      index.errors.some(isSynthesisDiagnostic) && !index.errors.some(diagnostic =>
+        !isSynthesisDiagnostic(diagnostic) &&
+        (diagnostic.severity === 'error' || isDeclarationMacroRecoverySkipped(diagnostic)));
+    if (!index.success || (!index.complete && !synthesisOnlyIncomplete)) {
+      throw new SyncIncompleteError(result);
+    }
     return result;
   }
 
@@ -792,6 +835,7 @@ export class CodeGraph {
           walValve.start();
         }
 
+        this.queries.recoverDeferredConformanceReferences();
         const recoveredDeltaFiles = await recoverAppendDeltas(this.queries);
         const repairedIncludeFiles = this.queries.repairLegacyCppIncludes();
         const recoveredMacroFiles = await this.queries.invalidateCppMacroCalls();
@@ -816,7 +860,11 @@ export class CodeGraph {
           options.verbose,
           replaceFileStore,
         );
+        // Publish extraction failures before any resolution work can finish
+        // (or throw), including a recovery run with an older complete baseline.
+        this.refreshSyncFileFailures(result);
         const hasSuccessfulChangedFiles = (result.changedFilePaths?.length ?? 0) > 0;
+        const synthesisDiagnostics: ExtractionError[] = [];
         if (options.verbose) tailCheckpoint = performance.now();
         retryState.finishPrimaryExtraction();
         const macroReferenceFiles = await this.queries.invalidateCppMacroCalls();
@@ -1056,27 +1104,36 @@ export class CodeGraph {
         }
 
         tailMark('coImporterMs');
+        if (failedFiles.length > 0) this.refreshSyncFileFailures(result);
         // A process killed during reference resolution can leave untouched
         // pending rows behind. Scoped sync normally reads only changed files,
         // so those rows (and their missing call/import edges) would otherwise
         // survive forever. Sweep them after all scoped work, including during
         // a no-change sync. A healthy sync pays for only this COUNT query.
         const orphanCount = this.queries.getUnresolvedReferencesCount();
-        if (orphanCount > 0) {
+        const retrySynthesis = this.needsSynthesisRetry();
+        const fullResolution = orphanCount > 0 || retrySynthesis;
+        let scopedSynthesisStarted = false;
+        if (fullResolution) {
           options.onProgress?.({
             phase: 'resolving',
             current: 0,
             total: orphanCount,
           });
-          await this.resolveReferencesBatched((current, total) => {
+          const resolution = await this.resolveReferencesBatched((current, total) => {
             options.onProgress?.({ phase: 'resolving', current, total });
+          }, (current, total) => {
+            options.onProgress?.({ phase: 'synthesizing', current, total });
           });
+          synthesisDiagnostics.push(...(resolution.diagnostics ?? []));
         } else if (result.changedFilePaths?.length || recoveredRetryFiles.length > 0) {
           // The normal changed-file path resolves only scoped references and
           // therefore does not enter the full dynamic-synthesis tail. Rebuild
           // just the C/C++ declaration/definition, extern-variable, and
           // override relationships invalidated by replacing these files.
           // If an orphan sweep ran above, its full synthesis already did this.
+          this.beginSynthesis();
+          scopedSynthesisStarted = true;
           try {
             await this.resolver.synthesizeIncrementalCCpp([...new Set([
               ...(result.changedFilePaths ?? []), ...recoveredRetryFiles,
@@ -1085,25 +1142,35 @@ export class CodeGraph {
             // Match the full synthesis phase's best-effort contract: losing an
             // optional heuristic edge must not discard an otherwise valid
             // extraction/reference sync.
-            console.error(
-              `[CodeGraph] Incremental C/C++ synthesis failed: ` +
-                `${error instanceof Error ? error.message : String(error)}. ` +
-                `The base sync is still usable but heuristic coverage is incomplete.`
-            );
+            const message = `Incremental C/C++ synthesis failed: ` +
+              `${error instanceof Error ? error.message : String(error)}. ` +
+              `The base sync is still usable but heuristic coverage is incomplete.`;
+            console.error(`[CodeGraph] ${message}`);
+            synthesisDiagnostics.push({ severity: 'error', code: 'synthesis_incremental_failed', message });
           }
         }
 
         tailMark('orphanAndSynthesisMs');
-        if (
-          hasSuccessfulChangedFiles ||
-          retryState.hasWork ||
-          resurrectedRefCount > 0 ||
-          orphanCount > 0
-        ) {
-          // Run after every resolution source: scoped refs, resurrected refs,
-          // co-importer fallback, and the interrupted-run orphan sweep.
-          this.resolver.resolveChainedCallsViaConformance();
+        if (!fullResolution && (
+          hasSuccessfulChangedFiles || retryState.hasWork || resurrectedRefCount > 0
+        )) {
+          // Full resolution includes this required tail before acknowledging
+          // completion. Scoped resolution must preserve the same ordering.
+          if (!scopedSynthesisStarted) {
+            this.beginSynthesis();
+            scopedSynthesisStarted = true;
+          }
+          try {
+            this.resolver.resolveChainedCallsViaConformance();
+          } catch (error) {
+            this.finishSynthesis([...synthesisDiagnostics, {
+              severity: 'error', code: 'synthesis_failed',
+              message: `Conformance resolution failed: ${error instanceof Error ? error.message : String(error)}. The index is incomplete.`,
+            }]);
+            throw error;
+          }
         }
+        if (scopedSynthesisStarted) this.finishSynthesis(synthesisDiagnostics);
         tailMark('chainedCallsMs');
 
         // Refresh planner stats + checkpoint the WAL after bulk writes.
@@ -1111,7 +1178,7 @@ export class CodeGraph {
           hasSuccessfulChangedFiles ||
           retryState.hasWork ||
           result.filesRemoved > 0 ||
-          orphanCount > 0
+          orphanCount > 0 || retrySynthesis
         ) {
           await this.db.runMaintenance();
         }
@@ -1127,10 +1194,24 @@ export class CodeGraph {
           this.refreshDeclarationMacroRecoveryCompleteness();
         }
 
+        // File failures retain the existing throwing contract. Optional
+        // synthesis failures leave a usable base index, but must be visible in
+        // both the result and persisted status, with retry work still pending.
         if (result.complete === false) {
           throw new SyncIncompleteError(result);
         }
-        retryState.complete();
+        result.errors = [...(result.errors ?? []), ...synthesisDiagnostics];
+        const completeness = this.getIndexCompleteness();
+        if (completeness.status === 'incomplete') {
+          result.complete = false;
+          for (const diagnostic of completeness.diagnostics) {
+            if (!result.errors.some(error => error.code === diagnostic.code &&
+                error.filePath === diagnostic.filePath && error.message === diagnostic.message)) {
+              result.errors.push(diagnostic);
+            }
+          }
+        }
+        if (!this.needsSynthesisRetry()) retryState.complete();
         if (this.queries.getMetadata('indexed_language_scope') !== getLanguageScopeKey()) {
           this.queries.setMetadata('indexed_language_scope', getLanguageScopeKey());
         }
@@ -1293,18 +1374,44 @@ export class CodeGraph {
   /** Persisted completeness of the current index, including visible reasons. */
   getIndexCompleteness(): {
     status: 'complete' | 'incomplete' | 'unknown';
-    diagnostics: Array<{ message: string; severity: string; code?: string; filePath?: string }>;
+    diagnostics: ExtractionError[];
   } {
     const rawStatus = this.queries.getMetadata('index_completeness');
     const status = rawStatus === 'complete' || rawStatus === 'incomplete'
       ? rawStatus
       : 'unknown';
+    const diagnostics: ExtractionError[] = [];
+    let invalidDiagnostics = false;
     try {
-      const parsed = JSON.parse(this.queries.getMetadata('index_diagnostics') ?? '[]');
-      return { status, diagnostics: Array.isArray(parsed) ? parsed : [] };
-    } catch {
-      return { status, diagnostics: [] };
+      const parsed: unknown = JSON.parse(this.queries.getMetadata('index_diagnostics') ?? '[]');
+      if (!Array.isArray(parsed)) invalidDiagnostics = true;
+      else for (const value of parsed) {
+        if (value && typeof value === 'object' && typeof value.message === 'string' &&
+            (value.severity === 'error' || value.severity === 'warning') &&
+            (value.code === undefined || typeof value.code === 'string') &&
+            (value.filePath === undefined || typeof value.filePath === 'string')) {
+          diagnostics.push(value);
+        } else invalidDiagnostics = true;
+      }
+    } catch { invalidDiagnostics = true; }
+    if (invalidDiagnostics) {
+      diagnostics.push({
+        severity: 'error', code: 'index_diagnostics_invalid',
+        message: 'Stored index coverage diagnostics are invalid; run "codegraph index" to verify coverage again.',
+      });
     }
+    if (status === 'complete' && (
+      this.queries.getMetadata(SYNTHESIS_PENDING) !== null ||
+      this.queries.getMetadata('index_conformance_pending') !== null ||
+      this.queries.getMetadata(SYNTHESIS_COMPLETED_VERSION) !== SYNTHESIS_VERSION
+    )) {
+      diagnostics.push({
+        severity: 'warning', code: 'synthesis_unverified',
+        message: 'Dynamic-edge synthesis completion is unverified; run "codegraph sync" to finish and verify graph coverage.',
+      });
+      return { status: 'incomplete', diagnostics };
+    }
+    return { status: invalidDiagnostics ? 'incomplete' : status, diagnostics };
   }
 
   /**
@@ -1352,29 +1459,51 @@ export class CodeGraph {
    */
   async resolveReferencesBatched(
     onProgress?: (current: number, total: number) => void,
-    onSynthesisProgress?: (current: number, total: number) => void
+    onSynthesisProgress?: (current: number, total: number) => void,
+    /** @internal Proven empty graph before extraction; no old derived edges exist. */
+    options: { freshIndex?: boolean } = {},
   ): Promise<ResolutionResult> {
     const deferResolutionIndexes =
       process.env.CODEGRAPH_NO_RESOLVE_INDEX_DEFER !== '1';
-    return this.resolver.resolveAndPersistBatched(onProgress, undefined, {
-      dbPath:
-        this.db.getBackend() === 'node-sqlite'
-          ? this.db.getPath()
+    this.queries.recoverDeferredConformanceReferences();
+    const replaySynthesis = !options.freshIndex && this.needsSynthesisRetry();
+    this.beginSynthesis();
+    let result: ResolutionResult;
+    try {
+      result = await this.resolver.resolveAndPersistBatched(onProgress, undefined, {
+        dbPath:
+          this.db.getBackend() === 'node-sqlite'
+            ? this.db.getPath()
+            : undefined,
+        bulkEdgeLoad: deferResolutionIndexes
+          ? {
+              begin: () => this.db.beginBulkResolutionEdgeLoad(),
+              end: () => this.db.endBulkResolutionEdgeLoad(),
+            }
           : undefined,
-      bulkEdgeLoad: deferResolutionIndexes
-        ? {
-            begin: () => this.db.beginBulkResolutionEdgeLoad(),
-            end: () => this.db.endBulkResolutionEdgeLoad(),
-          }
-        : undefined,
-      bulkRefLoad: deferResolutionIndexes
-        ? {
-            begin: () => this.db.beginBulkResolutionRefLoad(),
-            end: () => this.db.endBulkResolutionRefLoad(),
-          }
-        : undefined,
-      onSynthesisProgress,
-    });
+        bulkRefLoad: deferResolutionIndexes
+          ? {
+              begin: () => this.db.beginBulkResolutionRefLoad(),
+              end: () => this.db.endBulkResolutionRefLoad(),
+            }
+          : undefined,
+        onSynthesisProgress,
+        replaySynthesis,
+      });
+      this.resolver.resolveChainedCallsViaConformance();
+      if (!(result.diagnostics ?? []).some(isSynthesisDiagnostic)) {
+        this.queries.clearDeferredConformanceReferences();
+      }
+    } catch (error) {
+      this.finishSynthesis([{
+        severity: 'error', code: 'synthesis_failed',
+        message: `Reference resolution or dynamic-edge synthesis failed: ` +
+          `${error instanceof Error ? error.message : String(error)}. The index is incomplete.`,
+      }]);
+      throw error;
+    }
+    this.finishSynthesis(result.diagnostics ?? [], true);
+    return result;
   }
 
   /**
@@ -1468,6 +1597,108 @@ export class CodeGraph {
     return this.queries.getNodesByName(name);
   }
 
+  /** File failure recovery is independent of the optional synthesis tail. */
+  private refreshSyncFileFailures(result: SyncResult): void {
+    const previous = this.getIndexCompleteness();
+    const oldFailures = previous.diagnostics.filter(diagnostic => diagnostic.code === 'sync_file_failed');
+    const failedPaths = new Set(result.failedFilePaths ?? []);
+    for (const diagnostic of result.errors ?? []) {
+      if (diagnostic.filePath && (diagnostic.severity === 'error' || isDeclarationMacroRecoverySkipped(diagnostic))) {
+        failedPaths.add(diagnostic.filePath);
+      }
+    }
+    if (oldFailures.length === 0 && failedPaths.size === 0) return;
+
+    const changedPaths = new Set(result.changedFilePaths ?? []);
+    const diagnostics = previous.diagnostics.filter(diagnostic => {
+      if (diagnostic.code !== 'sync_file_failed' || !diagnostic.filePath) return true;
+      if (failedPaths.has(diagnostic.filePath)) return false; // replace with this attempt's reason
+      // An omitted path in a scoped sync is not evidence of recovery.
+      if (changedPaths.has(diagnostic.filePath)) return false;
+      try {
+        statSync(path.isAbsolute(diagnostic.filePath)
+          ? diagnostic.filePath : path.join(this.projectRoot, diagnostic.filePath));
+        return true;
+      } catch (error) {
+        const code = (error as NodeJS.ErrnoException).code;
+        return code !== 'ENOENT' && code !== 'ENOTDIR';
+      }
+    });
+    for (const filePath of failedPaths) {
+      const reasons = (result.errors ?? []).filter(error => error.filePath === filePath);
+      diagnostics.push({
+        code: 'sync_file_failed', severity: 'error', filePath,
+        message: reasons.map(error => error.message).join('; ') || 'This file could not be synchronized.',
+      });
+    }
+    const storedBaseline = this.queries.getMetadata(SYNC_FAILURE_BASELINE);
+    const synthesisBaseline = this.queries.getMetadata(SYNTHESIS_PENDING);
+    const baseline = storedBaseline ?? synthesisBaseline ??
+      (previous.status === 'incomplete' && previous.diagnostics.length > 0 &&
+        previous.diagnostics.every(isSynthesisDiagnostic) ? 'complete' : previous.status);
+    const hasFailures = diagnostics.some(diagnostic => diagnostic.code === 'sync_file_failed');
+    this.queries.applyMetadataChanges({
+      [SYNC_FAILURE_BASELINE]: hasFailures ? baseline : null,
+      ...(!hasFailures && synthesisBaseline !== null && diagnostics.every(isSynthesisDiagnostic)
+        ? { [SYNTHESIS_PENDING]: baseline } : {}),
+      index_completeness: diagnostics.length > 0 ? 'incomplete'
+        : baseline === 'complete' || baseline === 'incomplete' ? baseline : 'unknown',
+      index_diagnostics: JSON.stringify(diagnostics),
+    });
+  }
+
+  /** Only indexes with evidence of an unfinished tail pay for a full retry. */
+  private needsSynthesisRetry(): boolean {
+    return this.queries.getMetadata(SYNTHESIS_PENDING) !== null ||
+      this.queries.getMetadata('index_conformance_pending') !== null ||
+      this.getIndexCompleteness().diagnostics.some(isSynthesisDiagnostic) ||
+      (this.queries.getMetadata(SYNTHESIS_COMPLETED_VERSION) !== SYNTHESIS_VERSION &&
+        this.queries.getLastIndexedAt() !== null);
+  }
+
+  /** Write ahead of either synthesis path, including the worker-backed resolver. */
+  private beginSynthesis(): void {
+    const previous = this.getIndexCompleteness();
+    const diagnostics = previous.diagnostics.filter(diagnostic => !isSynthesisDiagnostic(diagnostic));
+    // Preserve unknown/independently incomplete coverage across a tail retry.
+    // Legacy synthesis diagnostics are sufficient evidence to recover without
+    // a schema migration or blanket rebuild of pre-existing databases.
+    const baseline = previous.status === 'incomplete' &&
+      previous.diagnostics.some(isSynthesisDiagnostic) && diagnostics.length === 0
+      ? 'complete' : previous.status;
+    const pending = this.queries.getMetadata(SYNTHESIS_PENDING);
+    this.queries.applyMetadataChanges({
+      [SYNTHESIS_PENDING]: pending === 'complete' || pending === 'incomplete' || pending === 'unknown'
+        ? pending : baseline,
+      index_completeness: 'incomplete',
+      index_diagnostics: JSON.stringify([...diagnostics, {
+        severity: 'error', code: 'synthesis_pending',
+        message: 'Reference resolution and dynamic-edge synthesis have not finished; run "codegraph sync" to retry.',
+      }]),
+    });
+  }
+
+  /** Clear only coverage diagnostics whose work this attempt actually retried. */
+  private finishSynthesis(current: ExtractionError[], full = false): void {
+    const diagnostics = this.getIndexCompleteness().diagnostics
+      .filter(diagnostic => !isSynthesisDiagnostic(diagnostic));
+    for (const diagnostic of current) {
+      if (!diagnostics.some(old => old.code === diagnostic.code &&
+          old.filePath === diagnostic.filePath && old.message === diagnostic.message)) {
+        diagnostics.push(diagnostic);
+      }
+    }
+    const pending = this.queries.getMetadata(SYNTHESIS_PENDING);
+    const baseline = pending === 'complete' || pending === 'incomplete' ? pending : 'unknown';
+    this.queries.applyMetadataChanges({
+      [SYNTHESIS_PENDING]: current.some(isSynthesisDiagnostic) ? pending : null,
+      ...(full && !current.some(isSynthesisDiagnostic)
+        ? { [SYNTHESIS_COMPLETED_VERSION]: SYNTHESIS_VERSION } : {}),
+      index_completeness: diagnostics.length > 0 ? 'incomplete' : baseline,
+      index_diagnostics: JSON.stringify(diagnostics),
+    });
+  }
+
   /**
    * Remove persisted declaration-macro degradation diagnostics whose backing
    * file record has now been fully restored or deleted. Other full-index
@@ -1492,6 +1723,9 @@ export class CodeGraph {
         return currentDiagnostic ? [currentDiagnostic] : [];
       });
 
+      if (this.queries.getMetadata(SYNTHESIS_PENDING) && diagnostics.every(isSynthesisDiagnostic)) {
+        this.queries.setMetadata(SYNTHESIS_PENDING, 'complete');
+      }
       this.queries.setMetadata('index_diagnostics', JSON.stringify(diagnostics));
       this.queries.setMetadata(
         'index_completeness',

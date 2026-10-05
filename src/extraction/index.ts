@@ -189,7 +189,7 @@ export interface SingleFileIndexResult extends ExtractionResult {
  * Result of a sync operation
  */
 export interface SyncResult {
-  /** False when one or more changed files could not be read or parsed. */
+  /** False when file extraction or a recoverable post-processing phase is incomplete. */
   complete?: boolean;
   filesChecked: number;
   filesAdded: number;
@@ -199,7 +199,7 @@ export interface SyncResult {
   filesErrored?: number;
   nodesUpdated: number;
   durationMs: number;
-  /** Per-file failures collected while the remaining sync work continued. */
+  /** File and post-processing diagnostics collected while usable sync work continued. */
   errors?: ExtractionError[];
   /** Files left stale by this attempt. Callers may surface or explicitly retry them. */
   failedFilePaths?: string[];

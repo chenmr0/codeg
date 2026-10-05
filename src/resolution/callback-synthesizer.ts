@@ -2219,7 +2219,8 @@ export async function synthesizeIncrementalCCppEdges(
  */
 export async function synthesizeCallbackEdges(
   queries: QueryBuilder,
-  ctx: ResolutionContext
+  ctx: ResolutionContext,
+  options: { replaceExisting?: boolean } = {},
 ): Promise<SynthesisResult> {
   const graphNodes = queries.getNodeAndEdgeCount().nodes;
   const diagnostics: ResolutionDiagnostic[] = [];
@@ -2252,6 +2253,21 @@ export async function synthesizeCallbackEdges(
           `The index is incomplete.`,
     });
     return { edgesAdded: 0, complete: false, diagnostics };
+  }
+
+  if (options.replaceExisting) {
+    // Recovery must retract stale edges whose evidence lived in a third file
+    // (for example a removed event registration). Preserve base edges and
+    // other producers, and never remove prior coverage before admission.
+    queries.deleteSynthesizedEdges([
+      'callback', 'closure-collection', 'event-emitter', 'react-render',
+      'flutter-build', 'cpp-override', 'cpp-decl-def', 'c-decl-def',
+      'c-cpp-var-decl-def', 'go-implements', 'kotlin-expect-actual',
+      'interface-impl', 'go-grpc-stub-impl', 'jsx-render', 'vue-handler',
+      'rn-event-channel', 'expo-cross-platform', 'rn-cross-platform',
+      'fabric-native-impl', 'mybatis-java-xml', 'gin-middleware-chain',
+      'pascal-form', 'sveltekit-load',
+    ]);
   }
 
   // A single indexed DISTINCT lets language-specific passes short-circuit
