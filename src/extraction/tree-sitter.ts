@@ -5484,6 +5484,24 @@ export class TreeSitterExtractor {
 
         if (!resolved || !['identifier', 'type_identifier'].includes(resolved.type)) continue;
 
+        // A type_identifier is a valid variable name only in a complete
+        // declaration. In malformed qualified member-pointer declarators the
+        // parser can put the owner here and the real name in an ERROR sibling.
+        // Check the whole declaration, including missing unnamed children.
+        if (resolved.type === 'type_identifier') {
+          const pending = [node];
+          let incomplete = false;
+          while (pending.length > 0) {
+            const current = pending.pop()!;
+            if (current.type === 'ERROR' || current.isMissing) {
+              incomplete = true;
+              break;
+            }
+            pending.push(...current.children);
+          }
+          if (incomplete) continue;
+        }
+
         const name = getNodeText(resolved, this.source);
         if (!name) continue;
 
