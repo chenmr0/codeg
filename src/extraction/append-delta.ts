@@ -20,7 +20,7 @@ function nodeFacts(n: Node): string {
     n.startLine ?? 0, n.endLine ?? 0, n.startColumn ?? 0, n.endColumn ?? 0,
     n.docstring ?? null, n.signature ?? null, n.visibility ?? null, !!n.isExported,
     !!n.isAsync, !!n.isStatic, !!n.isAbstract, !!n.isDeclaration,
-    n.decorators ?? null, n.typeParameters ?? null, n.returnType ?? null]);
+    n.decorators ?? null, n.typeParameters ?? null, n.returnType ?? null, !!n.ordinaryField]);
 }
 
 export interface AppendDeltaPlan { added: Node[]; fileNode: Node; }

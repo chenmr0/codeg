@@ -4394,10 +4394,26 @@ export class TreeSitterExtractor {
     }
   }
 
-  /**
-   * Extract a class field declaration (e.g. Java field_declaration, C# field_declaration).
-   * Extracts each declarator as a 'field' kind node inside the owning class.
-   */
+  /** Deliberately narrow evidence: aliases, objects and damaged syntax stay unknown. */
+  private isOrdinaryCppField(declaration: SyntaxNode): boolean {
+    if (this.language !== 'c' && this.language !== 'cpp') return false;
+    const type = getChildByField(declaration, 'type');
+    if (!type || !['primitive_type', 'sized_type_specifier'].includes(type.type)) return false;
+    // void pointers can carry erased callbacks; auto/decltype are not proof.
+    if (!/^(?:signed|unsigned|short|long|bool|char|int|float|double|wchar_t|char8_t|char16_t|char32_t)(?:\s+(?:signed|unsigned|short|long|char|int|double))*$/.test(type.text.trim()) ||
+        !type.text.trim()) return false;
+    if (type.text.split(/\s+/).some(token => this.macroNameLookup.has(token))) return false;
+    const stack = [declaration];
+    while (stack.length) {
+      const child = stack.pop()!;
+      if (child.type === 'ERROR' || child.isMissing || child.type === 'function_declarator' ||
+          child.type === 'template_type' || child.type === 'decltype') return false;
+      stack.push(...child.children);
+    }
+    return true;
+  }
+
+  /** Extract each declarator as a field inside its owning class. */
   private extractField(node: SyntaxNode): void {
     if (!this.extractor) return;
 
@@ -4589,12 +4605,14 @@ export class TreeSitterExtractor {
           (child.type === 'class_specifier' || child.type === 'struct_specifier'
             || child.type === 'union_specifier' || child.type === 'enum_specifier')
           && Boolean(getChildByField(child, this.extractor!.bodyField)));
+        const ordinaryField = this.isOrdinaryCppField(node) || undefined;
         for (const { name, posNode } of fieldEntries) {
           const signature = typeText ? `${typeText} ${name}` : name;
           // clang tooling anchors `class Inline { ... } value;` at the start of
           // the whole declaration. Preserve that range while the name remains
           // queryable at its trailing identifier line via endLine containment.
           this.createNode('field', name, inlineTypeDefinition ? node : posNode, {
+            ordinaryField,
             docstring,
             signature,
             visibility,

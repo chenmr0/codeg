@@ -108,6 +108,7 @@ interface NodeRow {
   decorators: string | null;
   type_parameters: string | null;
   return_type: string | null;
+  ordinary_field: number | null;
   updated_at: number;
 }
 
@@ -149,6 +150,8 @@ interface UnresolvedRefRow {
 
 /** Stable snapshot of one failed-reference name selected for retry. */
 export interface FailedReferenceRetryGroup {
+  includeFailed?: boolean;
+  includeSuppressed?: boolean;
   nameTail: string;
   total: number;
   maxRowId: number;
@@ -194,6 +197,7 @@ function rowToNode(row: NodeRow): Node {
     decorators: row.decorators ? safeJsonParse(row.decorators, undefined) : undefined,
     typeParameters: row.type_parameters ? safeJsonParse(row.type_parameters, undefined) : undefined,
     returnType: row.return_type ?? undefined,
+    ordinaryField: row.ordinary_field === 1 ? true : undefined,
     updatedAt: row.updated_at,
   };
 }
@@ -460,13 +464,13 @@ export class QueryBuilder {
           start_line, end_line, start_column, end_column,
           docstring, signature, visibility,
           is_exported, is_async, is_static, is_abstract, is_declaration,
-          decorators, type_parameters, return_type, updated_at
+          decorators, type_parameters, return_type, ordinary_field, updated_at
         ) VALUES (
           @id, @kind, @name, @qualifiedName, @filePath, @language,
           @startLine, @endLine, @startColumn, @endColumn,
           @docstring, @signature, @visibility,
           @isExported, @isAsync, @isStatic, @isAbstract, @isDeclaration,
-          @decorators, @typeParameters, @returnType, @updatedAt
+          @decorators, @typeParameters, @returnType, @ordinaryField, @updatedAt
         )
       `);
     }
@@ -511,6 +515,7 @@ export class QueryBuilder {
       decorators: node.decorators ? JSON.stringify(node.decorators) : null,
       typeParameters: node.typeParameters ? JSON.stringify(node.typeParameters) : null,
       returnType: node.returnType ?? null,
+      ordinaryField: node.ordinaryField ? 1 : null,
       updatedAt: node.updatedAt ?? Date.now(),
     });
   }
@@ -555,6 +560,7 @@ export class QueryBuilder {
           node.decorators ? JSON.stringify(node.decorators) : null,
           node.typeParameters ? JSON.stringify(node.typeParameters) : null,
           node.returnType ?? null,
+          node.ordinaryField ? 1 : null,
           node.updatedAt ?? Date.now(),
         ]);
       }
@@ -565,9 +571,9 @@ export class QueryBuilder {
           start_line, end_line, start_column, end_column,
           docstring, signature, visibility,
           is_exported, is_async, is_static, is_abstract, is_declaration,
-          decorators, type_parameters, return_type, updated_at
+          decorators, type_parameters, return_type, ordinary_field, updated_at
         ) VALUES `,
-        '(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+        '(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
         rows
       );
     })();
@@ -618,6 +624,7 @@ export class QueryBuilder {
           decorators = @decorators,
           type_parameters = @typeParameters,
           return_type = @returnType,
+          ordinary_field = @ordinaryField,
           updated_at = @updatedAt
         WHERE id = @id
       `);
@@ -654,6 +661,7 @@ export class QueryBuilder {
       decorators: node.decorators ? JSON.stringify(node.decorators) : null,
       typeParameters: node.typeParameters ? JSON.stringify(node.typeParameters) : null,
       returnType: node.returnType ?? null,
+      ordinaryField: node.ordinaryField ? 1 : null,
       updatedAt: node.updatedAt ?? Date.now(),
     });
   }
@@ -2866,7 +2874,7 @@ WHERE e.kind = 'imports'
   ): number {
     if (refs.length === 0) return 0;
     const statement = this.db.prepare(
-      "UPDATE unresolved_refs SET status = 'failed', name_tail = CASE " +
+      "UPDATE unresolved_refs SET status = CASE WHEN status = 'suppressed_field' THEN status ELSE 'failed' END, name_tail = CASE " +
       "WHEN reference_kind = 'imports' AND language IN ('c', 'cpp') THEN ? ELSE ? END WHERE id = ?"
     );
     let changed = 0;
@@ -2878,13 +2886,30 @@ WHERE e.kind = 'imports'
     return changed;
   }
 
+  /** Retain policy-omitted evidence without leaving it pending or creating graph edges. */
+  markFieldReferencesSuppressed(refs: UnresolvedReference[]): number {
+    if (!refs.length) return 0;
+    const byId = this.db.prepare("UPDATE unresolved_refs SET status='suppressed_field', name_tail=? WHERE id=?");
+    const byKey = this.db.prepare("UPDATE unresolved_refs SET status='suppressed_field', name_tail=? " +
+      "WHERE from_node_id=? AND reference_name=? AND reference_kind=? AND line=? AND col=?");
+    let changed = 0;
+    this.db.transaction(() => {
+      for (const ref of refs) {
+        const tail = referenceNameTail(ref.referenceName);
+        changed += ref.rowId !== undefined ? byId.run(tail, ref.rowId).changes
+          : byKey.run(tail, ref.fromNodeId, ref.referenceName, ref.referenceKind, ref.line, ref.column).changes;
+      }
+    })();
+    return changed;
+  }
+
   /** Tuple-key fallback for references constructed outside the database. */
   markReferencesFailed(
     refs: Array<{ fromNodeId: string; referenceName: string; referenceKind: string }>
   ): number {
     if (refs.length === 0) return 0;
     const statement = this.db.prepare(
-      "UPDATE unresolved_refs SET status = 'failed', name_tail = CASE " +
+      "UPDATE unresolved_refs SET status = CASE WHEN status = 'suppressed_field' THEN status ELSE 'failed' END, name_tail = CASE " +
         "WHEN reference_kind = 'imports' AND language IN ('c', 'cpp') THEN ? ELSE ? END " +
         'WHERE from_node_id = ? AND reference_name = ? AND reference_kind = ?'
     );
@@ -2959,6 +2984,38 @@ WHERE e.kind = 'imports'
 
     plan.groups.sort((left, right) => left.nameTail.localeCompare(right.nameTail));
     return plan;
+  }
+
+  /** Add uncapped policy rows to the same keyset snapshot, never visit a row twice. */
+  includeSuppressedFieldRetries(plan: FailedReferenceRetryPlan, names: string[]): void {
+    const groups = new Map(plan.groups.map(group => [group.nameTail, group]));
+    for (const group of plan.groups) group.includeFailed = true;
+    const unique = [...new Set(names.filter(Boolean))];
+    if (!unique.length) return;
+    const hint = this.db.prepare("SELECT 1 FROM sqlite_master WHERE type='index' AND name='idx_unresolved_suppressed_field_tail'").get()
+      ? ' INDEXED BY idx_unresolved_suppressed_field_tail' : '';
+    for (let i = 0; i < unique.length; i += SQLITE_PARAM_CHUNK_SIZE) {
+      const chunk = unique.slice(i, i + SQLITE_PARAM_CHUNK_SIZE);
+      const rows = this.db.prepare(`SELECT name_tail, COUNT(*) AS count, MAX(id) AS max_id
+        FROM unresolved_refs${hint} WHERE status='suppressed_field'
+        AND name_tail IN (${chunk.map(() => '?').join(',')}) GROUP BY name_tail`)
+        .all(...chunk) as Array<{name_tail:string; count:number; max_id:number}>;
+      for (const row of rows) {
+        const group = groups.get(row.name_tail);
+        if (group) {
+          group.includeSuppressed = true;
+          group.total += Number(row.count);
+          group.maxRowId = Math.max(group.maxRowId, Number(row.max_id));
+        } else {
+          const added = {nameTail: row.name_tail, total:Number(row.count), maxRowId:Number(row.max_id),
+            includeFailed:false, includeSuppressed:true};
+          groups.set(row.name_tail, added);
+          plan.groups.push(added);
+        }
+        plan.total += Number(row.count);
+      }
+    }
+    plan.groups.sort((a,b) => a.nameTail.localeCompare(b.nameTail));
   }
 
   /**
@@ -3161,7 +3218,7 @@ WHERE e.kind = 'imports'
 
   /** Conservative recovery when a sync retry journal cannot be decoded. */
   getFailedReferenceNames(): string[] {
-    const rows = this.db.prepare("SELECT DISTINCT name_tail FROM unresolved_refs WHERE status = 'failed'")
+    const rows = this.db.prepare("SELECT DISTINCT name_tail FROM unresolved_refs WHERE status IN ('failed','suppressed_field')")
       .all() as Array<{ name_tail: string }>;
     return rows.map(row => row.name_tail);
   }
@@ -3175,22 +3232,29 @@ WHERE e.kind = 'imports'
     nameTail: string,
     afterRowId: number,
     maxRowId: number,
-    limit: number = 500
+    limit: number = 500,
+    selection?: { includeFailed?: boolean; includeSuppressed?: boolean },
   ): UnresolvedReference[] {
     if (!nameTail || afterRowId >= maxRowId) return [];
     const safeLimit = Math.max(1, Math.floor(limit));
-    if (!this.stmts.getFailedRetryBatch) {
-      this.stmts.getFailedRetryBatch = this.db.prepare(
-        `SELECT * FROM unresolved_refs WHERE status = 'failed' ` +
-          `AND name_tail = ? AND id > ? AND id <= ? ORDER BY id LIMIT ?`
-      );
-    }
-    const rows = this.stmts.getFailedRetryBatch.all(
-      nameTail,
-      afterRowId,
-      maxRowId,
-      safeLimit
-    ) as UnresolvedRefRow[];
+    const states = selection?.includeSuppressed
+      ? (selection.includeFailed ? ['failed', 'suppressed_field'] : ['suppressed_field'])
+      : ['failed'];
+    const indexExists = this.scopedRefStatement('retry:index-exists',
+      "SELECT 1 FROM sqlite_master WHERE type='index' AND tbl_name='unresolved_refs' AND name=?");
+    const parameters: Array<string | number> = [];
+    const parts = states.map(status => {
+      const index = status === 'failed' ? 'idx_unresolved_failed_tail' : 'idx_unresolved_suppressed_field_tail';
+      const hint = indexExists.get(index) ? ` INDEXED BY ${index}` : '';
+      parameters.push(nameTail, afterRowId, maxRowId);
+      return `SELECT * FROM unresolved_refs${hint} WHERE status='${status}'
+        AND name_tail=? AND id>? AND id<=?`;
+    });
+    // Each arm matches its partial index. A combined IN predicate cannot
+    // prove either index predicate and may scan the entire historical backlog.
+    const sql = parts.join(' UNION ALL ') + ' ORDER BY id LIMIT ?';
+    const rows = this.scopedRefStatement('retry:batch:' + sql, sql)
+      .all(...parameters, safeLimit) as UnresolvedRefRow[];
 
     return rows.map((row) => ({
       rowId: row.id,

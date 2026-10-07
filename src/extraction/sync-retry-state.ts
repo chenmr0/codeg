@@ -17,6 +17,7 @@ interface Proof {
 interface Pending extends Proof {
   names: string[];
   historical: boolean;
+  suppressedNames?: string[];
 }
 
 /**
@@ -118,6 +119,24 @@ export function retryFingerprint(source: string, language: Language, result: Ext
   return createHash('sha256').update(JSON.stringify([normalized, facts, edges])).digest('hex');
 }
 
+/** Ignore source positions: a line move or unrelated body edit cannot change field policy. */
+function changedPolicyTargetNames(oldNodes: ExtractionResult['nodes'], newNodes: ExtractionResult['nodes']): string[] {
+  const groups = (nodes: ExtractionResult['nodes']) => {
+    const map = new Map<string, string[]>();
+    for (const node of nodes) {
+      if (node.language !== 'c' && node.language !== 'cpp') continue;
+      const facts = map.get(node.name) ?? [];
+      facts.push(JSON.stringify([node.kind, node.qualifiedName,
+        ['field', 'function', 'method'].includes(node.kind) ? node.signature : undefined,
+        !!node.isDeclaration, !!node.ordinaryField]));
+      map.set(node.name, facts);
+    }
+    return new Map([...map].map(([name, facts]) => [name, JSON.stringify(facts.sort())]));
+  };
+  const old = groups(oldNodes), next = groups(newNodes);
+  return [...new Set([...old.keys(), ...next.keys()])].filter(name => old.get(name) !== next.get(name));
+}
+
 function readProof(text: string | null): Proof | null {
   try {
     const value = JSON.parse(text ?? 'null');
@@ -130,7 +149,9 @@ function readPending(text: string): Pending | null {
   const proof = readProof(text);
   if (!proof) return null;
   const value = JSON.parse(text);
-  return typeof value.historical === 'boolean' && Array.isArray(value.names) && value.names.every((name: unknown) => typeof name === 'string')
+  return (value.suppressedNames === undefined || (Array.isArray(value.suppressedNames) &&
+    value.suppressedNames.every((name: unknown) => typeof name === 'string'))) &&
+    typeof value.historical === 'boolean' && Array.isArray(value.names) && value.names.every((name: unknown) => typeof name === 'string')
     ? value : null;
 }
 
@@ -180,7 +201,10 @@ export class SyncRetryState {
       for (const name of this.queries.getNodeNamesByFiles([filePath])) names.add(name);
       for (const name of this.queries.getFailedReferenceNames()) names.add(name);
     }
-    const pending: Pending = { version: VERSION, contentHash, fingerprint, names: [...names],
+    const suppressedNames = new Set(old?.suppressedNames ?? []);
+    for (const name of changedPolicyTargetNames(this.queries.getNodesByFile(filePath), result.nodes)) suppressedNames.add(name);
+    if (hadPending && !old) for (const name of this.queries.getFailedReferenceNames()) suppressedNames.add(name);
+    const pending: Pending = { version: VERSION, contentHash, fingerprint, names: [...names], suppressedNames: [...suppressedNames],
       historical: this.primaryExtraction || old?.historical === true || (hadPending && !old) };
     this.queries.setMetadata(PENDING + filePath, JSON.stringify(pending));
     this.entries.set(filePath, pending);
@@ -189,26 +213,42 @@ export class SyncRetryState {
   }
 
   beforeDelete(filePath: string): void {
-    // Invalidate before removing the graph, including a delete/re-add with
-    // identical bytes. Any previous unconsumed retry journal must survive.
+    const hadPending = this.entries.has(filePath);
+    const old = this.entries.get(filePath);
+    const names = new Set(old?.names ?? []);
+    const suppressedNames = new Set(old?.suppressedNames ?? []);
+    for (const name of changedPolicyTargetNames(this.queries.getNodesByFile(filePath), [])) suppressedNames.add(name);
+    if (hadPending && !old) {
+      for (const name of this.queries.getFailedReferenceNames()) {names.add(name); suppressedNames.add(name);}
+    }
+    if (suppressedNames.size > 0 || hadPending) {
+      const pending: Pending = {version: VERSION, contentHash: '', fingerprint: null,
+        names: [...names], historical: true, suppressedNames: [...suppressedNames]};
+      this.queries.setMetadata(PENDING + filePath, JSON.stringify(pending));
+      this.entries.set(filePath, pending);
+    }
     this.queries.applyMetadataChanges({ [DONE + filePath]: null });
     this.safeFiles.delete(filePath);
   }
 
   plan(allowFilter: boolean, forceFiles: string[] = []): {
-    names: string[]; shouldRetry: (ref: UnresolvedReference) => boolean;
+    names: string[]; suppressedNames: string[]; shouldRetry: (ref: UnresolvedReference) => boolean;
     filtered: boolean; proofFiles: number; safeFiles: number;
   } {
     const paths = this.filePaths;
     const historicalPaths = paths.filter(file => this.entries.get(file)?.historical !== false);
     const names = new Set(this.queries.getNodeNamesByFiles(historicalPaths));
+    const suppressedNames = new Set<string>();
+    for (const pending of this.entries.values()) {
+      for (const name of pending?.suppressedNames ?? []) suppressedNames.add(name);
+    }
     for (const pending of this.entries.values()) {
       for (const name of pending?.names ?? []) names.add(name);
     }
     // Corrupt/unknown-version journals cannot prove which names were lost in
     // a partial store. Recover all failed name groups rather than guessing.
     if ([...this.entries.values()].some(pending => pending === null)) {
-      for (const name of this.queries.getFailedReferenceNames()) names.add(name);
+      for (const name of this.queries.getFailedReferenceNames()) { names.add(name); suppressedNames.add(name); }
     }
     // Mixed changes, new files, old databases, recovery and parse errors all
     // retain the old complete retry. This is intentionally a whole-sync gate.
@@ -216,7 +256,7 @@ export class SyncRetryState {
       paths.every(file => this.safeFiles.has(file));
     const touched = new Set([...paths, ...forceFiles]);
     return {
-      names: [...names], filtered, proofFiles: paths.length, safeFiles: this.safeFiles.size,
+      names: [...names], suppressedNames: [...suppressedNames], filtered, proofFiles: paths.length, safeFiles: this.safeFiles.size,
       shouldRetry: ref => !filtered || !ref.filePath || touched.has(ref.filePath) ||
         (ref.language !== 'c' && ref.language !== 'cpp'),
     };

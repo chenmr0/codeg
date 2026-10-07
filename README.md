@@ -8,6 +8,8 @@ CodeGraph-CPP 基于开源 [CodeGraph](https://github.com/colbymchenry/codegraph
 
 默认索引 **C/C++、Objective-C/Objective-C++、Python、Lua**。设置 `CODEGRAPH_ALL_LANGUAGES=1` 可恢复全部已有语言和格式支持（包括 JS/TS、Vue/Svelte、Java、Rust 等）；`init`、`index`、`sync` 和文件监听使用同一范围。已有索引切换范围后，下一次索引或同步会执行一次完整重建，此后的 `sync` 继续增量更新。环境变量用法及 MCP 注意事项见[语言范围配置](docs/manual/03-core-commands.md#语言范围配置)。
 
+本实验分支默认省略已证明为普通原生标量字段的 C/C++ 逐位置使用引用，字段声明与调用关系仍保留；函数指针、类型别名和其他未知字段类型保守保留。设置 `CODEGRAPH_FIELD_REFERENCES=1` 可恢复完整字段引用，切换后自动重建一次。范围与维护成本见[普通字段引用策略](docs/ordinary-field-references.md)。
+
 ---
 
 ## 它能为你做什么？

@@ -1,3 +1,4 @@
+import { fieldReferencesEnabled, isOrdinaryFieldTarget } from '../field-reference-policy';
 /**
  * Reference Resolution Orchestrator
  *
@@ -1082,7 +1083,27 @@ export class ReferenceResolver {
   /**
    * Create edges from resolved references
    */
+  private isSuppressedFieldRef(ref: ResolvedRef): boolean {
+    return ref.original.referenceKind === 'references' &&
+      isOrdinaryFieldTarget(this.queries.getNodeById(ref.targetNodeId));
+  }
+
+  private admitResolvedFields(resolved: ResolvedRef[]): { admitted: ResolvedRef[]; parked: number } {
+    if (fieldReferencesEnabled()) return { admitted: resolved, parked: 0 };
+    const admitted: ResolvedRef[] = [];
+    const omitted: UnresolvedRef[] = [];
+    for (const ref of resolved) {
+      if (this.isSuppressedFieldRef(ref)) omitted.push(ref.original);
+      else admitted.push(ref);
+    }
+    return { admitted, parked: this.queries.markFieldReferencesSuppressed(omitted) };
+  }
+
   createEdges(resolved: ResolvedRef[]): Edge[] {
+    return this.buildEdges(fieldReferencesEnabled() ? resolved : resolved.filter(ref => !this.isSuppressedFieldRef(ref)));
+  }
+
+  private buildEdges(resolved: ResolvedRef[]): Edge[] {
     return resolved.map((ref) => {
       let kind = ref.original.referenceKind;
 
@@ -1203,10 +1224,11 @@ export class ReferenceResolver {
     const deferredStart = this.deferredChainRefs.length;
     const result = this.resolveAll(unresolvedRefs, onProgress, diagnostics, nameLookup);
     this.journalDeferredConformance(this.deferredChainRefs.slice(deferredStart));
-    let removedPending = 0;
+    const admission = this.admitResolvedFields(result.resolved);
+    let removedPending = admission.parked;
 
     // Create edges from resolved references
-    const edges = measureResolution(diagnostics, 'edgeBuildMs', () => this.createEdges(result.resolved));
+    const edges = measureResolution(diagnostics, 'edgeBuildMs', () => this.buildEdges(admission.admitted));
     if (diagnostics) diagnostics.edges = edges.length;
 
     // Insert edges into database
@@ -1218,7 +1240,7 @@ export class ReferenceResolver {
     if (result.resolved.length > 0) {
       measureResolution(diagnostics, 'resolvedCleanupMs', () => {
         const cleanup = ReferenceResolver.partitionCleanup(
-          result.resolved.map((ref) => ref.original)
+          admission.admitted.map((ref) => ref.original)
         );
         removedPending += this.queries.deleteReferencesByRowIds(cleanup.rowIds);
         this.queries.deleteSpecificResolvedReferences(cleanup.legacyKeys);
@@ -1546,17 +1568,19 @@ export class ReferenceResolver {
         // queue, including results admitted from read-only resolver workers.
         this.journalDeferredConformance(this.deferredChainRefs.slice(deferredStart));
 
+        // Apply the same admission policy to main-thread and worker results.
+        const admission = this.admitResolvedFields(result.resolved);
         // Persist edges immediately
-        const edges = this.createEdges(result.resolved);
+        const edges = this.buildEdges(admission.admitted);
         if (edges.length > 0) {
           this.queries.insertEdges(edges);
         }
 
         // Delete exactly the rows attempted by this batch. Tuple cleanup is kept
         // only for hand-built references that did not originate in SQLite.
-        let removedThisBatch = 0;
+        let removedThisBatch = admission.parked;
         const resolvedCleanup = ReferenceResolver.partitionCleanup(
-          result.resolved.map((ref) => ref.original)
+          admission.admitted.map((ref) => ref.original)
         );
         removedThisBatch += this.queries.deleteReferencesByRowIds(resolvedCleanup.rowIds);
         this.queries.deleteSpecificResolvedReferences(resolvedCleanup.legacyKeys);

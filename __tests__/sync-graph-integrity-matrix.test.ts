@@ -12,6 +12,7 @@ describe('extended sync graph integrity scenarios', () => {
   let cg: CodeGraph | undefined;
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.unstubAllEnvs();
     cg?.destroy();
     cg = undefined;
     if (directory) fs.rmSync(directory, { recursive: true, force: true });
@@ -297,6 +298,7 @@ describe('extended sync graph integrity scenarios', () => {
   });
 
   it('does not resolve bare identifiers to unrelated cross-file fields or methods, but keeps real member scope', async () => {
+    vi.stubEnv('CODEGRAPH_FIELD_REFERENCES', '1'); // This regression explicitly tests full data-reference mode.
     await setup({
       'unrelated.h':'class Other { public: int g; int r() const; };\n',
       'owner.h':'class Owner { public: int g; int r() const; int read() const; };\n',
@@ -316,6 +318,7 @@ describe('extended sync graph integrity scenarios', () => {
   });
 
   it('restores inherited fields even when their retry group sorts before the missing base type', async () => {
+    vi.stubEnv('CODEGRAPH_FIELD_REFERENCES', '1'); // This regression explicitly tests full data-reference mode.
     const base='class ZBase { public: int aValue; };\n';
     await setup({'base.h':base,'child.cpp':'class Child : public ZBase { public: int read() { return aValue; } };\n'});
     const before=edges();
@@ -360,6 +363,7 @@ describe('extended sync graph integrity scenarios', () => {
   });
 
   it('does not borrow inheritance from an unrelated C++ class with the same leaf name', async () => {
+    vi.stubEnv('CODEGRAPH_FIELD_REFERENCES', '1'); // This regression explicitly tests full data-reference mode.
     await setup({
       'base.h':'class Base { public: int field; };\n',
       'left.cpp':'namespace left { class Block { public: int read_left() { return field; } }; }\n',

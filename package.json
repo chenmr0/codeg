@@ -17,6 +17,7 @@
     "codegraph-macros/Cargo.lock",
     "codegraph-macros/src",
     "docs/rust-macro-scan.md",
+    "docs/ordinary-field-references.md",
     "docs/sync-diagnostics.md",
     "docs/scoped-reference-batches.md",
     "docs/rust-scan-prototype.md",

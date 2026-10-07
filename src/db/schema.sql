@@ -38,6 +38,7 @@ CREATE TABLE IF NOT EXISTS nodes (
     is_declaration INTEGER DEFAULT 0, -- C/C++ function prototype (no body) vs definition
     decorators TEXT, -- JSON array
     type_parameters TEXT, -- JSON array
+    ordinary_field INTEGER, -- trustworthy non-callable C/C++ declaration evidence
     return_type TEXT, -- normalized return/result type name (e.g. C++ method return, for receiver-type inference)
     updated_at INTEGER NOT NULL
 );
@@ -160,3 +161,6 @@ CREATE TABLE IF NOT EXISTS project_metadata (
     value TEXT NOT NULL,
     updated_at INTEGER NOT NULL
 );
+
+CREATE INDEX IF NOT EXISTS idx_unresolved_suppressed_field_tail
+  ON unresolved_refs(name_tail) WHERE status = 'suppressed_field';

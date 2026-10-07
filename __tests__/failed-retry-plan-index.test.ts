@@ -58,3 +58,40 @@ describe.each([false,true])('failed retry planning with wasm=%s',(wasm)=>{
     expect(q.getFailedReferenceRetryPlan([],500)).toEqual({groups:[],total:0,skippedGroups:0,skippedRefs:0});
   });
 });
+
+describe.each([false,true])('suppressed field retry snapshots wasm=%s', wasm => {
+  it('uses both narrow indexes for mixed-state paging even with biased status statistics', async () => {
+    const {db,q}=await fixture(wasm);
+    db.prepare("INSERT INTO unresolved_refs(from_node_id,reference_name,reference_kind,line,col,file_path,language,status,name_tail) VALUES('caller','alpha','references',2000,0,'caller.cpp','cpp','suppressed_field','alpha')").run();
+    const sqls:string[]=[];const prepare=db.prepare.bind(db);
+    vi.spyOn(db,'prepare').mockImplementation((sql:string)=>{sqls.push(sql);return prepare(sql)});
+    expect(q.getFailedReferenceRetryBatch('alpha',0,99999,10,{includeFailed:true,includeSuppressed:true})).toHaveLength(4);
+    const sql=sqls.find(sql=>sql.includes(' UNION ALL '))!;expect(sql).toBeDefined();
+    const plan=prepare('EXPLAIN QUERY PLAN '+sql).all('alpha',0,99999,'alpha',0,99999,10) as Array<{detail:string}>;
+    expect(plan.some(row=>row.detail.includes('idx_unresolved_failed_tail'))).toBe(true);
+    expect(plan.some(row=>row.detail.includes('idx_unresolved_suppressed_field_tail'))).toBe(true);
+    expect(plan.some(row=>row.detail.includes('idx_unresolved_status'))).toBe(false);
+  });
+  it('keeps policy rows uncapped and visits a mixed tail only once across status changes', async () => {
+    const {db,q}=await fixture(wasm);
+    const add=db.prepare("INSERT INTO unresolved_refs(from_node_id,reference_name,reference_kind,line,col,file_path,language,status,name_tail) VALUES('caller',?,'references',?,0,'caller.cpp','cpp','suppressed_field',?)");
+    add.run('alpha',2000,'alpha'); add.run('beta',2001,'beta');
+    const plan=q.getFailedReferenceRetryPlan(['alpha','beta'],500);
+    q.includeSuppressedFieldRetries(plan,['alpha','beta']);
+    expect(plan.groups).toHaveLength(2); expect(plan.total).toBe(5);
+    const seen:number[]=[];
+    for(const group of plan.groups){
+      let cursor=0;
+      for(;;){
+        const rows=q.getFailedReferenceRetryBatch(group.nameTail,cursor,group.maxRowId,1,group);
+        if(!rows.length)break;
+        seen.push(rows[0].rowId!); cursor=rows[0].rowId!;
+        q.markFieldReferencesSuppressed(rows);
+      }
+    }
+    expect(new Set(seen).size).toBe(5); expect(seen).toHaveLength(5);
+    const retained=q.getFailedReferenceRetryBatch('beta',0,99999,10,{includeSuppressed:true,includeFailed:false});
+    q.markReferencesFailedByRowIds(retained.map(r=>({rowId:r.rowId!,referenceName:r.referenceName})));
+    expect(db.prepare("SELECT COUNT(*) n FROM unresolved_refs WHERE status='suppressed_field' AND name_tail='beta'").get()).toMatchObject({n:1});
+  });
+});

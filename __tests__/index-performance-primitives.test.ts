@@ -185,7 +185,7 @@ describe('fresh-index database primitives', () => {
     const queries = new QueryBuilder(db);
     queries.insertNodes([node('a', 'a'), node('b', 'b')]);
     db.exec('DROP INDEX idx_edges_identity');
-    db.exec(`UPDATE schema_versions SET version = 6 WHERE version = 8`);
+    db.exec(`UPDATE schema_versions SET version = 6 WHERE version = 9`);
     db.exec(
       `INSERT INTO edges(source,target,kind,line,col) VALUES
        ('a','b','calls',1,0),('a','b','calls',1,0)`
@@ -199,7 +199,7 @@ describe('fresh-index database primitives', () => {
       .get() as { count: number };
     const version = migrated.getSchemaVersion();
     expect(count.count).toBe(1);
-    expect(version?.version).toBe(8);
+    expect(version?.version).toBe(9);
     const unresolvedColumns = migrated
       .getDb()
       .prepare('PRAGMA table_info(unresolved_refs)')

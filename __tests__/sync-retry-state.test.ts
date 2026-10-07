@@ -17,6 +17,7 @@ function fixture() {
   const metadata = new Map<string, string>();
   const files = new Map<string, FileRecord>();
   const names = new Map<string, string[]>();
+  const nodes = new Map<string, Node[]>();
   const query = {
     getMetadata: (key: string) => metadata.get(key) ?? null,
     setMetadata: (key: string, value: string) => { metadata.set(key, value); },
@@ -28,6 +29,7 @@ function fixture() {
       }
     },
     getFileByPath: (file: string) => files.get(file),
+    getNodesByFile: (file: string) => nodes.get(file) ?? [],
     getNodeNamesByFiles: (paths: string[]) => [...new Set(paths.flatMap(file => names.get(file) ?? []))],
     getFailedReferenceNames: () => ['lost_name'],
   } as unknown as QueryBuilder;
@@ -36,6 +38,7 @@ function fixture() {
     files.set(file, { path: file, contentHash: text, language: 'c', size: text.length,
       modifiedAt: 1, indexedAt: 1, nodeCount: result.nodes.length, errors: result.errors });
     names.set(file, result.nodes.map(node => node.name));
+    nodes.set(file, result.nodes);
   };
   const baseline = new SyncRetryState(query);
   store(baseline);

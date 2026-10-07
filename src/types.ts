@@ -184,6 +184,9 @@ export interface Node {
    */
   returnType?: string;
 
+  /** Proven non-callable C/C++ field declaration; absent means unknown. */
+  ordinaryField?: boolean;
+
   /** When the node was last updated */
   updatedAt: number;
 }

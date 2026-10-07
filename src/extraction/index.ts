@@ -1,3 +1,4 @@
+import { suppressFieldReference } from '../field-reference-policy';
 /**
  * Extraction Orchestrator
  *
@@ -2365,6 +2366,7 @@ export class ExtractionOrchestrator {
     if (previous.length !== nodes.length || previous.some(old => {
       const next = byId.get(old.id);
       return !next || old.language !== next.language ||
+        !!old.ordinaryField !== !!next.ordinaryField ||
         targetIdentity(old.kind, old.name, old.qualifiedName, old.signature, old.isDeclaration) !==
         targetIdentity(next.kind, next.name, next.qualifiedName, next.signature, next.isDeclaration);
     })) return false;
@@ -2529,7 +2531,7 @@ export class ExtractionOrchestrator {
       const target = matches?.includes(saved.targetId) ? saved.targetId
         : matches?.length === 1 ? matches[0] : undefined;
 
-      if (target) {
+      if (target && !suppressFieldReference(saved.edgeKind, byId.get(target))) {
         rewired.push({
           source: saved.sourceId,
           target,

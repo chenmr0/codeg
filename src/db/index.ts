@@ -174,6 +174,7 @@ export class DatabaseConnection {
     'idx_unresolved_from_name',
     'idx_unresolved_status',
     'idx_unresolved_failed_tail',
+    'idx_unresolved_suppressed_field_tail',
     'idx_files_language',
     'idx_files_modified_at',
     'idx_edges_kind',
@@ -242,6 +243,7 @@ export class DatabaseConnection {
     'idx_unresolved_file_path',
     'idx_unresolved_from_name',
     'idx_unresolved_failed_tail',
+    'idx_unresolved_suppressed_field_tail',
   ] as const;
 
   /** Enter the large-resolution unresolved-reference cleanup window. */

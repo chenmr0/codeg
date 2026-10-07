@@ -1,3 +1,4 @@
+import { fieldReferencePolicyKey } from './field-reference-policy';
 /**
  * CodeGraph
  *
@@ -259,6 +260,7 @@ export class CodeGraph {
     const dbPath = getDatabasePath(resolvedRoot);
     const db = DatabaseConnection.initialize(dbPath);
     const queries = new QueryBuilder(db.getDb());
+    queries.setMetadata('indexed_field_reference_policy', fieldReferencePolicyKey());
 
     const instance = new CodeGraph(db, queries, resolvedRoot);
 
@@ -299,6 +301,7 @@ export class CodeGraph {
     const dbPath = getDatabasePath(resolvedRoot);
     const db = DatabaseConnection.initialize(dbPath);
     const queries = new QueryBuilder(db.getDb());
+    queries.setMetadata('indexed_field_reference_policy', fieldReferencePolicyKey());
 
     return new CodeGraph(db, queries, resolvedRoot);
   }
@@ -417,7 +420,11 @@ export class CodeGraph {
       }
       try {
         const scopeChanged = this.needsLanguageScopeRebuild();
-        const extractionChanged = this.isIndexStale();
+        const policyChanged = this.needsFieldPolicyRebuild();
+        const extractionChanged = this.isIndexStale() || policyChanged;
+        if (policyChanged) this.queries.applyMetadataChanges({
+          field_reference_policy_pending: fieldReferencePolicyKey(), index_completeness: 'incomplete',
+        });
         await this.queries.invalidateCppMacroCalls();
         if (scopeChanged) {
           // Persist before changing graph data. An interrupted transition must
@@ -639,6 +646,8 @@ export class CodeGraph {
             this.queries.applyMetadataChanges({
               indexed_with_version: CodeGraphPackageVersion,
               indexed_with_extraction_version: String(EXTRACTION_VERSION),
+              indexed_field_reference_policy: fieldReferencePolicyKey(),
+              field_reference_policy_pending: null,
             });
           }
           // A base-only macro fallback still applied the language selection.
@@ -716,7 +725,7 @@ export class CodeGraph {
         return { success: false, filesIndexed: 0, filesSkipped: 0, filesErrored: 0, nodesCreated: 0, edgesCreated: 0, errors: [{ message: 'Could not acquire file lock - another process may be indexing', severity: 'error' as const }], durationMs: 0 };
       }
       try {
-        if (this.needsLanguageScopeRebuild()) {
+        if (this.needsLanguageScopeRebuild() || this.needsFieldPolicyRebuild()) {
           return await this.indexAllLocked({}, true);
         }
         const result = await this.orchestrator.indexFiles(filePaths);
@@ -730,6 +739,12 @@ export class CodeGraph {
     }));
   }
 
+  private needsFieldPolicyRebuild(): boolean {
+    if (this.queries.getLastIndexedAt() === null) return false;
+    return this.queries.getMetadata('field_reference_policy_pending') !== null ||
+      this.queries.getMetadata('indexed_field_reference_policy') !== fieldReferencePolicyKey();
+  }
+
   private needsLanguageScopeRebuild(): boolean {
     // Pre-policy indexes contain all languages. Preserve their old behavior
     // under the escape hatch, but reconcile them once under the new default.
@@ -740,7 +755,7 @@ export class CodeGraph {
 
   private async rebuildLanguageScopeForSync(options: SyncOptions): Promise<SyncResult> {
     const before = new Set(this.queries.getAllFiles().map(file => file.path));
-    if (options.verbose) console.log(`[sync] Language scope changed to ${getLanguageScopeKey()}; rebuilding the index`);
+    if (options.verbose) console.log(`[sync] Index policy or extraction version changed; rebuilding the index`);
     const index = await this.indexAllLocked(options, true);
     const after = this.queries.getAllFiles();
     const afterPaths = new Set(after.map(file => file.path));
@@ -786,7 +801,7 @@ export class CodeGraph {
       }
       let scopeChanged: boolean;
       try {
-        scopeChanged = this.needsLanguageScopeRebuild();
+        scopeChanged = this.needsLanguageScopeRebuild() || this.needsFieldPolicyRebuild();
       } catch (error) {
         this.fileLock.release();
         throw error;
@@ -929,6 +944,7 @@ export class CodeGraph {
             eligibility.names,
             SYNC_FAILED_REFERENCE_NAME_CEILING,
           );
+          this.queries.includeSuppressedFieldRetries(retryPlan, eligibility.suppressedNames);
           const started = performance.now();
           const planningMs = started - planningStarted;
           let visited = 0;
@@ -950,6 +966,7 @@ export class CodeGraph {
                   afterRowId,
                   group.maxRowId,
                   SYNC_REFERENCE_BATCH_SIZE,
+                  group,
                 );
                 if (batch.length === 0) break;
 
@@ -1424,7 +1441,7 @@ export class CodeGraph {
   isIndexStale(): boolean {
     if (this.queries.getLastIndexedAt() == null) return false;
     const { extractionVersion } = this.getIndexBuildInfo();
-    return extractionVersion == null || extractionVersion < EXTRACTION_VERSION;
+    return extractionVersion == null || extractionVersion < EXTRACTION_VERSION || this.needsFieldPolicyRebuild();
   }
 
   /**

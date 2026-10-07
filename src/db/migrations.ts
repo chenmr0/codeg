@@ -9,7 +9,7 @@ import { SqliteDatabase } from './sqlite-adapter';
 /**
  * Current schema version
  */
-export const CURRENT_SCHEMA_VERSION = 8;
+export const CURRENT_SCHEMA_VERSION = 9;
 
 /**
  * Migration definition
@@ -127,6 +127,16 @@ const migrations: Migration[] = [
         CREATE INDEX IF NOT EXISTS idx_unresolved_failed_tail
           ON unresolved_refs(name_tail) WHERE status = 'failed';
       `);
+    },
+  },
+  {
+    version: 9,
+    description: 'Persist ordinary-field evidence and index suppressed field references',
+    up: (db) => {
+      const columns = db.prepare('PRAGMA table_info(nodes)').all() as Array<{name:string}>;
+      if (!columns.some(column => column.name === 'ordinary_field')) db.exec('ALTER TABLE nodes ADD COLUMN ordinary_field INTEGER');
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_unresolved_suppressed_field_tail
+          ON unresolved_refs(name_tail) WHERE status = 'suppressed_field';`);
     },
   },
 ];
