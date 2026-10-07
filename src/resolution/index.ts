@@ -353,6 +353,11 @@ export class ReferenceResolver {
     return updated;
   }
 
+  /** Node finalization failures must not be advertised as symbol-ready. */
+  hasPostExtractErrors(): boolean {
+    return this.frameworkDiagnostics.length > 0;
+  }
+
   /**
    * Pre-build lightweight caches for resolution.
    * Node lookups are now handled by indexed SQLite queries instead of

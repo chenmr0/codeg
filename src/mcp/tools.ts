@@ -5,6 +5,7 @@
  */
 
 import type CodeGraph from '../index';
+import type { IndexDataReadiness } from '../index';
 import { AsyncLocalStorage } from 'async_hooks';
 import { findNearestCodeGraphRoot } from '../directory';
 // Lazy-load the heavy CodeGraph chain off the MCP startup path — see the same
@@ -434,6 +435,7 @@ export function formatStaleBanner(
 type CatchUpStatus = 'running' | 'complete' | 'failed';
 
 interface CatchUpState {
+  minimumDataGeneration: number;
   status: CatchUpStatus;
   startedAt: number;
   budgetMs: number;
@@ -444,10 +446,19 @@ interface CatchUpState {
 }
 
 interface CatchUpAdmission {
+  minimumDataGeneration: number;
   status: 'running' | 'failed';
   startedAt: number;
   budgetMs: number;
   error?: string;
+}
+
+interface QueryDataView {
+  symbolsOnly: boolean;
+  graph?: CodeGraph;
+  readiness?: IndexDataReadiness | null;
+  admission?: CatchUpAdmission | null;
+  observed?: IndexDataReadiness | null;
 }
 
 /** Low-distraction freshness warning used after the bounded startup gate releases. */
@@ -1233,6 +1244,7 @@ export class ToolHandler {
   // request's cancellation signal attached to its raw-evidence subprocess
   // without leaking it into another client's tool call.
   private executionSignal = new AsyncLocalStorage<AbortSignal | undefined>();
+  private dataView = new AsyncLocalStorage<QueryDataView>();
 
   constructor(private cg: CodeGraph | null) {}
 
@@ -1261,7 +1273,11 @@ export class ToolHandler {
     const release = new Promise<void>((resolve) => {
       releaseNow = resolve;
     });
+    const readiness = this.cg?.getIndexDataReadiness?.();
+    const inFlight = this.cg?.isIndexing?.() && readiness &&
+      (!readiness.symbolsReady || !readiness.relationshipsReady);
     const state: CatchUpState = {
+      minimumDataGeneration: (readiness?.generation ?? 0) + (inFlight ? 0 : 1),
       status: 'running',
       startedAt: Date.now(),
       budgetMs: budgetMs === undefined
@@ -1679,6 +1695,7 @@ export class ToolHandler {
         return null;
       }
       return {
+        minimumDataGeneration: state.minimumDataGeneration,
         status: state.status,
         startedAt: state.startedAt,
         budgetMs: state.budgetMs,
@@ -1693,14 +1710,37 @@ export class ToolHandler {
     result: ToolResult,
     admission: CatchUpAdmission | null,
   ): ToolResult {
-    if (!admission || result.isError) return result;
+    if (result.isError) return result;
+    const view = this.dataView.getStore();
+    let readiness = view?.readiness;
+    const current = view?.graph?.getIndexDataReadiness?.();
+    if (!readiness && view?.observed && current && (
+      current.generation !== view.observed.generation ||
+      (view.observed.symbolsReady && !current.symbolsReady) ||
+      (view.observed.relationshipsReady && !current.relationshipsReady)
+    )) readiness = { generation: view.observed.generation, symbolsReady: false, relationshipsReady: false };
+    let notice: string;
+    if (readiness && view) {
+      const latest = view.graph?.getIndexDataReadiness?.();
+      const symbolsReady = readiness.symbolsReady && latest?.symbolsReady &&
+        latest.generation === readiness.generation;
+      const relationshipsReady = symbolsReady && readiness.relationshipsReady && latest?.relationshipsReady;
+      if (symbolsReady && (view.symbolsOnly || relationshipsReady)) return result;
+      notice = symbolsReady
+        ? '⚠️ Symbol data is ready; relationship data is incomplete. Call, definition and dependency results may be incomplete.'
+        : admission ? formatCatchUpNotice(admission)
+          : '⚠️ Index refresh is unfinished; symbol results may be stale or incomplete.';
+    } else {
+      if (!admission) return result;
+      notice = formatCatchUpNotice(admission);
+    }
     const [first, ...rest] = result.content;
     if (!first || first.type !== 'text') return result;
     return {
       ...result,
       content: [{
         type: 'text',
-        text: `${formatCatchUpNotice(admission)}\n\n${first.text}`,
+        text: `${notice}\n\n${first.text}`,
       }, ...rest],
     };
   }
@@ -1715,7 +1755,10 @@ export class ToolHandler {
   ): Promise<ToolResult> {
     return await this.executionSignal.run(
       options.signal,
-      () => this.executeWithSignal(toolName, args),
+      () => this.dataView.run({
+        symbolsOnly: toolName === 'search' || toolName === 'files' || toolName === 'text_search' ||
+          (toolName === 'node' && args.includeRelations !== true && args.targets === undefined),
+      }, () => this.executeWithSignal(toolName, args)),
     );
   }
 
@@ -1742,6 +1785,25 @@ export class ToolHandler {
       if (typeof pathCheck === 'object' && pathCheck !== undefined) {
         return pathCheck;
       }
+      const view = this.dataView.getStore()!;
+      view.admission = catchUpAdmission;
+      try {
+        let graph = this.getCodeGraph(args.projectPath as string | undefined);
+        if (this.cg && resolvePath(graph.getProjectRoot()) === resolvePath(this.cg.getProjectRoot())) graph = this.cg;
+        const readiness = graph.getIndexDataReadiness?.();
+        view.graph = graph;
+        view.observed = readiness;
+        const sameProject = graph === this.cg;
+        if (readiness && (catchUpAdmission && sameProject
+          ? readiness.generation >= catchUpAdmission.minimumDataGeneration
+          : graph.isIndexing?.() || graph.getIndexCompleteness?.().status === 'incomplete' ||
+            (!view.symbolsOnly && !readiness.relationshipsReady) ||
+            (!readiness.symbolsReady && (graph.getPendingFiles?.().length ?? 0) === 0))) {
+          view.readiness = readiness;
+        }
+        // A different project's data must not inherit this session's refresh state.
+        if (!sameProject) view.admission = null;
+      } catch { /* The tool's normal project error remains authoritative. */ }
       // The `path` and `pattern` properties used by codegraph_files are
       // also path-shaped — apply the same cap.
       if (args.path !== undefined) {
@@ -1785,22 +1847,37 @@ export class ToolHandler {
           // status embeds the pending-files list as a first-class section
           // (see handleStatus), so we skip the auto-banner wrapper here to
           // avoid duplicating the same info at the top of the response.
-          return await this.handleStatus(args, catchUpAdmission);
+          return await this.handleStatus(args, view.admission ?? null);
         case 'files':
           result = await this.handleFiles(args); break;
         default:
           return this.errorResult(`Unknown tool: ${toolName}`);
       }
       const withWorktree = this.withWorktreeNotice(result, args.projectPath as string | undefined);
-      const withFileStaleness = this.withStalenessNotice(
+      const latestReadiness = view.graph?.getIndexDataReadiness?.();
+      const symbolsReady = view.readiness?.symbolsReady && latestReadiness?.symbolsReady &&
+        view.readiness.generation === latestReadiness.generation;
+      const withFileStaleness = symbolsReady ? withWorktree : this.withStalenessNotice(
         withWorktree,
         args.projectPath as string | undefined,
-        catchUpAdmission !== null,
+        view.admission != null,
       );
-      return this.withCatchUpNotice(withFileStaleness, catchUpAdmission);
+      return this.withCatchUpNotice(withFileStaleness, view.admission ?? null);
     } catch (err) {
       return this.errorResult(`Tool execution failed: ${err instanceof Error ? err.message : String(err)}`);
     }
+  }
+
+  private relationshipsPending(): boolean {
+    const view = this.dataView.getStore();
+    const latest = view?.graph?.getIndexDataReadiness?.();
+    if (view?.observed && latest && (latest.generation !== view.observed.generation ||
+        (view.observed.relationshipsReady && !latest.relationshipsReady))) return true;
+    return view?.readiness ? !view.readiness.relationshipsReady : view?.admission != null;
+  }
+
+  private omitRelationshipDetails(): boolean {
+    return this.dataView.getStore()?.symbolsOnly === true && this.relationshipsPending();
   }
 
   /**
@@ -1998,7 +2075,7 @@ export class ToolHandler {
         pathHint,
       );
       const groups = this.relationshipOverloadGroups(cg, ranked, exactAll);
-      const declarationOnly = ranked.some((node) =>
+      const declarationOnly = !this.relationshipsPending() && ranked.some((node) =>
         node.isDeclaration === true && cppParameterKey(node) !== null &&
         this.indexedDefinitionForDeclaration(cg, node) === null
       );
@@ -2045,7 +2122,9 @@ export class ToolHandler {
         ? `\n\n> Case-insensitive exact-name correction applied for "${queryText}".`
         : '';
       const sourceNote = includeCode === 'if_unique' && groups.length > 1
-        ? `\n\n> Source was not inlined because ${groups.length} distinct logical symbols/overloads remain; use a matching path hint, line, or signature to make the target unique. A path miss keeps all exact candidates visible.`
+        ? this.omitRelationshipDetails()
+          ? '\n\n> Multiple indexed candidates remain; use a path, line or signature to select source.'
+          : `\n\n> Source was not inlined because ${groups.length} distinct logical symbols/overloads remain; use a matching path hint, line, or signature to make the target unique. A path miss keeps all exact candidates visible.`
         : '';
       const note = total > limit
         ? `\n\n> Showing ${capped.length} of ${total} exact ${qualifier}matches${lineNote}. Raise \`limit\`, provide a closer path hint, or use line/signature to see the intended symbol.`
@@ -3119,7 +3198,7 @@ export class ToolHandler {
         ? await this.renderRawEvidence(cg, [{ label: `zero callers: ${target.signature ?? target.symbol}`, needle }])
         : '';
       return this.textResult([
-        `No callers found for ${this.formatRelationshipTarget(target)}${target.lookupNote}`,
+        `${this.relationshipsPending() ? 'No callers in the currently available relationship data; this is not a completed absence check' : 'No callers found'} for ${this.formatRelationshipTarget(target)}${target.lookupNote}`,
         evidence,
         evidence ? '> Raw matches can include declarations, definitions, references, macros, or calls. They are shown to expose possible graph/index gaps; raw text alone is not classified as a caller.' : '',
       ].filter(Boolean).join('\n\n'));
@@ -3163,7 +3242,7 @@ export class ToolHandler {
         ? await this.renderRawEvidence(cg, [{ label: `zero callees: ${target.signature ?? target.symbol}`, needle }])
         : '';
       return this.textResult([
-        `No callees found for ${this.formatRelationshipTarget(target)}${target.lookupNote}`,
+        `${this.relationshipsPending() ? 'No callees in the currently available relationship data; this is not a completed absence check' : 'No callees found'} for ${this.formatRelationshipTarget(target)}${target.lookupNote}`,
         evidence,
         evidence ? '> Raw matches can include declarations, definitions, references, macros, or calls. They are shown to expose possible graph/index gaps; raw text alone is not classified as a callee.' : '',
       ].filter(Boolean).join('\n\n'));
@@ -4688,7 +4767,7 @@ export class ToolHandler {
     // file:start-end so a large overload set can't overflow the per-tool cap.
     const header = [
       autoCorrectionNotice,
-      `**${matches.length} definitions named "${symbol}"**`,
+      `**${matches.length} ${this.relationshipsPending() ? 'indexed symbols' : 'definitions'} named "${symbol}"**`,
     ].filter(Boolean).join('\n\n');
     if (!includeCode) {
       const list = matches.map((n) => `- \`${displaySymbol(n)}\` (${n.kind}) — ${formatDefinitionLocation(n)}`);
@@ -4805,7 +4884,8 @@ export class ToolHandler {
     const nodes = cg.getNodesInFile(filePath)
       .filter((n) => n.kind !== 'file' && n.kind !== 'import' && n.kind !== 'export')
       .sort((a, b) => a.startLine - b.startLine);
-    const includeDependencySummary = opts.symbolsOnly || CONFIG_LEAF_LANGUAGES.has(resolved.language);
+    const includeDependencySummary = !this.omitRelationshipDetails() &&
+      (opts.symbolsOnly || CONFIG_LEAF_LANGUAGES.has(resolved.language));
     const dependents = includeDependencySummary ? cg.getFileDependents(filePath) : [];
 
     // Dependency metadata is useful once in an outline/config summary but is
@@ -4885,7 +4965,7 @@ export class ToolHandler {
       const filterNote = queries.length > 0 ? `; ${filtered.length} match ${filterDescription}` : '';
       const out = [
         ...(opts.notice ? [opts.notice, ''] : []),
-        `**${filePath}** — ${nodes.length} symbol${nodes.length === 1 ? '' : 's'}${filterNote}, ${compactDepSummary}`,
+        `**${filePath}** — ${nodes.length} symbol${nodes.length === 1 ? '' : 's'}${filterNote}${includeDependencySummary ? `, ${compactDepSummary}` : ''}`,
         '',
       ];
       if (broadQuery) {
@@ -4910,7 +4990,7 @@ export class ToolHandler {
     // SECURITY (#383): never dump a raw config/data file — a yaml/properties
     // line is `key: <secret>`. Summarize by key and point to a real Read.
     if (CONFIG_LEAF_LANGUAGES.has(resolved.language)) {
-      const out = [`**${filePath}** — configuration/data file, ${depSummary}`, ''];
+      const out = [`**${filePath}** — configuration/data file${includeDependencySummary ? `, ${depSummary}` : ''}`, ''];
       if (nodes.length) out.push(...symbolMap(nodes, '### Keys (values withheld for safety)', MCP_NODE_DEFAULT_OUTLINE_SYMBOLS));
       out.push('', '> Values may be secrets, so codegraph indexes keys only. Read the file directly if you need a value.');
       return this.textResult(this.truncateOutput(out.join('\n')));
@@ -5289,6 +5369,7 @@ export class ToolHandler {
    * the method is unused.
    */
   private formatDeclDef(cg: CodeGraph, node: Node, includeDefinitionTrail: boolean = true): string {
+    if (this.omitRelationshipDetails()) return '';
     const CAP = 6;
     const parameters = cppParameterKey(node);
     const sameOverload = (candidateId: string): boolean => {
@@ -5309,7 +5390,9 @@ export class ToolHandler {
         return [
           '',
           '### Declaration / Definition',
-          '**Definition:** No indexed definition found for this exact overload. Treat this as authoritative for the current index; do not use Grep or text search merely to verify absence.',
+          this.relationshipsPending()
+            ? '**Definition:** Declaration/definition relationships are not ready; absence has not been established.'
+            : '**Definition:** No indexed definition found for this exact overload. Treat this as authoritative for the current index; do not use Grep or text search merely to verify absence.',
         ].join('\n');
       }
       return '';
@@ -5396,7 +5479,15 @@ export class ToolHandler {
       '## CodeGraph Status',
       '',
     ];
-    if (catchUpAdmission) {
+    const readiness = this.dataView.getStore()?.readiness;
+    if (readiness) {
+      lines.push(`**Symbol data:** ${readiness.symbolsReady ? 'ready' : 'not ready'}`,
+        `**Relationship data:** ${readiness.relationshipsReady ? 'ready' : 'not ready'}`, '');
+      if (catchUpAdmission?.status === 'failed') {
+        const detail = catchUpAdmission.error?.replace(/\s+/g, ' ').trim().slice(0, 300);
+        lines.push(`**Refresh:** incomplete${detail ? ` — ${detail}` : ''}`, '');
+      }
+    } else if (catchUpAdmission) {
       lines.push(
         `> ${formatCatchUpNotice(catchUpAdmission, true).replace(/\n/g, '\n> ')}`,
         '',
@@ -6076,6 +6167,7 @@ export class ToolHandler {
     allCandidates: Node[],
   ): Node[][] {
     const uniqueSelected = [...new Map(selected.map((node) => [node.id, node])).values()];
+    if (this.omitRelationshipDetails()) return uniqueSelected.map(node => [node]);
     if (uniqueSelected.length > MCP_RELATIONSHIP_MAX_GROUPING_CANDIDATES) {
       // A high-frequency bare symbol is already ambiguous. Returning stable
       // singleton groups preserves that fact without running synchronous
@@ -6409,6 +6501,7 @@ export class ToolHandler {
    * second codegraph_search call, while keeping their bodies out of the answer.
    */
   private formatOtherOverloadSummary(cg: CodeGraph, symbol: string, selected: Node): string {
+    if (this.omitRelationshipDetails()) return '';
     if (!selected.signature || !selected.signature.includes('(')) return '';
     const sameCallableFamily = (node: Node): boolean => {
       if (node.id === selected.id || node.name !== selected.name) return false;
@@ -6525,6 +6618,7 @@ export class ToolHandler {
   /** Compact role text shared by node/context overload summaries. */
   private indexedDefinitionRole(cg: CodeGraph, node: Node): string {
     if (!node.isDeclaration) return 'definition';
+    if (this.relationshipsPending()) return 'declaration';
     return this.indexedDefinitionForDeclaration(cg, node)
       ? 'declaration'
       : 'declaration — no indexed definition found for this exact overload';
@@ -6791,9 +6885,9 @@ export class ToolHandler {
       // Compact format: one line per result with key info.
       // Tag prototypes so the agent knows to follow the `defines` edge to
       // the definition for the real body/callees rather than dead-ending.
-      const overloadCache = node.isDeclaration === true ? overloadCacheFor(node) : undefined;
-      const callableKey = this.relationshipParameterKey(node, overloadCache);
-      const declarationOnly = node.isDeclaration === true &&
+      const overloadCache = node.isDeclaration === true && !this.relationshipsPending() ? overloadCacheFor(node) : undefined;
+      const callableKey = this.relationshipsPending() ? null : this.relationshipParameterKey(node, overloadCache);
+      const declarationOnly = !this.relationshipsPending() && node.isDeclaration === true &&
         callableKey !== null &&
         this.indexedDefinitionForDeclaration(cg, node, overloadCache) === null;
       if (declarationOnly) declarationOnlyCount++;

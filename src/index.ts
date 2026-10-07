@@ -177,6 +177,13 @@ export interface SyncOptions extends IndexOptions {
   paths?: string[];
 }
 
+/** Read visibility for the most recent in-process refresh; not a completion stamp. */
+export interface IndexDataReadiness {
+  generation: number;
+  symbolsReady: boolean;
+  relationshipsReady: boolean;
+}
+
 /**
  * Main CodeGraph class
  *
@@ -194,6 +201,9 @@ export class CodeGraph {
 
   // Mutex for preventing concurrent indexing operations (in-process)
   private indexMutex = new Mutex();
+  private dataReadiness: (IndexDataReadiness & { watchRevision: number }) | null = null;
+  private refreshGeneration = 0;
+  private watchRevisionBase = 0;
 
   // File lock for preventing concurrent writes across processes (CLI, MCP, git hooks)
   private fileLock: FileLock;
@@ -401,7 +411,8 @@ export class CodeGraph {
    */
   async indexAll(options: IndexOptions = {}): Promise<IndexResult> {
     const startedAt = performance.now();
-    const result = await withLanguageScope(() => this.indexMutex.withLock(() => this.indexAllLocked(options)));
+    const result = await withLanguageScope(() => this.indexMutex.withLock(() =>
+      this.trackDataReadiness(() => this.indexAllLocked(options))));
     result.durationMs = performance.now() - startedAt;
     return result;
   }
@@ -552,6 +563,10 @@ export class CodeGraph {
             this.resolver.runPostExtract();
           }
 
+          this.publishSymbolsReady(result.success && !options.signal?.aborted &&
+            result.filesErrored === 0 && !result.errors.some(error =>
+              error.severity === 'error' || isDeclarationMacroRecoverySkipped(error)));
+
           // Resolve references to create call/import/extends edges
           if (result.success && needsResolution) {
             // Get count without loading all refs into memory
@@ -583,6 +598,9 @@ export class CodeGraph {
             resolutionDiagnostics = resolution.diagnostics ?? [];
 
           }
+
+          if (result.success && resolutionDiagnostics.length === 0 &&
+              !options.signal?.aborted) this.publishRelationshipsReady();
 
           // Stop the valve and drain any in-flight/backpressure, then refresh
           // planner stats + checkpoint the WAL after bulk writes. runMaintenance
@@ -777,7 +795,7 @@ export class CodeGraph {
   async sync(options: SyncOptions = {}): Promise<SyncResult> {
     const syncStartedAt = performance.now();
     let acquiredWriteLock = false;
-    const result = await withLanguageScope(() => this.indexMutex.withLock(async () => {
+    const result = await withLanguageScope(() => this.indexMutex.withLock(() => this.trackDataReadiness(async () => {
       try {
         this.fileLock.acquire();
         acquiredWriteLock = true;
@@ -892,6 +910,12 @@ export class CodeGraph {
         }
 
         tailMark('postExtractMs');
+        // No node-writing fallback may remain when symbol queries are admitted.
+        // A resolving progress event alone is not sufficient evidence.
+        const needsNodeFallback = result.failedRewireSourceFiles?.some(
+          fp => !(result.changedFilePaths ?? []).includes(fp),
+        ) ?? false;
+        this.publishSymbolsReady(result.complete !== false && !needsNodeFallback);
         // Resolve references for changed files first. This restores their
         // import edges (e.g. `a.c --imports--> a.h`), which the co-importer
         // query in the next step relies on.
@@ -1105,6 +1129,7 @@ export class CodeGraph {
 
         tailMark('coImporterMs');
         if (failedFiles.length > 0) this.refreshSyncFileFailures(result);
+        this.publishSymbolsReady(result.complete !== false);
         // A process killed during reference resolution can leave untouched
         // pending rows behind. Scoped sync normally reads only changed files,
         // so those rows (and their missing call/import edges) would otherwise
@@ -1172,6 +1197,9 @@ export class CodeGraph {
         }
         if (scopedSynthesisStarted) this.finishSynthesis(synthesisDiagnostics);
         tailMark('chainedCallsMs');
+
+        if (synthesisDiagnostics.length === 0 && result.complete !== false &&
+            !this.needsSynthesisRetry()) this.publishRelationshipsReady();
 
         // Refresh planner stats + checkpoint the WAL after bulk writes.
         if (
@@ -1248,7 +1276,7 @@ export class CodeGraph {
           }
         }
       }
-    }));
+    }, options.paths)));
     // The extraction result excludes reference resolution, maintenance and
     // lock cleanup. Report elapsed time only after all sync work has finished.
     // Keep the all-zero lock-unavailable sentinel used by the file watcher.
@@ -1261,6 +1289,64 @@ export class CodeGraph {
    */
   isIndexing(): boolean {
     return this.indexMutex.isLocked();
+  }
+
+  /** A later watcher event revokes both capabilities, including during a query. */
+  getIndexDataReadiness(): IndexDataReadiness | null {
+    const state = this.dataReadiness;
+    if (!state) return null;
+    const current = state.watchRevision === this.sourceChangeRevision();
+    // A completed in-memory proof cannot certify a later persisted failure
+    // (for example a refresh performed by another process).
+    const superseded = state.relationshipsReady && !this.isIndexing() &&
+      this.getIndexCompleteness().status === 'incomplete';
+    return {
+      generation: state.generation,
+      symbolsReady: current && !superseded && state.symbolsReady,
+      relationshipsReady: current && !superseded && state.relationshipsReady,
+    };
+  }
+
+  private async trackDataReadiness<T extends { complete?: boolean; success?: boolean; durationMs: number }>(
+    work: () => Promise<T>,
+    paths?: string[],
+  ): Promise<T> {
+    const coveredPaths = paths ? new Set(paths.map(p => p.replace(/\\/g, '/'))) : null;
+    const uncoveredChanges = coveredPaths && this.getPendingFiles().some(p => !coveredPaths.has(p.path));
+    this.dataReadiness = {
+      generation: ++this.refreshGeneration,
+      watchRevision: uncoveredChanges ? -1 : this.sourceChangeRevision(),
+      symbolsReady: false,
+      relationshipsReady: false,
+    };
+    try {
+      const result = await work();
+      // Lock-unavailable syncs have a zero duration and did not inspect source.
+      if (result.success !== false && result.complete !== false && result.durationMs > 0 &&
+          this.getIndexCompleteness().status === 'complete') {
+        this.publishSymbolsReady(true);
+        this.publishRelationshipsReady();
+      }
+      return result;
+    } catch (error) {
+      this.dataReadiness.symbolsReady = false;
+      this.dataReadiness.relationshipsReady = false;
+      throw error;
+    }
+  }
+
+  private publishSymbolsReady(ready: boolean): void {
+    if (!ready || !this.dataReadiness || this.resolver.hasPostExtractErrors()) return;
+    if (this.getIndexCompleteness().diagnostics.some(error => !isSynthesisDiagnostic(error))) return;
+    this.dataReadiness.symbolsReady = true;
+  }
+
+  private publishRelationshipsReady(): void {
+    if (this.dataReadiness?.symbolsReady) this.dataReadiness.relationshipsReady = true;
+  }
+
+  private sourceChangeRevision(): number {
+    return this.watchRevisionBase + (this.watcher?.getChangeRevision() ?? 0);
   }
 
   // ===========================================================================
@@ -1278,6 +1364,8 @@ export class CodeGraph {
    */
   watch(options: WatchOptions = {}): boolean {
     if (this.watcher?.isActive()) return true;
+
+    this.watchRevisionBase += this.watcher?.getChangeRevision() ?? 0;
 
     this.watcher = new FileWatcher(
       this.projectRoot,
@@ -1305,6 +1393,7 @@ export class CodeGraph {
    */
   unwatch(): void {
     if (this.watcher) {
+      this.watchRevisionBase += this.watcher.getChangeRevision();
       this.watcher.stop();
       this.watcher = null;
     }

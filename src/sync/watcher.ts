@@ -187,6 +187,10 @@ export class FileWatcher {
    * caller can intersect tool-response file paths against this map cheaply.
    */
   private pendingFiles = new Map<string, { firstSeenMs: number; lastSeenMs: number }>();
+  private changeRevision = 0;
+
+  /** Monotonic even when multiple edits have the same millisecond timestamp. */
+  getChangeRevision(): number { return this.changeRevision; }
   /**
    * Wall-clock ms at which the in-flight sync began. Combined with
    * {@link pendingFiles}'s `lastSeenMs`, this distinguishes "still in the
@@ -429,6 +433,7 @@ export class FileWatcher {
     const canon = canonicalFilePath(this.projectRoot, rel);
     if (!isSourceFile(canon)) return;
     logDebug('File change detected', { file: canon });
+    this.changeRevision++;
     if (this.ready) {
       const now = Date.now();
       const existing = this.pendingFiles.get(canon);
@@ -462,6 +467,7 @@ export class FileWatcher {
       path: rel,
     });
     this.needsFullScan = true;
+    this.changeRevision++;
     this.scheduleSync();
   }
 

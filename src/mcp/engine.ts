@@ -241,6 +241,9 @@ export class MCPEngine {
     const p = cg
       .sync()
       .then((result) => {
+        if (result.complete === false || (result.filesChecked === 0 && result.durationMs === 0)) {
+          throw new Error('Index refresh did not complete; graph data is not fully ready.');
+        }
         const changed = result.filesAdded + result.filesModified + result.filesRemoved;
         if (changed > 0) {
           process.stderr.write(`[CodeGraph MCP] Caught up ${changed} file(s) changed since last run\n`);
