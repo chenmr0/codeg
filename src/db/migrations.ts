@@ -9,7 +9,7 @@ import { SqliteDatabase } from './sqlite-adapter';
 /**
  * Current schema version
  */
-export const CURRENT_SCHEMA_VERSION = 8;
+export const CURRENT_SCHEMA_VERSION = 9;
 
 /**
  * Migration definition
@@ -126,6 +126,25 @@ const migrations: Migration[] = [
         CREATE INDEX IF NOT EXISTS idx_unresolved_status ON unresolved_refs(status);
         CREATE INDEX IF NOT EXISTS idx_unresolved_failed_tail
           ON unresolved_refs(name_tail) WHERE status = 'failed';
+      `);
+    },
+  },
+  {
+    version: 9,
+    description: 'Invalidate persisted macro evidence checks on node writes instead of scanning macros on unchanged syncs',
+    up: (db) => {
+      db.exec(`
+        DELETE FROM project_metadata WHERE key = 'resolution:cpp-macro-evidence-clean-v1';
+        CREATE TRIGGER IF NOT EXISTS nodes_macro_evidence_ai AFTER INSERT ON nodes BEGIN
+          DELETE FROM project_metadata WHERE key = 'resolution:cpp-macro-evidence-clean-v1';
+        END;
+        CREATE TRIGGER IF NOT EXISTS nodes_macro_evidence_ad AFTER DELETE ON nodes BEGIN
+          DELETE FROM project_metadata WHERE key = 'resolution:cpp-macro-evidence-clean-v1';
+        END;
+        CREATE TRIGGER IF NOT EXISTS nodes_macro_evidence_au AFTER UPDATE OF kind, name, signature ON nodes
+        WHEN OLD.kind IS NOT NEW.kind OR OLD.name IS NOT NEW.name OR OLD.signature IS NOT NEW.signature BEGIN
+          DELETE FROM project_metadata WHERE key = 'resolution:cpp-macro-evidence-clean-v1';
+        END;
       `);
     },
   },

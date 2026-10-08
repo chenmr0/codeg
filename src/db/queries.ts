@@ -6,7 +6,7 @@
 
 import { SqliteDatabase, SqliteStatement } from './sqlite-adapter';
 import picomatch from 'picomatch';
-import { createHash } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
 import {
   Node,
   Edge,
@@ -3095,15 +3095,34 @@ WHERE e.kind = 'imports'
    */
   async invalidateCppMacroCalls(): Promise<string[]> {
     const key = 'resolution:cpp-macro-evidence-v1';
+    const cleanKey = 'resolution:cpp-macro-evidence-clean-v1';
+    const previous = this.getMetadata(key);
+    if (previous !== null && this.getMetadata(cleanKey) === previous) return [];
+
+    // Schema triggers revoke this token on node writes, including worker writes
+    // and REPLACE. A token left by a failed/interrupted check is never clean.
+    // Conditional publication also prevents a write during an async edge page
+    // from being certified by the fingerprint computed before that write.
+    const token = `checking:${randomUUID()}`;
+    this.setMetadata(cleanKey, token);
     const macros = this.db.prepare(`SELECT DISTINCT name,signature FROM nodes
       WHERE kind='macro' ORDER BY name,signature`).all();
     const fingerprint = createHash('sha256').update(JSON.stringify(macros)).digest('hex');
-    const previous = this.getMetadata(key);
-    if (previous === fingerprint) return [];
+    const publishClean = (): void => {
+      this.db.prepare(`UPDATE project_metadata SET value=?, updated_at=? WHERE key=? AND value=?`)
+        .run(fingerprint, Date.now(), cleanKey, token);
+    };
+    if (previous === fingerprint) {
+      publishClean();
+      return [];
+    }
     if (previous === null) {
       // Establish a pre-extraction baseline. Old content is upgraded through
       // EXTRACTION_VERSION, not silently migrated by a no-change sync.
-      this.setMetadata(key, fingerprint);
+      this.db.transaction(() => {
+        this.setMetadata(key, fingerprint);
+        publishClean();
+      })();
       return [];
     }
 
@@ -3155,6 +3174,7 @@ WHERE e.kind = 'imports'
       for (const row of rows) files.add(row.file_path);
       this.db.prepare(`UPDATE unresolved_refs SET status='pending',name_tail='' WHERE ${failed}`).run();
       this.setMetadata(key, fingerprint);
+      publishClean();
     })();
     return [...files];
   }

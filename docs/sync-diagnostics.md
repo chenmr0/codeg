@@ -27,6 +27,16 @@
 
 ## 如何看耗时
 
+`preflight-detail` 统计文件核对前的恢复准备，其中 `macroEvidenceMs` 是数据库宏证据检查，
+`totalMs` 包含该子项。核对后的对应检查单列在 `tail-detail.macroEvidenceMs`，
+不再混入 `prepareAndWalMs`。两者都不是读取源码的 `phases.macroScan`。
+
+Schema v9 为宏证据检查保存可失效的完成标记。无节点变化时，后续空同步（包括重新启动 CLI）
+只查询元数据，不再两次查询、排序和哈希全库宏定义。节点插入/删除，以及 kind、name、signature
+的实际更新，由数据库触发器撤销标记；工作线程写入和 `INSERT OR REPLACE` 同样覆盖。
+宏证据的原有比较、调用重审和中断重试规则保留，失败的检查不会写成完成。
+旧库自动升级，无须重新 init；升级后第一次检查仍需建立标记，应将该次与稳态空同步分开计时。
+
 `reconcile-detail` 的五个阶段互不重叠：
 
 | 字段 | 含义 |

@@ -838,6 +838,7 @@ export class CodeGraph {
         tailCheckpoint = now;
       };
       try {
+        const preflightStarted = options.verbose ? performance.now() : 0;
         deferWal =
           process.env.CODEGRAPH_NO_WAL_DEFER !== '1' &&
           this.db.getJournalMode() === 'wal';
@@ -856,7 +857,9 @@ export class CodeGraph {
         this.queries.recoverDeferredConformanceReferences();
         const recoveredDeltaFiles = await recoverAppendDeltas(this.queries);
         const repairedIncludeFiles = this.queries.repairLegacyCppIncludes();
+        const macroEvidenceStarted = options.verbose ? performance.now() : 0;
         const recoveredMacroFiles = await this.queries.invalidateCppMacroCalls();
+        const macroEvidenceMs = options.verbose ? performance.now() - macroEvidenceStarted : 0;
         const retryState = new SyncRetryState(this.queries);
         const recoveredRetryFiles = retryState.filePaths;
         this.orchestrator.setSyncRetryState(retryState);
@@ -872,6 +875,10 @@ export class CodeGraph {
                 return syncStoreWriter.current.replace(request);
               }
             : undefined;
+        if (options.verbose) {
+          console.log(`[sync] preflight-detail macroEvidenceMs=${Math.round(macroEvidenceMs)}ms ` +
+            `totalMs=${Math.round(performance.now() - preflightStarted)}ms`);
+        }
         const result = await this.orchestrator.sync(
           options.onProgress,
           options.paths,
@@ -886,6 +893,7 @@ export class CodeGraph {
         if (options.verbose) tailCheckpoint = performance.now();
         retryState.finishPrimaryExtraction();
         const macroReferenceFiles = await this.queries.invalidateCppMacroCalls();
+        tailMark('macroEvidenceMs');
         const referenceFiles = [...new Set([
           ...(result.changedFilePaths ?? []), ...recoveredRetryFiles, ...repairedIncludeFiles, ...recoveredDeltaFiles,
           ...recoveredMacroFiles, ...macroReferenceFiles,

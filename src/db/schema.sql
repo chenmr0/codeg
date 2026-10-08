@@ -160,3 +160,18 @@ CREATE TABLE IF NOT EXISTS project_metadata (
     value TEXT NOT NULL,
     updated_at INTEGER NOT NULL
 );
+
+-- A persisted clean fingerprint makes unchanged syncs independent of macro count.
+-- Invalidate on every insertion/deletion: INSERT OR REPLACE can implicitly delete
+-- a macro without firing a DELETE trigger when recursive_triggers is off.
+-- Keep these triggers active during bulk loads and on store-worker connections.
+CREATE TRIGGER IF NOT EXISTS nodes_macro_evidence_ai AFTER INSERT ON nodes BEGIN
+    DELETE FROM project_metadata WHERE key = 'resolution:cpp-macro-evidence-clean-v1';
+END;
+CREATE TRIGGER IF NOT EXISTS nodes_macro_evidence_ad AFTER DELETE ON nodes BEGIN
+    DELETE FROM project_metadata WHERE key = 'resolution:cpp-macro-evidence-clean-v1';
+END;
+CREATE TRIGGER IF NOT EXISTS nodes_macro_evidence_au AFTER UPDATE OF kind, name, signature ON nodes
+WHEN OLD.kind IS NOT NEW.kind OR OLD.name IS NOT NEW.name OR OLD.signature IS NOT NEW.signature BEGIN
+    DELETE FROM project_metadata WHERE key = 'resolution:cpp-macro-evidence-clean-v1';
+END;
