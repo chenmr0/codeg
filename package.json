@@ -46,7 +46,10 @@
     "test:eval": "vitest run __tests__/evaluation/",
     "test:dist-sync-self-heal": "npm run build && node scripts/test-dist-sync-self-heal.mjs",
     "eval": "npm run build && npx tsx __tests__/evaluation/runner.ts",
-    "clean": "node -e \"const fs=require('fs');fs.rmSync('dist',{recursive:true,force:true})\""
+    "clean": "node -e \"const fs=require('fs');fs.rmSync('dist',{recursive:true,force:true})\"",
+    "build:portable": "node scripts/build-portable.mjs",
+    "test:portable": "node --test scripts/test-portable-installer.mjs scripts/test-portable-audit.mjs",
+    "smoke:portable": "node scripts/smoke-portable.mjs"
   },
   "keywords": [
     "code-intelligence",

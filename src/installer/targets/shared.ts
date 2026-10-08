@@ -10,6 +10,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
+import { getPortableCodeGraphCommand } from '../../cli/launcher';
 import {
   CODEGRAPH_INSTRUCTIONS_BLOCK,
   CODEGRAPH_SECTION_END,
@@ -24,7 +25,7 @@ import {
 export function getMcpServerConfig(): { type: string; command: string; args: string[] } {
   return {
     type: 'stdio',
-    command: 'codegraph',
+    command: getPortableCodeGraphCommand()?.command ?? 'codegraph',
     args: ['serve', '--mcp'],
   };
 }

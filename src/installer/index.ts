@@ -30,6 +30,7 @@ import { watchDisabledReason } from '../sync/watch-policy';
 import { isGitRepo, isSyncHookInstalled, installGitSyncHook } from '../sync/git-hooks';
 import { getCodeGraphDir, codeGraphDirName } from '../directory';
 import { hasCommand } from '../upgrade';
+import { getPortableCodeGraphCommand } from '../cli/launcher';
 
 // Backwards-compat: keep these named exports — downstream code may
 // import them. The shim in `config-writer.ts` continues to re-export
@@ -107,7 +108,10 @@ export async function runInstallerWithOptions(opts: RunInstallerOptions): Promis
   // Step 2: ensure the codegraph CLI is on PATH so agents can launch the
   // MCP server. Skip the prompt if codegraph is already on PATH (upgrades
   // are a separate concern, handled by `codegraph upgrade`).
-  if (!useDefaults) {
+  const portableCommand = getPortableCodeGraphCommand();
+  if (portableCommand) {
+    clack.log.info('Using the bundled CodeGraph runtime; no global npm install is needed.');
+  } else if (!useDefaults) {
     if (hasCommand('codegraph')) {
       clack.log.info('codegraph CLI already on PATH — skipping.');
     } else {

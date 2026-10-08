@@ -10,6 +10,10 @@ CodeGraph-CPP 基于开源 [CodeGraph](https://github.com/colbymchenry/codegraph
 
 ---
 
+## 自包含安装包（Linux x64）
+
+新增包含私有 Node 24、全部生产依赖和原生 helper 的离线安装方案，不要求目标机预装 Node/npm。老 glibc 候选采用固定 glibc2.17 构建并做整包 ELF 检查；SLES12 SP5 仍需真实目标机验收。安装、构建及兼容边界见[便携安装说明](docs/portable-install.md)。当前尚未发布下载制品。
+
 ## 它能为你做什么？
 
 如果你有过下面任何一种经历，CodeGraph-CPP 就值得装：

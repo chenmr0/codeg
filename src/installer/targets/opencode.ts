@@ -1,3 +1,4 @@
+import { getPortableCodeGraphCommand } from '../../cli/launcher';
 /**
  * opencode target.
  *
@@ -111,7 +112,7 @@ function parseConfig(text: string): Record<string, any> {
 function getOpencodeServerEntry(): { type: string; command: string[]; enabled: boolean } {
   return {
     type: 'local',
-    command: ['codegraph', 'serve', '--mcp'],
+    command: [getPortableCodeGraphCommand()?.command ?? 'codegraph', 'serve', '--mcp'],
     enabled: true,
   };
 }
