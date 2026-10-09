@@ -250,13 +250,30 @@ describe('per-sync reconciliation metadata reuse', () => {
       write('nested', 'a file replaced the directory');
     }
     try { fs.statSync(full(relative)); throw new Error('expected stat failure'); }
-    catch (error) { expect((error as NodeJS.ErrnoException).code).toBe(code); }
+    catch (error) {
+      // Windows may report ENOENT rather than ENOTDIR for a replaced parent.
+      expect(code === 'ENOENT' ? ['ENOENT'] : ['ENOENT', 'ENOTDIR'])
+        .toContain((error as NodeJS.ErrnoException).code);
+    }
     const calls = operations(relative);
     expect(await cg.sync({ verbose: true })).toMatchObject({ filesRemoved: 1, filesModified: 0 });
     expect(calls).toEqual(['stat', 'exists']);
     expect(queries.getFileByPath(relative)).toBeNull();
     expect(cg.getNodesByName('nested_provider')).toHaveLength(0);
     expect(cg.getNodesByName('alpha')).toHaveLength(1);
+  });
+
+  it('handles ENOTDIR explicitly even on platforms that report missing parents as ENOENT', async () => {
+    fs.unlinkSync(full());
+    const calls: string[] = [];
+    hooks.before = (operation, filename) => {
+      if (filename !== full()) return;
+      calls.push(operation);
+      if (operation === 'stat') throw Object.assign(new Error('not a directory'), { code: 'ENOTDIR' });
+    };
+    expect(await cg.sync()).toMatchObject({ filesRemoved: 1, filesModified: 0 });
+    expect(calls).toEqual(['stat', 'exists']);
+    expect(queries.getFileByPath('api.c')).toBeNull();
   });
 
   it('retains a path that reappears after a missing-path stat error', async () => {
@@ -376,10 +393,98 @@ describe('per-sync reconciliation metadata reuse', () => {
       code: DECLARATION_MACRO_RECOVERY_SKIPPED_CODE, message: 'Retry full macro recovery.' }] });
     const calls = operations();
     expect(await cg.sync()).toMatchObject({ filesModified: 1, filesRemoved: 0 });
-    expect(calls.slice(0, 2)).toEqual(['exists', 'read']);
+    expect(calls[0]).toBe('read');
+    expect(calls).not.toContain('exists');
     expect(queries.getFileByPath('api.c')!.errors).not.toEqual(expect.arrayContaining([
       expect.objectContaining({ code: DECLARATION_MACRO_RECOVERY_SKIPPED_CODE }),
     ]));
+  });
+
+  it.each(['EACCES', 'EPERM', 'EIO', undefined, null] as const)(
+    'preserves recovery graph and marker when access is lost during a yield (%s)', async code => {
+      const template = queries.getFileByPath('api.c')!;
+      queries.upsertFile({ ...template, errors: [{ severity: 'warning',
+        code: DECLARATION_MACRO_RECOVERY_SKIPPED_CODE, message: 'Keep recovery pending.' }] });
+      for (let i = 0; i < 999; i++) {
+        const filename = `z-recovery-${i}.c`;
+        write(filename, source);
+        const stat = fs.statSync(full(filename));
+        queries.upsertFile({ ...template, path: filename, size: stat.size,
+          modifiedAt: stat.mtimeMs, nodeCount: 0 });
+      }
+      const before = queries.getFileByPath('api.c');
+      const beforeGraph = graph();
+      const getAllFiles = queries.getAllFiles.bind(queries);
+      let denied = false;
+      const calls: string[] = [];
+      hooks.exists = filename => filename === full() && denied ? false : undefined;
+      hooks.before = (operation, filename) => {
+        if (filename !== full()) return;
+        calls.push(operation);
+        if (operation === 'read' && denied) {
+          if (code === null) throw null;
+          throw Object.assign(new Error('recovery read denied'), { code });
+        }
+      };
+      for (const verbose of [false, true]) {
+        denied = false; calls.length = 0;
+        vi.spyOn(queries, 'getAllFiles').mockImplementationOnce(() => {
+          const tracked = getAllFiles();
+          expect(tracked).toHaveLength(1000);
+          setImmediate(() => { denied = true; });
+          return tracked;
+        });
+        expect(await cg.sync({ verbose })).toMatchObject({ filesModified: 0, filesRemoved: 0 });
+        expect(denied).toBe(true);
+        expect(calls).toEqual(['read']);
+        expect(hooks.exists(full())).toBe(false);
+        expect(fs.existsSync(full())).toBe(true);
+        expect(queries.getFileByPath('api.c')).toEqual(before);
+        expect(graph()).toEqual(beforeGraph);
+      }
+      hooks.before = null; hooks.exists = null;
+      expect(await cg.sync()).toMatchObject({ filesModified: 1, filesRemoved: 0 });
+      expect(queries.getFileByPath('api.c')!.errors).not.toEqual(expect.arrayContaining([
+        expect.objectContaining({ code: DECLARATION_MACRO_RECOVERY_SKIPPED_CODE }),
+      ]));
+      expect(cg.getNodesByName('alpha')).toHaveLength(1);
+    },
+  );
+
+  it.each(['ENOENT', 'ENOTDIR'] as const)('removes a missing recovery file after read error %s', async code => {
+    const before = queries.getFileByPath('api.c')!;
+    queries.upsertFile({ ...before, errors: [{ severity: 'warning',
+      code: DECLARATION_MACRO_RECOVERY_SKIPPED_CODE, message: 'Pending recovery.' }] });
+    fs.unlinkSync(full());
+    const calls: string[] = [];
+    hooks.before = (operation, filename) => {
+      if (filename !== full()) return;
+      calls.push(operation);
+      // ENOENT comes from a real read; explicitly inject ENOTDIR for portable coverage.
+      if (operation === 'read' && code === 'ENOTDIR') {
+        throw Object.assign(new Error('not a directory'), { code });
+      }
+    };
+    expect(await cg.sync({ verbose: true })).toMatchObject({ filesRemoved: 1, filesModified: 0 });
+    expect(calls).toEqual(['read', 'exists']);
+    expect(queries.getFileByPath('api.c')).toBeNull();
+    expect(cg.getNodesByName('alpha')).toHaveLength(0);
+  });
+
+  it('retains a recovery file that reappears after a missing-path read error', async () => {
+    const before = queries.getFileByPath('api.c')!;
+    queries.upsertFile({ ...before, errors: [{ severity: 'warning',
+      code: DECLARATION_MACRO_RECOVERY_SKIPPED_CODE, message: 'Pending recovery.' }] });
+    const pending = queries.getFileByPath('api.c');
+    const beforeGraph = graph();
+    hooks.before = (operation, filename) => {
+      if (filename === full() && operation === 'read') {
+        throw Object.assign(new Error('temporarily missing'), { code: 'ENOENT' });
+      }
+    };
+    expect(await cg.sync()).toMatchObject({ filesRemoved: 0, filesModified: 0 });
+    expect(queries.getFileByPath('api.c')).toEqual(pending);
+    expect(graph()).toEqual(beforeGraph);
   });
 
   it('continues to use native snapshot metadata without an extra source stat', async () => {
