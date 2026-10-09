@@ -87,17 +87,20 @@ describe('verbose sync reconciliation diagnostics', () => {
     expect(queries.getFileByPath('a.c')).toEqual(before);
   });
 
-  it('observes repeated same-hash reads without refreshing metadata or reindexing', async () => {
+  it('refreshes same-hash file stats once and avoids repeated reads without reindexing', async () => {
     const filename = path.join(dir, 'a.c');
     const tracked = queries.getFileByPath('a.c');
     const stat = fs.statSync(filename);
     fs.utimesSync(filename, stat.atime, new Date(stat.mtimeMs + 5000));
-    for (let i = 0; i < 2; i++) {
-      expect(await sync()).toMatchObject({ filesModified: 0, nodesUpdated: 0 });
-      expect(counts()).toMatchObject({ statChecks: 1, statUnchanged: 0, hashReadAttempts: 1,
-        hashReadFiles: 1, sameHashSkipped: 1, recoveryRetryFiles: 0 });
-    }
-    expect(queries.getFileByPath('a.c')).toEqual(tracked);
+    expect(await sync()).toMatchObject({ filesModified: 0, nodesUpdated: 0 });
+    expect(counts()).toMatchObject({ statChecks: 2, statUnchanged: 0, hashReadAttempts: 1,
+      hashReadFiles: 1, sameHashSkipped: 1, sameHashStatUpdated: 1, sameHashStatDeferred: 0,
+      recoveryRetryFiles: 0 });
+    expect(Number(fields('reconcile-io').statRefreshMs.replace(/ms$/, ''))).toBeGreaterThanOrEqual(0);
+    expect(queries.getFileByPath('a.c')).toEqual({ ...tracked, modifiedAt: fs.statSync(filename).mtimeMs });
+    expect(await sync()).toMatchObject({ filesModified: 0, nodesUpdated: 0 });
+    expect(counts()).toMatchObject({ statChecks: 1, statUnchanged: 1, hashReadAttempts: 0,
+      hashReadFiles: 0, sameHashSkipped: 0, sameHashStatUpdated: 0 });
   });
 
   it('reports reference load/warm/match/store only for a verbose changed-file pass', async () => {

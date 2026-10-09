@@ -79,14 +79,14 @@ export class ReconcileDiagnostics {
   readonly phases = {
     enumerateMs: 0, loadTrackedMs: 0, buildLookupMs: 0, removalMs: 0, changeCheckMs: 0,
   };
-  readonly io = { statMs: 0, readForHashMs: 0, hashMs: 0 };
+  readonly io = { statMs: 0, readForHashMs: 0, hashMs: 0, statRefreshMs: 0 };
   readonly counts = {
     currentFiles: 0, trackedFiles: 0,
     // Explicit reconciliation calls only, not calls inside scanner/helpers.
     existsChecks: 0, statChecks: 0, statUnchanged: 0, statErrors: 0,
     snapshotPresence: 0, snapshotStats: 0,
     hashReadAttempts: 0, hashReadFiles: 0, hashReadErrors: 0,
-    sameHashSkipped: 0, recoveryRetryFiles: 0,
+    sameHashSkipped: 0, sameHashStatUpdated: 0, sameHashStatDeferred: 0, recoveryRetryFiles: 0,
     added: 0, modified: 0, removed: 0,
   };
 

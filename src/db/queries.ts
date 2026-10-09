@@ -320,9 +320,18 @@ function deterministicNodeOrderSql(tableAlias = ''): string {
   ].join(', ');
 }
 
-/**
- * Query builder for the knowledge graph database
- */
+/** File metadata observed around a read whose content still matches the index. */
+export interface UnchangedFileStatUpdate {
+  path: string;
+  contentHash: string;
+  previousSize: number;
+  previousModifiedAt: number;
+  indexedAt: number;
+  size: number;
+  modifiedAt: number;
+}
+
+/** Query builder for the knowledge graph database. */
 export class QueryBuilder {
   private db: SqliteDatabase;
 
@@ -349,6 +358,7 @@ export class QueryBuilder {
     getClassesContainingMethod?: SqliteStatement;
     insertEdge?: SqliteStatement;
     upsertFile?: SqliteStatement;
+    refreshUnchangedFileStats?: SqliteStatement;
     deleteEdgesBySource?: SqliteStatement;
     deleteEdgesByTarget?: SqliteStatement;
     getEdgesBySource?: SqliteStatement;
@@ -2339,9 +2349,27 @@ export class QueryBuilder {
     });
   }
 
-  /**
-   * Delete a file record and its nodes
-   */
+  /** Refresh verified unchanged files without touching their indexing result. */
+  refreshUnchangedFileStats(files: readonly UnchangedFileStatUpdate[]): number {
+    if (files.length === 0) return 0;
+    const stmt = this.stmts.refreshUnchangedFileStats ??= this.db.prepare(`
+      UPDATE files SET size = ?, modified_at = ?
+      WHERE path = ? AND content_hash = ? AND size = ? AND modified_at = ? AND indexed_at = ?
+    `);
+    // Only acknowledge the version that was actually compared. Never recreate
+    // a deleted row or overwrite a newer indexer/recovery result with an upsert.
+    // Keep indexed_at, node_count, language, errors and all graph data intact.
+    return this.db.transaction(() => {
+      let updated = 0;
+      for (const file of files) {
+        updated += stmt.run(file.size, file.modifiedAt, file.path, file.contentHash,
+          file.previousSize, file.previousModifiedAt, file.indexedAt).changes;
+      }
+      return updated;
+    })();
+  }
+
+  /** Delete a file record and its nodes. */
   deleteFile(filePath: string): void {
     this.db.transaction(() => {
       this.deleteNodesByFile(filePath);

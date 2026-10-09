@@ -53,6 +53,7 @@ Schema v9 为宏证据检查保存可失效的完成标记。无节点变化时�
 - `statMs`：文件状态检查，包含失败尝试。
 - `readForHashMs`：为变更核对读取源码，包含失败尝试。
 - `hashMs`：计算内容哈希。
+- `statRefreshMs`：同哈希文件状态的批量数据库更新，仍是 `changeCheckMs` 的子项。
 
 扫描内部信息位于 `scan-detail`，属于 `enumerateMs`：
 
@@ -174,10 +175,22 @@ time env CODEGRAPH_HYBRID_SCAN=1 codegraph sync -v
 - `hashReadAttempts` / `hashReadFiles` / `hashReadErrors`：为哈希尝试读取、成功读取、读取失败的文件数。
 - `statErrors`：状态检查失败数，仍沿用原来的异常处理。
 - `sameHashSkipped`：已经读取和计算哈希，最终因内容相同而跳过重索引。
+- `sameHashStatUpdated`：内容哈希相同且读取前后状态稳定，成功刷新大小/mtime 的文件数。
+- `sameHashStatDeferred`：读取期间文件变化、复查失败或数据库记录已变化，本轮未刷新状态的文件数。
 - `recoveryRetryFiles`：有声明宏恢复降级标记、即便内容没变也必须重试的文件；不计入 `sameHashSkipped`。
 - `added` / `modified` / `removed`：核对阶段识别的变更数量，不代表后续一定成功入库。
 
-空同步中 `hashReadFiles` 和 `sameHashSkipped` 很大，说明存在“文件状态变化，但内容相同”的重复核对成本。本次诊断补丁不会顺手更新这些时间戳或引入缓存。
+空同步中 `hashReadFiles` 和 `sameHashSkipped` 很大，通常是 checkout、touch 等操作改变文件状态，
+但内容仍与索引相同。sync 现在会在读取前后核对普通文件的设备、inode、大小、精确 mtime 和 ctime；
+一致时，每批最多 500 个仅更新 `files.size/modified_at`。更新还要求数据库中的旧哈希、大小、mtime
+和索引时间仍与本轮读取的记录匹配；不重建图、不更新 `indexed_at`、不清除错误或恢复记录。
+文件变化/消失或记录被更新时保守推迟，下一轮继续检测。Rust 状态快照缺少文件身份和 ctime，
+因此需要读源码时会取得新鲜 stat，不能仅凭扫描快照刷新状态。
+
+这项行为在普通与 verbose 模式下相同；首次同哈希核对会增加稳定性复查和少量批量写入，
+后续无变化同步应转为 `statUnchanged`，不再重复读取这些文件。`statChecks/statMs` 包含这些额外
+复查；`sameHashStatUpdated` 是 `sameHashSkipped` 的子集。已有大小/mtime 快路径仍不是工作树的
+原子快照，也不能识别同时保留大小和 mtime 的人为修改；需要强制重索引时沿用 `index --force`。
 
 原有 `[sync] phases read=...` 只统计待解析文件的读取，不包含这里的 `readForHashMs`，也不包含后续全项目宏扫描的文件读取。因此 `read=0` 不代表整个命令没有读取源码。
 

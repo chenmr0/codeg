@@ -21,7 +21,7 @@ import {
   UnresolvedReference,
   EdgeKind,
 } from '../types';
-import { QueryBuilder } from '../db/queries';
+import { QueryBuilder, type UnchangedFileStatUpdate } from '../db/queries';
 import { extractFromSource } from './tree-sitter';
 import { detectLanguage, isSourceFile, isLanguageSupported, isGrammarLoaded, isFileLevelOnlyLanguage, initGrammars, loadGrammarsForLanguages, readGrammarWasmBytes, EXTENSION_MAP } from './grammars';
 import { isLanguageEnabled, languageScopeWorkerEnv, withLanguageScope } from './language-scope';
@@ -72,6 +72,7 @@ const FILE_IO_BATCH_SIZE = 10;
  * the daemon liveness heartbeat even though the sync itself is healthy.
  */
 const SYNC_RECONCILE_YIELD_INTERVAL = 1000;
+const SYNC_STAT_REFRESH_BATCH_SIZE = 500;
 
 // Keep the retention fast path and the fallback rewire's identity contract
 // identical. Non-callable signatures may contain mutable initializers.
@@ -2753,6 +2754,28 @@ export class ExtractionOrchestrator {
       phaseStarted = performance.now();
     }
 
+    const statUpdates: UnchangedFileStatUpdate[] = [];
+    const flushStatUpdates = (): void => {
+      if (statUpdates.length === 0) return;
+      const started = diagnostics ? performance.now() : 0;
+      try {
+        const updated = this.queries.refreshUnchangedFileStats(statUpdates);
+        if (diagnostics) {
+          diagnostics.counts.sameHashStatUpdated += updated;
+          diagnostics.counts.sameHashStatDeferred += statUpdates.length - updated;
+        }
+        statUpdates.length = 0;
+      } finally {
+        if (diagnostics) diagnostics.io.statRefreshMs += performance.now() - started;
+      }
+    };
+    const readStat = (fullPath: string): fs.Stats => {
+      const started = diagnostics ? performance.now() : 0;
+      if (diagnostics) diagnostics.counts.statChecks++;
+      try { return fs.statSync(fullPath); }
+      finally { if (diagnostics) diagnostics.io.statMs += performance.now() - started; }
+    };
+
     // Adds / modifications.
     for (const filePath of currentFiles) {
       // Keep the unchanged-file fast path cooperative too: most entries leave
@@ -2766,6 +2789,7 @@ export class ExtractionOrchestrator {
         tracked?.errors,
       );
       if (needsDeclarationMacroRecovery && diagnostics) diagnostics.counts.recoveryRetryFiles++;
+      let beforeReadStat: fs.Stats | undefined;
 
       // Cheap pre-filter: an already-indexed file whose size AND mtime both match
       // the DB is unchanged — skip it without reading or hashing. (A content
@@ -2776,23 +2800,21 @@ export class ExtractionOrchestrator {
       // mean its graph coverage is complete, so a later sync must retry it.
       if (tracked && !needsDeclarationMacroRecovery) {
         const nativeStat = nativeCapture.snapshot?.stats.get(filePath);
-        const statStarted = diagnostics && !nativeStat ? performance.now() : 0;
-        if (diagnostics) {
-          if (nativeStat) diagnostics.counts.snapshotStats++;
-          else diagnostics.counts.statChecks++;
-        }
+        if (nativeStat && diagnostics) diagnostics.counts.snapshotStats++;
         try {
-          const stat = nativeStat ?? fs.statSync(fullPath);
+          const stat = nativeStat ?? (beforeReadStat = readStat(fullPath));
           if (stat.size === tracked.size && Math.floor(stat.mtimeMs) === Math.floor(tracked.modifiedAt)) {
             if (diagnostics) diagnostics.counts.statUnchanged++;
             continue;
           }
+          // Rust snapshots only supply size/mtime. For a changed stat, acquire
+          // current file identity and ctime before reading; snapshot metadata
+          // alone cannot certify an unchanged-content refresh against races.
+          beforeReadStat ??= readStat(fullPath);
         } catch (error) {
           if (diagnostics) diagnostics.counts.statErrors++;
           logDebug('Skipping unstattable file during sync', { filePath, error: String(error) });
           continue;
-        } finally {
-          if (diagnostics && !nativeStat) diagnostics.io.statMs += performance.now() - statStarted;
         }
       }
 
@@ -2825,10 +2847,32 @@ export class ExtractionOrchestrator {
         this.invalidateMacroContext(filePath, content);
         filesToIndex.push(filePath);
         filesModified++;
-      } else if (diagnostics) {
-        diagnostics.counts.sameHashSkipped++;
+      } else {
+        if (diagnostics) diagnostics.counts.sameHashSkipped++;
+        // Persist only metadata that brackets the bytes just hashed. Exact
+        // timestamps (including ctime) and inode/device catch replacement and
+        // writes that restore mtime. A later write remains detectable on the
+        // next sync because we store the observed state, never a later stat.
+        let stable = false;
+        try {
+          const afterReadStat = readStat(fullPath);
+          stable = !!beforeReadStat && beforeReadStat.isFile() && afterReadStat.isFile() &&
+            beforeReadStat.dev === afterReadStat.dev && beforeReadStat.ino === afterReadStat.ino &&
+            beforeReadStat.size === afterReadStat.size && beforeReadStat.mtimeMs === afterReadStat.mtimeMs &&
+            beforeReadStat.ctimeMs === afterReadStat.ctimeMs;
+        } catch (error) {
+          if (diagnostics) diagnostics.counts.statErrors++;
+          logDebug('Deferring same-hash metadata refresh', { filePath, error: String(error) });
+        }
+        if (stable && beforeReadStat) {
+          statUpdates.push({ path: filePath, contentHash: tracked.contentHash,
+            previousSize: tracked.size, previousModifiedAt: tracked.modifiedAt, indexedAt: tracked.indexedAt,
+            size: beforeReadStat.size, modifiedAt: beforeReadStat.mtimeMs });
+          if (statUpdates.length >= SYNC_STAT_REFRESH_BATCH_SIZE) flushStatUpdates();
+        } else if (diagnostics) diagnostics.counts.sameHashStatDeferred++;
       }
     }
+    flushStatUpdates();
 
     if (diagnostics) diagnostics.phases.changeCheckMs = performance.now() - phaseStarted;
     const reconcileMs = performance.now() - reconcileStarted;
