@@ -64,7 +64,7 @@ describe('verbose sync reconciliation diagnostics', () => {
       expect(fields('scan-detail')).toMatchObject({ mode: 'git', fallbackReason: 'none', gitCommands: '3', sourceFiles: '1', walkDirectories: '0' });
       expect(fields('scan-detail')).toMatchObject({ gitPathMode: 'legacy', gitIgnoreMode: 'legacy',
         gitIgnoreReason: 'none', gitIgnoreMismatches: '0' });
-      expect(counts()).toMatchObject({ currentFiles: 1, trackedFiles: 1, existsChecks: 1,
+      expect(counts()).toMatchObject({ currentFiles: 1, trackedFiles: 1, existsChecks: 0,
         statChecks: 1, statUnchanged: 1, hashReadAttempts: 0, hashReadFiles: 0, sameHashSkipped: 0 });
       for (const kind of ['reconcile-detail', 'reconcile-io']) {
         for (const [key, value] of Object.entries(fields(kind))) {
@@ -139,7 +139,7 @@ describe('verbose sync reconciliation diagnostics', () => {
     expect(cg.searchNodes('beta').length).toBeGreaterThan(0);
     fs.unlinkSync(path.join(dir, 'b.c'));
     expect(await sync()).toMatchObject({ filesRemoved: 1 });
-    expect(counts()).toMatchObject({ currentFiles: 1, trackedFiles: 2, existsChecks: 1,
+    expect(counts()).toMatchObject({ currentFiles: 1, trackedFiles: 2, existsChecks: 0,
       statUnchanged: 1, hashReadFiles: 0, removed: 1 });
     expect(cg.searchNodes('beta')).toHaveLength(0);
   });
@@ -160,7 +160,7 @@ describe('verbose sync reconciliation diagnostics', () => {
     expect(await sync({ verbose: true, paths: ['a.c'] })).toMatchObject({ filesChecked: 1, filesAdded: 0 });
     expect(fields('reconcile-detail').scope).toBe('scoped');
     expect(fields('scan-detail')).toMatchObject({ mode: 'scoped', gitCommands: '0', sourceFiles: '1' });
-    expect(counts()).toMatchObject({ existsChecks: 2, currentFiles: 1, trackedFiles: 1, statUnchanged: 1 });
+    expect(counts()).toMatchObject({ existsChecks: 1, currentFiles: 1, trackedFiles: 1, statUnchanged: 1 });
     expect(cg.searchNodes('outside')).toHaveLength(0);
     expect(await sync({ verbose: true, paths: ['../outside.c'] })).toMatchObject({ filesAdded: 1 });
     expect(fields('reconcile-detail').scope).toBe('full-fallback');

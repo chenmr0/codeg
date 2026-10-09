@@ -2715,36 +2715,39 @@ export class ExtractionOrchestrator {
       phaseStarted = performance.now();
     }
 
-    // Removals: tracked in the DB but no longer a present source file. Check the
-    // filesystem directly — `scanDirectory` (via `git ls-files`) still lists a
-    // file deleted from disk but not yet staged, so set membership alone misses it.
+    const readStat = (fullPath: string): fs.Stats => {
+      const started = diagnostics ? performance.now() : 0;
+      if (diagnostics) diagnostics.counts.statChecks++;
+      try { return fs.statSync(fullPath); }
+      finally { if (diagnostics) diagnostics.io.statMs += performance.now() - started; }
+    };
+    // Keep deletion lifecycle in one place. Scan omissions are removed first;
+    // Git-listed disk deletions are discovered by the just-in-time stat below.
+    // All removals still finish before queued extraction and resolution start.
+    const removeTracked = async (tracked: FileRecord): Promise<void> => {
+      this.invalidateMacroContext(tracked.path);
+      // Deleting the target cascades its incoming edges even though callers
+      // in other files are unchanged. Preserve stamped resolution edges as
+      // pending refs so this same sync can rebind them or park them for a
+      // later symbol-driven retry.
+      this.syncRetryState?.beforeDelete(tracked.path);
+      let sourceFiles: string[];
+      if (replaceFileStore && this.queries.hasManyIncomingEdges(tracked.path)) {
+        try {
+          sourceFiles = (await replaceFileStore({ filePath: tracked.path, remove: true }))
+            .resurrectedSourceFiles ?? [];
+        } finally { this.queries.clearCache(); }
+      } else {
+        sourceFiles = this.removeStoredFile(tracked.path);
+      }
+      for (const file of sourceFiles) resurrectedReferenceSourceFiles.add(file);
+      filesRemoved++;
+    };
+
     let reconcileChecks = 0;
     for (const tracked of trackedFiles) {
-      const missingFromScan = !currentSet.has(tracked.path);
-      // Preserve the original short circuit: count only actual exists calls.
-      if (!missingFromScan && diagnostics) {
-        if (nativeCapture.snapshot) diagnostics.counts.snapshotPresence++;
-        else diagnostics.counts.existsChecks++;
-      }
-      if (missingFromScan || (!nativeCapture.snapshot && !fs.existsSync(path.join(this.rootDir, tracked.path)))) {
-        this.invalidateMacroContext(tracked.path);
-        // Deleting the target cascades its incoming edges even though callers
-        // in other files are unchanged. Preserve stamped resolution edges as
-        // pending refs so this same sync can rebind them or park them for a
-        // later symbol-driven retry.
-        this.syncRetryState?.beforeDelete(tracked.path);
-        let sourceFiles: string[];
-        if (replaceFileStore && this.queries.hasManyIncomingEdges(tracked.path)) {
-          try {
-            sourceFiles = (await replaceFileStore({ filePath: tracked.path, remove: true }))
-              .resurrectedSourceFiles ?? [];
-          } finally { this.queries.clearCache(); }
-        } else {
-          sourceFiles = this.removeStoredFile(tracked.path);
-        }
-        for (const file of sourceFiles) resurrectedReferenceSourceFiles.add(file);
-        filesRemoved++;
-      }
+      if (!currentSet.has(tracked.path)) await removeTracked(tracked);
+      else if (nativeCapture.snapshot && diagnostics) diagnostics.counts.snapshotPresence++;
       if (++reconcileChecks % SYNC_RECONCILE_YIELD_INTERVAL === 0) {
         await new Promise<void>((resolve) => setImmediate(resolve));
       }
@@ -2768,12 +2771,6 @@ export class ExtractionOrchestrator {
       } finally {
         if (diagnostics) diagnostics.io.statRefreshMs += performance.now() - started;
       }
-    };
-    const readStat = (fullPath: string): fs.Stats => {
-      const started = diagnostics ? performance.now() : 0;
-      if (diagnostics) diagnostics.counts.statChecks++;
-      try { return fs.statSync(fullPath); }
-      finally { if (diagnostics) diagnostics.io.statMs += performance.now() - started; }
     };
 
     // Adds / modifications.
@@ -2813,7 +2810,24 @@ export class ExtractionOrchestrator {
           beforeReadStat ??= readStat(fullPath);
         } catch (error) {
           if (diagnostics) diagnostics.counts.statErrors++;
+          // A successful stat already proves presence. On failure, preserve
+          // the existence check so permissions/transient errors do not delete
+          // a present file, while unstaged Git deletions are still removed.
+          if (!nativeCapture.snapshot) {
+            if (diagnostics) diagnostics.counts.existsChecks++;
+            if (!fs.existsSync(fullPath)) await removeTracked(tracked);
+          }
           logDebug('Skipping unstattable file during sync', { filePath, error: String(error) });
+          continue;
+        }
+      }
+
+      // Recovery bypasses the stat pre-filter, but still needs the ordinary
+      // presence check. Native scans retain their existing snapshot contract.
+      if (tracked && needsDeclarationMacroRecovery && !nativeCapture.snapshot) {
+        if (diagnostics) diagnostics.counts.existsChecks++;
+        if (!fs.existsSync(fullPath)) {
+          await removeTracked(tracked);
           continue;
         }
       }
