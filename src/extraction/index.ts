@@ -2810,10 +2810,12 @@ export class ExtractionOrchestrator {
           beforeReadStat ??= readStat(fullPath);
         } catch (error) {
           if (diagnostics) diagnostics.counts.statErrors++;
-          // A successful stat already proves presence. On failure, preserve
-          // the existence check so permissions/transient errors do not delete
-          // a present file, while unstaged Git deletions are still removed.
-          if (!nativeCapture.snapshot) {
+          // Only missing-path errors are evidence of deletion. existsSync also
+          // returns false for inaccessible paths, so consulting it after an
+          // access/I/O/unknown stat failure would destroy a recoverable index.
+          // Recheck missing paths in case they reappeared after the failed stat.
+          const code = (error as NodeJS.ErrnoException | null)?.code;
+          if (!nativeCapture.snapshot && (code === 'ENOENT' || code === 'ENOTDIR')) {
             if (diagnostics) diagnostics.counts.existsChecks++;
             if (!fs.existsSync(fullPath)) await removeTracked(tracked);
           }
