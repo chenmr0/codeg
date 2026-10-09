@@ -258,13 +258,32 @@ let canonicalCache: Map<string, string> | null = null;
  */
 export function canonicalFilePath(rootDir: string, p: string, knownRealPath?: string,
   resolveRealPath: (filePath: string) => string = fs.realpathSync): string {
+  return canonicalFilePathInContext(rootDir, p, knownRealPath, resolveRealPath, symlinkDedupEnabled());
+}
+
+/** Synchronous scan-local canonicalizer. Capture invariant configuration once;
+ * still resolve every complete path (including leaf and ancestor symlinks).
+ * The resolver must return a normalized absolute realpath, as fs.realpath does.
+ * Non-POSIX paths and paths outside the exact root prefix use path.relative.
+ */
+export function createScanCanonicalizer(rootDir: string,
+  resolveRealPath: (filePath: string) => string = fs.realpathSync): (p: string) => string {
+  const absoluteRoot = path.resolve(rootDir);
+  const rootPrefix = process.platform === 'win32' ? undefined
+    : absoluteRoot.endsWith(path.sep) ? absoluteRoot : absoluteRoot + path.sep;
+  const dedup = symlinkDedupEnabled();
+  return p => canonicalFilePathInContext(absoluteRoot, p, undefined, resolveRealPath, dedup, rootPrefix);
+}
+
+function canonicalFilePathInContext(rootDir: string, p: string, knownRealPath: string | undefined,
+  resolveRealPath: (filePath: string) => string, dedup: boolean, rootPrefix?: string): string {
   const normalizedLogical = normalizePath(path.normalize(p));
   // The project root itself (`''`, `.`, `./`, `/` after normalization) canonicalizes
   // to `.` — collapse that to `''` so callers that test the result's truthiness
   // (e.g. codegraph_files "all files vs prefix-filtered") treat root as "no
   // prefix" rather than a literal `.` that matches nothing.
   if (normalizedLogical === '.') return '';
-  if (!symlinkDedupEnabled()) return normalizedLogical;
+  if (!dedup) return normalizedLogical;
 
   const cache = canonicalCache ?? (canonicalCache = new Map());
   const abs = path.resolve(rootDir, p);
@@ -278,7 +297,8 @@ export function canonicalFilePath(rootDir: string, p: string, knownRealPath?: st
     // and its parent has already been realpathed in this scan. Never supply
     // a hint for a symlink or for a path obtained only from Git's index.
     const real = knownRealPath ?? resolveRealPath(abs);
-    const rel = normalizePath(path.relative(rootDir, real));
+    const rel = normalizePath(rootPrefix && real.startsWith(rootPrefix)
+      ? real.slice(rootPrefix.length) : path.relative(rootDir, real));
     if (rel && !rel.startsWith('..') && !path.isAbsolute(rel)) {
       result = rel; // real path inside root → canonical realpath-relative
     }

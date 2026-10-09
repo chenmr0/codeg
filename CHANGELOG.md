@@ -49,6 +49,8 @@ and adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Performance
 
+- 空同步复用实时文件状态检查来确认文件存在，减少重复文件系统访问；Git 扫描复用根路径和配置计算，保留完整符号链接解析、忽略规则和变更检测。
+
 - 失败引用重试计划在现有名称部分索引可用时固定使用该覆盖索引，避免 SQLite 选择 status 索引后对大批失败记录反复扫描。索引临时缺失时保持原查询，分组上限、高水位和恢复范围不变；无需重建索引。验证见 [失败重试计划查询](docs/failed-reference-retry-planning.md)。
 
 - C/C++ 全范围增量同步在源码末尾追加独立函数时，可保留已证明稳定的节点及部分精确引用，减少重复写入和解析。同名新增候选、宏/include/作用域变化及不确定状态保守失效，并通过事务日志恢复中断；提取版本保持 25，无需为本项优化重建索引。可用 `CODEGRAPH_NO_APPEND_DELTA=1` 关闭，适用边界和验证见 [增量存储说明](docs/sync-append-delta.md)。

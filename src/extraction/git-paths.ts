@@ -1,6 +1,6 @@
 import * as fs from 'fs';
 import type { Ignore } from 'ignore';
-import { canonicalFilePath } from '../utils';
+import { createScanCanonicalizer } from '../utils';
 import type { ScanDiagnostics } from './sync-diagnostics';
 import { runRustGitFilter } from './rust-scan';
 
@@ -153,13 +153,13 @@ export function filterGitPaths(rootDir: string, files: Iterable<string>, ig: Pic
   const ignoreMode = gitIgnoreMode(knownCount);
   const mode = gitRealpathMode(knownCount);
   if (detail) detail.gitPathMode = mode;
-  const resolve = realpathResolver(mode, detail);
+  const canonicalize = createScanCanonicalizer(rootDir, realpathResolver(mode, detail));
   const canonical = new Set<string>();
   // Preserve the old quiet fast path exactly: no candidate-array copy and no
   // clocks when neither native filter nor verbose diagnostics is requested.
   if (!detail && ignoreMode === 'legacy') {
     for (const f of files) {
-      if (!ig.ignores(f)) canonical.add(canonicalFilePath(rootDir, f, undefined, resolve));
+      if (!ig.ignores(f)) canonical.add(canonicalize(f));
     }
     return canonical;
   }
@@ -169,11 +169,11 @@ export function filterGitPaths(rootDir: string, files: Iterable<string>, ig: Pic
     const selected = selectCandidates(rootDir, candidates, rootRules, ig, detail, nativeFilter, ignoreMode).selected;
     for (const index of selected) {
       const f = candidates[index]!;
-      if (!detail) { canonical.add(canonicalFilePath(rootDir, f, undefined, resolve)); continue; }
+      if (!detail) { canonical.add(canonicalize(f)); continue; }
       detail.gitCanonicalCalls++;
       let phase = performance.now();
       let target: string;
-      try { target = canonicalFilePath(rootDir, f, undefined, resolve); }
+      try { target = canonicalize(f); }
       finally { detail.gitCanonicalMs += performance.now() - phase; }
       phase = performance.now();
       const size = canonical.size;
