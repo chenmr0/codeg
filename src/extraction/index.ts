@@ -2744,6 +2744,16 @@ export class ExtractionOrchestrator {
       filesRemoved++;
     };
 
+    // Both newly introduced late-deletion routes require an actual missing-
+    // path error. existsSync alone cannot distinguish absence from denied access.
+    const removeIfMissing = async (tracked: FileRecord, fullPath: string, error: unknown): Promise<void> => {
+      const code = (error as NodeJS.ErrnoException | null)?.code;
+      if (nativeCapture.snapshot || (code !== 'ENOENT' && code !== 'ENOTDIR')) return;
+      if (diagnostics) diagnostics.counts.existsChecks++;
+      // A path may have reappeared after the failed stat/read.
+      if (!fs.existsSync(fullPath)) await removeTracked(tracked);
+    };
+
     let reconcileChecks = 0;
     for (const tracked of trackedFiles) {
       if (!currentSet.has(tracked.path)) await removeTracked(tracked);
@@ -2810,42 +2820,31 @@ export class ExtractionOrchestrator {
           beforeReadStat ??= readStat(fullPath);
         } catch (error) {
           if (diagnostics) diagnostics.counts.statErrors++;
-          // Only missing-path errors are evidence of deletion. existsSync also
-          // returns false for inaccessible paths, so consulting it after an
-          // access/I/O/unknown stat failure would destroy a recoverable index.
-          // Recheck missing paths in case they reappeared after the failed stat.
-          const code = (error as NodeJS.ErrnoException | null)?.code;
-          if (!nativeCapture.snapshot && (code === 'ENOENT' || code === 'ENOTDIR')) {
-            if (diagnostics) diagnostics.counts.existsChecks++;
-            if (!fs.existsSync(fullPath)) await removeTracked(tracked);
-          }
+          await removeIfMissing(tracked, fullPath, error);
           logDebug('Skipping unstattable file during sync', { filePath, error: String(error) });
           continue;
         }
       }
 
-      // Recovery bypasses the stat pre-filter, but still needs the ordinary
-      // presence check. Native scans retain their existing snapshot contract.
-      if (tracked && needsDeclarationMacroRecovery && !nativeCapture.snapshot) {
-        if (diagnostics) diagnostics.counts.existsChecks++;
-        if (!fs.existsSync(fullPath)) {
-          await removeTracked(tracked);
-          continue;
-        }
-      }
-
+      // Recovery must still read unchanged source. Do not preflight it with
+      // existsSync: denied access would look absent and erase its retry marker.
       // New, or size/mtime changed — read + hash to confirm a real content change.
-      let content: string;
+      let content: string | undefined;
+      let readError: unknown;
       const readStarted = diagnostics ? performance.now() : 0;
       if (diagnostics) diagnostics.counts.hashReadAttempts++;
       try {
         content = fs.readFileSync(fullPath, 'utf-8');
       } catch (error) {
         if (diagnostics) diagnostics.counts.hashReadErrors++;
-        logDebug('Skipping unreadable file during sync', { filePath, error: String(error) });
-        continue;
+        readError = error;
       } finally {
         if (diagnostics) diagnostics.io.readForHashMs += performance.now() - readStarted;
+      }
+      if (content === undefined) {
+        if (tracked && needsDeclarationMacroRecovery) await removeIfMissing(tracked, fullPath, readError);
+        logDebug('Skipping unreadable file during sync', { filePath, error: String(readError) });
+        continue;
       }
       if (diagnostics) diagnostics.counts.hashReadFiles++;
       const hashStarted = diagnostics ? performance.now() : 0;

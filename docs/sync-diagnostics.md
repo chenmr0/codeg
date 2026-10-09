@@ -51,7 +51,7 @@ Schema v9 为宏证据检查保存可失效的完成标记。无节点变化时�
 `reconcile-io` 是 `changeCheckMs` 的子项，不能再加到父阶段之上：
 
 - `statMs`：文件状态检查，包含失败尝试。普通已索引文件在原变化检查位置获取一次状态，同时确认文件存在；只有 ENOENT / ENOTDIR 这类路径缺失错误才继续用存在性检查确认删除；EACCES / EPERM / EIO 及未知错误保留索引，在下一次同步重试，因为 existsSync 对不可访问路径也会返回 false。不复用更早或上次同步的状态。
-- `readForHashMs`：为变更核对读取源码，包含失败尝试。
+- `readForHashMs`：为变更核对读取源码，包含失败尝试。 恢复标记文件不走 stat 快速跳过，仍尝试读取；读失败时仅 ENOENT / ENOTDIR 可触发缺失确认，访问、I/O 或未知错误保留图谱和恢复标记供后续重试。
 - `hashMs`：计算内容哈希。
 - `statRefreshMs`：同哈希文件状态的批量数据库更新，仍是 `changeCheckMs` 的子项。
 
