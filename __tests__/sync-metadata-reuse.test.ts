@@ -12,6 +12,7 @@ import * as rustScan from '../src/extraction/rust-scan';
 
 const hooks = vi.hoisted(() => ({
   before: null as ((operation: 'stat' | 'exists' | 'read', filename: unknown) => void) | null,
+  exists: null as ((filename: unknown) => boolean | undefined) | null,
 }));
 // Intercept the named exports used by reconciliation. Keep the default fs
 // export real so fixture setup and assertions do not pollute the I/O counts.
@@ -25,7 +26,8 @@ vi.mock('fs', async importOriginal => {
     },
     existsSync: (...args: any[]) => {
       hooks.before?.('exists', args[0]);
-      return (actual.existsSync as any)(...args);
+      const result = hooks.exists?.(args[0]);
+      return result ?? (actual.existsSync as any)(...args);
     },
     readFileSync: (...args: any[]) => {
       hooks.before?.('read', args[0]);
@@ -66,6 +68,7 @@ describe('per-sync reconciliation metadata reuse', () => {
 
   beforeEach(async () => {
     hooks.before = null;
+    hooks.exists = null;
     vi.stubEnv('CODEGRAPH_RUST_SCAN', '0');
     vi.stubEnv('CODEGRAPH_HYBRID_SCAN', '0');
     vi.stubEnv('CODEGRAPH_DEDUP_SYMLINKS', '1');
@@ -82,6 +85,7 @@ describe('per-sync reconciliation metadata reuse', () => {
 
   afterEach(() => {
     hooks.before = null;
+    hooks.exists = null;
     vi.restoreAllMocks();
     vi.unstubAllEnvs();
     cg?.close();
@@ -170,7 +174,7 @@ describe('per-sync reconciliation metadata reuse', () => {
       }
     };
     expect(await cg.sync({ verbose })).toMatchObject({ filesModified: 0, filesRemoved: 0 });
-    expect(calls).toEqual(['stat', 'exists']);
+    expect(calls).toEqual(['stat']);
     expect(queries.getFileByPath('api.c')).toEqual(before);
     expect(graph()).toEqual(beforeGraph);
     calls.length = 0;
@@ -192,7 +196,7 @@ describe('per-sync reconciliation metadata reuse', () => {
     for (let i = 0; i < 2; i++) {
       calls.length = 0;
       expect(await cg.sync({ verbose })).toMatchObject({ filesAdded: 0, filesModified: 0, filesRemoved: 0 });
-      expect(calls).toEqual(['stat', 'exists']);
+      expect(calls).toEqual(['stat']);
       expect(queries.getFileByPath('api.c')).toEqual(before);
       expect(graph()).toEqual(beforeGraph);
     }
@@ -200,6 +204,74 @@ describe('per-sync reconciliation metadata reuse', () => {
     expect(await cg.sync({ verbose })).toMatchObject({ filesModified: 1, filesRemoved: 0 });
     expect(cg.getNodesByName('recovered_later')).toHaveLength(1);
     expect(cg.getNodesByName('alpha')).toHaveLength(0);
+  });
+
+  it.each(['EACCES', 'EPERM', 'EIO', undefined, null] as const)(
+    'preserves an inaccessible file after stat error %s even when exists would return false', async code => {
+      const before = queries.getFileByPath('api.c');
+      const beforeGraph = graph();
+      write('api.c', 'int accessible_again(void) { return 12345; }\n');
+      const calls: string[] = [];
+      let denied = false;
+      hooks.before = (operation, filename) => {
+        if (filename !== full()) return;
+        calls.push(operation);
+        if (operation === 'stat') {
+          denied = true;
+          if (code === null) throw null;
+          throw Object.assign(new Error('temporary stat failure'), { code });
+        }
+      };
+      hooks.exists = filename => filename === full() && denied ? false : undefined;
+      for (const verbose of [false, true]) {
+        denied = false; calls.length = 0;
+        expect(await cg.sync({ verbose })).toMatchObject({ filesModified: 0, filesRemoved: 0 });
+        expect(calls).toEqual(['stat']);
+        expect(denied).toBe(true);
+        expect(hooks.exists(full())).toBe(false);
+        expect(fs.existsSync(full())).toBe(true);
+        expect(queries.getFileByPath('api.c')).toEqual(before);
+        expect(graph()).toEqual(beforeGraph);
+      }
+      hooks.before = null; hooks.exists = null;
+      expect(await cg.sync()).toMatchObject({ filesModified: 1, filesRemoved: 0 });
+      expect(cg.getNodesByName('accessible_again')).toHaveLength(1);
+    },
+  );
+
+  it.each(['ENOENT', 'ENOTDIR'] as const)('still removes an actually missing tracked path (%s)', async code => {
+    const relative = 'nested/provider.c';
+    write(relative, 'int nested_provider(void) { return 1; }\n');
+    git('add', relative);
+    expect(await cg.sync()).toMatchObject({ filesAdded: 1 });
+    if (code === 'ENOENT') fs.unlinkSync(full(relative));
+    else {
+      fs.rmSync(full('nested'), { recursive: true });
+      write('nested', 'a file replaced the directory');
+    }
+    try { fs.statSync(full(relative)); throw new Error('expected stat failure'); }
+    catch (error) { expect((error as NodeJS.ErrnoException).code).toBe(code); }
+    const calls = operations(relative);
+    expect(await cg.sync({ verbose: true })).toMatchObject({ filesRemoved: 1, filesModified: 0 });
+    expect(calls).toEqual(['stat', 'exists']);
+    expect(queries.getFileByPath(relative)).toBeNull();
+    expect(cg.getNodesByName('nested_provider')).toHaveLength(0);
+    expect(cg.getNodesByName('alpha')).toHaveLength(1);
+  });
+
+  it('retains a path that reappears after a missing-path stat error', async () => {
+    const before = queries.getFileByPath('api.c');
+    const beforeGraph = graph();
+    const calls: string[] = [];
+    hooks.before = (operation, filename) => {
+      if (filename !== full()) return;
+      calls.push(operation);
+      if (operation === 'stat') throw Object.assign(new Error('temporarily missing'), { code: 'ENOENT' });
+    };
+    expect(await cg.sync()).toMatchObject({ filesRemoved: 0, filesModified: 0 });
+    expect(calls).toEqual(['stat', 'exists']);
+    expect(queries.getFileByPath('api.c')).toEqual(before);
+    expect(graph()).toEqual(beforeGraph);
   });
 
   it.each(['edit', 'delete'] as const)('detects a concurrent %s during the removal-loop yield in the same sync', async change => {
