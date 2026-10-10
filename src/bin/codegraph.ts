@@ -569,6 +569,42 @@ function writeErrorLog(projectPath: string, errors: Array<{ message: string; fil
 // Commands
 // =============================================================================
 
+// Experimental CLI command; available without an environment switch.
+program
+  .command('locate')
+  .description('Experimental: locate source clues from a requirement/issue using an existing index')
+  .option('--file <path>', 'UTF-8 Markdown requirement or issue document (maximum 128 KiB)')
+  .option('--text <text>', 'Requirement or issue text; mutually exclusive with --file')
+  .option('-p, --path <path>', 'Indexed project path')
+  .option('-j, --json', 'Output bounded JSON')
+  .option('-v, --verbose', 'Include locate ranking scores and retrieval diagnostics')
+  .option('--limit <number>', 'Maximum source candidates (1-20)', '10')
+  .option('--timeout-ms <number>', 'Total query worker budget (1-60000 ms)', '45000')
+  .option('--max-tokens <number>', 'Total output token limit (o200k_base, 512-32000)', '20000')
+  .option('--max-tokens-per-clue <number>', 'Per-candidate token limit including evidence (128-8000)', '2000')
+  .action(async (options: { file?: string; text?: string; path?: string; json?: boolean; verbose?: boolean; limit: string; timeoutMs: string; maxTokens: string; maxTokensPerClue: string }) => {
+    try {
+      if ((options.file !== undefined) === (options.text !== undefined)) throw new Error('Provide exactly one of --file or --text');
+      const { locateIssue, readLocateDocument } = await import('../locate');
+      const { boundLocateOutput } = await import('../locate/output');
+      const document = options.file !== undefined ? readLocateDocument(options.file) : options.text!;
+      const controller = new AbortController();
+      const cancel = () => controller.abort();
+      process.once('SIGINT', cancel);
+      try {
+        const result = await locateIssue(resolveProjectPath(options.path), document, {
+          timeoutMs: Number(options.timeoutMs), maxCandidates: Number(options.limit),
+          maxTokens: Number(options.maxTokens), maxTokensPerClue: Number(options.maxTokensPerClue), signal: controller.signal,
+          outputFormat: options.json ? 'json' : 'text', verbose: options.verbose,
+        });
+        process.stdout.write(boundLocateOutput(result, options.json ? 'json' : 'text', options.verbose).output);
+      } finally { process.removeListener('SIGINT', cancel); }
+    } catch (err) {
+      error(`Locate failed: ${err instanceof Error ? err.message : String(err)}`);
+      process.exitCode = 1;
+    }
+  });
+
 /**
  * codegraph init [path]
  */
