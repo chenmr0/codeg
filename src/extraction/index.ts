@@ -184,6 +184,8 @@ export interface IndexResult {
 export interface SingleFileIndexResult extends ExtractionResult {
   /** True only when this attempt actually replaced the file's stored graph. */
   stored: boolean;
+  /** Committed replacement effects; callers resolve these unchanged sources. */
+  resurrectedReferenceSourceFiles?: string[];
 }
 
 /**
@@ -2308,11 +2310,12 @@ export class ExtractionOrchestrator {
 
     // Store in database
     const stored = result.nodes.length > 0 || result.errors.length === 0;
-    if (stored) {
-      this.storeExtractionResult(relativePath, content, language, stats, result, options);
-    }
+    const sources = stored
+      ? this.storeExtractionResult(relativePath, content, language, stats, result, options)
+      : [];
 
-    return { ...result, stored };
+    return { ...result, stored,
+      resurrectedReferenceSourceFiles: sources.length > 0 ? sources : undefined };
   }
 
   /**
@@ -2347,9 +2350,9 @@ export class ExtractionOrchestrator {
     }
     this.syncRewireFailures = [];
     const diagnostics = request.diagnostics ? new StoreDiagnostics() : undefined;
-    this.storeExtractionResult(request.filePath, request.content, request.language,
+    const resurrectedSourceFiles = this.storeExtractionResult(request.filePath, request.content, request.language,
       request.stats, request.result, diagnostics ? { diagnostics } : undefined);
-    return { failedSourceFiles: this.syncRewireFailures, diagnostics };
+    return { failedSourceFiles: this.syncRewireFailures, resurrectedSourceFiles, diagnostics };
   }
 
   private removeStoredFile(filePath: string): string[] {
@@ -2393,7 +2396,7 @@ export class ExtractionOrchestrator {
     stats: Pick<fs.Stats, 'size' | 'mtimeMs'>,
     result: ExtractionResult,
     options?: { force?: boolean; diagnostics?: StoreDiagnostics }
-  ): void {
+  ): string[] {
     const detail = options?.diagnostics;
     // Defensive: callers (scan, indexFile, batch reader) already pass canonical
     // paths, but canonicalize once more so getFileByPath/deleteFile/upsertFile key
@@ -2416,7 +2419,7 @@ export class ExtractionOrchestrator {
       !needsDeclarationMacroRecovery
     ) {
       if (detail) detail.skipped++;
-      return; // No changes
+      return []; // No changes
     }
 
     measureStore(detail, 'retryStateMs', () =>
@@ -2431,9 +2434,17 @@ export class ExtractionOrchestrator {
     // Snapshot incoming cross-file edges before deleting old nodes.
     // These are edges from nodes in OTHER files → nodes in THIS file.
     // After re-insertion we'll re-wire them to the new node IDs.
-    let savedEdges: SavedCrossFileEdge[] = [];
+    let rewire: ReturnType<ExtractionOrchestrator['planRewireEdges']> | undefined;
     if (existingFile && !retained) {
-      savedEdges = measureStore(detail, 'snapshotMs', () => this.queries.getIncomingCrossFileEdges(filePath));
+      const savedEdges = measureStore(detail, 'snapshotMs', () => this.queries.getIncomingCrossFileEdges(filePath));
+      rewire = measureStore(detail, 'rewireMs', () => {
+        const plan = this.planRewireEdges(savedEdges, validNodes);
+        // Write ahead of destructive replacement. These refs belong to callers
+        // in OTHER files, so their source IDs already exist and survive deletion.
+        // A main-thread store failure must not erase the only recovery evidence.
+        this.queries.insertRewiredReferences(plan.resurrected);
+        return plan;
+      });
       measureStore(detail, 'deleteMs', () => this.queries.deleteFile(filePath));
     }
 
@@ -2472,9 +2483,11 @@ export class ExtractionOrchestrator {
     }
 
     // Re-wire saved incoming cross-file edges to new node IDs
-    if (savedEdges.length > 0) {
-      measureStore(detail, 'rewireMs', () => this.rewireEdges(savedEdges, validNodes));
+    if (rewire) {
+      measureStore(detail, 'rewireMs', () => this.queries.insertEdges(rewire.rewired));
+      this.syncRewireFailures.push(...rewire.failedSourceFiles);
     }
+    const resurrectedSourceFiles = rewire?.sourceFiles ?? [];
 
     // Insert file record
     const fileRecord: FileRecord = {
@@ -2489,6 +2502,8 @@ export class ExtractionOrchestrator {
     };
     measureStore(detail, 'fileMs', () => this.queries.upsertFile(fileRecord));
     if (detail) detail.files++;
+    // Do not publish effects until the complete file store has succeeded.
+    return resurrectedSourceFiles;
   }
 
   /**
@@ -2499,10 +2514,11 @@ export class ExtractionOrchestrator {
    * edges become pending references, including during fallback re-indexing,
    * so deleting a target can never silently discard the caller's reference.
    */
-  private rewireEdges(
+  private planRewireEdges(
     savedEdges: SavedCrossFileEdge[],
     newNodes: ExtractionResult['nodes']
-  ): void {
+  ): { rewired: import('../types').Edge[]; resurrected: UnresolvedReference[];
+       failedSourceFiles: string[]; sourceFiles: string[] } {
     const byId = new Map(newNodes.map(node => [node.id, node]));
     const identityIndex = new Map<string, string[]>();
     // Deduplicate IDs just as the node table does, not by spelling: distinct
@@ -2554,14 +2570,11 @@ export class ExtractionOrchestrator {
       }
     }
 
-    if (rewired.length > 0) {
-      this.queries.insertEdges(rewired as import('../types').Edge[]);
-    }
-    if (resurrected.length > 0) this.queries.insertUnresolvedRefsBatch(resurrected);
-
-    if (failedSourceFiles.size > 0) {
-      this.syncRewireFailures.push(...failedSourceFiles);
-    }
+    return {
+      rewired: rewired as import('../types').Edge[], resurrected,
+      failedSourceFiles: [...failedSourceFiles],
+      sourceFiles: [...new Set(resurrected.flatMap(ref => ref.filePath ? [ref.filePath] : []))],
+    };
   }
 
   /**
@@ -3149,6 +3162,9 @@ export class ExtractionOrchestrator {
                     language, stats: { size: item.stats.size, mtimeMs: item.stats.mtimeMs },
                     result: item.result, diagnostics: !!storeDetail });
                   this.syncRewireFailures.push(...stored.failedSourceFiles);
+                  for (const source of stored.resurrectedSourceFiles ?? []) {
+                    resurrectedReferenceSourceFiles.add(source);
+                  }
                   if (storeDetail && stored.diagnostics) storeDetail.add(stored.diagnostics);
                 } finally {
                   // Another connection changed rows, including on a partial
@@ -3156,10 +3172,11 @@ export class ExtractionOrchestrator {
                   this.queries.clearCache();
                 }
               } else {
-                this.storeExtractionResult(
+                const sources = this.storeExtractionResult(
                   item.filePath, item.content, language, item.stats, item.result,
                   storeDetail ? { diagnostics: storeDetail } : undefined,
                 );
+                for (const source of sources) resurrectedReferenceSourceFiles.add(source);
               }
               changedFilePaths.push(item.filePath);
               // Keep this outside parse handling: an exhausted WAL valve must

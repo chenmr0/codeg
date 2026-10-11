@@ -5,6 +5,7 @@
  */
 
 import { SqliteDatabase, SqliteStatement } from './sqlite-adapter';
+import { REWIRE_SYNTHESIS_PENDING } from './synthesis-state';
 import picomatch from 'picomatch';
 import { createHash, randomUUID } from 'crypto';
 import {
@@ -2475,6 +2476,33 @@ export class QueryBuilder {
       );
     });
     insert();
+  }
+
+  /** Persist recovery rows and their independent synthesis obligation atomically. */
+  insertRewiredReferences(refs: UnresolvedReference[]): void {
+    if (refs.length === 0) return;
+    this.db.transaction(() => {
+      this.setMetadata(REWIRE_SYNTHESIS_PENDING, '1');
+      // A crash after write-ahead but before deleting the old targets leaves
+      // both the incoming edges and these rows. Do not duplicate their facts
+      // on retry. The existing from-node/name index bounds each exact probe.
+      const exists = this.db.prepare(`SELECT 1 FROM unresolved_refs
+        WHERE from_node_id = ? AND reference_name = ? AND status = 'pending'
+          AND reference_kind = ? AND line IS ? AND col IS ? AND candidates IS ?
+          AND file_path = ? AND language = ? LIMIT 1`);
+      const seen = new Set<string>();
+      const fresh = refs.filter(ref => {
+        const values = [ref.fromNodeId, ref.referenceName, ref.referenceKind,
+          ref.line ?? null, ref.column ?? null,
+          ref.candidates ? JSON.stringify(ref.candidates) : null,
+          ref.filePath ?? '', ref.language ?? 'unknown'];
+        const key = JSON.stringify(values);
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return !exists.get(...values);
+      });
+      this.insertUnresolvedRefsBatch(fresh);
+    })();
   }
 
   /**

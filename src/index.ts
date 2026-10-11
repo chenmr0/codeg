@@ -30,6 +30,7 @@ import {
 import { DatabaseConnection, getDatabasePath } from './db';
 import { WalCheckpointValve } from './db/wal-valve';
 import { QueryBuilder } from './db/queries';
+import { REWIRE_SYNTHESIS_PENDING } from './db/synthesis-state';
 import {
   isInitialized,
   createDirectory,
@@ -967,7 +968,7 @@ export class CodeGraph {
         }
 
         tailMark('changedRefsMs');
-        // Whole-file deletion cascades incoming edges from unchanged callers.
+        // Replacement and deletion can both resurrect incoming references.
         // The extraction layer resurrects stamped edges as pending references;
         // resolve just those source files rather than sweeping the whole table.
         const resurrectedRefCount = result.resurrectedReferenceSourceFiles?.length
@@ -1089,6 +1090,7 @@ export class CodeGraph {
 
         if (failedFiles.length > 0) {
           const successfullyReindexedFiles: string[] = [];
+          const fallbackReferenceSources = new Set<string>();
           const recordReindexFailure = (
             filePath: string,
             errors: ExtractionResult['errors'],
@@ -1130,6 +1132,9 @@ export class CodeGraph {
               if (reindexResult.stored) {
                 stored = true;
                 successfullyReindexedFiles.push(fp);
+                for (const source of reindexResult.resurrectedReferenceSourceFiles ?? []) {
+                  fallbackReferenceSources.add(source);
+                }
                 result.filesModified++;
               } else {
                 recordReindexFailure(fp, reindexResult.errors);
@@ -1161,6 +1166,17 @@ export class CodeGraph {
             }, { batchSize: SYNC_REFERENCE_BATCH_SIZE, afterWrite });
           }
 
+          // Fallback replacement can itself invalidate unchanged callers after
+          // the earlier scoped drain. Resolve those committed effects as well.
+          const lateSources = [...fallbackReferenceSources].filter(
+            file => !successfullyReindexedFiles.includes(file));
+          if (lateSources.length > 0) {
+            await this.resolver.resolveFilesAndPersist(lateSources, (current, total) => {
+              options.onProgress?.({ phase: 'resolving', current, total });
+            }, { batchSize: SYNC_REFERENCE_BATCH_SIZE, afterWrite });
+          }
+          if (options.verbose) console.log(`[sync] fallback-reference-sources files=${lateSources.length}`);
+
           // Only files whose replacement graph was actually stored are safe
           // for downstream resolution and incremental synthesis.
           if (successfullyReindexedFiles.length > 0) {
@@ -1182,6 +1198,11 @@ export class CodeGraph {
         const orphanCount = this.queries.getUnresolvedReferencesCount();
         const retrySynthesis = this.needsSynthesisRetry();
         const fullResolution = orphanCount > 0 || retrySynthesis;
+        if (options.verbose) console.log(`[sync] recovery-plan ` +
+          `resurrectedSourceFiles=${result.resurrectedReferenceSourceFiles?.length ?? 0} ` +
+          `resolvedResurrectedRefs=${resurrectedRefCount} remainingPending=${orphanCount} ` +
+          `rewireSynthesisPending=${this.queries.getMetadata(REWIRE_SYNTHESIS_PENDING) !== null} ` +
+          `fullResolution=${fullResolution}`);
         let scopedSynthesisStarted = false;
         if (fullResolution) {
           options.onProgress?.({
@@ -1549,6 +1570,7 @@ export class CodeGraph {
     }
     if (status === 'complete' && (
       this.queries.getMetadata(SYNTHESIS_PENDING) !== null ||
+      this.queries.getMetadata(REWIRE_SYNTHESIS_PENDING) !== null ||
       this.queries.getMetadata('index_conformance_pending') !== null ||
       this.queries.getMetadata(SYNTHESIS_COMPLETED_VERSION) !== SYNTHESIS_VERSION
     )) {
@@ -1808,7 +1830,7 @@ export class CodeGraph {
 
   /** Existing pending/failed work is never a legacy compatibility exemption. */
   private hasSynthesisRecoveryEvidence(): boolean {
-    return [SYNTHESIS_PENDING, 'index_conformance_pending', 'language_scope_pending',
+    return [SYNTHESIS_PENDING, REWIRE_SYNTHESIS_PENDING, 'index_conformance_pending', 'language_scope_pending',
       SYNC_FAILURE_BASELINE].some(key => this.queries.getMetadata(key) !== null) ||
       ['sync-retry:pending:', 'sync-append-delta:pending:', 'resolution-deferred:']
         .some(prefix => this.queries.getMetadataByPrefix(prefix).length > 0) ||
@@ -1857,6 +1879,7 @@ export class CodeGraph {
   /** Only indexes with evidence of an unfinished tail pay for a full retry. */
   private needsSynthesisRetry(): boolean {
     return this.queries.getMetadata(SYNTHESIS_PENDING) !== null ||
+      this.queries.getMetadata(REWIRE_SYNTHESIS_PENDING) !== null ||
       this.queries.getMetadata('index_conformance_pending') !== null ||
       this.getIndexCompleteness().diagnostics.some(diagnostic =>
         isSynthesisDiagnostic(diagnostic) && !(diagnostic.code === 'synthesis_unverified' &&
@@ -1902,7 +1925,7 @@ export class CodeGraph {
     this.queries.applyMetadataChanges({
       [SYNTHESIS_PENDING]: current.some(isSynthesisDiagnostic) ? pending : null,
       ...(full && !current.some(isSynthesisDiagnostic)
-        ? { [SYNTHESIS_COMPLETED_VERSION]: SYNTHESIS_VERSION } : {}),
+        ? { [SYNTHESIS_COMPLETED_VERSION]: SYNTHESIS_VERSION, [REWIRE_SYNTHESIS_PENDING]: null } : {}),
       index_completeness: diagnostics.length > 0 ? 'incomplete' : baseline,
       index_diagnostics: JSON.stringify(diagnostics),
     });
