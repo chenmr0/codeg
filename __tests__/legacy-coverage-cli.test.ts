@@ -66,6 +66,15 @@ describe('CLI legacy coverage messaging (simulated old metadata)', () => {
     expect(status()).toMatchObject({ completeness: 'unknown', legacyUnverified: true, diagnostics: [] });
   });
 
+  it.each([false, true])('returns exit zero for a successful legacy edit (enrolled=%s)', enrolled => {
+    if (enrolled) run('sync');
+    fs.appendFileSync(path.join(directory, 'api.c'), '\n/* changed */\n');
+    const output = run('sync');
+    expect(output).toContain('Legacy index is usable; synthesis coverage is unverified');
+    expect(output).not.toContain('graph coverage is incomplete');
+    expect(status()).toMatchObject({ completeness: 'unknown', legacyUnverified: true, diagnostics: [] });
+  });
+
   it('ordinary index verifies and upgrades coverage without a force flag', () => {
     run('index');
     const verified = status();

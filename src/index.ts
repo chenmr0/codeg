@@ -1276,6 +1276,11 @@ export class CodeGraph {
           throw new SyncIncompleteError(result);
         }
         result.errors = [...(result.errors ?? []), ...synthesisDiagnostics];
+        // Acknowledge this successful attempt before taking the public coverage
+        // snapshot. Its still-live retry journal is recovery evidence at rest,
+        // but must not make a completed legacy incremental sync report failure.
+        // Failed extraction has thrown above; failed synthesis retains its marker.
+        if (!this.needsSynthesisRetry()) retryState.complete();
         const completeness = this.getIndexCompleteness();
         if (completeness.status === 'incomplete') {
           result.complete = false;
@@ -1286,7 +1291,6 @@ export class CodeGraph {
             }
           }
         }
-        if (!this.needsSynthesisRetry()) retryState.complete();
         if (this.queries.getMetadata('indexed_language_scope') !== getLanguageScopeKey()) {
           this.queries.setMetadata('indexed_language_scope', getLanguageScopeKey());
         }
@@ -1609,7 +1613,14 @@ export class CodeGraph {
     const deferResolutionIndexes =
       process.env.CODEGRAPH_NO_RESOLVE_INDEX_DEFER !== '1';
     this.queries.recoverDeferredConformanceReferences();
-    const replaySynthesis = !options.freshIndex && this.needsSynthesisRetry();
+    // Choosing a full pass and deciding whether it must replace stale derived
+    // edges are different decisions. Legacy compatibility skips a needless
+    // no-op full pass; once recovery enters this method, absent proof still
+    // requires replacement (including edges whose third-file evidence vanished).
+    const replaySynthesis = !options.freshIndex && (
+      this.queries.getMetadata(SYNTHESIS_COMPLETED_VERSION) !== SYNTHESIS_VERSION ||
+      this.needsSynthesisRetry()
+    );
     this.beginFullSynthesisVerification();
     this.beginSynthesis();
     let result: ResolutionResult;
