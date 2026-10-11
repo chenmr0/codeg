@@ -4,10 +4,14 @@ A successful pre-proof index can remain usable without silently paying for a
 whole-graph synthesis verification on its first ordinary sync. This is an
 availability policy, not evidence that all historical derived edges are correct.
 
-Admission is deliberately narrow: package `1.1.1`, exact extraction stamp 24–34,
+Admission is deliberately narrow: package `1.1.1`, exact extraction stamp 22 or 24–34,
 a nonempty indexed history, stored `complete` coverage with an empty diagnostic
 list, no completion-proof value, no verification-start intent, and no pending
 reference, synthesis, conformance, language-scope, file-failure or retry journal.
+Extraction 22 is supported by the known `69643bb`/`4afa319` builds: their
+completion-metadata writer is identical to the verified extraction-24 build
+`28910d25`. This is not an assumption that every older stamp is compatible;
+23 and stamps below 22 remain outside the known set.
 Extraction 35 is ambiguous across the introduction of completion proofs, so it
 and unknown/malformed provenance retain the existing conservative behavior.
 Historical failed references are not themselves unfinished work.
