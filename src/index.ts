@@ -593,12 +593,13 @@ export class CodeGraph {
                   total,
                 });
               },
-              { freshIndex: freshDb },
+              { freshIndex: freshDb, afterWrite: walValve ? () => walValve.backpressure() : undefined },
             );
             resolutionDiagnostics = resolution.diagnostics ?? [];
 
           }
 
+          if (walValve) await walValve.foldNow();
           if (result.success && resolutionDiagnostics.length === 0 &&
               !options.signal?.aborted) this.publishRelationshipsReady();
 
@@ -698,16 +699,19 @@ export class CodeGraph {
         } finally {
           // Restore auto-checkpointing even on error/abort so subsequent syncs
           // don't keep running with it disabled.
-          if (walValve) { walValve.stop(); await walValve.drain(); }
-          if (deferWal) {
-            try { this.db.setWalAutocheckpoint(priorAutocheckpoint); } catch { /* best-effort */ }
-          }
-          if (fastInit) {
-            try {
-              this.db.getDb().pragma('synchronous = NORMAL');
-              this.db.getDb().pragma('journal_mode = WAL');
-            } catch {
-              // connection may be closing after a failed index
+          try {
+            if (walValve) { walValve.stop(); await walValve.drain(); }
+          } finally {
+            if (deferWal) {
+              try { this.db.setWalAutocheckpoint(priorAutocheckpoint); } catch { /* best-effort */ }
+            }
+            if (fastInit) {
+              try {
+                this.db.getDb().pragma('synchronous = NORMAL');
+                this.db.getDb().pragma('journal_mode = WAL');
+              } catch {
+                // connection may be closing after a failed index
+              }
             }
           }
         }
@@ -853,6 +857,7 @@ export class CodeGraph {
           );
           walValve.start();
         }
+        const afterWrite = walValve?.backpressure.bind(walValve);
 
         this.queries.recoverDeferredConformanceReferences();
         const recoveredDeltaFiles = await recoverAppendDeltas(this.queries);
@@ -884,6 +889,7 @@ export class CodeGraph {
           options.paths,
           options.verbose,
           replaceFileStore,
+          afterWrite,
         );
         // Publish extraction failures before any resolution work can finish
         // (or throw), including a recovery run with an older complete baseline.
@@ -933,7 +939,7 @@ export class CodeGraph {
           try {
             await this.resolver.resolveFilesAndPersist(referenceFiles, (current, total) => {
               options.onProgress?.({ phase: 'resolving', current, total });
-            }, { diagnostics: detail, nameLookup: 'sync', batchSize: SYNC_REFERENCE_BATCH_SIZE });
+            }, { diagnostics: detail, nameLookup: 'sync', batchSize: SYNC_REFERENCE_BATCH_SIZE, afterWrite });
             if (detail) detail.complete = true;
           } finally {
             if (detail) console.log(`[sync] refs-detail ${detail.format()}`);
@@ -947,7 +953,7 @@ export class CodeGraph {
         const resurrectedRefCount = result.resurrectedReferenceSourceFiles?.length
           ? await this.resolver.resolveFilesAndPersist(result.resurrectedReferenceSourceFiles, (current, total) => {
             options.onProgress?.({ phase: 'resolving', current, total });
-          }, { batchSize: SYNC_REFERENCE_BATCH_SIZE }) : 0;
+          }, { batchSize: SYNC_REFERENCE_BATCH_SIZE, afterWrite }) : 0;
 
         tailMark('resurrectedRefsMs');
         // A changed file may introduce a symbol needed by references in files
@@ -1004,6 +1010,8 @@ export class CodeGraph {
                   } finally {
                     if (retryDetail && batchDetail) retryDetail.add(batchDetail);
                   }
+                  const wait = afterWrite?.();
+                  if (wait) await wait;
                 }
                 attempted += eligible.length;
                 visited += batch.length;
@@ -1096,9 +1104,11 @@ export class CodeGraph {
 
           for (let i = 0; i < failedFiles.length; i++) {
             const fp = failedFiles[i]!;
+            let stored = false;
             try {
               const reindexResult = await this.orchestrator.indexFile(fp, { force: true });
               if (reindexResult.stored) {
+                stored = true;
                 successfullyReindexedFiles.push(fp);
                 result.filesModified++;
               } else {
@@ -1112,6 +1122,12 @@ export class CodeGraph {
                 code: 'parse_error',
               }]);
             }
+            // Checkpoint failures must escape rather than being recorded as
+            // file parse failures by the recovery catch above.
+            if (stored) {
+              const wait = afterWrite?.();
+              if (wait) await wait;
+            }
             options.onProgress?.({
               phase: 'parsing',
               current: i + 1,
@@ -1122,7 +1138,7 @@ export class CodeGraph {
           if (successfullyReindexedFiles.length > 0) {
             await this.resolver.resolveFilesAndPersist(successfullyReindexedFiles, (current, total) => {
               options.onProgress?.({ phase: 'resolving', current, total });
-            }, { batchSize: SYNC_REFERENCE_BATCH_SIZE });
+            }, { batchSize: SYNC_REFERENCE_BATCH_SIZE, afterWrite });
           }
 
           // Only files whose replacement graph was actually stored are safe
@@ -1157,7 +1173,7 @@ export class CodeGraph {
             options.onProgress?.({ phase: 'resolving', current, total });
           }, (current, total) => {
             options.onProgress?.({ phase: 'synthesizing', current, total });
-          });
+          }, { afterWrite });
           synthesisDiagnostics.push(...(resolution.diagnostics ?? []));
         } else if (result.changedFilePaths?.length || recoveredRetryFiles.length > 0) {
           // The normal changed-file path resolves only scoped references and
@@ -1203,6 +1219,9 @@ export class CodeGraph {
             throw error;
           }
         }
+        // Synthesis/conformance may append more edges after the final reference
+        // batch. Fold them before certifying success, outside best-effort catches.
+        if (walValve) await walValve.foldNow();
         if (scopedSynthesisStarted) this.finishSynthesis(synthesisDiagnostics);
         tailMark('chainedCallsMs');
 
@@ -1558,7 +1577,7 @@ export class CodeGraph {
     onProgress?: (current: number, total: number) => void,
     onSynthesisProgress?: (current: number, total: number) => void,
     /** @internal Proven empty graph before extraction; no old derived edges exist. */
-    options: { freshIndex?: boolean } = {},
+    options: { freshIndex?: boolean; afterWrite?: () => Promise<void> | null } = {},
   ): Promise<ResolutionResult> {
     const deferResolutionIndexes =
       process.env.CODEGRAPH_NO_RESOLVE_INDEX_DEFER !== '1';
@@ -1586,11 +1605,14 @@ export class CodeGraph {
           : undefined,
         onSynthesisProgress,
         replaySynthesis,
+        afterWrite: options.afterWrite,
       });
       this.resolver.resolveChainedCallsViaConformance();
       if (!(result.diagnostics ?? []).some(isSynthesisDiagnostic)) {
         this.queries.clearDeferredConformanceReferences();
       }
+      const wait = options.afterWrite?.();
+      if (wait) await wait;
     } catch (error) {
       this.finishSynthesis([{
         severity: 'error', code: 'synthesis_failed',
