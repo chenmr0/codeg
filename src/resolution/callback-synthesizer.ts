@@ -28,6 +28,7 @@ import { isGeneratedFile } from '../extraction/generated-detection';
 import { isLanguageEnabled } from '../extraction/language-scope';
 import { memoryBudgetBytes } from './memory-budget';
 import { stripCommentsForRegex } from './strip-comments';
+import { sliceLines } from './source-lines';
 import {
   cppCallableOwnersMatch,
   cppParameterKey,
@@ -186,11 +187,6 @@ function nuxtComponentName(filePath: string): string | null {
     else out.push(s);
   }
   return out.join('');
-}
-
-function sliceLines(content: string, startLine?: number, endLine?: number): string | null {
-  if (!startLine || !endLine) return null;
-  return content.split('\n').slice(startLine - 1, endLine).join('\n');
 }
 
 function registrarField(src: string): string | null {

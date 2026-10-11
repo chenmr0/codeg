@@ -36,3 +36,11 @@ Verbose sync output includes `recovery-plan` (reported source files, resolved
 references, remaining pending rows, persisted obligation and full-pass choice)
 and `fallback-reference-sources` for late stores. These are stage diagnostics,
 not wall-time performance guarantees.
+
+## 第二阶段：减少合成时的整文件拆行
+
+`source-lines.ts` 对正常的一基、闭区间行号通过 LF 位置提取片段，避免每个候选方法都对整份源码 `split` 并分配行数组。合成器原有的六处行范围读取共同使用这一内部 helper，读取源码的时点、候选遍历与派生边顺序保持原样。
+
+语义仍与原 `split('\n').slice(startLine - 1, endLine).join('\n')` 一致：保留 CR 和 UTF-16 字符、文件末尾空行及越界结果。原先缺失或零值行号返回 `null`；负数、小数、无穷等异常边界仍走原表达式。
+
+这项优化降低必要合成的计算和临时分配开销，不跳过完整合成，也不新增跨同步缓存、数据库迁移或旧库补建任务。C++ 类缓存与批量查询只做了外部对照试验，因收益不稳定未纳入产品。
