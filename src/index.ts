@@ -1124,40 +1124,47 @@ export class CodeGraph {
             currentFile: failedFiles[0],
           });
 
-          for (let i = 0; i < failedFiles.length; i++) {
-            const fp = failedFiles[i]!;
-            let stored = false;
-            try {
-              const reindexResult = await this.orchestrator.indexFile(fp, { force: true });
-              if (reindexResult.stored) {
-                stored = true;
-                successfullyReindexedFiles.push(fp);
-                for (const source of reindexResult.resurrectedReferenceSourceFiles ?? []) {
-                  fallbackReferenceSources.add(source);
+          try {
+            for (let i = 0; i < failedFiles.length; i++) {
+              const fp = failedFiles[i]!;
+              let stored = false;
+              try {
+                const reindexResult = await this.orchestrator.indexFile(fp, { force: true });
+                if (reindexResult.stored) {
+                  stored = true;
+                  successfullyReindexedFiles.push(fp);
+                  for (const source of reindexResult.resurrectedReferenceSourceFiles ?? []) {
+                    fallbackReferenceSources.add(source);
+                  }
+                  result.filesModified++;
+                } else {
+                  recordReindexFailure(fp, reindexResult.errors);
                 }
-                result.filesModified++;
-              } else {
-                recordReindexFailure(fp, reindexResult.errors);
+              } catch (error) {
+                recordReindexFailure(fp, [{
+                  message: error instanceof Error ? error.message : String(error),
+                  filePath: fp,
+                  severity: 'error',
+                  code: 'parse_error',
+                }]);
               }
-            } catch (error) {
-              recordReindexFailure(fp, [{
-                message: error instanceof Error ? error.message : String(error),
-                filePath: fp,
-                severity: 'error',
-                code: 'parse_error',
-              }]);
+              // Checkpoint failures must escape rather than being recorded as
+              // file parse failures by the recovery catch above.
+              if (stored) {
+                const wait = afterWrite?.();
+                if (wait) await wait;
+              }
+              options.onProgress?.({
+                phase: 'parsing',
+                current: i + 1,
+                total: failedFiles.length,
+              });
             }
-            // Checkpoint failures must escape rather than being recorded as
-            // file parse failures by the recovery catch above.
-            if (stored) {
-              const wait = afterWrite?.();
-              if (wait) await wait;
-            }
-            options.onProgress?.({
-              phase: 'parsing',
-              current: i + 1,
-              total: failedFiles.length,
-            });
+          } finally {
+            // Fallback can replace node IDs after earlier reference passes have
+            // warmed file/name/type caches. Even a partially failed store or a
+            // WAL gate error ends that cache epoch; never resolve against old IDs.
+            this.resolver.clearCaches();
           }
 
           if (successfullyReindexedFiles.length > 0) {
