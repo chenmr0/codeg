@@ -349,6 +349,9 @@ type IndexResult = {
 
 type IndexDiagnostic = IndexResult['errors'][number];
 
+const LEGACY_INDEX_COVERAGE_WARNING =
+  'Legacy index is usable; synthesis coverage is unverified. Run "codegraph index" to verify and upgrade coverage.';
+
 /** Actionable, reason-specific guidance for a valid but incomplete index. */
 function getIncompleteIndexHints(diagnostics: IndexDiagnostic[]): string[] {
   const codes = new Set(diagnostics.map((diagnostic) => diagnostic.code).filter(Boolean));
@@ -859,9 +862,14 @@ program
       }
 
       const totalChanges = result.filesAdded + result.filesModified + result.filesRemoved;
+      const legacyUnverified = cg.getIndexCompleteness().legacyUnverified === true;
 
       if (totalChanges === 0) {
-        clack.log.info(result.complete === false ? 'No source changes; graph coverage is incomplete' : 'Already up to date');
+        clack.log.info(result.complete === false
+          ? 'No source changes; graph coverage is incomplete'
+          : legacyUnverified
+            ? 'No source changes; legacy synthesis coverage is unverified'
+            : 'Already up to date');
       } else {
         clack.log.success(`Synced ${formatNumber(totalChanges)} changed files`);
         const details: string[] = [];
@@ -876,8 +884,12 @@ program
       if (result.complete === false) {
         for (const diagnostic of result.errors ?? []) clack.log.warn(diagnostic.message);
         for (const hint of getIncompleteIndexHints(result.errors ?? [])) clack.log.info(hint);
+      } else if (legacyUnverified) {
+        clack.log.warn(LEGACY_INDEX_COVERAGE_WARNING);
       }
-      clack.outro(result.complete === false ? 'Sync usable with incomplete graph coverage' : 'Done');
+      clack.outro(result.complete === false
+        ? 'Sync usable with incomplete graph coverage'
+        : legacyUnverified ? 'Legacy index usable; synthesis coverage unverified' : 'Done');
       cg.destroy();
     } catch (err) {
       if (!options.quiet) {
@@ -964,6 +976,10 @@ program
             reindexRecommended,
             completeness: completeness.status,
             diagnostics: completeness.diagnostics,
+            ...(completeness.legacyUnverified ? {
+              legacyUnverified: true,
+              coverageWarning: LEGACY_INDEX_COVERAGE_WARNING,
+            } : {}),
           },
         }));
         cg.destroy();
@@ -1002,9 +1018,13 @@ program
         ? chalk.green('complete')
         : completeness.status === 'incomplete'
           ? chalk.yellow('incomplete')
-          : chalk.yellow('unknown (index predates completeness tracking)');
+          : completeness.legacyUnverified
+            ? chalk.yellow('legacy index usable; synthesis coverage unverified')
+            : chalk.yellow('unknown (index predates completeness tracking)');
       console.log(`  Coverage:  ${completenessLabel}`);
-      if (completeness.status === 'incomplete') {
+      if (completeness.legacyUnverified) {
+        info(LEGACY_INDEX_COVERAGE_WARNING);
+      } else if (completeness.status === 'incomplete') {
         for (const diagnostic of completeness.diagnostics) {
           warn(diagnostic.message);
         }
@@ -1049,7 +1069,7 @@ program
         }
         info('Run "codegraph sync" to update the index');
       } else {
-        success('Index is up to date');
+        success(completeness.legacyUnverified ? 'Indexed source files are up to date' : 'Index is up to date');
       }
       console.log();
 
@@ -1058,7 +1078,7 @@ program
       if (reindexRecommended) {
         const builtWith = buildInfo.version ? `v${buildInfo.version.replace(/^v/, '')}` : 'an earlier version';
         warn(`Index was built by ${builtWith}; re-index to pick up this engine's improvements.`);
-        info('Run "codegraph index -f" (full rebuild) or "codegraph sync"');
+        info('Run "codegraph index" to refresh extraction and verify coverage');
         console.log();
       }
 

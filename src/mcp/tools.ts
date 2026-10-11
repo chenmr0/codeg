@@ -455,11 +455,16 @@ interface CatchUpAdmission {
 
 interface QueryDataView {
   symbolsOnly: boolean;
+  legacyUnverified?: boolean;
   graph?: CodeGraph;
   readiness?: IndexDataReadiness | null;
   admission?: CatchUpAdmission | null;
   observed?: IndexDataReadiness | null;
 }
+
+const LEGACY_INDEX_COVERAGE_NOTICE =
+  '⚠️ Legacy index is usable; synthesis coverage is unverified. ' +
+  'Run `codegraph index` to verify and upgrade coverage.';
 
 /** Low-distraction freshness warning used after the bounded startup gate releases. */
 function formatCatchUpNotice(
@@ -1745,6 +1750,17 @@ export class ToolHandler {
     };
   }
 
+  /** Keep legacy coverage uncertainty distinct from an unfinished refresh. */
+  private withLegacyCoverageNotice(result: ToolResult): ToolResult {
+    if (result.isError || !this.legacyCoverageUnverified()) return result;
+    const [first, ...rest] = result.content;
+    if (!first || first.type !== 'text') return result;
+    return {
+      ...result,
+      content: [{ type: 'text', text: `${LEGACY_INDEX_COVERAGE_NOTICE}\n\n${first.text}` }, ...rest],
+    };
+  }
+
   /**
    * Execute a tool by name
    */
@@ -1791,12 +1807,14 @@ export class ToolHandler {
         let graph = this.getCodeGraph(args.projectPath as string | undefined);
         if (this.cg && resolvePath(graph.getProjectRoot()) === resolvePath(this.cg.getProjectRoot())) graph = this.cg;
         const readiness = graph.getIndexDataReadiness?.();
+        const completeness = graph.getIndexCompleteness?.();
         view.graph = graph;
         view.observed = readiness;
+        view.legacyUnverified = completeness?.legacyUnverified === true;
         const sameProject = graph === this.cg;
         if (readiness && (catchUpAdmission && sameProject
           ? readiness.generation >= catchUpAdmission.minimumDataGeneration
-          : graph.isIndexing?.() || graph.getIndexCompleteness?.().status === 'incomplete' ||
+          : graph.isIndexing?.() || completeness?.status === 'incomplete' ||
             (!view.symbolsOnly && !readiness.relationshipsReady) ||
             (!readiness.symbolsReady && (graph.getPendingFiles?.().length ?? 0) === 0))) {
           view.readiness = readiness;
@@ -1862,7 +1880,7 @@ export class ToolHandler {
         args.projectPath as string | undefined,
         view.admission != null,
       );
-      return this.withCatchUpNotice(withFileStaleness, view.admission ?? null);
+      return this.withLegacyCoverageNotice(this.withCatchUpNotice(withFileStaleness, view.admission ?? null));
     } catch (err) {
       return this.errorResult(`Tool execution failed: ${err instanceof Error ? err.message : String(err)}`);
     }
@@ -1874,6 +1892,10 @@ export class ToolHandler {
     if (view?.observed && latest && (latest.generation !== view.observed.generation ||
         (view.observed.relationshipsReady && !latest.relationshipsReady))) return true;
     return view?.readiness ? !view.readiness.relationshipsReady : view?.admission != null;
+  }
+
+  private legacyCoverageUnverified(): boolean {
+    return this.dataView.getStore()?.legacyUnverified === true;
   }
 
   private omitRelationshipDetails(): boolean {
@@ -3198,7 +3220,7 @@ export class ToolHandler {
         ? await this.renderRawEvidence(cg, [{ label: `zero callers: ${target.signature ?? target.symbol}`, needle }])
         : '';
       return this.textResult([
-        `${this.relationshipsPending() ? 'No callers in the currently available relationship data; this is not a completed absence check' : 'No callers found'} for ${this.formatRelationshipTarget(target)}${target.lookupNote}`,
+        `${this.relationshipsPending() || this.legacyCoverageUnverified() ? 'No callers in the currently available relationship data; this is not a completed absence check' : 'No callers found'} for ${this.formatRelationshipTarget(target)}${target.lookupNote}`,
         evidence,
         evidence ? '> Raw matches can include declarations, definitions, references, macros, or calls. They are shown to expose possible graph/index gaps; raw text alone is not classified as a caller.' : '',
       ].filter(Boolean).join('\n\n'));
@@ -3242,7 +3264,7 @@ export class ToolHandler {
         ? await this.renderRawEvidence(cg, [{ label: `zero callees: ${target.signature ?? target.symbol}`, needle }])
         : '';
       return this.textResult([
-        `${this.relationshipsPending() ? 'No callees in the currently available relationship data; this is not a completed absence check' : 'No callees found'} for ${this.formatRelationshipTarget(target)}${target.lookupNote}`,
+        `${this.relationshipsPending() || this.legacyCoverageUnverified() ? 'No callees in the currently available relationship data; this is not a completed absence check' : 'No callees found'} for ${this.formatRelationshipTarget(target)}${target.lookupNote}`,
         evidence,
         evidence ? '> Raw matches can include declarations, definitions, references, macros, or calls. They are shown to expose possible graph/index gaps; raw text alone is not classified as a callee.' : '',
       ].filter(Boolean).join('\n\n'));
@@ -5392,7 +5414,9 @@ export class ToolHandler {
           '### Declaration / Definition',
           this.relationshipsPending()
             ? '**Definition:** Declaration/definition relationships are not ready; absence has not been established.'
-            : '**Definition:** No indexed definition found for this exact overload. Treat this as authoritative for the current index; do not use Grep or text search merely to verify absence.',
+            : this.legacyCoverageUnverified()
+              ? '**Definition:** No indexed definition found for this exact overload; legacy synthesis coverage is unverified, so absence has not been established.'
+              : '**Definition:** No indexed definition found for this exact overload. Treat this as authoritative for the current index; do not use Grep or text search merely to verify absence.',
         ].join('\n');
       }
       return '';
@@ -5479,10 +5503,16 @@ export class ToolHandler {
       '## CodeGraph Status',
       '',
     ];
+    if (this.legacyCoverageUnverified()) {
+      lines.push('**Coverage:** legacy index usable; synthesis coverage unverified',
+        LEGACY_INDEX_COVERAGE_NOTICE, '');
+    }
     const readiness = this.dataView.getStore()?.readiness;
     if (readiness) {
       lines.push(`**Symbol data:** ${readiness.symbolsReady ? 'ready' : 'not ready'}`,
-        `**Relationship data:** ${readiness.relationshipsReady ? 'ready' : 'not ready'}`, '');
+        `**Relationship data:** ${readiness.relationshipsReady
+          ? this.legacyCoverageUnverified() ? 'available (legacy synthesis coverage unverified)' : 'ready'
+          : 'not ready'}`, '');
       if (catchUpAdmission?.status === 'failed') {
         const detail = catchUpAdmission.error?.replace(/\s+/g, ' ').trim().slice(0, 300);
         lines.push(`**Refresh:** incomplete${detail ? ` — ${detail}` : ''}`, '');
@@ -6908,7 +6938,9 @@ export class ToolHandler {
     if (declarationOnlyCount > 0) {
       lines.push(
         `> ${declarationOnlyCount} exact overload declaration${declarationOnlyCount === 1 ? ' has' : 's have'} no indexed definition. ` +
-        'Treat that as authoritative for the current index; do not use Grep or text search merely to verify absence.',
+        (this.legacyCoverageUnverified()
+          ? 'Legacy synthesis coverage is unverified, so absence has not been established.'
+          : 'Treat that as authoritative for the current index; do not use Grep or text search merely to verify absence.'),
       );
     }
 
