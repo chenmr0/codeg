@@ -1264,6 +1264,7 @@ export class ReferenceResolver {
       diagnostics?: ResolutionDiagnostics;
       nameLookup?: NameLookupMode | 'sync';
       batchSize?: number;
+      afterWrite?: () => Promise<void> | null;
     } = {},
   ): Promise<number> {
     const size = options.batchSize ?? SCOPED_REFERENCE_BATCH_SIZE;
@@ -1325,6 +1326,10 @@ export class ReferenceResolver {
           } : undefined, batchDetail, nameLookup, true);
           processed += batch.length;
           chunkProcessed += batch.length;
+          // Exact cleanup and all edge writes have committed; no SQLite
+          // transaction or reader is retained while the valve catches up.
+          const wait = options.afterWrite?.();
+          if (wait) await wait;
         } finally {
           if (detail && batchDetail) detail.add(batchDetail);
         }
@@ -1451,6 +1456,7 @@ export class ReferenceResolver {
       bulkRefLoad?: { begin: () => void; end: () => void | Promise<void> };
       onSynthesisProgress?: (current: number, total: number) => void;
       replaySynthesis?: boolean;
+      afterWrite?: () => Promise<void> | null;
     }
   ): Promise<ResolutionResult> {
     this.warmCaches();
@@ -1585,6 +1591,11 @@ export class ReferenceResolver {
         processed += batch.length;
         onProgress?.(processed, total);
 
+        // Admission and exact cleanup are complete, including results from
+        // read-only workers. Never pause inside their resolution/fallback try.
+        const wait = options?.afterWrite?.();
+        if (wait) await wait;
+
         // Yield so progress UI can render between batches
         await new Promise(resolve => setImmediate(resolve));
 
@@ -1608,6 +1619,11 @@ export class ReferenceResolver {
         if (bulkEdgesActive) await options!.bulkEdgeLoad!.end();
       }
     }
+
+    // Index restoration above may itself append substantial WAL. Its worker
+    // has finished before this boundary, and synthesis has not started yet.
+    const restoredWait = options?.afterWrite?.();
+    if (restoredWait) await restoredWait;
 
     if (process.env.CODEGRAPH_SYNTH_TIMINGS) {
       console.error(
@@ -1647,6 +1663,10 @@ export class ReferenceResolver {
         message,
       });
     }
+    // A valve failure is load-bearing. Keep it outside the best-effort
+    // synthesis catch so it cannot be reported as a successful base index.
+    const synthesisWait = options?.afterWrite?.();
+    if (synthesisWait) await synthesisWait;
     if (process.env.CODEGRAPH_SYNTH_TIMINGS) {
       console.error(
         `[phase-timing] callback-synthesis=${Date.now() - synthesisStartedAt}ms`

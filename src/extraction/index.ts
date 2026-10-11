@@ -1283,7 +1283,7 @@ export class ExtractionOrchestrator {
     verbose?: boolean,
     /**
      * Writer-side WAL backpressure gate from {@link WalCheckpointValve}. Called
-     * at a between-transactions boundary (before each store); returns null
+     * at a between-transactions boundary (after each completed store); returns null
      * while WAL growth is under the hard cap, or a promise the writer awaits
      * when the disk is saturated and the WAL needs a full backfill (#1231).
      */
@@ -1826,11 +1826,6 @@ export class ExtractionOrchestrator {
           processed++;
           accumulateExtractionTimings(extractionTimingTotals, result.timings);
 
-          // WAL backpressure: a between-transactions boundary, safe to pause the
-          // writer here if the disk is saturated and the WAL needs a full
-          // backfill (#1231). null = under the hard cap, no wait.
-          const bp = walBackpressure?.();
-          if (bp) await bp;
           if (signal?.aborted) break;
 
           // Fresh node:sqlite builds post a pre-filtered bundle to the dedicated
@@ -1863,6 +1858,12 @@ export class ExtractionOrchestrator {
             } else {
               this.storeExtractionResult(filePath, content, language, stats, result, options);
             }
+            // A callback can start checkpointing immediately. Drain queued
+            // worker writes BEFORE invoking it so truncation runs with every
+            // writer parked. Fast init has no WAL callback and keeps its queue.
+            if (storeWriter && walBackpressure) await storeWriter.drain();
+            const bp = walBackpressure?.();
+            if (bp) await bp;
           }
 
           if (result.errors.length > 0) {
@@ -1979,8 +1980,6 @@ export class ExtractionOrchestrator {
           result.errors.push(degradation);
           const language = detectLanguage(filePath, content);
           const stats = await fsp.stat(path.join(this.rootDir, filePath));
-          const bp = walBackpressure?.();
-          if (bp) await bp;
           if (storeWriterOpts) {
             this.queries.storeFileBundle(
               this.buildFreshStoreBundle(filePath, content, language, stats, result)
@@ -1988,6 +1987,8 @@ export class ExtractionOrchestrator {
           } else {
             this.storeExtractionResult(filePath, content, language, stats, result, options);
           }
+          const bp = walBackpressure?.();
+          if (bp) await bp;
 
           filesErrored--;
           filesIndexed++;
@@ -2047,8 +2048,6 @@ export class ExtractionOrchestrator {
             result.errors.push(degradation);
             const language = detectLanguage(filePath, fullContent);
             const stats = await fsp.stat(path.join(this.rootDir, filePath));
-            const bp = walBackpressure?.();
-            if (bp) await bp;
             if (storeWriterOpts) {
               this.queries.storeFileBundle(
                 this.buildFreshStoreBundle(filePath, fullContent, language, stats, result)
@@ -2056,6 +2055,8 @@ export class ExtractionOrchestrator {
             } else {
               this.storeExtractionResult(filePath, fullContent, language, stats, result, options);
             }
+            const bp = walBackpressure?.();
+            if (bp) await bp;
 
             filesErrored--;
             filesIndexed++;
@@ -2089,7 +2090,11 @@ export class ExtractionOrchestrator {
     if (options?.reconcile && !signal?.aborted) {
       const currentFiles = new Set(files);
       for (const tracked of this.queries.getAllFiles()) {
-        if (!currentFiles.has(tracked.path)) this.queries.deleteFile(tracked.path);
+        if (!currentFiles.has(tracked.path)) {
+          this.queries.deleteFile(tracked.path);
+          const bp = walBackpressure?.();
+          if (bp) await bp;
+        }
       }
     }
 
@@ -2576,8 +2581,10 @@ export class ExtractionOrchestrator {
     scopedPaths?: string[],
     verbose?: boolean,
     replaceFileStore?: ReplaceFileStore,
+    /** Await WAL backpressure only after a complete store/delete has committed. */
+    afterWrite?: () => Promise<void> | null,
   ): Promise<SyncResult> {
-    return withLanguageScope(() => this.syncInScope(onProgress, scopedPaths, verbose, replaceFileStore));
+    return withLanguageScope(() => this.syncInScope(onProgress, scopedPaths, verbose, replaceFileStore, afterWrite));
   }
 
   private async syncInScope(
@@ -2585,6 +2592,7 @@ export class ExtractionOrchestrator {
     scopedPaths?: string[],
     verbose?: boolean,
     replaceFileStore?: ReplaceFileStore,
+    afterWrite?: () => Promise<void> | null,
   ): Promise<SyncResult> {
     await initGrammars(); // Initialize WASM runtime (grammars loaded lazily below)
     // Sync rescans; clear the canonical-path cache so repointed symlinks are seen.
@@ -2742,6 +2750,10 @@ export class ExtractionOrchestrator {
       }
       for (const file of sourceFiles) resurrectedReferenceSourceFiles.add(file);
       filesRemoved++;
+      // Worker replacements are fully acknowledged above; neither connection
+      // has an active write when the checkpoint valve parks this sync.
+      const wait = afterWrite?.();
+      if (wait) await wait;
     };
 
     // Both newly introduced late-deletion routes require an actual missing-
@@ -3144,6 +3156,10 @@ export class ExtractionOrchestrator {
                 );
               }
               changedFilePaths.push(item.filePath);
+              // Keep this outside parse handling: an exhausted WAL valve must
+              // abort the run, not become a recoverable file parse failure.
+              const wait = afterWrite?.();
+              if (wait) await wait;
             } else {
               const resultErrors = item.result.errors.length > 0
                 ? item.result.errors
@@ -3179,6 +3195,8 @@ export class ExtractionOrchestrator {
       const affected = await appendDelta.finish(filesErrored === 0 && syncErrors.length === 0 &&
         changedFilePaths.length === filesToIndex.length);
       for (const file of affected) resurrectedReferenceSourceFiles.add(file);
+      const wait = afterWrite?.();
+      if (wait) await wait;
       log('append-delta ' + Object.entries(appendDelta.counts).map(([key, value]) => key + '=' + value).join(' '));
     }
     log(

@@ -380,8 +380,11 @@ export class DatabaseConnection {
     if (!this.dbPath || this.dbPath === ':memory:') return 0;
     try {
       return fs.statSync(`${this.dbPath}-wal`).size;
-    } catch {
-      return 0;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return 0;
+      // Unknown is not empty: fail the next write boundary rather than
+      // silently disabling capacity checks on an I/O or permission failure.
+      throw error;
     }
   }
 
@@ -404,31 +407,26 @@ export class DatabaseConnection {
     this.db.pragma(`wal_autocheckpoint = ${Math.max(0, Math.floor(pages))}`);
   }
 
+  /** Off-thread, non-blocking-reader checkpoint. Safe while the writer is active. */
+  checkpointWalPassive(): Promise<{ busy: number; log: number; checkpointed: number } | null> {
+    return this.checkpointWal('PASSIVE');
+  }
+
   /**
-   * `PRAGMA wal_checkpoint(PASSIVE)` on a worker thread with its own
-   * connection. PASSIVE never blocks the writer, and running it off-thread
-   * means the main thread — and the #850 watchdog heartbeat — keep turning
-   * even when the backfill is minutes of I/O on slow storage (a synchronous
-   * checkpoint that exceeds the watchdog's 60s window gets a healthy index
-   * SIGKILLed — observed in the #1231 repro).
-   *
-   * Returns SQLite's checkpoint result row — `log === checkpointed` with
-   * `busy === 0` means the ENTIRE WAL was backfilled, so the writer's next
-   * commit restarts the WAL from the top and the file stops growing. The
-   * WAL valve needs that signal because a WAL file's SIZE never shrinks:
-   * after the first wrap, raw file size says nothing about the un-backfilled
-   * backlog. Best-effort: returns null on any failure (including worker
-   * threads being unavailable — a potentially minutes-long checkpoint must
-   * never run inline on the main thread).
+   * Release reusable WAL space. Call ONLY with every writer parked outside a
+   * transaction. busy_timeout=0 means a pinned reader returns busy rather than
+   * blocking a writer waiting for this checkpoint. Never called by the timer.
    */
-  async checkpointWalPassive(): Promise<{ busy: number; log: number; checkpointed: number } | null> {
+  checkpointWalTruncate(): Promise<{ busy: number; log: number; checkpointed: number } | null> {
+    return this.checkpointWal('TRUNCATE');
+  }
+
+  private async checkpointWal(mode: 'PASSIVE' | 'TRUNCATE'): Promise<{ busy: number; log: number; checkpointed: number } | null> {
     if (!this.dbPath || this.dbPath === ':memory:') {
       try {
-        const row = this.db.prepare('PRAGMA wal_checkpoint(PASSIVE)').get() as Record<string, number> | undefined;
+        const row = this.db.prepare(`PRAGMA wal_checkpoint(${mode})`).get() as Record<string, number> | undefined;
         return row ? { busy: Number(row.busy), log: Number(row.log), checkpointed: Number(row.checkpointed) } : null;
-      } catch {
-        return null;
-      }
+      } catch { return null; }
     }
     try {
       const { Worker } = await import('node:worker_threads');
@@ -438,30 +436,37 @@ export class DatabaseConnection {
         try {
           const { DatabaseSync } = require('node:sqlite');
           const db = new DatabaseSync(workerData.dbPath);
-          try { row = db.prepare('PRAGMA wal_checkpoint(PASSIVE)').get(); } catch {}
+          db.exec('PRAGMA busy_timeout=0');
+          try { row = db.prepare('PRAGMA wal_checkpoint(' + workerData.mode + ')').get(); } catch {}
           try { db.close(); } catch {}
         } catch {}
         parentPort.postMessage({ row });
       `;
       return await new Promise((resolve) => {
         let settled = false;
-        const finish = (row?: Record<string, number> | null): void => {
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        let worker: import('node:worker_threads').Worker | undefined;
+        const finish = async (row?: Record<string, number> | null): Promise<void> => {
           if (settled) return;
           settled = true;
+          if (timer) clearTimeout(timer);
+          // Never resume the parked writer while a timed-out TRUNCATE worker
+          // might still hold SQLite locks. Termination settles after exit.
+          try { await worker?.terminate(); } catch { /* already exited */ }
           resolve(row ? { busy: Number(row.busy), log: Number(row.log), checkpointed: Number(row.checkpointed) } : null);
         };
         try {
-          const worker = new Worker(workerSource, { eval: true, workerData: { dbPath: this.dbPath } });
-          worker.once('message', (m: { row?: Record<string, number> | null }) => { void worker.terminate(); finish(m?.row ?? null); });
-          worker.once('error', () => { void worker.terminate(); finish(null); });
-          worker.once('exit', () => finish(null));
-        } catch {
-          finish(null);
-        }
+          worker = new Worker(workerSource, { eval: true, workerData: { dbPath: this.dbPath, mode } });
+          // Request cancellation after 60s. Wait for confirmed worker exit
+          // before releasing SQLite locks; an OS-uninterruptible I/O can still
+          // delay termination. This is not an OS-level hard time bound.
+          timer = setTimeout(() => { void finish(null); }, 60_000);
+          worker.once('message', (m: { row?: Record<string, number> | null }) => { void finish(m?.row ?? null); });
+          worker.once('error', () => { void finish(null); });
+          worker.once('exit', () => { void finish(null); });
+        } catch { void finish(null); }
       });
-    } catch {
-      return null;
-    }
+    } catch { return null; }
   }
 
   /**
