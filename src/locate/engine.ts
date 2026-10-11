@@ -79,6 +79,9 @@ export function runLocate(task: LocateTask, checkpoint: (result: LocateResult) =
     db.exec('BEGIN');
     if (queries.getMetadata('index_completeness') === 'incomplete') {
       stop('index_incomplete'); result.notes.push('索引标记为不完整；未命中不表示源码不存在。');
+    } else if (queries.getMetadata('index_legacy_synthesis_unverified') === '1' &&
+        queries.getMetadata('index_synthesis_completed_version') === null) {
+      result.notes.push('旧版索引可用，但合成关系覆盖尚未验证；运行 codegraph index 验证并升级覆盖。');
     }
     if (task.document.truncated) stop('document_clue_limit');
     result.notes.push('纯本地规则定位；代码块来源标签不是真实性判断，置信度表示定位证据强度。索引未命中不等于源码不存在。');

@@ -2583,8 +2583,10 @@ export class ExtractionOrchestrator {
     replaceFileStore?: ReplaceFileStore,
     /** Await WAL backpressure only after a complete store/delete has committed. */
     afterWrite?: () => Promise<void> | null,
+    /** Capture legacy macro evidence before the first node mutation. */
+    beforeNodeWrite?: () => Promise<void>,
   ): Promise<SyncResult> {
-    return withLanguageScope(() => this.syncInScope(onProgress, scopedPaths, verbose, replaceFileStore, afterWrite));
+    return withLanguageScope(() => this.syncInScope(onProgress, scopedPaths, verbose, replaceFileStore, afterWrite, beforeNodeWrite));
   }
 
   private async syncInScope(
@@ -2593,6 +2595,8 @@ export class ExtractionOrchestrator {
     verbose?: boolean,
     replaceFileStore?: ReplaceFileStore,
     afterWrite?: () => Promise<void> | null,
+    /** Capture legacy macro evidence before the first node mutation. */
+    beforeNodeWrite?: () => Promise<void>,
   ): Promise<SyncResult> {
     await initGrammars(); // Initialize WASM runtime (grammars loaded lazily below)
     // Sync rescans; clear the canonical-path cache so repointed symlinks are seen.
@@ -2733,6 +2737,7 @@ export class ExtractionOrchestrator {
     // Git-listed disk deletions are discovered by the just-in-time stat below.
     // All removals still finish before queued extraction and resolution start.
     const removeTracked = async (tracked: FileRecord): Promise<void> => {
+      await beforeNodeWrite?.();
       this.invalidateMacroContext(tracked.path);
       // Deleting the target cascades its incoming edges even though callers
       // in other files are unchanged. Preserve stamped resolution edges as
@@ -3128,6 +3133,7 @@ export class ExtractionOrchestrator {
               ? item.language
               : detectLanguage(item.filePath, item.content);
             if (item.result.nodes.length > 0 || item.result.errors.length === 0) {
+              await beforeNodeWrite?.();
               if (appendDelta?.tryStore(item.filePath, item.content, language, item.stats, item.result)) {
                 // Stable symbols and proven resolutions were retained atomically.
                 // Deferred invalidation below handles changes in later files.

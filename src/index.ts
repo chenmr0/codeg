@@ -78,6 +78,9 @@ const SYNC_FAILURE_BASELINE = 'index_sync_failure_baseline';
 // Pre-proof indexes may have silently discarded sync synthesis diagnostics.
 const SYNTHESIS_VERSION = '1';
 const SYNTHESIS_COMPLETED_VERSION = 'index_synthesis_completed_version';
+// Compatibility is availability, never proof of complete derived coverage.
+const LEGACY_SYNTHESIS_UNVERIFIED = 'index_legacy_synthesis_unverified';
+const SYNTHESIS_VERIFICATION_STARTED = 'index_synthesis_verification_started';
 
 function isSynthesisDiagnostic(diagnostic: Pick<ExtractionError, 'code'>): boolean {
   return diagnostic.code?.startsWith('synthesis_') ?? false;
@@ -427,6 +430,9 @@ export class CodeGraph {
         return { success: false, filesIndexed: 0, filesSkipped: 0, filesErrored: 0, nodesCreated: 0, edgesCreated: 0, errors: [{ message: 'Could not acquire file lock - another process may be indexing', severity: 'error' as const }], durationMs: 0 };
       }
       try {
+        // Persist intent before any full-index write: a crash must not make old
+        // build stamps eligible for legacy compatibility again.
+        this.beginFullSynthesisVerification();
         const scopeChanged = this.needsLanguageScopeRebuild();
         const extractionChanged = this.isIndexStale();
         await this.queries.invalidateCppMacroCalls();
@@ -858,12 +864,25 @@ export class CodeGraph {
           walValve.start();
         }
         const afterWrite = walValve?.backpressure.bind(walValve);
+        if (this.canAdmitLegacySynthesis()) {
+          this.queries.setMetadata(LEGACY_SYNTHESIS_UNVERIFIED, '1');
+        }
+        // A known legacy no-op has no macro fingerprint. Avoid scanning all
+        // macros just to establish one; capture the OLD node state immediately
+        // before the first replacement/deletion, never after its evidence is lost.
+        let deferredMacroBaseline = this.hasLegacySynthesisCompatibility() &&
+          this.queries.getMetadata('resolution:cpp-macro-evidence-v1') === null;
+        const beforeNodeWrite = async (): Promise<void> => {
+          if (!deferredMacroBaseline) return;
+          await this.queries.invalidateCppMacroCalls();
+          deferredMacroBaseline = false;
+        };
 
         this.queries.recoverDeferredConformanceReferences();
         const recoveredDeltaFiles = await recoverAppendDeltas(this.queries);
         const repairedIncludeFiles = this.queries.repairLegacyCppIncludes();
         const macroEvidenceStarted = options.verbose ? performance.now() : 0;
-        const recoveredMacroFiles = await this.queries.invalidateCppMacroCalls();
+        const recoveredMacroFiles = deferredMacroBaseline ? [] : await this.queries.invalidateCppMacroCalls();
         const macroEvidenceMs = options.verbose ? performance.now() - macroEvidenceStarted : 0;
         const retryState = new SyncRetryState(this.queries);
         const recoveredRetryFiles = retryState.filePaths;
@@ -890,6 +909,7 @@ export class CodeGraph {
           options.verbose,
           replaceFileStore,
           afterWrite,
+          beforeNodeWrite,
         );
         // Publish extraction failures before any resolution work can finish
         // (or throw), including a recovery run with an older complete baseline.
@@ -898,7 +918,7 @@ export class CodeGraph {
         const synthesisDiagnostics: ExtractionError[] = [];
         if (options.verbose) tailCheckpoint = performance.now();
         retryState.finishPrimaryExtraction();
-        const macroReferenceFiles = await this.queries.invalidateCppMacroCalls();
+        const macroReferenceFiles = deferredMacroBaseline ? [] : await this.queries.invalidateCppMacroCalls();
         tailMark('macroEvidenceMs');
         const referenceFiles = [...new Set([
           ...(result.changedFilePaths ?? []), ...recoveredRetryFiles, ...repairedIncludeFiles, ...recoveredDeltaFiles,
@@ -1350,7 +1370,7 @@ export class CodeGraph {
       const result = await work();
       // Lock-unavailable syncs have a zero duration and did not inspect source.
       if (result.success !== false && result.complete !== false && result.durationMs > 0 &&
-          this.getIndexCompleteness().status === 'complete') {
+          this.isCoverageAvailable()) {
         this.publishSymbolsReady(true);
         this.publishRelationshipsReady();
       }
@@ -1491,6 +1511,8 @@ export class CodeGraph {
   getIndexCompleteness(): {
     status: 'complete' | 'incomplete' | 'unknown';
     diagnostics: ExtractionError[];
+    /** Usable historical graph; full synthesis has not been verified by this engine. */
+    legacyUnverified?: true;
   } {
     const rawStatus = this.queries.getMetadata('index_completeness');
     const status = rawStatus === 'complete' || rawStatus === 'incomplete'
@@ -1515,6 +1537,11 @@ export class CodeGraph {
         severity: 'error', code: 'index_diagnostics_invalid',
         message: 'Stored index coverage diagnostics are invalid; run "codegraph index" to verify coverage again.',
       });
+    }
+    if (status === 'complete' && !invalidDiagnostics && diagnostics.length === 0 &&
+        (this.hasLegacySynthesisCompatibility() || this.canAdmitLegacySynthesis()) &&
+        !this.hasSynthesisRecoveryEvidence()) {
+      return { status: 'unknown', diagnostics, legacyUnverified: true };
     }
     if (status === 'complete' && (
       this.queries.getMetadata(SYNTHESIS_PENDING) !== null ||
@@ -1583,6 +1610,7 @@ export class CodeGraph {
       process.env.CODEGRAPH_NO_RESOLVE_INDEX_DEFER !== '1';
     this.queries.recoverDeferredConformanceReferences();
     const replaySynthesis = !options.freshIndex && this.needsSynthesisRetry();
+    this.beginFullSynthesisVerification();
     this.beginSynthesis();
     let result: ResolutionResult;
     try {
@@ -1754,7 +1782,8 @@ export class CodeGraph {
     const synthesisBaseline = this.queries.getMetadata(SYNTHESIS_PENDING);
     const baseline = storedBaseline ?? synthesisBaseline ??
       (previous.status === 'incomplete' && previous.diagnostics.length > 0 &&
-        previous.diagnostics.every(isSynthesisDiagnostic) ? 'complete' : previous.status);
+        previous.diagnostics.every(isSynthesisDiagnostic) ? 'complete'
+          : previous.legacyUnverified ? 'complete' : previous.status);
     const hasFailures = diagnostics.some(diagnostic => diagnostic.code === 'sync_file_failed');
     this.queries.applyMetadataChanges({
       [SYNC_FAILURE_BASELINE]: hasFailures ? baseline : null,
@@ -1766,13 +1795,63 @@ export class CodeGraph {
     });
   }
 
+  /** Existing pending/failed work is never a legacy compatibility exemption. */
+  private hasSynthesisRecoveryEvidence(): boolean {
+    return [SYNTHESIS_PENDING, 'index_conformance_pending', 'language_scope_pending',
+      SYNC_FAILURE_BASELINE].some(key => this.queries.getMetadata(key) !== null) ||
+      ['sync-retry:pending:', 'sync-append-delta:pending:', 'resolution-deferred:']
+        .some(prefix => this.queries.getMetadataByPrefix(prefix).length > 0) ||
+      this.queries.getUnresolvedReferencesCount() > 0;
+  }
+
+  private hasLegacySynthesisCompatibility(): boolean {
+    return this.hasKnownPreProofBuild() && this.queries.getMetadata(LEGACY_SYNTHESIS_UNVERIFIED) === '1' &&
+      this.queries.getMetadata(SYNTHESIS_VERIFICATION_STARTED) === null &&
+      this.queries.getMetadata(SYNTHESIS_COMPLETED_VERSION) === null;
+  }
+
+  /**
+   * Known successful pre-proof builds only. fe0a671 introduced proof at v35;
+   * unknown/new provenance and malformed or missing diagnostics stay strict.
+   * These stamps do NOT prove old synthesis correct: callers expose unknown.
+   */
+  private hasKnownPreProofBuild(): boolean {
+    const version = this.queries.getMetadata('indexed_with_extraction_version');
+    return this.queries.getMetadata('indexed_with_version') === '1.1.1' &&
+      version !== null && /^(2[4-9]|3[0-4])$/.test(version);
+  }
+
+  private canAdmitLegacySynthesis(): boolean {
+    return this.hasKnownPreProofBuild() &&
+      this.queries.getMetadata('index_completeness') === 'complete' &&
+      this.queries.getMetadata('index_diagnostics')?.trim() === '[]' &&
+      this.queries.getMetadata(SYNTHESIS_COMPLETED_VERSION) === null &&
+      this.queries.getMetadata(SYNTHESIS_VERIFICATION_STARTED) === null &&
+      this.queries.getMetadata(LEGACY_SYNTHESIS_UNVERIFIED) === null &&
+      this.queries.getLastIndexedAt() !== null && !this.hasSynthesisRecoveryEvidence();
+  }
+
+  private beginFullSynthesisVerification(): void {
+    this.queries.applyMetadataChanges({
+      [SYNTHESIS_VERIFICATION_STARTED]: '1',
+      [LEGACY_SYNTHESIS_UNVERIFIED]: null,
+    });
+  }
+
+  private isCoverageAvailable(): boolean {
+    const coverage = this.getIndexCompleteness();
+    return coverage.status === 'complete' || coverage.legacyUnverified === true;
+  }
+
   /** Only indexes with evidence of an unfinished tail pay for a full retry. */
   private needsSynthesisRetry(): boolean {
     return this.queries.getMetadata(SYNTHESIS_PENDING) !== null ||
       this.queries.getMetadata('index_conformance_pending') !== null ||
-      this.getIndexCompleteness().diagnostics.some(isSynthesisDiagnostic) ||
+      this.getIndexCompleteness().diagnostics.some(diagnostic =>
+        isSynthesisDiagnostic(diagnostic) && !(diagnostic.code === 'synthesis_unverified' &&
+          this.hasLegacySynthesisCompatibility())) ||
       (this.queries.getMetadata(SYNTHESIS_COMPLETED_VERSION) !== SYNTHESIS_VERSION &&
-        this.queries.getLastIndexedAt() !== null);
+        !this.hasLegacySynthesisCompatibility() && this.queries.getLastIndexedAt() !== null);
   }
 
   /** Write ahead of either synthesis path, including the worker-backed resolver. */
@@ -1784,7 +1863,7 @@ export class CodeGraph {
     // a schema migration or blanket rebuild of pre-existing databases.
     const baseline = previous.status === 'incomplete' &&
       previous.diagnostics.some(isSynthesisDiagnostic) && diagnostics.length === 0
-      ? 'complete' : previous.status;
+      ? 'complete' : previous.legacyUnverified ? 'complete' : previous.status;
     const pending = this.queries.getMetadata(SYNTHESIS_PENDING);
     this.queries.applyMetadataChanges({
       [SYNTHESIS_PENDING]: pending === 'complete' || pending === 'incomplete' || pending === 'unknown'
