@@ -1822,14 +1822,15 @@ export class CodeGraph {
   }
 
   /**
-   * Known successful pre-proof builds only. fe0a671 introduced proof at v35;
+   * Known successful pre-proof builds only. 69643bb/4afa319 used v22;
+   * their completion writer matches verified v24. fe0a671 added proof at v35;
    * unknown/new provenance and malformed or missing diagnostics stay strict.
    * These stamps do NOT prove old synthesis correct: callers expose unknown.
    */
   private hasKnownPreProofBuild(): boolean {
     const version = this.queries.getMetadata('indexed_with_extraction_version');
     return this.queries.getMetadata('indexed_with_version') === '1.1.1' &&
-      version !== null && /^(2[4-9]|3[0-4])$/.test(version);
+      version !== null && /^(22|2[4-9]|3[0-4])$/.test(version);
   }
 
   private canAdmitLegacySynthesis(): boolean {

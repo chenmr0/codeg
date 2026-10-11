@@ -10,23 +10,24 @@ const proof = 'index_synthesis_completed_version';
 const legacy = 'index_legacy_synthesis_unverified';
 const started = 'index_synthesis_verification_started';
 afterEach(() => { vi.restoreAllMocks(); for (const g of graphs.splice(0)) g.close(); for (const r of roots.splice(0)) fs.rmSync(r,{recursive:true,force:true}); });
-async function fixture() {
+async function buildFixture(extractionVersion: number) {
   const root=fs.mkdtempSync(path.join(os.tmpdir(),'cg-legacy-')); roots.push(root);
   fs.writeFileSync(path.join(root,'api.h'),'#define FLAG 1\nint api(void);\n');
   fs.writeFileSync(path.join(root,'api.c'),'#include "api.h"\nint api(void){return FLAG;}\n');
   const graph=CodeGraph.initSync(root); graphs.push(graph); await graph.indexAll();
   const internal=graph as any, q=internal.queries;
-  // Unit-model a known successful pre-proof build. Actual 28910-generated DB
+  // Unit-model a known successful pre-proof build. Actual 69643/28910-generated DB
   // integration is separate; never claim this metadata fixture is historical.
   q.applyMetadataChanges({[proof]:null,[started]:null,[legacy]:null,
-    indexed_with_version:'1.1.1',indexed_with_extraction_version:'24',
+    indexed_with_version:'1.1.1',indexed_with_extraction_version:String(extractionVersion),
     index_completeness:'complete',index_diagnostics:'[]',
     'resolution:cpp-macro-evidence-v1':null,'resolution:cpp-macro-evidence-clean-v1':null});
   return {root,graph,q,internal};
 }
 function edges(g: any) { return g.db.getDb().prepare('SELECT source,target,kind,line,col,metadata,provenance FROM edges ORDER BY source,target,kind,line,col,metadata').all(); }
 
-describe('known legacy coverage stays usable without inventing verification',()=>{
+describe.each([22, 24])('known legacy extraction %i stays usable without inventing verification',extractionVersion=>{
+  const fixture = () => buildFixture(extractionVersion);
   it('does not mutate on status; repeated/reopened no-op skips full synthesis and first macro scan',async()=>{
     const f=await fixture(), before=edges(f.internal);
     expect(f.graph.getIndexCompleteness()).toMatchObject({status:'unknown',legacyUnverified:true});
@@ -36,7 +37,7 @@ describe('known legacy coverage stays usable without inventing verification',()=
     for(let i=0;i<2;i++) expect(await f.graph.sync()).toMatchObject({filesModified:0,filesRemoved:0});
     expect(full).not.toHaveBeenCalled(); expect(macro).not.toHaveBeenCalled();
     expect(edges(f.internal)).toEqual(before); expect(f.q.getMetadata(proof)).toBeNull();
-    expect(f.q.getMetadata(legacy)).toBe('1'); expect(f.graph.getIndexBuildInfo().extractionVersion).toBe(24);
+    expect(f.q.getMetadata(legacy)).toBe('1'); expect(f.graph.getIndexBuildInfo().extractionVersion).toBe(extractionVersion);
     expect(f.graph.getIndexDataReadiness()).toMatchObject({symbolsReady:true,relationshipsReady:true});
     f.graph.close(); graphs.splice(graphs.indexOf(f.graph),1);
     const reopened=CodeGraph.openSync(f.root); graphs.push(reopened);
@@ -140,12 +141,12 @@ describe('known legacy coverage stays usable without inventing verification',()=
 
   it('rejects unknown/new/malformed provenance and every durable recovery marker',async()=>{
     const f=await fixture();
-    for(const value of ['23','35','36','34junk','024','NaN','',null]) {
-      f.q.setMetadata('indexed_with_extraction_version',value??'');
+    for(const value of ['21','23','35','36','22junk','022','34junk','024','NaN','',null]) {
+      f.q.applyMetadataChanges({ indexed_with_extraction_version: value });
       expect(f.graph.getIndexCompleteness().legacyUnverified,value??'null').toBeUndefined();
     }
-    f.q.setMetadata('indexed_with_extraction_version','24');
-    const cases:Record<string,string>={ [proof]:'corrupt',[started]:'1',index_synthesis_pending:'',index_conformance_pending:'',language_scope_pending:'',index_sync_failure_baseline:'',
+    f.q.setMetadata('indexed_with_extraction_version',String(extractionVersion));
+    const cases:Record<string,string>={ [proof]:'corrupt',[started]:'',index_synthesis_pending:'',index_conformance_pending:'',language_scope_pending:'',index_sync_failure_baseline:'',
       'sync-retry:pending:api.c':'{}','sync-append-delta:pending:api.c':'{}','resolution-deferred:1':'1',index_diagnostics:'bad'};
     for(const [key,value] of Object.entries(cases)) {
       f.q.setMetadata(key,value); expect(f.graph.getIndexCompleteness().legacyUnverified,key).toBeUndefined();
