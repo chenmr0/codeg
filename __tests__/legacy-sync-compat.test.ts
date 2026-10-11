@@ -54,13 +54,48 @@ describe('known legacy coverage stays usable without inventing verification',()=
     expect(f.q.getMetadata('resolution:cpp-macro-evidence-v1')).not.toBeNull();
   });
 
-  it('keeps a real edit incremental and preserves unverified legacy coverage',async()=>{
-    const f=await fixture(); await f.graph.sync();
+  it.each([false,true])('keeps a real edit incremental and preserves legacy coverage (enrolled=%s)',async enrolled=>{
+    const f=await fixture(); if(enrolled) await f.graph.sync();
     fs.writeFileSync(path.join(f.root,'api.c'),'#include "api.h"\nint api(void){return FLAG+2345;}\n');
     const full=vi.spyOn(f.graph,'resolveReferencesBatched');
-    expect((await f.graph.sync()).filesModified).toBe(1);
+    expect(await f.graph.sync()).toMatchObject({filesModified:1, complete:true});
     expect(full).not.toHaveBeenCalled(); expect(f.q.getMetadata(proof)).toBeNull();
     expect(f.graph.getIndexCompleteness()).toMatchObject({status:'unknown',legacyUnverified:true});
+    expect(f.q.getMetadataByPrefix('sync-retry:pending:')).toHaveLength(0);
+  });
+
+  it('retracts stale synthesized edges when enrolled legacy enters full recovery', async()=>{
+    const f=await fixture(); await f.graph.sync();
+    const raw=f.internal.db.getDb();
+    const expected=edges(f.internal);
+    const node=f.graph.getNodesByName('api')[0]!;
+    raw.prepare(`INSERT INTO edges (source,target,kind,line,col,metadata,provenance)
+      VALUES (?,?,'calls',999,0,?,'heuristic')`).run(node.id,node.id,JSON.stringify({synthesizedBy:'event-emitter'}));
+    raw.prepare(`INSERT INTO unresolved_refs
+      (from_node_id,reference_name,reference_kind,line,col,file_path,language,status,name_tail)
+      VALUES (?, 'missing', 'calls', 999, 0, 'api.c', 'c', 'pending', 'missing')`).run(node.id);
+    expect(f.graph.getIndexCompleteness().status).toBe('incomplete');
+    expect((await f.graph.sync()).complete).toBe(true);
+    expect(edges(f.internal)).toEqual(expected);
+    expect(f.q.getMetadata(proof)).toBe('1');
+  });
+
+  it('retains unfinished journals if final acknowledgment fails, then recovers on reopen',async()=>{
+    const f=await fixture(); await f.graph.sync();
+    fs.appendFileSync(path.join(f.root,'api.c'),'\n/* edit */\n');
+    const original=f.q.applyMetadataChanges.bind(f.q);
+    const fault=vi.spyOn(f.q,'applyMetadataChanges').mockImplementation((...args:any[])=>{
+      if(Object.entries(args[0]).some(([key,value])=>key.startsWith('sync-retry:pending:') && value===null))
+        throw new Error('ack interrupted');
+      return original(...args);
+    });
+    await expect(f.graph.sync()).rejects.toThrow('ack interrupted');
+    expect(f.q.getMetadataByPrefix('sync-retry:pending:').length).toBeGreaterThan(0);
+    expect(f.graph.getIndexCompleteness().status).toBe('incomplete');
+    fault.mockRestore(); f.graph.close(); graphs.splice(graphs.indexOf(f.graph),1);
+    const reopened=CodeGraph.openSync(f.root); graphs.push(reopened);
+    expect((await reopened.sync()).complete).toBe(true);
+    expect(reopened.getIndexCompleteness()).toMatchObject({status:'unknown',legacyUnverified:true});
   });
 
   it('explicit index verifies and upgrades unchanged extraction without --force',async()=>{
@@ -87,6 +122,7 @@ describe('known legacy coverage stays usable without inventing verification',()=
     expect((await f.graph.sync()).complete).toBe(false);
     expect(f.graph.getIndexCompleteness().status).toBe('incomplete');
     expect(f.q.getMetadata('index_synthesis_pending')).not.toBeNull();
+    expect(f.q.getMetadataByPrefix('sync-retry:pending:').length).toBeGreaterThan(0);
     expect((await f.graph.sync()).complete).not.toBe(false);
     expect(f.q.getMetadata(proof)).toBe('1'); expect(f.q.getMetadata(legacy)).toBeNull();
   });

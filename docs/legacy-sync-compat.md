@@ -27,6 +27,11 @@ preventing an interrupted attempt from being reclassified using old build
 stamps. `codegraph index` already forces replacement of unchanged files when
 extraction is stale; `--force` (clear first) is unnecessary for this upgrade.
 Successful full verification writes the existing completion proof normally.
+Compatibility only avoids unnecessary full-pass admission: once a non-fresh
+missing-proof graph enters full recovery, owned synthesized edges are replaced
+to retract relationships whose evidence disappeared. A successful incremental
+attempt acknowledges its retry journal before computing the returned coverage;
+failures leave the journal available for recovery.
 
 For an admitted legacy index with no macro fingerprint, unchanged sync also
 avoids the first whole-macro fingerprint scan. The old macro state is captured
