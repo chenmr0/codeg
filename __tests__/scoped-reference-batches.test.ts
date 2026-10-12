@@ -6,6 +6,7 @@ import { createDatabase, ensureSqlJsReady, type SqliteDatabase } from '../src/db
 import { QueryBuilder, SCOPED_REFERENCE_BATCH_SIZE, type PendingReferenceCursor } from '../src/db/queries';
 import { ReferenceResolver } from '../src/resolution';
 import { ResolutionDiagnostics } from '../src/resolution/diagnostics';
+import { SyncDiagnosticsSummary } from '../src/sync/diagnostics-summary';
 import CodeGraph from '../src/index';
 
 const databases: SqliteDatabase[] = [];
@@ -218,7 +219,9 @@ describe('scoped sync resolution and recovery', () => {
       return result;
     });
     const detail = new ResolutionDiagnostics();
-    await expect(resolver.resolveFilesAndPersist(['a.c'], undefined, {batchSize:250, diagnostics:detail}))
+    const summary = new SyncDiagnosticsSummary();
+    summary.phase = 'changedRefs';
+    await expect(resolver.resolveFilesAndPersist(['a.c'], undefined, {batchSize:250, diagnostics:detail, summary}))
       .rejects.toThrow('prefetch interruption');
     expect(batches).toEqual([250, 250, 250]);
     expect(reads).toHaveBeenCalledTimes(1);
@@ -226,6 +229,11 @@ describe('scoped sync resolution and recovery', () => {
     expect(detail).toMatchObject({readPages:1, maxReadRefs:2000, maxBatchRefs:250});
     expect(heartbeatPending).toBe(1851);
     expect(queries.getUnresolvedReferencesCount()).toBe(1601);
+    const observed = summary.lines('error').join('\n');
+    expect(observed).toContain('changedRefsYieldCount=2');
+    const buckets = [...observed.matchAll(/changedRefsYield(?:Le1|Gt1Le10|Gt10Le50|Gt50Le250|Gt250)Count=(\d+)/g)]
+      .reduce((total, match) => total + Number(match[1]), 0);
+    expect(buckets).toBe(2);
     fault.mockRestore();
     expect(await resolver.resolveFilesAndPersist(['a.c'], undefined, {batchSize:250})).toBe(1601);
     expect(queries.getUnresolvedReferencesCount()).toBe(0);

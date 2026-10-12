@@ -11,7 +11,7 @@
  * or an internally multi-write synthesis/index-restoration phase may overshoot
  * it; concurrent external writers are outside our control.
  */
-import type { DatabaseConnection } from './index';
+import type { DatabaseConnection, WalCheckpointDiagnostics, WalCheckpointObserver } from './index';
 import type { SyncDiagnosticPhase, SyncDiagnosticsSummary } from '../sync/diagnostics-summary';
 
 type WalTiming = 'backpressureWait' | 'drain' | 'drainPauseWait' | 'drainInflightWait' |
@@ -175,7 +175,7 @@ export class WalCheckpointValve {
     let previous: string | undefined;
     for (let i = 0; i < MAX_PAUSED_BACKFILL_PASSES; i++) {
       const res = await (phase
-        ? this.observe('parkedPassive', phase, () => this.db.checkpointWalPassive())
+        ? this.observe('parkedPassive', phase, () => this.db.checkpointWalPassive(this.checkpointObserver('parkedPassive')))
         : this.db.checkpointWalPassive());
       if (!res) {
         if (this.db.getWalSizeBytes() > this.hardBytes) this.abort();
@@ -183,7 +183,7 @@ export class WalCheckpointValve {
       }
       if (res.busy === 0 && res.log === res.checkpointed) {
         const trunc = await (phase
-          ? this.observe('parkedTruncate', phase, () => this.db.checkpointWalTruncate())
+          ? this.observe('parkedTruncate', phase, () => this.db.checkpointWalTruncate(this.checkpointObserver('parkedTruncate')))
           : this.db.checkpointWalTruncate());
         if (trunc?.busy === 0 && this.db.getWalSizeBytes() <= this.hardBytes) return;
       }
@@ -202,12 +202,54 @@ export class WalCheckpointValve {
 
   private fire(phase?: SyncDiagnosticPhase): void {
     const p = (phase
-      ? this.observe('advisoryPassive', phase, () => this.db.checkpointWalPassive())
+      ? this.observe('advisoryPassive', phase, () => this.db.checkpointWalPassive(this.checkpointObserver('advisoryPassive')))
       : this.db.checkpointWalPassive())
       .then(() => { /* Results belong to their own snapshot, never a size baseline. */ })
       .catch(() => { /* Timer is advisory; the parked hard-cap path fails closed. */ })
       .finally(() => { if (this.inflight === p) this.inflight = null; });
     this.inflight = p;
+  }
+
+  /** One numeric observation per checkpoint; no result rows become size baselines. */
+  private checkpointObserver(metric: 'advisoryPassive' | 'parkedPassive' | 'parkedTruncate'): WalCheckpointObserver {
+    return (diagnostics: Readonly<WalCheckpointDiagnostics>) => {
+      const summary = this.summary!;
+      summary.add('wal', `${metric}LifecycleCalls`, 1);
+      for (const key of [
+        'parentTotalMs', 'parentImportMs', 'parentConstructMs', 'workerStartupMs',
+        'workerEntryMs', 'workerModuleLoadMs', 'workerOpenMs', 'workerBusyTimeoutMs',
+        'workerPragmaMs', 'workerCloseMs', 'workerTotalMs', 'parentDeliveryMs',
+        'parentTerminateMs', 'parentUnattributedMs', 'inlinePragmaMs', 'workerCalls', 'inlineCalls',
+      ] as const) {
+        const value = diagnostics[key];
+        if (value !== undefined) summary.add('wal', `${metric}${key[0]!.toUpperCase()}${key.slice(1)}`, value);
+      }
+      for (const key of [
+        'workerMessages', 'importErrors', 'constructErrors', 'timeoutResults', 'workerErrors',
+        'earlyExitResults', 'terminateErrors', 'clockUnavailableResults', 'workerModuleLoadErrors',
+        'workerOpenErrors', 'workerBusyTimeoutErrors', 'workerPragmaErrors', 'workerCloseErrors',
+        'inlinePragmaErrors', 'resultRows', 'nullResults',
+      ] as const) {
+        const value = diagnostics[key];
+        if (value !== undefined) summary.add('wal', `${metric}${key[0]!.toUpperCase()}${key.slice(1)}Count`, value);
+      }
+      if (!diagnostics.resultRows) return;
+      const { resultBusy: busy, resultLogFrames: log, resultCheckpointedFrames: checkpointed } = diagnostics;
+      const available = (value: number | undefined): value is number =>
+        typeof value === 'number' && Number.isFinite(value) && value >= 0;
+      for (const [key, value] of [['BusyValue', busy], ['LogFrames', log], ['CheckpointedFrames', checkpointed]] as const) {
+        if (!available(value)) continue;
+        summary.max('wal', `${metric}${key}MaxCount`, value);
+        summary.last('wal', `${metric}${key}LastCount`, value);
+        if (key !== 'BusyValue') summary.add('wal', `${metric}${key}SamplesCount`, 1);
+      }
+      // SQLite returns -1 frame values for unavailable/non-WAL observations.
+      // Those are neither a full backfill nor zero-frame samples. Result classes
+      // are exclusive; snapshot frame counts are max/last, never summed as work.
+      const outcome = !available(busy) || !available(log) || !available(checkpointed) ? 'Unavailable' :
+        busy !== 0 ? 'Busy' : log === checkpointed ? 'Full' : 'Partial';
+      summary.add('wal', `${metric}${outcome}ResultsCount`, 1);
+    };
   }
 
   /**

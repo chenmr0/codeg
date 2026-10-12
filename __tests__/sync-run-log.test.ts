@@ -4,6 +4,7 @@ import path from 'path';
 import os from 'os';
 import type { FileHandle } from 'fs/promises';
 import { SyncRunLog, SYNC_RUN_LOG_MAX_BYTES, SYNC_RUN_LOG_WARNING } from '../src/sync/run-log';
+import { SyncDiagnosticsSummary } from '../src/sync/diagnostics-summary';
 
 const summary = (outcome = 'running', count = 1): string[] => [
   `[sync-summary] schema=1 outcome=${outcome} wallMs=12 phase=preflight phaseElapsedMs=5`,
@@ -52,6 +53,20 @@ describe('anonymous sync run logs', () => {
     for (const writer of writers.splice(0)) await writer.finish();
     vi.restoreAllMocks();
     fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  it('accepts additive schema-1 yield observations while keeping eight-line summaries', async () => {
+    const diagnostics = new SyncDiagnosticsSummary();
+    for (const duration of [0.2, 2, 20, 200, 300]) diagnostics.recordReferenceYield('changedRefs', duration);
+    diagnostics.recordReferenceYield('failedRetry', 12);
+    const warning = vi.fn();
+    const writer = make(() => diagnostics.lines('success'), warning);
+    writer.event('start');
+    await writer.finish();
+    expect(warning).not.toHaveBeenCalled();
+    expect(readCompleted()).toContain('changedRefsYieldCount=5');
+    expect(readCompleted()).toContain('changedRefsYieldMaxMs=300');
+    expect(readCompleted()).toContain('failedRetryYieldGt10Le50Count=1');
   });
 
   it('writes start/stage/end by the actual DB and finishes once without identifying text', async () => {

@@ -1369,7 +1369,7 @@ export class ReferenceResolver {
             if (summary) {
               const elapsed = performance.now() - yieldStart;
               accounted += elapsed;
-              summary.add('refs', scope + 'YieldMs', elapsed);
+              summary.recordReferenceYield(scope, elapsed);
             }
           }
         }

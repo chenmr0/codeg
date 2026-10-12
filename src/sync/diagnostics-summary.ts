@@ -12,6 +12,24 @@ export class SyncDiagnosticsSummary {
     if (!/^[A-Za-z][A-Za-z0-9]*$/.test(key) || !Number.isFinite(value) || value < 0) return;
     this.groups[group][key] = (this.groups[group][key] ?? 0) + value;
   }
+  max(group: SyncDiagnosticGroup, key: string, value: number): void {
+    if (!/^[A-Za-z][A-Za-z0-9]*$/.test(key) || !Number.isFinite(value) || value < 0) return;
+    this.groups[group][key] = Math.max(this.groups[group][key] ?? 0, value);
+  }
+  last(group: SyncDiagnosticGroup, key: string, value: number): void {
+    if (!/^[A-Za-z][A-Za-z0-9]*$/.test(key) || !Number.isFinite(value) || value < 0) return;
+    this.groups[group][key] = value;
+  }
+  /** Observes an existing setImmediate await; does not introduce a probe/timer. */
+  recordReferenceYield(scope: SyncDiagnosticPhase, elapsedMs: number): void {
+    if (!Number.isFinite(elapsedMs) || elapsedMs < 0) return;
+    this.add('refs', scope + 'YieldMs', elapsedMs);
+    this.add('refs', scope + 'YieldCount', 1);
+    this.max('refs', scope + 'YieldMaxMs', elapsedMs);
+    const bucket = elapsedMs <= 1 ? 'Le1' : elapsedMs <= 10 ? 'Gt1Le10' :
+      elapsedMs <= 50 ? 'Gt10Le50' : elapsedMs <= 250 ? 'Gt50Le250' : 'Gt250';
+    this.add('refs', scope + 'Yield' + bucket + 'Count', 1);
+  }
   measure<T>(group: SyncDiagnosticGroup, key: string, operation: () => T): T {
     const start = performance.now();
     try { return operation(); } finally { this.add(group, key, performance.now() - start); }

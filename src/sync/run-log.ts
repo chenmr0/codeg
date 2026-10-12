@@ -29,6 +29,19 @@ const REF_DETAILS = ['LoadRefsMs', 'FileNamesLoadMs', 'FileNamesSetMs', 'SymbolN
   'EdgeInsertMs', 'ResolvedCleanupMs', 'FailedCleanupMs', 'JournalDeferredMs'];
 const upperFirst = (value: string): string => value[0]!.toUpperCase() + value.slice(1);
 const WAL_KEYS = WAL_METRICS.flatMap(metric => ['Calls', 'Ms', 'Errors'].map(suffix => metric + suffix));
+const CHECKPOINT_KEYS = ['ParentTotalMs', 'ParentImportMs', 'ParentConstructMs',
+  'WorkerStartupMs', 'WorkerEntryMs', 'WorkerModuleLoadMs', 'WorkerOpenMs',
+  'WorkerBusyTimeoutMs', 'WorkerPragmaMs', 'WorkerCloseMs', 'WorkerTotalMs',
+  'ParentDeliveryMs', 'ParentTerminateMs', 'ParentUnattributedMs', 'InlinePragmaMs',
+  'LifecycleCalls', 'WorkerCalls', 'WorkerMessagesCount', 'InlineCalls',
+  'ImportErrorsCount', 'ConstructErrorsCount', 'TimeoutResultsCount', 'WorkerErrorsCount',
+  'EarlyExitResultsCount', 'TerminateErrorsCount', 'ClockUnavailableResultsCount',
+  'WorkerModuleLoadErrorsCount', 'WorkerOpenErrorsCount', 'WorkerBusyTimeoutErrorsCount',
+  'WorkerPragmaErrorsCount', 'WorkerCloseErrorsCount', 'InlinePragmaErrorsCount',
+  'ResultRowsCount', 'NullResultsCount', 'BusyResultsCount', 'FullResultsCount',
+  'PartialResultsCount', 'UnavailableResultsCount', 'BusyValueMaxCount', 'BusyValueLastCount',
+  'LogFramesSamplesCount', 'LogFramesMaxCount', 'LogFramesLastCount',
+  'CheckpointedFramesSamplesCount', 'CheckpointedFramesMaxCount', 'CheckpointedFramesLastCount'];
 /** Explicit keys, rather than a generic identifier regex: even keys cannot carry source names. */
 const KEYS: Record<typeof GROUPS[number], ReadonlySet<string>> = {
   stages: new Set([...PHASES.map(phase => phase + 'Ms'), 'logFlushMs']),
@@ -37,10 +50,14 @@ const KEYS: Record<typeof GROUPS[number], ReadonlySet<string>> = {
   store: new Set([...STORE_KEYS, 'mainThreadWallMs', 'fallbackIndexFileMs']),
   worker: new Set([...STORE_KEYS, 'rpcWallMs', 'requestCount', 'requestWallMs',
     'failedRequestCount', 'transactionWallMs', 'bodyMs', 'boundaryMs']),
-  wal: new Set([...WAL_KEYS, ...PHASES.flatMap(phase => WAL_KEYS
+  wal: new Set([...WAL_KEYS,
+    ...['advisoryPassive', 'parkedPassive', 'parkedTruncate'].flatMap(prefix => CHECKPOINT_KEYS.map(key => prefix + key)),
+    ...PHASES.flatMap(phase => WAL_KEYS
     .filter(key => /^(backpressure|fold|drain)/.test(key)).map(key => phase + upperFirst(key)))]),
   refs: new Set(PHASES.flatMap(phase => ['PlanReadMs', 'FilterMs', 'ResolveMs', 'AfterWriteMs',
-    'YieldMs', 'WallMs', 'UnattributedMs', 'BatchCount', 'RefCount',
+    'YieldMs', 'YieldCount', 'YieldMaxMs', 'YieldLe1Count', 'YieldGt1Le10Count',
+    'YieldGt10Le50Count', 'YieldGt50Le250Count', 'YieldGt250Count',
+    'WallMs', 'UnattributedMs', 'BatchCount', 'RefCount',
     ...REF_DETAILS.map(key => 'Detail' + key)].map(key => phase + key))),
 };
 const safeInteger = (value: string): boolean => /^(0|[1-9]\d{0,15})$/.test(value) && Number.isSafeInteger(Number(value));

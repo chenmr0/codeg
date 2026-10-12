@@ -13,6 +13,57 @@ import { getCodeGraphDir } from '../directory';
 
 export { SqliteDatabase, SqliteBackend } from './sqlite-adapter';
 
+/** Optional, numeric-only checkpoint telemetry; never changes the result contract. */
+export interface WalCheckpointDiagnostics {
+  parentTotalMs?: number;
+  parentImportMs?: number;
+  parentConstructMs?: number;
+  workerStartupMs?: number;
+  workerEntryMs?: number;
+  workerModuleLoadMs?: number;
+  workerOpenMs?: number;
+  workerBusyTimeoutMs?: number;
+  workerPragmaMs?: number;
+  workerCloseMs?: number;
+  workerTotalMs?: number;
+  parentDeliveryMs?: number;
+  parentTerminateMs?: number;
+  parentUnattributedMs?: number;
+  inlinePragmaMs?: number;
+  workerCalls?: number;
+  workerMessages?: number;
+  inlineCalls?: number;
+  importErrors?: number;
+  constructErrors?: number;
+  timeoutResults?: number;
+  workerErrors?: number;
+  earlyExitResults?: number;
+  terminateErrors?: number;
+  clockUnavailableResults?: number;
+  workerModuleLoadErrors?: number;
+  workerOpenErrors?: number;
+  workerBusyTimeoutErrors?: number;
+  workerPragmaErrors?: number;
+  workerCloseErrors?: number;
+  inlinePragmaErrors?: number;
+  resultRows?: number;
+  nullResults?: number;
+  resultBusy?: number;
+  resultLogFrames?: number;
+  resultCheckpointedFrames?: number;
+}
+export type WalCheckpointObserver = (diagnostics: Readonly<WalCheckpointDiagnostics>) => void;
+type WalCheckpointResult = { busy: number; log: number; checkpointed: number } | null;
+
+// Transport-only monotonic marks are never passed to observers or logs.
+interface WalCheckpointWorkerMessage {
+  row?: Record<string, number> | null;
+  diagnostics?: WalCheckpointDiagnostics;
+  clockOrigin?: number;
+  enteredAt?: number;
+  postedAt?: number;
+}
+
 /**
  * Apply connection-level PRAGMAs. Shared by `initialize` and `open` so the two
  * paths can't drift.
@@ -408,8 +459,8 @@ export class DatabaseConnection {
   }
 
   /** Off-thread, non-blocking-reader checkpoint. Safe while the writer is active. */
-  checkpointWalPassive(): Promise<{ busy: number; log: number; checkpointed: number } | null> {
-    return this.checkpointWal('PASSIVE');
+  checkpointWalPassive(observe?: WalCheckpointObserver): Promise<WalCheckpointResult> {
+    return this.checkpointWal('PASSIVE', observe);
   }
 
   /**
@@ -417,56 +468,147 @@ export class DatabaseConnection {
    * transaction. busy_timeout=0 means a pinned reader returns busy rather than
    * blocking a writer waiting for this checkpoint. Never called by the timer.
    */
-  checkpointWalTruncate(): Promise<{ busy: number; log: number; checkpointed: number } | null> {
-    return this.checkpointWal('TRUNCATE');
+  checkpointWalTruncate(observe?: WalCheckpointObserver): Promise<WalCheckpointResult> {
+    return this.checkpointWal('TRUNCATE', observe);
   }
 
-  private async checkpointWal(mode: 'PASSIVE' | 'TRUNCATE'): Promise<{ busy: number; log: number; checkpointed: number } | null> {
+  private async checkpointWal(mode: 'PASSIVE' | 'TRUNCATE', observe?: WalCheckpointObserver): Promise<WalCheckpointResult> {
+    const diagnostics: WalCheckpointDiagnostics | undefined = observe ? {} : undefined;
+    const started = diagnostics ? performance.now() : 0;
+    const report = (result: WalCheckpointResult): WalCheckpointResult => {
+      if (diagnostics) {
+        diagnostics.parentTotalMs = Math.max(0, performance.now() - started);
+        if (result) {
+          diagnostics.resultRows = 1;
+          if (Number.isFinite(result.busy)) diagnostics.resultBusy = result.busy;
+          if (Number.isFinite(result.log)) diagnostics.resultLogFrames = result.log;
+          if (Number.isFinite(result.checkpointed)) diagnostics.resultCheckpointedFrames = result.checkpointed;
+        } else diagnostics.nullResults = 1;
+        // A diagnostic callback must never change checkpoint success/failure,
+        // prevent termination, or release a parked writer prematurely.
+        try { observe!(diagnostics); } catch { /* diagnostics are best-effort */ }
+      }
+      return result;
+    };
     if (!this.dbPath || this.dbPath === ':memory:') {
+      const pragmaStarted = diagnostics ? performance.now() : 0;
+      if (diagnostics) diagnostics.inlineCalls = 1;
+      let result: WalCheckpointResult = null;
       try {
         const row = this.db.prepare(`PRAGMA wal_checkpoint(${mode})`).get() as Record<string, number> | undefined;
-        return row ? { busy: Number(row.busy), log: Number(row.log), checkpointed: Number(row.checkpointed) } : null;
-      } catch { return null; }
+        result = row ? { busy: Number(row.busy), log: Number(row.log), checkpointed: Number(row.checkpointed) } : null;
+      } catch { if (diagnostics) diagnostics.inlinePragmaErrors = 1; }
+      finally { if (diagnostics) diagnostics.inlinePragmaMs = Math.max(0, performance.now() - pragmaStarted); }
+      return report(result);
     }
+    const importStarted = diagnostics ? performance.now() : 0;
     try {
       const { Worker } = await import('node:worker_threads');
+      if (diagnostics) diagnostics.parentImportMs = Math.max(0, performance.now() - importStarted);
       const workerSource = `
+        const enteredAt = ${diagnostics ? 'performance.now()' : '0'};
         const { workerData, parentPort } = require('node:worker_threads');
+        const diagnostics = workerData.diagnostics ? {} : null;
+        const measured = (key, operation) => {
+          if (!diagnostics) return operation();
+          const started = performance.now();
+          try { return operation(); }
+          catch (error) { diagnostics[key + 'Errors'] = 1; throw error; }
+          finally { diagnostics[key + 'Ms'] = Math.max(0, performance.now() - started); }
+        };
         let row = null;
+        if (diagnostics) diagnostics.workerEntryMs = Math.max(0, performance.now() - enteredAt);
         try {
-          const { DatabaseSync } = require('node:sqlite');
-          const db = new DatabaseSync(workerData.dbPath);
-          db.exec('PRAGMA busy_timeout=0');
-          try { row = db.prepare('PRAGMA wal_checkpoint(' + workerData.mode + ')').get(); } catch {}
-          try { db.close(); } catch {}
+          const { DatabaseSync } = measured('workerModuleLoad', () => require('node:sqlite'));
+          const db = measured('workerOpen', () => new DatabaseSync(workerData.dbPath));
+          measured('workerBusyTimeout', () => db.exec('PRAGMA busy_timeout=0'));
+          try { row = measured('workerPragma', () => db.prepare('PRAGMA wal_checkpoint(' + workerData.mode + ')').get()); } catch {}
+          try { measured('workerClose', () => db.close()); } catch {}
         } catch {}
-        parentPort.postMessage({ row });
+        if (diagnostics) {
+          const postedAt = performance.now();
+          diagnostics.workerTotalMs = Math.max(0, postedAt - enteredAt);
+          parentPort.postMessage({ row, diagnostics, clockOrigin: performance.timeOrigin, enteredAt, postedAt });
+        } else parentPort.postMessage({ row });
       `;
       return await new Promise((resolve) => {
         let settled = false;
         let timer: ReturnType<typeof setTimeout> | undefined;
         let worker: import('node:worker_threads').Worker | undefined;
-        const finish = async (row?: Record<string, number> | null): Promise<void> => {
+        let constructStarted = 0;
+        const finish = async (row?: Record<string, number> | null, message?: WalCheckpointWorkerMessage,
+          outcome?: 'timeoutResults' | 'workerErrors' | 'earlyExitResults' | 'constructErrors'): Promise<void> => {
           if (settled) return;
           settled = true;
+          const receivedAt = diagnostics ? performance.now() : 0;
           if (timer) clearTimeout(timer);
+          if (diagnostics) {
+            if (outcome) diagnostics[outcome] = 1;
+            if (message) {
+              diagnostics.workerMessages = 1;
+              // Explicit bounded fields, even though the worker is our code.
+              for (const key of [
+                'workerEntryMs', 'workerModuleLoadMs', 'workerOpenMs', 'workerBusyTimeoutMs',
+                'workerPragmaMs', 'workerCloseMs', 'workerTotalMs', 'workerModuleLoadErrors',
+                'workerOpenErrors', 'workerBusyTimeoutErrors', 'workerPragmaErrors', 'workerCloseErrors',
+              ] as const) {
+                const value = message.diagnostics?.[key];
+                if (typeof value === 'number' && Number.isFinite(value) && value >= 0) diagnostics[key] = value;
+              }
+              // Node defines performance.now()/timeOrigin from process start,
+              // including worker threads: nodejs.org/api/perf_hooks.html#performancenow.
+              // Verify the common origin and ordering before subtracting marks.
+              // Startup includes construction; delivery includes message transfer
+              // and parent scheduling. Neither is SQLite execution time.
+              const { enteredAt, postedAt } = message;
+              if (message.clockOrigin === performance.timeOrigin &&
+                  typeof enteredAt === 'number' && Number.isFinite(enteredAt) &&
+                  typeof postedAt === 'number' && Number.isFinite(postedAt) &&
+                  constructStarted <= enteredAt && enteredAt <= postedAt && postedAt <= receivedAt) {
+                diagnostics.workerStartupMs = enteredAt - constructStarted;
+                diagnostics.parentDeliveryMs = receivedAt - postedAt;
+              } else diagnostics.clockUnavailableResults = 1;
+            }
+          }
           // Never resume the parked writer while a timed-out TRUNCATE worker
           // might still hold SQLite locks. Termination settles after exit.
-          try { await worker?.terminate(); } catch { /* already exited */ }
-          resolve(row ? { busy: Number(row.busy), log: Number(row.log), checkpointed: Number(row.checkpointed) } : null);
+          const terminateStarted = diagnostics ? performance.now() : 0;
+          try { await worker?.terminate(); }
+          catch { if (diagnostics) diagnostics.terminateErrors = 1; /* already exited */ }
+          if (diagnostics) {
+            diagnostics.parentTerminateMs = Math.max(0, performance.now() - terminateStarted);
+            if (diagnostics.workerStartupMs === undefined || diagnostics.parentDeliveryMs === undefined) {
+              // With no comparable marks this residual cannot distinguish
+              // startup, delivery, scheduling or unreported worker work.
+              diagnostics.parentUnattributedMs = Math.max(0, receivedAt - constructStarted - (diagnostics.workerTotalMs ?? 0));
+            }
+          }
+          resolve(report(row ? { busy: Number(row.busy), log: Number(row.log), checkpointed: Number(row.checkpointed) } : null));
         };
         try {
-          worker = new Worker(workerSource, { eval: true, workerData: { dbPath: this.dbPath, mode } });
+          if (diagnostics) diagnostics.workerCalls = 1;
+          constructStarted = diagnostics ? performance.now() : 0;
+          worker = new Worker(workerSource, { eval: true, workerData: { dbPath: this.dbPath, mode, diagnostics: !!diagnostics } });
+          if (diagnostics) diagnostics.parentConstructMs = Math.max(0, performance.now() - constructStarted);
           // Request cancellation after 60s. Wait for confirmed worker exit
           // before releasing SQLite locks; an OS-uninterruptible I/O can still
           // delay termination. This is not an OS-level hard time bound.
-          timer = setTimeout(() => { void finish(null); }, 60_000);
-          worker.once('message', (m: { row?: Record<string, number> | null }) => { void finish(m?.row ?? null); });
-          worker.once('error', () => { void finish(null); });
-          worker.once('exit', () => { void finish(null); });
-        } catch { void finish(null); }
+          timer = setTimeout(() => { void finish(null, undefined, 'timeoutResults'); }, 60_000);
+          worker.once('message', (m: WalCheckpointWorkerMessage) => { void finish(m?.row ?? null, m); });
+          worker.once('error', () => { void finish(null, undefined, 'workerErrors'); });
+          worker.once('exit', () => { void finish(null, undefined, 'earlyExitResults'); });
+        } catch {
+          if (diagnostics) diagnostics.parentConstructMs = Math.max(0, performance.now() - constructStarted);
+          void finish(null, undefined, 'constructErrors');
+        }
       });
-    } catch { return null; }
+    } catch {
+      if (diagnostics) {
+        diagnostics.parentImportMs = Math.max(0, performance.now() - importStarted);
+        diagnostics.importErrors = 1;
+      }
+      return report(null);
+    }
   }
 
   /**

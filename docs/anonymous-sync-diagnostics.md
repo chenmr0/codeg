@@ -15,6 +15,26 @@
 - `wal`：`backpressureWaitMs` 是调用者实际等待；`foldMs` 含 drain 和 park；`parkMs` 含 PASSIVE/TRUNCATE、重试及在途检查等待。`advisoryPassiveMs` 是后台检查工作。等待与实际检查重叠，不能相加。阶段前缀按调用开始阶段归属，同一次共享检查可能有多个等待者。
 - `refs`：各 scope 的 `WallMs` 包含互斥的 `PlanReadMs`、`ResolveMs`、`AfterWriteMs`、`YieldMs`（failedRetry 另有 FilterMs），`UnattributedMs` 为剩余包装工作。`Detail*` 是 Resolve 内嵌细项，包括 deferred journal；不能将 Detail 再加到 Resolve。WAL 等待也已包含在 AfterWrite 或上层阶段时间里。
 
+### 引用批次的事件循环等待
+
+`refs` 在原有 `setImmediate` 等待处增加 `YieldCount`、`YieldMaxMs` 和五个互斥次数桶：`YieldLe1Count`（≤1 ms）、`YieldGt1Le10Count`、`YieldGt10Le50Count`、`YieldGt50Le250Count`、`YieldGt250Count`。字段仍带 scope 前缀，例如 `changedRefsYieldMaxMs`。按未四舍五入的实际时长分桶，各桶之和等于 `YieldCount`；最大值和总时长展示时四舍五入。
+
+这些数字观察已有的让出执行权，不新增定时采样、休眠或 SQL。它们是从发起 `setImmediate` 到恢复执行的等待，可能包含其他回调、调度、GC 或资源争用，不能仅凭长等待判定某一种原因，也不代表程序固定休眠该时长。新字段追加在原 `schema=1` 的 8 行中，旧字段与包含关系不变。
+
+### Checkpoint 生命周期与帧结果
+
+`wal` 按 `advisoryPassive`、`parkedPassive`、`parkedTruncate` 三个前缀追加数字。以 `parkedPassiveWorkerPragmaMs` 为例，它只计 worker 中准备并执行该次 checkpoint PRAGMA 的时间。不会为观测多执行一次 PRAGMA。
+
+- `ParentTotalMs` 是从调用数据库 checkpoint 方法到 worker 终止确认后返回的总时间；原有 `parkedPassiveMs` 等外层时间仍保留。
+- `ParentImportMs` 为父线程获取 worker 模块；`WorkerStartupMs` 为开始构造 worker 到其脚本进入，包含 `ParentConstructMs`，两者不能相加。
+- `WorkerTotalMs` 包含 worker 脚本入口、加载 SQLite 模块（`WorkerModuleLoadMs`）、打开连接（`WorkerOpenMs`）、设置 busy timeout（`WorkerBusyTimeoutMs`）、执行 checkpoint（`WorkerPragmaMs`）、关闭连接（`WorkerCloseMs`）及少量包装工作。
+- `ParentDeliveryMs` 是 worker 发出结果到父线程处理消息的间隔，包含传输与父线程调度等待；`ParentTerminateMs` 是随后等待 worker 终止确认的时间。PRAGMA 时间包括 SQLite 内部执行与可能的 I/O 等待，不能直接等同 CPU 或纯磁盘写入时间。
+- 跨线程时间只在 `performance.timeOrigin` 相同且标记顺序有效时细分；否则增加 `ClockUnavailableResultsCount`，将无法细分部分记为 `ParentUnattributedMs`。超时、提前退出等没有完整 worker 回包的情况也无法细分全部阶段。内存数据库用 `InlinePragmaMs`，没有 worker 生命周期。
+
+`LifecycleCalls`、`ResultRowsCount`、`NullResultsCount` 及固定 `*ErrorsCount`/`*ResultsCount` 表示观测与结果次数，不输出错误原文。结果分为 busy、full、partial、unavailable；只有非负有效帧数参与 full/partial 判断；full 仅表示这次 PRAGMA 返回 busy=0 且 log=checkpointed，无 WAL 时 SQLite 的 `-1` 帧数不能当已回填完成。
+
+`LogFramesLastCount` / `CheckpointedFramesLastCount` 是最近一次非负有效采样的帧数（后续 -1 或缺失不会覆盖此前有效值），`*MaxCount` 为最大观测值，`*SamplesCount` 为有效样本数。帧数是各次 PRAGMA 返回的快照，可能来自不同 WAL 世代或重复观察同一批页，**不能求和当作唯一回写页数或总写入量**。`BusyValueLastCount` / `BusyValueMaxCount` 保留 SQLite 返回的非负 busy 数值。零值仍按原 schema 省略，因此需要结合有效样本和结果次数判断。
+
 每次 sync 都新建计量，不跨调用累计。失败时已完成的部分仍保留，但并非每种系统崩溃都能发出摘要。原有解析、事务、WAL 阈值和并发策略不改变。
 
 ## 默认本地运行日志

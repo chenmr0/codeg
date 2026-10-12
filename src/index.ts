@@ -1099,7 +1099,7 @@ export class CodeGraph {
                 try { await new Promise<void>((resolve) => setImmediate(resolve)); }
                 finally { if (summary) {
                   const elapsed = performance.now() - yieldStarted;
-                  accounted += elapsed; summary.add('refs', 'failedRetryYieldMs', elapsed);
+                  accounted += elapsed; summary.recordReferenceYield('failedRetry', elapsed);
                 } }
               }
             }
