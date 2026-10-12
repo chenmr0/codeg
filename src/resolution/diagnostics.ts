@@ -3,7 +3,7 @@ const emptyTimings = () => ({
   loadRefsMs: 0, fileNamesLoadMs: 0, fileNamesSetMs: 0,
   symbolNamesLoadMs: 0, symbolNamesSetMs: 0, nameProbeMs: 0, normalizeMs: 0,
   matchMs: 0, edgeBuildMs: 0, edgeInsertMs: 0,
-  resolvedCleanupMs: 0, failedCleanupMs: 0,
+  resolvedCleanupMs: 0, failedCleanupMs: 0, journalDeferredMs: 0,
 });
 export type ResolutionTimingPhase = keyof ReturnType<typeof emptyTimings>;
 

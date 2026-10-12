@@ -1,4 +1,6 @@
-/** Verbose-only attribution of the existing synchronous sync store path. */
+import type { SyncDiagnosticsSummary } from '../sync/diagnostics-summary';
+
+/** Opt-in attribution of the existing synchronous sync store path. */
 export class StoreDiagnostics {
   readonly timings = {
     canonicalMs: 0, hashMs: 0, lookupMs: 0, retryStateMs: 0,
@@ -43,4 +45,48 @@ export type StoreDiagnosticsSnapshot = Pick<StoreDiagnostics,
 export function measureStore<T>(diagnostics: StoreDiagnostics | undefined,
   phase: keyof StoreDiagnostics['timings'], operation: () => T): T {
   return diagnostics ? diagnostics.measure(phase, operation) : operation();
+}
+
+/** Only fixed numeric fields cross into the anonymous summary. */
+export function reportStoreDiagnostics(
+  summary: SyncDiagnosticsSummary | undefined,
+  snapshot: StoreDiagnosticsSnapshot | undefined,
+  group: 'store' | 'worker' = 'store',
+): void {
+  if (!summary || !snapshot) return;
+  for (const key of [
+    'canonicalMs', 'hashMs', 'lookupMs', 'retryStateMs', 'snapshotMs',
+    'deleteMs', 'nodesMs', 'edgesMs', 'refsMs', 'rewireMs', 'fileMs', 'retainMs',
+  ] as const) summary.add(group, key, snapshot.timings[key]);
+  for (const key of ['files', 'skipped', 'nodeRows', 'edgeRows', 'refRows', 'retainedFiles'] as const) {
+    summary.add(group, `${key}Count`, snapshot[key]);
+  }
+  summary.add(group, 'failedCount', snapshot.failedPhase === 'none' ? 0 : 1);
+}
+
+export interface StoreTransactionDiagnostics {
+  transactionWallMs: number;
+  bodyMs: number;
+  /** Residual includes begin, commit/rollback and transaction-wrapper overhead. */
+  boundaryMs: number;
+}
+
+/** Measure the existing transaction invocation without adding a transaction. */
+export function measureStoreTransaction<T>(
+  diagnostics: StoreTransactionDiagnostics | undefined,
+  transaction: (body: () => T) => T,
+  operation: () => T,
+): T {
+  if (!diagnostics) return transaction(operation);
+  const started = performance.now();
+  try {
+    return transaction(() => {
+      const bodyStarted = performance.now();
+      try { return operation(); }
+      finally { diagnostics.bodyMs += performance.now() - bodyStarted; }
+    });
+  } finally {
+    diagnostics.transactionWallMs += performance.now() - started;
+    diagnostics.boundaryMs = Math.max(0, diagnostics.transactionWallMs - diagnostics.bodyMs);
+  }
 }

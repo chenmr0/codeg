@@ -812,9 +812,18 @@ program
   .description('Sync changes since last index')
   .option('-q, --quiet', 'Suppress output (for git hooks)')
   .option('-v, --verbose', 'Show detailed sync phase and worker timing')
-  .action(async (pathArg: string | undefined, options: { quiet?: boolean; verbose?: boolean }) => {
+  .option('--diagnostics-summary', 'Print a fixed numeric sync summary without enabling verbose path logs')
+  .action(async (pathArg: string | undefined, options: { quiet?: boolean; verbose?: boolean; diagnosticsSummary?: boolean }) => {
     const projectPath = resolveProjectPath(pathArg);
     const commandStarted = performance.now();
+    let summaryLines: readonly string[] = [];
+    const diagnosticsSummary = options.diagnosticsSummary
+      ? (lines: readonly string[]): void => { summaryLines = lines; } : undefined;
+    const printSummary = (): void => {
+      const lines = summaryLines;
+      summaryLines = [];
+      for (const line of lines) console.log(line);
+    };
 
     try {
       if (!isInitialized(projectPath)) {
@@ -832,8 +841,9 @@ program
       const databaseOpenMs = performance.now() - databaseOpenStarted;
 
       if (options.quiet) {
-        await cg.sync();
+        await cg.sync({ diagnosticsSummary });
         cg.destroy();
+        printSummary();
         return;
       }
 
@@ -847,6 +857,7 @@ program
       const result = await cg.sync({
         onProgress: progress.onProgress,
         verbose: options.verbose,
+        diagnosticsSummary,
       });
       const syncPipelineMs = performance.now() - syncPipelineStarted;
 
@@ -891,10 +902,12 @@ program
         ? 'Sync usable with incomplete graph coverage'
         : legacyUnverified ? 'Legacy index usable; synthesis coverage unverified' : 'Done');
       cg.destroy();
+      printSummary();
     } catch (err) {
       if (!options.quiet) {
         error(`Failed to sync: ${err instanceof Error ? err.message : String(err)}`);
       }
+      printSummary();
       process.exit(1);
     }
   });

@@ -67,6 +67,7 @@ import { CodeGraphPackageVersion } from './mcp/version';
 import { cancelRawEvidenceScans } from './mcp/raw-source-worker-client';
 import { ResolutionDiagnostics } from './resolution/diagnostics';
 import { syncNameLookupMode } from './resolution/name-lookup';
+import { SyncDiagnosticsSummary, type SyncDiagnosticPhase } from './sync/diagnostics-summary';
 
 // A 10,000-reference page can hold the MCP event loop for seconds. Sync
 // persists smaller complete batches, yielding with no open reader/transaction.
@@ -173,6 +174,8 @@ export interface IndexOptions {
 
 /** Options for incremental synchronization. */
 export interface SyncOptions extends IndexOptions {
+  /** Opt-in fixed numeric summary. Existing logs/errors are not anonymized. */
+  diagnosticsSummary?: (lines: readonly string[]) => void;
   /**
    * Exact project-relative source paths reported by the file watcher.
    * @internal Callers without a complete event set must leave this undefined.
@@ -805,6 +808,17 @@ export class CodeGraph {
   async sync(options: SyncOptions = {}): Promise<SyncResult> {
     const syncStartedAt = performance.now();
     let acquiredWriteLock = false;
+    const summary = options.diagnosticsSummary ? new SyncDiagnosticsSummary() : undefined;
+    let stageStarted = summary ? performance.now() : 0;
+    const stage = (next: SyncDiagnosticPhase): void => {
+      if (!summary) return;
+      const now = performance.now();
+      summary.add('stages', summary.phase + 'Ms', now - stageStarted);
+      summary.phase = next;
+      stageStarted = now;
+    };
+    let outcome: 'success' | 'incomplete' | 'error' | 'lockUnavailable' = 'error';
+    try {
     const result = await withLanguageScope(() => this.indexMutex.withLock(() => this.trackDataReadiness(async () => {
       try {
         this.fileLock.acquire();
@@ -859,7 +873,8 @@ export class CodeGraph {
             this.db,
             undefined,
             undefined,
-            options.verbose ? (msg: string) => console.log(`[wal] ${msg}`) : undefined
+            options.verbose ? (msg: string) => console.log(`[wal] ${msg}`) : undefined,
+            summary,
           );
           walValve.start();
         }
@@ -891,18 +906,22 @@ export class CodeGraph {
         const replaceFileStore: ReplaceFileStore | undefined =
           this.db.getBackend() === 'node-sqlite' && this.db.getJournalMode() === 'wal' && existsSync(workerPath)
             ? (request) => {
+                const replace = (): ReturnType<ReplaceFileStore> => {
                 // Reuse one writer only when a file has expensive fan-in.
                 // Small syncs and the in-memory WASM backend stay on their
                 // existing path; no worker startup is paid for ordinary saves.
                 syncStoreWriter.current ??= new StoreWriter(workerPath, this.db.getPath(), false,
-                  { root: this.projectRoot, deferWal });
+                  { root: this.projectRoot, deferWal }, summary);
                 return syncStoreWriter.current.replace(request);
+                };
+                return summary ? summary.measureAsync('worker', 'rpcWallMs', replace) : replace();
               }
             : undefined;
         if (options.verbose) {
           console.log(`[sync] preflight-detail macroEvidenceMs=${Math.round(macroEvidenceMs)}ms ` +
             `totalMs=${Math.round(performance.now() - preflightStarted)}ms`);
         }
+        stage('extraction');
         const result = await this.orchestrator.sync(
           options.onProgress,
           options.paths,
@@ -910,7 +929,9 @@ export class CodeGraph {
           replaceFileStore,
           afterWrite,
           beforeNodeWrite,
+          summary,
         );
+        stage('prepare');
         // Publish extraction failures before any resolution work can finish
         // (or throw), including a recovery run with an older complete baseline.
         this.refreshSyncFileFailures(result);
@@ -953,13 +974,14 @@ export class CodeGraph {
         // Resolve references for changed files first. This restores their
         // import edges (e.g. `a.c --imports--> a.h`), which the co-importer
         // query in the next step relies on.
+        stage('changedRefs');
         if (referenceFiles.length > 0) {
           const detail = options.verbose ? new ResolutionDiagnostics() : undefined;
           if (detail) detail.files = referenceFiles.length;
           try {
             await this.resolver.resolveFilesAndPersist(referenceFiles, (current, total) => {
               options.onProgress?.({ phase: 'resolving', current, total });
-            }, { diagnostics: detail, nameLookup: 'sync', batchSize: SYNC_REFERENCE_BATCH_SIZE, afterWrite });
+            }, { diagnostics: detail, nameLookup: 'sync', batchSize: SYNC_REFERENCE_BATCH_SIZE, afterWrite, summary });
             if (detail) detail.complete = true;
           } finally {
             if (detail) console.log(`[sync] refs-detail ${detail.format()}`);
@@ -967,32 +989,46 @@ export class CodeGraph {
         }
 
         tailMark('changedRefsMs');
+        stage('resurrectedRefs');
         // Whole-file deletion cascades incoming edges from unchanged callers.
         // The extraction layer resurrects stamped edges as pending references;
         // resolve just those source files rather than sweeping the whole table.
         const resurrectedRefCount = result.resurrectedReferenceSourceFiles?.length
           ? await this.resolver.resolveFilesAndPersist(result.resurrectedReferenceSourceFiles, (current, total) => {
             options.onProgress?.({ phase: 'resolving', current, total });
-          }, { batchSize: SYNC_REFERENCE_BATCH_SIZE, afterWrite }) : 0;
+          }, { batchSize: SYNC_REFERENCE_BATCH_SIZE, afterWrite, summary }) : 0;
 
         tailMark('resurrectedRefsMs');
+        stage('failedRetry');
         // A changed file may introduce a symbol needed by references in files
         // that did not change. Retry only failed rows whose final qualified
         // name segment matches a node contributed by the changed files.
         // Bound historical work for ubiquitous names; keep skipped rows failed.
         const retryFailedReferences = async (allowFilter: boolean): Promise<void> => {
+          const wallStarted = summary ? performance.now() : 0;
+          let accounted = 0;
+          const timed = <T>(key: string, operation: () => T): T => {
+            if (!summary) return operation();
+            const started = performance.now();
+            try { return operation(); } finally {
+              const elapsed = performance.now() - started;
+              accounted += elapsed;
+              summary.add('refs', 'failedRetry' + key, elapsed);
+            }
+          };
+          const retryDetail = options.verbose || summary ? new ResolutionDiagnostics('failed-retry') : undefined;
+          try {
           const planningStarted = performance.now();
-          const eligibility = retryState.plan(allowFilter, result.failedRewireSourceFiles);
-          const retryPlan = this.queries.getFailedReferenceRetryPlan(
+          const eligibility = timed('PlanReadMs', () => retryState.plan(allowFilter, result.failedRewireSourceFiles));
+          const retryPlan = timed('PlanReadMs', () => this.queries.getFailedReferenceRetryPlan(
             eligibility.names,
             SYNC_FAILED_REFERENCE_NAME_CEILING,
-          );
+          ));
           const started = performance.now();
           const planningMs = started - planningStarted;
           let visited = 0;
           let attempted = 0;
-          const retryDetail = options.verbose ? new ResolutionDiagnostics('failed-retry') : undefined;
-          const retryFiles = retryDetail ? new Set<string>() : undefined;
+          const retryFiles = options.verbose && retryDetail ? new Set<string>() : undefined;
           if (retryPlan.total > 0) {
             options.onProgress?.({
               phase: 'resolving',
@@ -1003,12 +1039,12 @@ export class CodeGraph {
             for (const group of retryPlan.groups) {
               let afterRowId = 0;
               while (afterRowId < group.maxRowId) {
-                const batch = this.queries.getFailedReferenceRetryBatch(
+                const batch = timed('PlanReadMs', () => this.queries.getFailedReferenceRetryBatch(
                   group.nameTail,
                   afterRowId,
                   group.maxRowId,
                   SYNC_REFERENCE_BATCH_SIZE,
-                );
+                ));
                 if (batch.length === 0) break;
 
                 const lastRowId = batch[batch.length - 1]!.rowId;
@@ -1018,7 +1054,7 @@ export class CodeGraph {
                   );
                 }
 
-                const eligible = eligibility.filtered ? batch.filter(eligibility.shouldRetry) : batch;
+                const eligible = timed('FilterMs', () => eligibility.filtered ? batch.filter(eligibility.shouldRetry) : batch);
                 if (eligible.length > 0) {
                   const batchDetail = retryDetail ? new ResolutionDiagnostics('failed-retry') : undefined;
                   if (retryFiles) for (const ref of eligible) if (ref.filePath) retryFiles.add(ref.filePath);
@@ -1026,12 +1062,16 @@ export class CodeGraph {
                     // Reuse the same indexed epoch as changed refs. A default
                     // bulk call here would merely move the full-name load into
                     // the retry tail. Row selection and persistence stay intact.
-                    this.resolver.resolveAndPersist(eligible, undefined, batchDetail, syncNameLookupMode(eligible.length));
+                    timed('ResolveMs', () => this.resolver.resolveAndPersist(eligible, undefined, batchDetail, syncNameLookupMode(eligible.length)));
                   } finally {
                     if (retryDetail && batchDetail) retryDetail.add(batchDetail);
                   }
-                  const wait = afterWrite?.();
-                  if (wait) await wait;
+                  const waitStarted = summary ? performance.now() : 0;
+                  try { const wait = afterWrite?.(); if (wait) await wait; }
+                  finally { if (summary) {
+                    const elapsed = performance.now() - waitStarted;
+                    accounted += elapsed; summary.add('refs', 'failedRetryAfterWriteMs', elapsed);
+                  } }
                 }
                 attempted += eligible.length;
                 visited += batch.length;
@@ -1041,7 +1081,12 @@ export class CodeGraph {
                   current: visited,
                   total: retryPlan.total,
                 });
-                await new Promise<void>((resolve) => setImmediate(resolve));
+                const yieldStarted = summary ? performance.now() : 0;
+                try { await new Promise<void>((resolve) => setImmediate(resolve)); }
+                finally { if (summary) {
+                  const elapsed = performance.now() - yieldStarted;
+                  accounted += elapsed; summary.add('refs', 'failedRetryYieldMs', elapsed);
+                } }
               }
             }
 
@@ -1069,6 +1114,16 @@ export class CodeGraph {
               `planMs=${Math.round(planningMs)}ms ` +
               `durationMs=${Math.round(performance.now() - started)}ms`);
           }
+          } finally {
+            if (summary) {
+              const wall = performance.now() - wallStarted;
+              summary.add('refs', 'failedRetryWallMs', wall);
+              summary.add('refs', 'failedRetryUnattributedMs', Math.max(0, wall - accounted));
+              if (retryDetail) for (const [key, value] of Object.entries(retryDetail.timings)) {
+                summary.add('refs', 'failedRetryDetail' + key[0]!.toUpperCase() + key.slice(1), value);
+              }
+            }
+          }
         };
         if (retryState.hasWork) {
           await retryFailedReferences(result.complete !== false && result.filesRemoved === 0 &&
@@ -1076,6 +1131,7 @@ export class CodeGraph {
         }
 
         tailMark('failedRefRetryMs');
+        stage('fallback');
         // Edge re-wiring (done inside storeExtractionResult during
         // orchestrator.sync()) already restored incoming cross-file edges
         // from unchanged files to the changed files' new nodes.  Only the
@@ -1126,7 +1182,9 @@ export class CodeGraph {
             const fp = failedFiles[i]!;
             let stored = false;
             try {
-              const reindexResult = await this.orchestrator.indexFile(fp, { force: true });
+              const reindexResult = summary
+                ? await summary.measureAsync('store', 'fallbackIndexFileMs', () => this.orchestrator.indexFile(fp, { force: true }))
+                : await this.orchestrator.indexFile(fp, { force: true });
               if (reindexResult.stored) {
                 stored = true;
                 successfullyReindexedFiles.push(fp);
@@ -1158,7 +1216,7 @@ export class CodeGraph {
           if (successfullyReindexedFiles.length > 0) {
             await this.resolver.resolveFilesAndPersist(successfullyReindexedFiles, (current, total) => {
               options.onProgress?.({ phase: 'resolving', current, total });
-            }, { batchSize: SYNC_REFERENCE_BATCH_SIZE, afterWrite });
+            }, { batchSize: SYNC_REFERENCE_BATCH_SIZE, afterWrite, summary });
           }
 
           // Only files whose replacement graph was actually stored are safe
@@ -1172,6 +1230,7 @@ export class CodeGraph {
         }
 
         tailMark('coImporterMs');
+        stage('synthesis');
         if (failedFiles.length > 0) this.refreshSyncFileFailures(result);
         this.publishSymbolsReady(result.complete !== false);
         // A process killed during reference resolution can leave untouched
@@ -1220,6 +1279,7 @@ export class CodeGraph {
         }
 
         tailMark('orphanAndSynthesisMs');
+        stage('chained');
         if (!fullResolution && (
           hasSuccessfulChangedFiles || retryState.hasWork || resurrectedRefCount > 0
         )) {
@@ -1244,6 +1304,7 @@ export class CodeGraph {
         if (walValve) await walValve.foldNow();
         if (scopedSynthesisStarted) this.finishSynthesis(synthesisDiagnostics);
         tailMark('chainedCallsMs');
+        stage('maintenance');
 
         if (synthesisDiagnostics.length === 0 && result.complete !== false &&
             !this.needsSynthesisRetry()) this.publishRelationshipsReady();
@@ -1259,6 +1320,7 @@ export class CodeGraph {
         }
 
         tailMark('maintenanceMs');
+        stage('finalize');
         // A successful sync may have replaced (or deleted) files that were
         // previously stored through the base-only fallback. Reconcile those
         // file-scoped diagnostics so `codegraph status` stops reporting stale
@@ -1297,6 +1359,7 @@ export class CodeGraph {
         tailMark('finalizeMs');
         return result;
       } finally {
+        stage('cleanup');
         this.orchestrator.setSyncRetryState();
         // Stop checkpoint activity before restoring SQLite's original policy.
         // Keep restoration and lock release nested so even an unexpected valve
@@ -1332,7 +1395,15 @@ export class CodeGraph {
     // lock cleanup. Report elapsed time only after all sync work has finished.
     // Keep the all-zero lock-unavailable sentinel used by the file watcher.
     if (acquiredWriteLock) result.durationMs = Math.round(performance.now() - syncStartedAt);
+    outcome = !acquiredWriteLock ? 'lockUnavailable' : result.complete === false ? 'incomplete' : 'success';
     return result;
+    } finally {
+      if (summary) {
+        stage(summary.phase);
+        // Observability must never mask a sync error or change its result.
+        try { options.diagnosticsSummary?.(summary.lines(outcome)); } catch { /* optional sink failed */ }
+      }
+    }
   }
 
   /**

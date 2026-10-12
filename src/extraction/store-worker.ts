@@ -13,6 +13,7 @@ import { parentPort } from 'worker_threads';
 import { QueryBuilder } from '../db/queries';
 import { createDatabase, type SqliteDatabase } from '../db/sqlite-adapter';
 import type { StoreBundle, StoreReplacement } from './store-writer';
+import { StoreDiagnostics, measureStoreTransaction, type StoreTransactionDiagnostics } from './store-diagnostics';
 
 if (!parentPort) {
   throw new Error('store-worker must run in a worker thread');
@@ -32,6 +33,8 @@ type StoreWorkerMessage =
   | { type: 'close' };
 
 port.on('message', (message: StoreWorkerMessage) => {
+  let diagnostics: StoreDiagnostics | undefined;
+  let transactionDiagnostics: StoreTransactionDiagnostics | undefined;
   try {
     switch (message.type) {
       case 'open': {
@@ -64,6 +67,10 @@ port.on('message', (message: StoreWorkerMessage) => {
         port.postMessage({ type: 'ack' });
         break;
       case 'replace': {
+        if (message.request.diagnostics) {
+          diagnostics = new StoreDiagnostics();
+          transactionDiagnostics = { transactionWallMs: 0, bodyMs: 0, boundaryMs: 0 };
+        }
         if (!queries || !replacementRoot) throw new Error('replacement received before sync store open');
         if (!replacementStore) {
           // Lazy: fresh indexing keeps its lightweight bundle-only worker.
@@ -72,9 +79,11 @@ port.on('message', (message: StoreWorkerMessage) => {
         }
         // Readers on the owning connection keep seeing the old file until
         // deletion, insertion and incoming-edge rewiring all commit together.
-        const result = database!.transaction(() =>
-          replacementStore!.storeParsedReplacement(message.request))();
-        port.postMessage({ type: 'replaced', id: message.id, result });
+        const result = measureStoreTransaction(transactionDiagnostics,
+          body => database!.transaction(body)(),
+          () => replacementStore!.storeParsedReplacement(message.request, diagnostics));
+        port.postMessage({ type: 'replaced', id: message.id, result,
+          ...(transactionDiagnostics ? { transactionDiagnostics } : {}) });
         break;
       }
       case 'drain':
@@ -93,6 +102,8 @@ port.on('message', (message: StoreWorkerMessage) => {
       type: 'error',
       id: 'id' in message ? message.id : undefined,
       message: error instanceof Error ? error.message : String(error),
+      ...(diagnostics ? { diagnostics } : {}),
+      ...(transactionDiagnostics ? { transactionDiagnostics } : {}),
     });
   }
 });

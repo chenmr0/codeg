@@ -42,6 +42,7 @@ import { ResolutionTextCache } from './text-cache';
 import { CppReceiverDeclarationCache } from './cpp-receiver-index';
 import { refineCppOverload } from './cpp-overload';
 import { measureResolution, ResolutionDiagnostics } from './diagnostics';
+import type { SyncDiagnosticsSummary } from '../sync/diagnostics-summary';
 import { IndexedNameLookup, syncNameLookupMode, type NameLookupMode } from './name-lookup';
 import { canonicalFilePath, clearCanonicalCache } from '../utils';
 import {
@@ -1207,7 +1208,8 @@ export class ReferenceResolver {
     }
     const deferredStart = this.deferredChainRefs.length;
     const result = this.resolveAll(unresolvedRefs, onProgress, diagnostics, nameLookup);
-    this.journalDeferredConformance(this.deferredChainRefs.slice(deferredStart));
+    measureResolution(diagnostics, 'journalDeferredMs', () =>
+      this.journalDeferredConformance(this.deferredChainRefs.slice(deferredStart)));
     let removedPending = 0;
 
     // Create edges from resolved references
@@ -1265,16 +1267,32 @@ export class ReferenceResolver {
       nameLookup?: NameLookupMode | 'sync';
       batchSize?: number;
       afterWrite?: () => Promise<void> | null;
+      summary?: SyncDiagnosticsSummary;
     } = {},
   ): Promise<number> {
     const size = options.batchSize ?? SCOPED_REFERENCE_BATCH_SIZE;
     if (!Number.isSafeInteger(size) || size < 1 || size > SCOPED_REFERENCE_BATCH_SIZE) {
       throw new Error(`Reference batch size must be between 1 and ${SCOPED_REFERENCE_BATCH_SIZE}`);
     }
-    const detail = options.diagnostics;
+    const summary = options.summary;
+    const scope = summary?.phase ?? 'changedRefs';
+    const detail = options.diagnostics ?? (summary ? new ResolutionDiagnostics() : undefined);
+    const wallStart = summary ? performance.now() : 0;
+    let accounted = 0;
+    const measure = <T>(key: string, operation: () => T): T => {
+      if (!summary) return operation();
+      const started = performance.now();
+      try { return operation(); }
+      finally {
+        const elapsed = performance.now() - started;
+        accounted += elapsed;
+        summary.add('refs', scope + key, elapsed);
+      }
+    };
+    try {
     const readSize = Math.max(size, SCOPED_REFERENCE_READ_PAGE_SIZE);
-    const plan = measureResolution(detail, 'loadRefsMs',
-      () => this.queries.planPendingReferencesByFiles(filePaths));
+    const plan = measure('PlanReadMs', () => measureResolution(detail, 'loadRefsMs',
+      () => this.queries.planPendingReferencesByFiles(filePaths)));
     if (detail) detail.plannedRefs = plan.total;
     const nameLookup = options.nameLookup === 'sync'
       ? syncNameLookupMode(plan.total) : options.nameLookup ?? 'full';
@@ -1289,7 +1307,7 @@ export class ReferenceResolver {
         const batchDetail = detail ? new ResolutionDiagnostics(detail.scope) : undefined;
         try {
           if (pageOffset === page.length) {
-            page = measureResolution(batchDetail, 'loadRefsMs', () => {
+            page = measure('PlanReadMs', () => measureResolution(batchDetail, 'loadRefsMs', () => {
               const refs = this.queries.getPendingReferenceFileBatch(chunk, cursor, readSize);
               const last = refs[refs.length - 1];
               if (!last || last.rowId === undefined || last.filePath === undefined ||
@@ -1299,7 +1317,7 @@ export class ReferenceResolver {
               }
               cursor = { filePath: last.filePath, rowId: last.rowId };
               return refs;
-            });
+            }));
             pageOffset = 0;
             if (detail) {
               detail.readPages++;
@@ -1316,29 +1334,62 @@ export class ReferenceResolver {
           }
           // Exact row-ID cleanup leaves the current/unvisited pages pending
           // on interruption. The caller promotes the journal only on success.
-          this.resolveAndPersist(batch, onProgress ? (current) => {
+          measure('ResolveMs', () => this.resolveAndPersist(batch, onProgress ? (current) => {
             const value = processed + current;
             const percent = Math.floor(value / plan.total * 100);
             if (percent > lastPercent) {
               lastPercent = percent;
               onProgress(value, plan.total);
             }
-          } : undefined, batchDetail, nameLookup, true);
+          } : undefined, batchDetail, nameLookup, true));
           processed += batch.length;
           chunkProcessed += batch.length;
           // Exact cleanup and all edge writes have committed; no SQLite
           // transaction or reader is retained while the valve catches up.
-          const wait = options.afterWrite?.();
-          if (wait) await wait;
+          const waitStart = summary ? performance.now() : 0;
+          try {
+            const wait = options.afterWrite?.();
+            if (wait) await wait;
+          } finally {
+            if (summary) {
+              const elapsed = performance.now() - waitStart;
+              accounted += elapsed;
+              summary.add('refs', scope + 'AfterWriteMs', elapsed);
+            }
+          }
         } finally {
           if (detail && batchDetail) detail.add(batchDetail);
         }
         // Yield only between completed writes, with no open SQLite reader or
         // transaction. A one-batch small sync needs no extra event-loop turn.
-        if (processed < plan.total) await new Promise<void>(resolve => setImmediate(resolve));
+        if (processed < plan.total) {
+          const yieldStart = summary ? performance.now() : 0;
+          try { await new Promise<void>(resolve => setImmediate(resolve)); }
+          finally {
+            if (summary) {
+              const elapsed = performance.now() - yieldStart;
+              accounted += elapsed;
+              summary.add('refs', scope + 'YieldMs', elapsed);
+            }
+          }
+        }
       }
     }
     return processed;
+    } finally {
+      if (summary) {
+        const wall = performance.now() - wallStart;
+        summary.add('refs', scope + 'WallMs', wall);
+        summary.add('refs', scope + 'UnattributedMs', Math.max(0, wall - accounted));
+        if (detail) {
+          for (const [key, value] of Object.entries(detail.timings)) {
+            summary.add('refs', scope + 'Detail' + key[0]!.toUpperCase() + key.slice(1), value);
+          }
+          summary.add('refs', scope + 'BatchCount', detail.batches);
+          summary.add('refs', scope + 'RefCount', detail.refs);
+        }
+      }
+    }
   }
 
   /**

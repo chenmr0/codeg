@@ -8,7 +8,8 @@
 
 import { Worker } from 'worker_threads';
 import { estimateExtractionBytes } from './extraction-size';
-import type { StoreDiagnosticsSnapshot } from './store-diagnostics';
+import { reportStoreDiagnostics, type StoreDiagnosticsSnapshot, type StoreTransactionDiagnostics } from './store-diagnostics';
+import type { SyncDiagnosticsSummary } from '../sync/diagnostics-summary';
 import type {
   Edge,
   ExtractionResult,
@@ -25,7 +26,7 @@ export interface StoreBundle {
   file: FileRecord;
 }
 
-export type StoreReplacement = { filePath: string; remove: true } | {
+export type StoreReplacement = { filePath: string; remove: true; diagnostics?: boolean } | {
   remove?: false;
   filePath: string;
   content: string;
@@ -94,7 +95,8 @@ export class StoreWriter {
   }>();
 
   constructor(workerScriptPath: string, dbPath: string, fastInit: boolean,
-    replacement?: { root: string; deferWal: boolean }) {
+    replacement?: { root: string; deferWal: boolean },
+    private readonly summary?: SyncDiagnosticsSummary) {
     this.worker = new Worker(workerScriptPath);
     let readyResolve!: () => void;
     let readyReject!: (error: Error) => void;
@@ -109,7 +111,8 @@ export class StoreWriter {
 
     this.worker.on(
       'message',
-      (message: { type: string; id?: number; message?: string; result?: StoreReplacementResult }) => {
+      (message: { type: string; id?: number; message?: string; result?: StoreReplacementResult;
+        diagnostics?: StoreDiagnosticsSnapshot; transactionDiagnostics?: StoreTransactionDiagnostics }) => {
         if (message.type === 'ready') {
           readyResolve();
         } else if (message.type === 'ack') {
@@ -123,7 +126,10 @@ export class StoreWriter {
         } else if (message.type === 'replaced' && message.id !== undefined && message.result) {
           const waiter = this.replacements.get(message.id);
           this.replacements.delete(message.id);
-          waiter?.resolve(message.result);
+          if (waiter) {
+            this.recordDiagnostics(message.result.diagnostics, message.transactionDiagnostics);
+            waiter.resolve(message.result);
+          }
         } else if (message.type === 'error') {
           if (!this.firstError) {
             this.firstError = new Error(`store worker: ${message.message}`);
@@ -132,7 +138,10 @@ export class StoreWriter {
           if (message.id !== undefined) {
             const waiter = this.replacements.get(message.id);
             this.replacements.delete(message.id);
-            waiter?.reject(this.firstError);
+            if (waiter) {
+              this.recordDiagnostics(message.diagnostics, message.transactionDiagnostics);
+              waiter.reject(this.firstError);
+            }
           }
           this.settleOne();
         }
@@ -178,6 +187,22 @@ export class StoreWriter {
 
   /** The owning sync awaits each replacement; this is not a second write queue. */
   replace(request: StoreReplacement): Promise<StoreReplacementResult> {
+    if (!this.summary) return this.replaceRequest(request);
+    // Includes pending boot, queueing, serialization and the worker transaction.
+    // The caller's RPC wall also includes lazy construction of this writer.
+    const summary = this.summary;
+    summary.add('worker', 'requestCount', 1);
+    return summary.measureAsync('worker', 'requestWallMs', async () => {
+      try {
+        return await this.replaceRequest(request.diagnostics ? request : { ...request, diagnostics: true });
+      } catch (error) {
+        summary.add('worker', 'failedRequestCount', 1);
+        throw error;
+      }
+    });
+  }
+
+  private replaceRequest(request: StoreReplacement): Promise<StoreReplacementResult> {
     if (this.firstError) return Promise.reject(this.firstError);
     if (this.exited) return Promise.reject(new Error('store worker already exited'));
     const id = this.nextDrainId++;
@@ -189,6 +214,17 @@ export class StoreWriter {
         reject(error instanceof Error ? error : new Error(String(error)));
       }
     });
+  }
+
+  private recordDiagnostics(
+    diagnostics?: StoreDiagnosticsSnapshot,
+    transaction?: StoreTransactionDiagnostics,
+  ): void {
+    reportStoreDiagnostics(this.summary, diagnostics, 'worker');
+    if (!this.summary || !transaction) return;
+    for (const key of ['transactionWallMs', 'bodyMs', 'boundaryMs'] as const) {
+      this.summary.add('worker', key, transaction[key]);
+    }
   }
 
   waitBelow(limit: number, maxBytes = Infinity): Promise<void> {

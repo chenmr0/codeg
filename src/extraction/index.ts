@@ -51,7 +51,8 @@ import {
   replaceWithDeclarationMacroRecoverySkipped,
 } from './diagnostics';
 import { ReconcileDiagnostics, type ScanDiagnostics } from './sync-diagnostics';
-import { StoreDiagnostics, measureStore } from './store-diagnostics';
+import { StoreDiagnostics, measureStore, reportStoreDiagnostics } from './store-diagnostics';
+import type { SyncDiagnosticsSummary } from '../sync/diagnostics-summary';
 import { filterGitPaths } from './git-paths';
 import type { SyncRetryState } from './sync-retry-state';
 import { AppendDeltaState } from './append-delta';
@@ -2341,23 +2342,29 @@ export class ExtractionOrchestrator {
   }
 
   /** Internal worker entry: reuse exactly the normal replacement/rewiring logic. */
-  storeParsedReplacement(request: StoreReplacement): StoreReplacementResult {
+  storeParsedReplacement(request: StoreReplacement,
+    diagnostics = request.diagnostics ? new StoreDiagnostics() : undefined): StoreReplacementResult {
     if (request.remove) {
-      return { failedSourceFiles: [], resurrectedSourceFiles: this.removeStoredFile(request.filePath) };
+      return { failedSourceFiles: [],
+        resurrectedSourceFiles: this.removeStoredFile(request.filePath, diagnostics),
+        ...(diagnostics ? { diagnostics } : {}) };
     }
     this.syncRewireFailures = [];
-    const diagnostics = request.diagnostics ? new StoreDiagnostics() : undefined;
     this.storeExtractionResult(request.filePath, request.content, request.language,
       request.stats, request.result, diagnostics ? { diagnostics } : undefined);
     return { failedSourceFiles: this.syncRewireFailures, diagnostics };
   }
 
-  private removeStoredFile(filePath: string): string[] {
-    const resurrected = this.queries.getIncomingCrossFileEdges(filePath)
-      .map(resurrectReferenceFromEdge)
-      .filter((ref): ref is UnresolvedReference => ref !== null);
-    if (resurrected.length > 0) this.queries.insertUnresolvedRefsBatch(resurrected);
-    this.queries.deleteFile(filePath);
+  private removeStoredFile(filePath: string, diagnostics?: StoreDiagnostics): string[] {
+    const resurrected = measureStore(diagnostics, 'snapshotMs', () =>
+      this.queries.getIncomingCrossFileEdges(filePath)
+        .map(resurrectReferenceFromEdge)
+        .filter((ref): ref is UnresolvedReference => ref !== null));
+    if (resurrected.length > 0) {
+      measureStore(diagnostics, 'refsMs', () => this.queries.insertUnresolvedRefsBatch(resurrected));
+      if (diagnostics) diagnostics.refRows += resurrected.length;
+    }
+    measureStore(diagnostics, 'deleteMs', () => this.queries.deleteFile(filePath));
     return [...new Set(resurrected.map(ref => ref.filePath).filter((file): file is string => !!file))];
   }
 
@@ -2585,8 +2592,10 @@ export class ExtractionOrchestrator {
     afterWrite?: () => Promise<void> | null,
     /** Capture legacy macro evidence before the first node mutation. */
     beforeNodeWrite?: () => Promise<void>,
+    summary?: SyncDiagnosticsSummary,
   ): Promise<SyncResult> {
-    return withLanguageScope(() => this.syncInScope(onProgress, scopedPaths, verbose, replaceFileStore, afterWrite, beforeNodeWrite));
+    return withLanguageScope(() => this.syncInScope(onProgress, scopedPaths, verbose,
+      replaceFileStore, afterWrite, beforeNodeWrite, summary));
   }
 
   private async syncInScope(
@@ -2597,8 +2606,28 @@ export class ExtractionOrchestrator {
     afterWrite?: () => Promise<void> | null,
     /** Capture legacy macro evidence before the first node mutation. */
     beforeNodeWrite?: () => Promise<void>,
+    summary?: SyncDiagnosticsSummary,
   ): Promise<SyncResult> {
+    const storeDetail = verbose || summary ? new StoreDiagnostics() : undefined;
+    // Worker substages are summarized by StoreWriter, separately from the
+    // owning-thread store. Keep their existing combined verbose output.
+    const verboseWorkerDetail = verbose ? new StoreDiagnostics() : undefined;
+    const summaryTimings = summary ? {
+      runtimeSetupMs: 0, reconcileMs: 0, frameworkMs: 0, macroMs: 0,
+      setupMs: 0, readMs: 0, parseWallMs: 0, storeWallMs: 0, cleanupMs: 0, finishMs: 0,
+    } : undefined;
+    let summaryPhase: keyof NonNullable<typeof summaryTimings> = 'runtimeSetupMs';
+    let summaryPhaseStarted = summary ? performance.now() : 0;
+    const beginSummaryPhase = (next: typeof summaryPhase): void => {
+      if (!summaryTimings) return;
+      const now = performance.now();
+      summaryTimings[summaryPhase] += now - summaryPhaseStarted;
+      summaryPhaseStarted = now;
+      summaryPhase = next;
+    };
+    try {
     await initGrammars(); // Initialize WASM runtime (grammars loaded lazily below)
+    beginSummaryPhase('reconcileMs');
     // Sync rescans; clear the canonical-path cache so repointed symlinks are seen.
     clearCanonicalCache();
     const startTime = Date.now();
@@ -2743,15 +2772,21 @@ export class ExtractionOrchestrator {
       // in other files are unchanged. Preserve stamped resolution edges as
       // pending refs so this same sync can rebind them or park them for a
       // later symbol-driven retry.
-      this.syncRetryState?.beforeDelete(tracked.path);
+      const journal = () => measureStore(storeDetail, 'retryStateMs', () =>
+        this.syncRetryState?.beforeDelete(tracked.path));
+      if (summary) summary.measure('store', 'mainThreadWallMs', journal);
+      else journal();
       let sourceFiles: string[];
       if (replaceFileStore && this.queries.hasManyIncomingEdges(tracked.path)) {
         try {
-          sourceFiles = (await replaceFileStore({ filePath: tracked.path, remove: true }))
-            .resurrectedSourceFiles ?? [];
+          const stored = await replaceFileStore({ filePath: tracked.path, remove: true,
+            ...(storeDetail ? { diagnostics: true } : {}) });
+          sourceFiles = stored.resurrectedSourceFiles ?? [];
+          if (verboseWorkerDetail && stored.diagnostics) verboseWorkerDetail.add(stored.diagnostics);
         } finally { this.queries.clearCache(); }
       } else {
-        sourceFiles = this.removeStoredFile(tracked.path);
+        const remove = () => this.removeStoredFile(tracked.path, storeDetail);
+        sourceFiles = summary ? summary.measure('store', 'mainThreadWallMs', remove) : remove();
       }
       for (const file of sourceFiles) resurrectedReferenceSourceFiles.add(file);
       filesRemoved++;
@@ -2923,7 +2958,7 @@ export class ExtractionOrchestrator {
     let readMs = 0;
     let parseWallMs = 0;
     let storeMs = 0;
-    const storeDetail = verbose ? new StoreDiagnostics() : undefined;
+    beginSummaryPhase('finishMs');
     const extractionTimingTotals: ExtractionTimings = {};
     let appendDelta: AppendDeltaState | undefined;
 
@@ -2948,11 +2983,13 @@ export class ExtractionOrchestrator {
         neededLanguages.push('cpp');
       }
 
+      beginSummaryPhase('frameworkMs');
       const frameworkStarted = performance.now();
       const frameworkNames = this.ensureDetectedFrameworks(
         this.detectedFrameworkNames === null ? getContextFiles() : undefined,
       );
       frameworkDetectionMs = performance.now() - frameworkStarted;
+      beginSummaryPhase('setupMs');
       // Retention requires a complete input epoch. Scoped watcher syncs cannot
       // prove that an unreported header/config change did not alter resolution.
       if (neededLanguages.some((language) => language === 'c' || language === 'cpp') &&
@@ -2972,6 +3009,7 @@ export class ExtractionOrchestrator {
       let globalBodylessMacroNames = new Set<string>();
       let globalMacroDefinitions: CppMacroDefinition[] = [];
       if (needsCppMacroContext) {
+        beginSummaryPhase('macroMs');
         const macroStarted = performance.now();
         globalMacroNames = await this.ensureGlobalMacroNames(
           this.globalMacroNames === null ? getContextFiles() : undefined,
@@ -2989,6 +3027,7 @@ export class ExtractionOrchestrator {
           `reuses=${contextFileListReuses} extraScans=${contextFileListScans}`);
       }
 
+      beginSummaryPhase('setupMs');
       const setupStarted = performance.now();
       const parseWorkerPath = path.join(__dirname, 'parse-worker.js');
       const useWorker = fs.existsSync(parseWorkerPath);
@@ -3034,6 +3073,7 @@ export class ExtractionOrchestrator {
       try {
         for (let offset = 0; offset < filesToIndex.length; offset += FILE_IO_BATCH_SIZE) {
           const batch = filesToIndex.slice(offset, offset + FILE_IO_BATCH_SIZE);
+          beginSummaryPhase('readMs');
           const readStarted = performance.now();
           const items = await Promise.all(batch.map(async (filePath) => {
             const fullPath = validatePathWithinRoot(this.rootDir, filePath);
@@ -3052,6 +3092,7 @@ export class ExtractionOrchestrator {
           }));
           readMs += performance.now() - readStarted;
 
+          beginSummaryPhase('parseWallMs');
           const parseStarted = performance.now();
           const parsed = await Promise.all(items.map(async (item) => {
             if (item.error || item.content === null || item.stats === null) {
@@ -3092,6 +3133,7 @@ export class ExtractionOrchestrator {
           }));
           parseWallMs += performance.now() - parseStarted;
 
+          beginSummaryPhase('storeWallMs');
           const storeStarted = performance.now();
           for (const item of parsed) {
             processed++;
@@ -3141,25 +3183,29 @@ export class ExtractionOrchestrator {
                 // Journal on the owning sync before handing writes over. It
                 // retains the index mutex/file lock and awaits this one file;
                 // no later replacement or resolution can overlap the worker.
-                measureStore(storeDetail, 'retryStateMs', () =>
+                const journal = () => measureStore(storeDetail, 'retryStateMs', () =>
                   this.syncRetryState?.beforeStore(item.filePath, hashContent(item.content!),
                     item.content!, language, item.result!, this.queries.getFileByPath(item.filePath)));
+                if (summary) summary.measure('store', 'mainThreadWallMs', journal);
+                else journal();
                 try {
                   const stored = await replaceFileStore({ filePath: item.filePath, content: item.content,
                     language, stats: { size: item.stats.size, mtimeMs: item.stats.mtimeMs },
                     result: item.result, diagnostics: !!storeDetail });
                   this.syncRewireFailures.push(...stored.failedSourceFiles);
-                  if (storeDetail && stored.diagnostics) storeDetail.add(stored.diagnostics);
+                  if (verboseWorkerDetail && stored.diagnostics) verboseWorkerDetail.add(stored.diagnostics);
                 } finally {
                   // Another connection changed rows, including on a partial
                   // write failure. The retry journal remains the recovery path.
                   this.queries.clearCache();
                 }
               } else {
-                this.storeExtractionResult(
-                  item.filePath, item.content, language, item.stats, item.result,
+                const store = () => this.storeExtractionResult(
+                  item.filePath, item.content!, language, item.stats!, item.result!,
                   storeDetail ? { diagnostics: storeDetail } : undefined,
                 );
+                if (summary) summary.measure('store', 'mainThreadWallMs', store);
+                else store();
               }
               changedFilePaths.push(item.filePath);
               // Keep this outside parse handling: an exhausted WAL valve must
@@ -3193,10 +3239,12 @@ export class ExtractionOrchestrator {
           storeMs += performance.now() - storeStarted;
         }
       } finally {
+        beginSummaryPhase('cleanupMs');
         if (parsePool) await parsePool.destroy();
       }
     }
 
+    beginSummaryPhase(appendDelta ? 'storeWallMs' : 'finishMs');
     if (appendDelta) {
       const affected = await appendDelta.finish(filesErrored === 0 && syncErrors.length === 0 &&
         changedFilePaths.length === filesToIndex.length);
@@ -3212,7 +3260,10 @@ export class ExtractionOrchestrator {
       `workerSetup=${Math.round(workerSetupMs)}ms read=${Math.round(readMs)}ms ` +
       `parseWall=${Math.round(parseWallMs)}ms store=${Math.round(storeMs)}ms`,
     );
-    if (storeDetail && total > 0) log(`store-detail ${storeDetail.format()}`);
+    if (verboseWorkerDetail && storeDetail && total > 0) {
+      verboseWorkerDetail.add(storeDetail);
+      log(`store-detail ${verboseWorkerDetail.format()}`);
+    }
     const extractionTimingSummary = formatExtractionTimings(extractionTimingTotals);
     if (extractionTimingSummary) log(`extraction totals ${extractionTimingSummary}`);
 
@@ -3237,6 +3288,16 @@ export class ExtractionOrchestrator {
           ? [...resurrectedReferenceSourceFiles]
           : undefined,
     };
+    } finally {
+      // Include the currently active phase and partial store work on failure.
+      beginSummaryPhase('finishMs');
+      if (summary && summaryTimings) {
+        for (const key of Object.keys(summaryTimings) as Array<keyof typeof summaryTimings>) {
+          summary.add('extraction', key, summaryTimings[key]);
+        }
+      }
+      reportStoreDiagnostics(summary, storeDetail);
+    }
   }
 
   /**
