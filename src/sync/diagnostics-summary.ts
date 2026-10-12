@@ -20,9 +20,10 @@ export class SyncDiagnosticsSummary {
     const start = performance.now();
     try { return await operation(); } finally { this.add(group, key, performance.now() - start); }
   }
-  lines(outcome: 'success' | 'incomplete' | 'error' | 'lockUnavailable'): string[] {
+  lines(outcome: 'running' | 'success' | 'incomplete' | 'error' | 'lockUnavailable', phaseElapsedMs?: number): string[] {
     return [
-      `[sync-summary] schema=1 outcome=${outcome} wallMs=${Math.round(performance.now() - this.started)}`,
+      `[sync-summary] schema=1 outcome=${outcome} wallMs=${Math.round(performance.now() - this.started)}` +
+        (phaseElapsedMs === undefined ? '' : ` phase=${this.phase} phaseElapsedMs=${Math.round(Math.max(0, phaseElapsedMs))}`),
       ...Object.entries(this.groups).map(([group, values]) => `[sync-summary] ${group} ` +
         Object.entries(values).filter(([, value]) => Math.round(value) !== 0)
           .sort(([a], [b]) => a.localeCompare(b))

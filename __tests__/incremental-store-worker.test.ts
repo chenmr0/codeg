@@ -121,7 +121,8 @@ describe.each(['.codegraph', '.codegraph-wx'])('incremental store worker with %s
     expect(calls()).toBe(callers);
     fs.unlinkSync(path.join(directory!, 'provider.c'));
     expect((await cg.sync({ paths: ['provider.c'] })).filesRemoved).toBe(1);
-    expect(replace).toHaveBeenCalledWith({ filePath: 'provider.c', remove: true });
+    // Default anonymous run logs request numeric worker diagnostics as well.
+    expect(replace).toHaveBeenCalledWith({ filePath: 'provider.c', remove: true, diagnostics: true });
     expect(calls()).toBe(0);
     write('int worker_target(void) { return 5; }\n');
     await cg.sync({ paths: ['provider.c'] });

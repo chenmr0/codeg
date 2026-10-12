@@ -68,6 +68,7 @@ import { cancelRawEvidenceScans } from './mcp/raw-source-worker-client';
 import { ResolutionDiagnostics } from './resolution/diagnostics';
 import { syncNameLookupMode } from './resolution/name-lookup';
 import { SyncDiagnosticsSummary, type SyncDiagnosticPhase } from './sync/diagnostics-summary';
+import { SyncRunLog } from './sync/run-log';
 
 // A 10,000-reference page can hold the MCP event loop for seconds. Sync
 // persists smaller complete batches, yielding with no open reader/transaction.
@@ -808,16 +809,19 @@ export class CodeGraph {
   async sync(options: SyncOptions = {}): Promise<SyncResult> {
     const syncStartedAt = performance.now();
     let acquiredWriteLock = false;
-    const summary = options.diagnosticsSummary ? new SyncDiagnosticsSummary() : undefined;
+    const persistentLogEnabled = !['0', 'false'].includes(process.env.CODEGRAPH_SYNC_LOG?.trim().toLowerCase() ?? '');
+    const summary = options.diagnosticsSummary || persistentLogEnabled ? new SyncDiagnosticsSummary() : undefined;
+    let runLog: SyncRunLog | undefined;
     let stageStarted = summary ? performance.now() : 0;
-    const stage = (next: SyncDiagnosticPhase): void => {
+    const stage = (next: SyncDiagnosticPhase, emit = true): void => {
       if (!summary) return;
       const now = performance.now();
       summary.add('stages', summary.phase + 'Ms', now - stageStarted);
       summary.phase = next;
       stageStarted = now;
+      if (emit) { try { runLog?.event('stage'); } catch { /* optional logging */ } }
     };
-    let outcome: 'success' | 'incomplete' | 'error' | 'lockUnavailable' = 'error';
+    let outcome: 'running' | 'success' | 'incomplete' | 'error' | 'lockUnavailable' = 'running';
     try {
     const result = await withLanguageScope(() => this.indexMutex.withLock(() => this.trackDataReadiness(async () => {
       try {
@@ -825,6 +829,16 @@ export class CodeGraph {
         acquiredWriteLock = true;
       } catch {
         return { filesChecked: 0, filesAdded: 0, filesModified: 0, filesRemoved: 0, nodesUpdated: 0, durationMs: 0 };
+      }
+      if (persistentLogEnabled && summary) {
+        try {
+          runLog = new SyncRunLog(this.db.getPath(), {
+            snapshot: () => summary.lines(outcome, performance.now() - stageStarted),
+          });
+          runLog.event('start');
+        } catch {
+          try { console.warn('[CodeGraph] Sync diagnostic log unavailable; indexing continues.'); } catch { /* optional sink */ }
+        }
       }
       let scopeChanged: boolean;
       try {
@@ -1399,7 +1413,11 @@ export class CodeGraph {
     return result;
     } finally {
       if (summary) {
-        stage(summary.phase);
+        if (outcome === 'running') outcome = 'error';
+        stage(summary.phase, false);
+        if (runLog) {
+          try { await summary.measureAsync('stages', 'logFlushMs', () => runLog!.finish()); } catch { /* log failures never alter sync */ }
+        }
         // Observability must never mask a sync error or change its result.
         try { options.diagnosticsSummary?.(summary.lines(outcome)); } catch { /* optional sink failed */ }
       }
