@@ -81,15 +81,11 @@ describe('anonymous sync run logs', () => {
     }
   });
 
-  it('keeps the most recent ten completed files and leaves active/unrelated/symlink files alone', async () => {
+  it('keeps the most recent ten completed files and leaves active/unrelated files and directories alone', async () => {
     fs.mkdirSync(logs);
     for (let i = 0; i < 13; i++) fs.writeFileSync(path.join(logs, completeName(1000000000000 + i)), `[sync-log] schema=1 event=start droppedSnapshots=0\n${i}`);
     const unrelated = ['notes.txt', 'codegraph-sync-v1-user.log', 'codegraph-sync-v1-1000000000000-a.active', completeName(1000000000000, 'd')];
     for (const name of unrelated) fs.writeFileSync(path.join(logs, name), 'keep');
-    const outside = path.join(root, 'outside');
-    fs.writeFileSync(outside, 'untouched');
-    const symlink = completeName(1000000000000, 'b');
-    fs.symlinkSync(outside, path.join(logs, symlink));
     const directoryName = completeName(1000000000000, 'c');
     fs.mkdirSync(path.join(logs, directoryName));
     await make().finish();
@@ -98,15 +94,62 @@ describe('anonymous sync run logs', () => {
     for (let i = 0; i < 4; i++) expect(fs.existsSync(path.join(logs, completeName(1000000000000 + i)))).toBe(false);
     for (let i = 4; i < 13; i++) expect(fs.existsSync(path.join(logs, completeName(1000000000000 + i)))).toBe(true);
     for (const name of unrelated) expect(fs.readFileSync(path.join(logs, name), 'utf8')).toBe('keep');
-    expect(fs.lstatSync(path.join(logs, symlink)).isSymbolicLink()).toBe(true);
     expect(fs.statSync(path.join(logs, directoryName)).isDirectory()).toBe(true);
+  });
+
+  it('preserves a real file symlink during rotation when link permission is available', async context => {
+    fs.mkdirSync(logs);
+    const outside = path.join(root, 'outside');
+    fs.writeFileSync(outside, 'untouched');
+    const linkPath = path.join(logs, completeName(1000000000000, 'b'));
+    try { fs.symlinkSync(outside, linkPath, 'file'); }
+    catch (error) {
+      // Windows can deny file symlinks without Developer Mode/admin rights.
+      // Only this real-link case is skipped; rotation and injected-link guards
+      // below still run. Unexpected filesystem failures remain failures.
+      if (['EPERM', 'EACCES'].includes((error as NodeJS.ErrnoException).code ?? '')) {
+        console.warn('[test] File-symlink permission unavailable; skipping only the real-file-link case.');
+        context.skip(); return;
+      }
+      throw error;
+    }
+    for (let i = 0; i < 13; i++) fs.writeFileSync(path.join(logs, completeName(1000000000000 + i)), '[sync-log] schema=1 event=start droppedSnapshots=0\n');
+    await make().finish();
+    expect(fs.lstatSync(linkPath).isSymbolicLink()).toBe(true);
     expect(fs.readFileSync(outside, 'utf8')).toBe('untouched');
+    expect(completed().filter(name => fs.lstatSync(path.join(logs, name)).isFile())).toHaveLength(10);
+  });
+
+  it('rejects a rotation candidate reported as a symlink after directory enumeration', async () => {
+    fs.mkdirSync(logs);
+    const candidate = path.join(logs, completeName(1000000000000, 'b'));
+    const content = '[sync-log] schema=1 event=start droppedSnapshots=0\nkeep';
+    fs.writeFileSync(candidate, content);
+    for (let i = 0; i < 13; i++) fs.writeFileSync(path.join(logs, completeName(1000000000000 + i)), '[sync-log] schema=1 event=start droppedSnapshots=0\n');
+    const realLstat = fs.promises.lstat.bind(fs.promises);
+    const checked = vi.fn();
+    vi.spyOn(fs.promises, 'lstat').mockImplementation((async (filename: fs.PathLike) => {
+      const stat = await realLstat(filename);
+      if (String(filename) === candidate) {
+        checked();
+        stat.isFile = () => false;
+        stat.isSymbolicLink = () => true;
+      }
+      return stat;
+    }) as typeof fs.promises.lstat);
+    const open = vi.spyOn(fs.promises, 'open');
+    const warning = vi.fn();
+    await make(() => summary(), warning).finish();
+    expect(checked).toHaveBeenCalled();
+    expect(open.mock.calls.some(([filename]) => String(filename) === candidate)).toBe(false);
+    expect(fs.readFileSync(candidate, 'utf8')).toBe(content);
+    expect(warning).not.toHaveBeenCalled();
   });
 
   it.each(['symlink', 'file'])('rejects a logs %s without failing the sync or changing its target', async kind => {
     const outside = path.join(root, 'outside');
     fs.mkdirSync(outside);
-    if (kind === 'symlink') fs.symlinkSync(outside, logs, 'dir');
+    if (kind === 'symlink') fs.symlinkSync(outside, logs, process.platform === 'win32' ? 'junction' : 'dir');
     else fs.writeFileSync(logs, 'keep');
     const warning = vi.fn();
     const writer = make(() => summary(), warning);
