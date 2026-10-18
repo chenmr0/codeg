@@ -10,18 +10,38 @@ export type MacroProjectEvidence = Record<string, MacroFileEvidence>;
 
 /** Ignore comments without treating quoted include names as comment text. */
 export function scanLiteralIncludes(source: string): Array<{ name: string; start: number }> {
-  // Remove comments first, preserving quoted tokens; the second pass can then
-  // recognize #include/**/"file.h" without consulting an unclean prefix.
-  const uncommented = source.replace(/(?:u8|u|U|L)?R"([^ ()\\\t\r\n]{0,16})\([\s\S]*?\)\1"|"(?:\\[\s\S]|[^"\\])*"|'(?:\\[\s\S]|[^'\\])*'|\/\*[\s\S]*?\*\/|\/\/[^\n]*/g,
-    token => token.startsWith('"') || token.startsWith("'") ? token : token.replace(/[^\n]/g, ' '));
-  const clean = uncommented.replace(/"(?:\\[\s\S]|[^"\\])*"|'(?:\\[\s\S]|[^'\\])*'/g,
-    (token: string, offset: number) => {
-      const prefix = uncommented.slice(uncommented.lastIndexOf('\n', offset - 1) + 1, offset);
-      return token.startsWith('"') && /^[ \t]*#[ \t]*include[ \t]*$/.test(prefix)
-        ? token : token.replace(/[^\n]/g, ' ');
-    });
-  return Array.from(clean.matchAll(/^[ \t]*#[ \t]*include[ \t]*["<]([^">\r\n]+)[">]/gm),
-    match => ({ name: match[1]!, start: match.index! }));
+  // Walk the same lexical exclusions without allocating two masked copies of
+  // every source file. Keep physical newlines and UTF-16 offsets unchanged.
+  const tokens = /(?:u8|u|U|L)?R"([^ ()\\\t\r\n]{0,16})\([\s\S]*?\)\1"|"(?:\\[\s\S]|[^"\\])*"|'(?:\\[\s\S]|[^'\\])*'|\/\*[\s\S]*?\*\/|\/\/[^\n]*|#/g;
+  const includes = [];
+  let cursor = 0, trivia = true, quotedPrefix = false;
+  for (let token; (token = tokens.exec(source));) {
+    const gap = source.slice(cursor, token.index);
+    const newline = gap.lastIndexOf('\n');
+    if (newline >= 0) quotedPrefix = false;
+    trivia = newline < 0 ? trivia && /^[ \t]*$/.test(gap) : /^[ \t]*$/.test(gap.slice(newline + 1));
+    if (token[0] === '#') {
+      if (trivia) {
+        const end = source.indexOf('\n', token.index);
+        const directive = source.slice(token.index, end < 0 ? source.length : end);
+        const match = /^#[ \t]*(?:\/\*[^\n]*?\*\/[ \t]*)*include[ \t]*(?:\/\*[^\n]*?\*\/[ \t]*)*(["<])([^">\r\n]+)[">]/.exec(directive);
+        // Preserve the existing masking semantics even for unusual header names.
+        if (match && match[1] === '<') {
+          if (match[2]!.includes('//')) { cursor = tokens.lastIndex; trivia = false; continue; }
+          match[2] = match[2]!.replace(/\/\*[^\n]*?\*\//g, comment => ' '.repeat(comment.length));
+        }
+        if (match && !(quotedPrefix && match[1] === '"')) includes.push({ name: match[2]!, start: source.lastIndexOf('\n', token.index - 1) + 1 });
+      }
+      trivia = false;
+    } else {
+      if (token[0].includes('\n')) { trivia = true; quotedPrefix = false; }
+      // The former first pass kept quoted tokens: a quoted header after such
+      // a same-line prefix was not retained by the second pass.
+      if (token[0].startsWith('"') || token[0].startsWith("'")) quotedPrefix = true;
+    }
+    cursor = tokens.lastIndex;
+  }
+  return includes;
 }
 
 const suffixIndexes = new WeakMap<MacroProjectEvidence, Map<string, string | null>>();

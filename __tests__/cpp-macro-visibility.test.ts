@@ -6,7 +6,7 @@ import CodeGraph from '../src';
 import { buildMacroContext } from '../src/extraction/macro-scan';
 import { extractFromSource } from '../src/extraction/tree-sitter';
 import { expandDeclarationMacros } from '../src/extraction/declaration-macros';
-import { visibleMacroDefinitions } from '../src/extraction/macro-visibility';
+import { visibleMacroDefinitions, scanLiteralIncludes } from '../src/extraction/macro-visibility';
 import { loadGrammarsForLanguages } from '../src/extraction/grammars';
 
 beforeAll(() => loadGrammarsForLanguages(['cpp']));
@@ -188,4 +188,35 @@ it('does not promote attribute-wrapped function parameters into namespace variab
       context.definitions, undefined, context.project);
     expect(result.nodes.filter(n => ['variable', 'constant', 'field'].includes(n.kind) && ['arg', 'flag'].includes(n.name))).toEqual([]);
   });
+});
+
+// Frozen masking oracle: optimization must preserve names and UTF-16 offsets.
+function referenceIncludeScanner(source: string): Array<{ name: string; start: number }> {
+  // Remove comments first, preserving quoted tokens; the second pass can then
+  // recognize #include/**/"file.h" without consulting an unclean prefix.
+  const uncommented = source.replace(/(?:u8|u|U|L)?R"([^ ()\\\t\r\n]{0,16})\([\s\S]*?\)\1"|"(?:\\[\s\S]|[^"\\])*"|'(?:\\[\s\S]|[^'\\])*'|\/\*[\s\S]*?\*\/|\/\/[^\n]*/g,
+    token => token.startsWith('"') || token.startsWith("'") ? token : token.replace(/[^\n]/g, ' '));
+  const clean = uncommented.replace(/"(?:\\[\s\S]|[^"\\])*"|'(?:\\[\s\S]|[^'\\])*'/g,
+    (token: string, offset: number) => {
+      const prefix = uncommented.slice(uncommented.lastIndexOf('\n', offset - 1) + 1, offset);
+      return token.startsWith('"') && /^[ \t]*#[ \t]*include[ \t]*$/.test(prefix)
+        ? token : token.replace(/[^\n]/g, ' ');
+    });
+  return Array.from(clean.matchAll(/^[ \t]*#[ \t]*include[ \t]*["<]([^">\r\n]+)[">]/gm),
+    match => ({ name: match[1]!, start: match.index! }));
+}
+
+
+it('keeps lexical include output equivalent across comments, strings and directive boundaries', () => {
+  const parts = ['', ' ', '\t', '\n', '\r\n', '/* x */', '/*\nx\n*/', '// x\n',
+    '"#include \\"x.h\\""', 'R"tag(\n#include "bad.h"\n)tag"', 'x', "'x'",
+    '#include"a.h"\n', '#/**/include/**/"b.h"\n', '#include <dir/file.h>\n',
+    '#include "dir/*x*/file.h"\n', '#include <dir/*x*/file.h>\n', '#include <dir//file.h>\n'];
+  let seed = 7823;
+  const random = () => seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+  for (let i = 0; i < 10000; i++) {
+    let source = '';
+    for (let j = 0; j < 7; j++) source += parts[random() % parts.length];
+    expect(scanLiteralIncludes(source), source).toEqual(referenceIncludeScanner(source));
+  }
 });
