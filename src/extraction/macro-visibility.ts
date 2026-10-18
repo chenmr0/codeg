@@ -10,6 +10,9 @@ export type MacroProjectEvidence = Record<string, MacroFileEvidence>;
 
 /** Ignore comments without treating quoted include names as comment text. */
 export function scanLiteralIncludes(source: string): Array<{ name: string; start: number }> {
+  // JS multiline anchors recognize CR/U+2028/U+2029 while the legacy quoted
+  // prefix check used LF only. Keep that rare, asymmetric behavior unchanged.
+  if (/\r(?!\n)|[\u2028\u2029]/.test(source)) return scanIncludesWithLegacyLineBreaks(source);
   // Walk the same lexical exclusions without allocating two masked copies of
   // every source file. Keep physical newlines and UTF-16 offsets unchanged.
   const tokens = /(?:u8|u|U|L)?R"([^ ()\\\t\r\n]{0,16})\([\s\S]*?\)\1"|"(?:\\[\s\S]|[^"\\])*"|'(?:\\[\s\S]|[^'\\])*'|\/\*[\s\S]*?\*\/|\/\/[^\n]*|#/g;
@@ -42,6 +45,21 @@ export function scanLiteralIncludes(source: string): Array<{ name: string; start
     cursor = tokens.lastIndex;
   }
   return includes;
+}
+
+function scanIncludesWithLegacyLineBreaks(source: string): Array<{ name: string; start: number }> {
+  // Remove comments first, preserving quoted tokens; the second pass can then
+  // recognize #include/**/"file.h" without consulting an unclean prefix.
+  const uncommented = source.replace(/(?:u8|u|U|L)?R"([^ ()\\\t\r\n]{0,16})\([\s\S]*?\)\1"|"(?:\\[\s\S]|[^"\\])*"|'(?:\\[\s\S]|[^'\\])*'|\/\*[\s\S]*?\*\/|\/\/[^\n]*/g,
+    token => token.startsWith('"') || token.startsWith("'") ? token : token.replace(/[^\n]/g, ' '));
+  const clean = uncommented.replace(/"(?:\\[\s\S]|[^"\\])*"|'(?:\\[\s\S]|[^'\\])*'/g,
+    (token: string, offset: number) => {
+      const prefix = uncommented.slice(uncommented.lastIndexOf('\n', offset - 1) + 1, offset);
+      return token.startsWith('"') && /^[ \t]*#[ \t]*include[ \t]*$/.test(prefix)
+        ? token : token.replace(/[^\n]/g, ' ');
+    });
+  return Array.from(clean.matchAll(/^[ \t]*#[ \t]*include[ \t]*["<]([^">\r\n]+)[">]/gm),
+    match => ({ name: match[1]!, start: match.index! }));
 }
 
 const suffixIndexes = new WeakMap<MacroProjectEvidence, Map<string, string | null>>();

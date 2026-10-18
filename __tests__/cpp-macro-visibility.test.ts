@@ -220,3 +220,8 @@ it('keeps lexical include output equivalent across comments, strings and directi
     expect(scanLiteralIncludes(source), source).toEqual(referenceIncludeScanner(source));
   }
 });
+
+it.each(['\r', '\u2028', '\u2029'])('preserves existing include boundaries for non-LF separator %j', separator => {
+  const source = `#include <first.h>${separator}#include <second.h>${separator}#include"third.h"`;
+  expect(scanLiteralIncludes(source)).toEqual(referenceIncludeScanner(source));
+});
