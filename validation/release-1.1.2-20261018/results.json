@@ -1,371 +1,1624 @@
 {
+  "testedCodeCommit": "be7b13cd92b3c56f8469986ac2bdf0b94d4bc688",
   "baseline": "30d595909771c8a24748dbbdcca26a6714616b1e",
-  "fixedCodeCommit": "e1185483b5d5ca2683b495425f2bbb57fc4c0c3f",
   "previousRelease": "28910d25a3913ff1233170143e1c8a864c5e9e19",
-  "fullTests": {
+  "fullSuite": {
+    "passed": 3390,
+    "failed": 13,
+    "skipped": 2
+  },
+  "newFailureIdentities": [],
+  "baselineSuite": {
+    "passed": 3332,
+    "failed": 15,
+    "skipped": 40
+  },
+  "remainingFailures": [
+    {
+      "file": "adaptive-explore-sizing.test.ts",
+      "test": "adaptive codegraph_explore sizing — sibling skeletonization skeletonizes off-spine polymorphic siblings (bodies elided, signatures kept)"
+    },
+    {
+      "file": "adaptive-explore-sizing.test.ts",
+      "test": "adaptive codegraph_explore sizing — sibling skeletonization keeps the on-spine exemplar full even though it is a sibling"
+    },
+    {
+      "file": "adaptive-explore-sizing.test.ts",
+      "test": "adaptive codegraph_explore sizing — sibling skeletonization keeps a distinct step full (off-spine but supertype has < 3 implementers)"
+    },
+    {
+      "file": "adaptive-explore-sizing.test.ts",
+      "test": "adaptive codegraph_explore sizing — sibling skeletonization CODEGRAPH_ADAPTIVE_EXPLORE=0 disables skeletonization (siblings render full)"
+    },
+    {
+      "file": "adaptive-explore-sizing.test.ts",
+      "test": "adaptive codegraph_explore sizing — sibling skeletonization spares an off-spine sibling when the agent NAMED a callable in it (RealCall fix)"
+    },
+    {
+      "file": "adaptive-explore-sizing.test.ts",
+      "test": "adaptive codegraph_explore sizing — sibling skeletonization collapses a base+subclasses family file to a FOCUSED view — base method body kept, non-named subclasses signature-only (compiler.py)"
+    },
+    {
+      "file": "adaptive-explore-sizing.test.ts",
+      "test": "adaptive codegraph_explore sizing — sibling skeletonization naming a SHARED/polymorphic method does not spare the siblings (uniqueness-aware)"
+    },
+    {
+      "file": "explore-output-budget.test.ts",
+      "test": "codegraph_explore output respects the adaptive budget still includes the Relationships section — it is the cheapest structural signal"
+    },
+    {
+      "file": "explore-output-budget.test.ts",
+      "test": "codegraph_explore output respects the adaptive budget prefixes source lines with line numbers by default (cat -n style)"
+    },
+    {
+      "file": "explore-output-budget.test.ts",
+      "test": "codegraph_explore output respects the adaptive budget does not collapse a whole-file class into just its header (envelope filter)"
+    },
+    {
+      "file": "mcp-daemon.test.ts",
+      "test": "Shared MCP daemon (issue #411) daemon idle-times-out after the last client disconnects"
+    },
+    {
+      "file": "mcp-ppid-watchdog.test.ts",
+      "test": "MCP PPID watchdog (#277) shuts down when its parent is SIGKILL'd and stdin stays open"
+    },
+    {
+      "file": "worktree-detection.test.ts",
+      "test": "worktree mismatch surfaces on hot read tools (issue #155) caches detection — a later tool call needs no further git spawn"
+    }
+  ],
+  "extraction483": "All passed in eight partitions, avoiding monolithic WASM worker memory exhaustion.",
+  "nativeValidation": {
+    "previouslySkipped38": "all passed",
+    "helperPresenceAdditionalAssertion": "passed",
+    "scannerReleaseValidation": "16 real differential fixtures passed",
+    "macroReleaseValidation": "macro-parity-v1 passed"
+  },
+  "benchmarks": {
+    "ts": {
+      "performance": {
+        "baseline-init": {
+          "wall_seconds": {
+            "median": 102.03140071849998,
+            "min": 96.64924384200003,
+            "max": 107.41355759499993
+          },
+          "process_group_peak_rss_mib": {
+            "median": 1795.94140625,
+            "min": 1791.48046875,
+            "max": 1800.40234375
+          }
+        },
+        "baseline-noop": {
+          "wall_seconds": {
+            "median": 0.662039149499833,
+            "min": 0.5248655969999163,
+            "max": 0.7992127019997497
+          },
+          "process_group_peak_rss_mib": {
+            "median": 244.26953125,
+            "min": 243.3984375,
+            "max": 245.140625
+          }
+        },
+        "baseline-edit": {
+          "wall_seconds": {
+            "median": 5.217742761499721,
+            "min": 5.211248488999445,
+            "max": 5.224237033999998
+          },
+          "process_group_peak_rss_mib": {
+            "median": 614.498046875,
+            "min": 611.11328125,
+            "max": 617.8828125
+          }
+        },
+        "fixed-init": {
+          "wall_seconds": {
+            "median": 99.28440468699978,
+            "min": 98.45614802399996,
+            "max": 100.1126613499996
+          },
+          "process_group_peak_rss_mib": {
+            "median": 1799.10546875,
+            "min": 1797.69140625,
+            "max": 1800.51953125
+          }
+        },
+        "fixed-noop": {
+          "wall_seconds": {
+            "median": 0.5760880600000746,
+            "min": 0.5537791470005686,
+            "max": 0.5983969729995806
+          },
+          "process_group_peak_rss_mib": {
+            "median": 240.275390625,
+            "min": 239.43359375,
+            "max": 241.1171875
+          }
+        },
+        "fixed-edit": {
+          "wall_seconds": {
+            "median": 5.780475939000098,
+            "min": 5.609260504000304,
+            "max": 5.951691373999893
+          },
+          "process_group_peak_rss_mib": {
+            "median": 613.689453125,
+            "min": 609.25390625,
+            "max": 618.125
+          }
+        }
+      },
+      "graphChecks": {
+        "baseline-repeatable": true,
+        "baseline-incrementalFresh": {
+          "nodes": true,
+          "edges": true
+        },
+        "fixed-repeatable": true,
+        "fixed-incrementalFresh": {
+          "nodes": true,
+          "edges": true
+        },
+        "crossVersion": {
+          "nodes": false,
+          "edges": false
+        }
+      }
+    },
+    "native": {
+      "performance": {
+        "baseline-init": {
+          "wall_seconds": {
+            "median": 101.99144512099974,
+            "min": 101.63702216799993,
+            "max": 102.34586807399955
+          },
+          "process_group_peak_rss_mib": {
+            "median": 1794.40625,
+            "min": 1794.30078125,
+            "max": 1794.51171875
+          }
+        },
+        "baseline-noop": {
+          "wall_seconds": {
+            "median": 0.5307494490002682,
+            "min": 0.48614988700046524,
+            "max": 0.5753490110000712
+          },
+          "process_group_peak_rss_mib": {
+            "median": 246.166015625,
+            "min": 245.796875,
+            "max": 246.53515625
+          }
+        },
+        "baseline-edit": {
+          "wall_seconds": {
+            "median": 5.688258169999699,
+            "min": 5.243403024000145,
+            "max": 6.133113315999253
+          },
+          "process_group_peak_rss_mib": {
+            "median": 621.228515625,
+            "min": 619.375,
+            "max": 623.08203125
+          }
+        },
+        "fixed-init": {
+          "wall_seconds": {
+            "median": 98.20039033749981,
+            "min": 97.1717998690001,
+            "max": 99.22898080599953
+          },
+          "process_group_peak_rss_mib": {
+            "median": 1812.828125,
+            "min": 1811.08984375,
+            "max": 1814.56640625
+          }
+        },
+        "fixed-noop": {
+          "wall_seconds": {
+            "median": 0.5705454115004613,
+            "min": 0.5149213450004027,
+            "max": 0.62616947800052
+          },
+          "process_group_peak_rss_mib": {
+            "median": 241.56640625,
+            "min": 238.71484375,
+            "max": 244.41796875
+          }
+        },
+        "fixed-edit": {
+          "wall_seconds": {
+            "median": 5.415245974500067,
+            "min": 5.12143256499985,
+            "max": 5.709059384000284
+          },
+          "process_group_peak_rss_mib": {
+            "median": 629.724609375,
+            "min": 628.85546875,
+            "max": 630.59375
+          }
+        }
+      },
+      "graphChecks": {
+        "baseline-repeatable": true,
+        "baseline-incrementalFresh": {
+          "nodes": true,
+          "edges": true
+        },
+        "fixed-repeatable": true,
+        "fixed-incrementalFresh": {
+          "nodes": true,
+          "edges": true
+        },
+        "crossVersion": {
+          "nodes": false,
+          "edges": false
+        }
+      }
+    }
+  },
+  "crossModeGraphParity": {
     "baseline": {
-      "passed": 3332,
-      "failed": 15,
-      "skipped": 40
+      "nodes": true,
+      "edges": true
     },
     "fixed": {
-      "passed": 3342,
-      "failed": 14,
-      "skipped": 40
+      "nodes": true,
+      "edges": true
+    }
+  },
+  "graphReviews": {
+    "ts": {
+      "mode": "ts",
+      "baselineNodes": 107724,
+      "fixedNodes": 107836,
+      "changedRows": 62,
+      "changedByFile": {
+        "util/crc32c_test.cc": 56,
+        "util/xxhash.h": 6
+      },
+      "lostAfterCrcCanonicalization": [],
+      "addedSemanticNodes": 112,
+      "compilerConfirmedNewFields": 112,
+      "unclassifiedAddedNodes": [],
+      "edgeCountsByKind": {
+        "removed": {},
+        "added": {
+          "contains": 120
+        }
+      },
+      "addedContainsTargetsByFile": {
+        "util/crc32c_test.cc": 8,
+        "monitoring/perf_context.cc": 112
+      },
+      "addedContainsTargets": [
+        {
+          "source": "ROCKSDB_NAMESPACE::crc32c::CRC_Crc32cCombineBasicTest_Test",
+          "target": "ROCKSDB_NAMESPACE::crc32c::CRC_Crc32cCombineBasicTest_Test::CRC_Crc32cCombineBasicTest_Test",
+          "file": "util/crc32c_test.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::crc32c::CRC_Values_Test",
+          "target": "ROCKSDB_NAMESPACE::crc32c::CRC_Values_Test::CRC_Values_Test",
+          "file": "util/crc32c_test.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::crc32c::CRC_Crc32cCombineOrderMattersTest_Test",
+          "target": "ROCKSDB_NAMESPACE::crc32c::CRC_Crc32cCombineOrderMattersTest_Test::CRC_Crc32cCombineOrderMattersTest_Test",
+          "file": "util/crc32c_test.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::crc32c::CRC_Mask_Test",
+          "target": "ROCKSDB_NAMESPACE::crc32c::CRC_Mask_Test::CRC_Mask_Test",
+          "file": "util/crc32c_test.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::crc32c::CRC_StandardResults_Test",
+          "target": "ROCKSDB_NAMESPACE::crc32c::CRC_StandardResults_Test::CRC_StandardResults_Test",
+          "file": "util/crc32c_test.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::crc32c::CRC_Crc32cCombineFullCoverTest_Test",
+          "target": "ROCKSDB_NAMESPACE::crc32c::CRC_Crc32cCombineFullCoverTest_Test::CRC_Crc32cCombineFullCoverTest_Test",
+          "file": "util/crc32c_test.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::crc32c::CRC_Crc32cCombineBigSizeTest_Test",
+          "target": "ROCKSDB_NAMESPACE::crc32c::CRC_Crc32cCombineBigSizeTest_Test::CRC_Crc32cCombineBigSizeTest_Test",
+          "file": "util/crc32c_test.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::crc32c::CRC_Extend_Test",
+          "target": "ROCKSDB_NAMESPACE::crc32c::CRC_Extend_Test::CRC_Extend_Test",
+          "file": "util/crc32c_test.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::blob_read_time",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::seek_child_seek_time",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::compression_dict_block_read_count",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::block_read_byte",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::write_scheduling_flushes_compactions_time",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::compressed_sec_cache_insert_dummy_count",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::secondary_cache_hit_count",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::env_create_dir_nanos",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::key_lock_wait_time",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::encrypt_data_nanos",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::env_rename_file_nanos",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::read_index_block_nanos",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::env_new_sequential_file_nanos",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::env_reuse_writable_file_nanos",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::blob_cache_hit_count",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::iter_next_count",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::env_new_random_access_file_nanos",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::internal_merge_count",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::decrypt_data_nanos",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::compressed_sec_cache_compressed_bytes",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::find_next_user_entry_time",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::block_cache_index_hit_count",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::internal_delete_skipped_count",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::env_create_dir_if_missing_nanos",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::iter_seek_count",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::env_new_writable_file_nanos",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::block_cache_filter_read_byte",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::internal_range_del_reseek_count",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::env_new_logger_nanos",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::get_from_memtable_count",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::multiget_read_bytes",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::block_read_time",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::env_get_children_nanos",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::env_get_file_size_nanos",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::get_post_process_time",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::filter_block_read_count",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::block_cache_standalone_handle_count",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::iter_next_cpu_nanos",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::blob_read_byte",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::internal_key_skipped_count",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::block_cache_hit_count",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::prev_on_memtable_count",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::write_wal_time",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::block_cache_compression_dict_read_byte",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::env_get_file_modification_time_nanos",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::internal_merge_point_lookup_count",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::bloom_memtable_miss_count",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::seek_on_memtable_count",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::env_get_children_file_attributes_nanos",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::block_cache_real_handle_count",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::seek_on_memtable_time",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::get_from_memtable_time",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::db_condition_wait_nanos",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::user_key_comparison_count",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::iter_prev_count",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::seek_child_seek_count",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::block_cache_read_byte",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::env_delete_dir_nanos",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::bloom_sst_miss_count",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::merge_operator_time_nanos",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::write_memtable_time",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::index_block_read_count",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::env_new_directory_nanos",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::env_lock_file_nanos",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::iter_seek_cpu_nanos",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::iter_read_bytes",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::write_delay_time",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::bloom_sst_hit_count",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::compressed_sec_cache_insert_real_count",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::seek_max_heap_time",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::block_checksum_time",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::read_filter_block_nanos",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::block_seek_nanos",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::env_unlock_file_nanos",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::block_read_count",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::env_new_random_rw_file_nanos",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::block_cache_index_read_byte",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::write_pre_and_post_process_time",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::find_table_nanos",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::block_read_cpu_time",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::get_from_output_files_time",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::env_link_file_nanos",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::block_decompress_time",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::blob_decompress_time",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::block_cache_filter_hit_count",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::next_on_memtable_count",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::new_table_iterator_nanos",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::compressed_sec_cache_uncompressed_bytes",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::blob_read_count",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::key_lock_wait_count",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::get_snapshot_time",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::write_thread_wait_nanos",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::env_delete_file_nanos",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::get_cpu_nanos",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::number_async_seek",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::bloom_memtable_hit_count",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::blob_checksum_time",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::seek_internal_seek_time",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::db_mutex_lock_nanos",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::iter_prev_cpu_nanos",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::env_file_exists_nanos",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::internal_recent_skipped_count",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::seek_min_heap_time",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::new_table_block_iter_nanos",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::get_read_bytes",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextByLevelInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextByLevelInt::block_cache_miss_count",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextByLevelInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextByLevelInt::bloom_filter_useful",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextByLevelInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextByLevelInt::get_from_table_nanos",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextByLevelInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextByLevelInt::block_cache_hit_count",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextByLevelInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextByLevelInt::bloom_filter_full_positive",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextByLevelInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextByLevelInt::bloom_filter_full_true_positive",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextByLevelInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextByLevelInt::user_key_return_count",
+          "file": "monitoring/perf_context.cc"
+        }
+      ]
     },
-    "baselineFiles": 208,
-    "fixedFiles": 209,
-    "extraction483": "Both versions fully rerun in eight groups after monolithic worker OOM; final run excludes this file and merges confirmed results.",
-    "baselineFailures": [
-      {
-        "file": "adaptive-explore-sizing.test.ts",
-        "test": "adaptive codegraph_explore sizing — sibling skeletonization skeletonizes off-spine polymorphic siblings (bodies elided, signatures kept)",
-        "message": "AssertionError: expected 'codegraph_explore 使用符号名/文件名效果最好，不支持自然…' to contain '## Flow (call path among the symbols …'\n    at /workspace/codegraph-baseline-30d/__tests__/adaptive-explore-sizing.test.ts:292:18\n    at file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:533:5\n    at runTest (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1056:11)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runFiles (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1262:5)\n    at startTests (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1271:3)\n    at file:///workspace/codegraph-install/node_modules/vitest/dist/chunks/runBase"
+    "native": {
+      "mode": "native",
+      "baselineNodes": 107724,
+      "fixedNodes": 107836,
+      "changedRows": 62,
+      "changedByFile": {
+        "util/crc32c_test.cc": 56,
+        "util/xxhash.h": 6
       },
-      {
-        "file": "adaptive-explore-sizing.test.ts",
-        "test": "adaptive codegraph_explore sizing — sibling skeletonization keeps the on-spine exemplar full even though it is a sibling",
-        "message": "AssertionError: logging-interceptor.ts should be present: expected '' not to be '' // Object.is equality\n    at /workspace/codegraph-baseline-30d/__tests__/adaptive-explore-sizing.test.ts:313:69\n    at file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:533:5\n    at runTest (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1056:11)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runFiles (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1262:5)\n    at startTests (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1271:3)\n    at file:///workspace/codegraph-install/node_modules/vitest/dist/chunks/runBaseTests.3qpJUEJ"
+      "lostAfterCrcCanonicalization": [],
+      "addedSemanticNodes": 112,
+      "compilerConfirmedNewFields": 112,
+      "unclassifiedAddedNodes": [],
+      "edgeCountsByKind": {
+        "removed": {},
+        "added": {
+          "contains": 120
+        }
       },
-      {
-        "file": "adaptive-explore-sizing.test.ts",
-        "test": "adaptive codegraph_explore sizing — sibling skeletonization keeps a distinct step full (off-spine but supertype has < 3 implementers)",
-        "message": "AssertionError: response-formatter.ts should be present: expected '' not to be '' // Object.is equality\n    at /workspace/codegraph-baseline-30d/__tests__/adaptive-explore-sizing.test.ts:324:68\n    at file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:533:5\n    at runTest (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1056:11)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runFiles (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1262:5)\n    at startTests (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1271:3)\n    at file:///workspace/codegraph-install/node_modules/vitest/dist/chunks/runBaseTests.3qpJUEJM"
+      "addedContainsTargetsByFile": {
+        "util/crc32c_test.cc": 8,
+        "monitoring/perf_context.cc": 112
       },
-      {
-        "file": "adaptive-explore-sizing.test.ts",
-        "test": "adaptive codegraph_explore sizing — sibling skeletonization CODEGRAPH_ADAPTIVE_EXPLORE=0 disables skeletonization (siblings render full)",
-        "message": "AssertionError: expected '' not to be '' // Object.is equality\n    at /workspace/codegraph-baseline-30d/__tests__/adaptive-explore-sizing.test.ts:338:27\n    at file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:533:5\n    at runTest (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1056:11)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runFiles (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1262:5)\n    at startTests (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1271:3)\n    at file:///workspace/codegraph-install/node_modules/vitest/dist/chunks/runBaseTests.3qpJUEJM.js:126:11\n    at withEnv (file:///worksp"
-      },
-      {
-        "file": "adaptive-explore-sizing.test.ts",
-        "test": "adaptive codegraph_explore sizing — sibling skeletonization spares an off-spine sibling when the agent NAMED a callable in it (RealCall fix)",
-        "message": "AssertionError: expected 'codegraph_explore 使用符号名/文件名效果最好，不支持自然…' to contain '## Flow (call path among the symbols …'\n    at /workspace/codegraph-baseline-30d/__tests__/adaptive-explore-sizing.test.ts:353:18\n    at file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:533:5\n    at runTest (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1056:11)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runFiles (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1262:5)\n    at startTests (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1271:3)\n    at file:///workspace/codegraph-install/node_modules/vitest/dist/chunks/runBase"
-      },
-      {
-        "file": "adaptive-explore-sizing.test.ts",
-        "test": "adaptive codegraph_explore sizing — sibling skeletonization collapses a base+subclasses family file to a FOCUSED view — base method body kept, non-named subclasses signature-only (compiler.py)",
-        "message": "AssertionError: codec.ts should be present: expected '' not to be '' // Object.is equality\n    at /workspace/codegraph-baseline-30d/__tests__/adaptive-explore-sizing.test.ts:380:53\n    at file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:533:5\n    at runTest (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1056:11)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runFiles (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1262:5)\n    at startTests (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1271:3)\n    at file:///workspace/codegraph-install/node_modules/vitest/dist/chunks/runBaseTests.3qpJUEJM.js:126:11\n  "
-      },
-      {
-        "file": "adaptive-explore-sizing.test.ts",
-        "test": "adaptive codegraph_explore sizing — sibling skeletonization naming a SHARED/polymorphic method does not spare the siblings (uniqueness-aware)",
-        "message": "AssertionError: a sibling named only via a shared method is not spared: expected '' to contain '· skeleton (signatures only'\n    at /workspace/codegraph-baseline-30d/__tests__/adaptive-explore-sizing.test.ts:395:78\n    at file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:533:5\n    at runTest (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1056:11)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runFiles (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1262:5)\n    at startTests (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1271:3)\n    at file:///workspace/codegraph-install/node_modules/vitest/dist/chunks/"
-      },
-      {
-        "file": "explore-output-budget.test.ts",
-        "test": "codegraph_explore output respects the adaptive budget still includes the Relationships section — it is the cheapest structural signal",
-        "message": "AssertionError: expected false to be true // Object.is equality\n    at /workspace/codegraph-baseline-30d/__tests__/explore-output-budget.test.ts:217:53\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:533:5\n    at runTest (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1056:11)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runFiles (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1262:5)\n    at startTests (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1271:3)\n    at file:///workspace/codegraph-install/node_modules/vitest/"
-      },
-      {
-        "file": "explore-output-budget.test.ts",
-        "test": "codegraph_explore output respects the adaptive budget prefixes source lines with line numbers by default (cat -n style)",
-        "message": "AssertionError: expected false to be true // Object.is equality\n    at /workspace/codegraph-baseline-30d/__tests__/explore-output-budget.test.ts:225:34\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:533:5\n    at runTest (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1056:11)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runFiles (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1262:5)\n    at startTests (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1271:3)\n    at file:///workspace/codegraph-install/node_modules/vitest/"
-      },
-      {
-        "file": "explore-output-budget.test.ts",
-        "test": "codegraph_explore output respects the adaptive budget does not collapse a whole-file class into just its header (envelope filter)",
-        "message": "AssertionError: expected false to be true // Object.is equality\n    at /workspace/codegraph-baseline-30d/__tests__/explore-output-budget.test.ts:260:27\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:533:5\n    at runTest (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1056:11)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runFiles (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1262:5)\n    at startTests (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1271:3)\n    at file:///workspace/codegraph-install/node_modules/vitest/"
-      },
-      {
-        "file": "foundation.test.ts",
-        "test": "Database Connection should get schema version",
-        "message": "AssertionError: expected 9 to be 8 // Object.is equality\n    at /workspace/codegraph-baseline-30d/__tests__/foundation.test.ts:245:30\n    at file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:146:14\n    at file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:533:11\n    at runWithTimeout (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:39:7)\n    at runTest (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1056:17)\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runFiles (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/ind"
-      },
-      {
-        "file": "mcp-daemon.test.ts",
-        "test": "Shared MCP daemon (issue #411) daemon idle-times-out after the last client disconnects",
-        "message": "AssertionError: expected false to be true // Object.is equality\n    at /workspace/codegraph-baseline-30d/__tests__/mcp-daemon.test.ts:407:53\n    at file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:533:5\n    at runTest (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1056:11)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runFiles (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1262:5)\n    at startTests (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1271:3)\n    at file:///workspace/codegraph-install/node_modules/vitest/dist/chunks/runBaseTests.3qpJUEJM.js:126:11\n    at withEnv (file:///workspace/codegrap"
-      },
-      {
-        "file": "mcp-ppid-watchdog.test.ts",
-        "test": "MCP PPID watchdog (#277) shuts down when its parent is SIGKILL'd and stdin stays open",
-        "message": "AssertionError: codegraph child (pid=13529) did not exit within 5s after wrapper was SIGKILL'd.\nstderr:\n[CodeGraph MCP] Parent process exited (host pid 13521 exited); shutting down.\n: expected false to be true // Object.is equality\n    at /workspace/codegraph-baseline-30d/__tests__/mcp-ppid-watchdog.test.ts:161:7\n    at file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:533:5\n    at runTest (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1056:11)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runFiles (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1262:5)\n    at startTests (file:///workspace/codegraph-install/node_modules/@vitest/runn"
-      },
-      {
-        "file": "raw-source-worker.test.ts",
-        "test": "isolated raw-source workers cleans up an active rg when the host exits without waiting for cancellation",
-        "message": "AssertionError: expected [Function] to throw an error\n    at Proxy.<anonymous> (file:///workspace/codegraph-install/node_modules/@vitest/expect/dist/index.js:1509:21)\n    at Proxy.<anonymous> (file:///workspace/codegraph-install/node_modules/@vitest/expect/dist/index.js:972:17)\n    at Proxy.methodWrapper (file:///workspace/codegraph-install/node_modules/chai/index.js:1686:25)\n    at /workspace/codegraph-baseline-30d/__tests__/raw-source-worker.test.ts:131:64\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:533:5\n    at runTest (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1056:11)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runSuite (file:///workspace/codegraph-install/node_module"
-      },
-      {
-        "file": "worktree-detection.test.ts",
-        "test": "worktree mismatch surfaces on hot read tools (issue #155) caches detection — a later tool call needs no further git spawn",
-        "message": "AssertionError: expected 'Error: Tool explore is disabled via C…' to contain 'different git worktree'\n    at /workspace/codegraph-baseline-30d/__tests__/worktree-detection.test.ts:184:38\n    at file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:533:5\n    at runTest (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1056:11)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runFiles (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1262:5)\n    at startTests (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1271:3)\n    at file:///workspace/codegraph-install/node_modules/vitest/dist/chunks/runBaseTests.3qpJUEJM.js:126"
-      }
-    ],
-    "fixedFailures": [
-      {
-        "file": "adaptive-explore-sizing.test.ts",
-        "test": "adaptive codegraph_explore sizing — sibling skeletonization skeletonizes off-spine polymorphic siblings (bodies elided, signatures kept)",
-        "message": "AssertionError: expected 'codegraph_explore 使用符号名/文件名效果最好，不支持自然…' to contain '## Flow (call path among the symbols …'\n    at /workspace/codegraph-regression-fixes/__tests__/adaptive-explore-sizing.test.ts:292:18\n    at file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:533:5\n    at runTest (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1056:11)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runFiles (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1262:5)\n    at startTests (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1271:3)\n    at file:///workspace/codegraph-install/node_modules/vitest/dist/chunks/run"
-      },
-      {
-        "file": "adaptive-explore-sizing.test.ts",
-        "test": "adaptive codegraph_explore sizing — sibling skeletonization keeps the on-spine exemplar full even though it is a sibling",
-        "message": "AssertionError: logging-interceptor.ts should be present: expected '' not to be '' // Object.is equality\n    at /workspace/codegraph-regression-fixes/__tests__/adaptive-explore-sizing.test.ts:313:69\n    at file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:533:5\n    at runTest (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1056:11)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runFiles (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1262:5)\n    at startTests (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1271:3)\n    at file:///workspace/codegraph-install/node_modules/vitest/dist/chunks/runBaseTests.3qp"
-      },
-      {
-        "file": "adaptive-explore-sizing.test.ts",
-        "test": "adaptive codegraph_explore sizing — sibling skeletonization keeps a distinct step full (off-spine but supertype has < 3 implementers)",
-        "message": "AssertionError: response-formatter.ts should be present: expected '' not to be '' // Object.is equality\n    at /workspace/codegraph-regression-fixes/__tests__/adaptive-explore-sizing.test.ts:324:68\n    at file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:533:5\n    at runTest (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1056:11)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runFiles (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1262:5)\n    at startTests (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1271:3)\n    at file:///workspace/codegraph-install/node_modules/vitest/dist/chunks/runBaseTests.3qpJ"
-      },
-      {
-        "file": "adaptive-explore-sizing.test.ts",
-        "test": "adaptive codegraph_explore sizing — sibling skeletonization CODEGRAPH_ADAPTIVE_EXPLORE=0 disables skeletonization (siblings render full)",
-        "message": "AssertionError: expected '' not to be '' // Object.is equality\n    at /workspace/codegraph-regression-fixes/__tests__/adaptive-explore-sizing.test.ts:338:27\n    at file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:533:5\n    at runTest (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1056:11)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runFiles (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1262:5)\n    at startTests (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1271:3)\n    at file:///workspace/codegraph-install/node_modules/vitest/dist/chunks/runBaseTests.3qpJUEJM.js:126:11\n    at withEnv (file:///wo"
-      },
-      {
-        "file": "adaptive-explore-sizing.test.ts",
-        "test": "adaptive codegraph_explore sizing — sibling skeletonization spares an off-spine sibling when the agent NAMED a callable in it (RealCall fix)",
-        "message": "AssertionError: expected 'codegraph_explore 使用符号名/文件名效果最好，不支持自然…' to contain '## Flow (call path among the symbols …'\n    at /workspace/codegraph-regression-fixes/__tests__/adaptive-explore-sizing.test.ts:353:18\n    at file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:533:5\n    at runTest (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1056:11)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runFiles (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1262:5)\n    at startTests (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1271:3)\n    at file:///workspace/codegraph-install/node_modules/vitest/dist/chunks/run"
-      },
-      {
-        "file": "adaptive-explore-sizing.test.ts",
-        "test": "adaptive codegraph_explore sizing — sibling skeletonization collapses a base+subclasses family file to a FOCUSED view — base method body kept, non-named subclasses signature-only (compiler.py)",
-        "message": "AssertionError: codec.ts should be present: expected '' not to be '' // Object.is equality\n    at /workspace/codegraph-regression-fixes/__tests__/adaptive-explore-sizing.test.ts:380:53\n    at file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:533:5\n    at runTest (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1056:11)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runFiles (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1262:5)\n    at startTests (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1271:3)\n    at file:///workspace/codegraph-install/node_modules/vitest/dist/chunks/runBaseTests.3qpJUEJM.js:126:1"
-      },
-      {
-        "file": "adaptive-explore-sizing.test.ts",
-        "test": "adaptive codegraph_explore sizing — sibling skeletonization naming a SHARED/polymorphic method does not spare the siblings (uniqueness-aware)",
-        "message": "AssertionError: a sibling named only via a shared method is not spared: expected '' to contain '· skeleton (signatures only'\n    at /workspace/codegraph-regression-fixes/__tests__/adaptive-explore-sizing.test.ts:395:78\n    at file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:533:5\n    at runTest (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1056:11)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runFiles (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1262:5)\n    at startTests (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1271:3)\n    at file:///workspace/codegraph-install/node_modules/vitest/dist/chu"
-      },
-      {
-        "file": "explore-output-budget.test.ts",
-        "test": "codegraph_explore output respects the adaptive budget still includes the Relationships section — it is the cheapest structural signal",
-        "message": "AssertionError: expected false to be true // Object.is equality\n    at /workspace/codegraph-regression-fixes/__tests__/explore-output-budget.test.ts:217:53\n    at file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:533:5\n    at runTest (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1056:11)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runFiles (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1262:5)\n    at startTests (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1271:3)\n    at file:///workspace/codegraph-install/node_modules/vitest/dist/chunks/runBaseTests.3qpJUEJM.js:126:11\n    at withEnv (file:///wor"
-      },
-      {
-        "file": "explore-output-budget.test.ts",
-        "test": "codegraph_explore output respects the adaptive budget prefixes source lines with line numbers by default (cat -n style)",
-        "message": "AssertionError: expected false to be true // Object.is equality\n    at /workspace/codegraph-regression-fixes/__tests__/explore-output-budget.test.ts:225:34\n    at file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:533:5\n    at runTest (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1056:11)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runFiles (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1262:5)\n    at startTests (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1271:3)\n    at file:///workspace/codegraph-install/node_modules/vitest/dist/chunks/runBaseTests.3qpJUEJM.js:126:11\n    at withEnv (file:///wor"
-      },
-      {
-        "file": "explore-output-budget.test.ts",
-        "test": "codegraph_explore output respects the adaptive budget does not collapse a whole-file class into just its header (envelope filter)",
-        "message": "AssertionError: expected false to be true // Object.is equality\n    at /workspace/codegraph-regression-fixes/__tests__/explore-output-budget.test.ts:260:27\n    at file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:533:5\n    at runTest (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1056:11)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runFiles (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1262:5)\n    at startTests (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1271:3)\n    at file:///workspace/codegraph-install/node_modules/vitest/dist/chunks/runBaseTests.3qpJUEJM.js:126:11\n    at withEnv (file:///wor"
-      },
-      {
-        "file": "mcp-daemon.test.ts",
-        "test": "Shared MCP daemon (issue #411) daemon idle-times-out after the last client disconnects",
-        "message": "AssertionError: expected false to be true // Object.is equality\n    at /workspace/codegraph-regression-fixes/__tests__/mcp-daemon.test.ts:407:53\n    at file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:533:5\n    at runTest (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1056:11)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runFiles (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1262:5)\n    at startTests (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1271:3)\n    at file:///workspace/codegraph-install/node_modules/vitest/dist/chunks/runBaseTests.3qpJUEJM.js:126:11\n    at withEnv (file:///workspace/code"
-      },
-      {
-        "file": "mcp-ppid-watchdog.test.ts",
-        "test": "MCP PPID watchdog (#277) shuts down when its parent is SIGKILL'd and stdin stays open",
-        "message": "AssertionError: codegraph child (pid=49822) did not exit within 5s after wrapper was SIGKILL'd.\nstderr:\n[CodeGraph MCP] Parent process exited (host pid 49814 exited); shutting down.\n: expected false to be true // Object.is equality\n    at /workspace/codegraph-regression-fixes/__tests__/mcp-ppid-watchdog.test.ts:161:7\n    at file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:533:5\n    at runTest (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1056:11)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runFiles (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1262:5)\n    at startTests (file:///workspace/codegraph-install/node_modules/@vitest/"
-      },
-      {
-        "file": "raw-source-worker.test.ts",
-        "test": "isolated raw-source workers cleans up an active rg when the host exits without waiting for cancellation",
-        "message": "AssertionError: expected [Function] to throw an error\n    at Proxy.<anonymous> (file:///workspace/codegraph-install/node_modules/@vitest/expect/dist/index.js:1509:21)\n    at Proxy.<anonymous> (file:///workspace/codegraph-install/node_modules/@vitest/expect/dist/index.js:972:17)\n    at Proxy.methodWrapper (file:///workspace/codegraph-install/node_modules/chai/index.js:1686:25)\n    at /workspace/codegraph-regression-fixes/__tests__/raw-source-worker.test.ts:131:64\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:533:5\n    at runTest (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1056:11)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runSuite (file:///workspace/codegraph-install/node_mo"
-      },
-      {
-        "file": "worktree-detection.test.ts",
-        "test": "worktree mismatch surfaces on hot read tools (issue #155) caches detection — a later tool call needs no further git spawn",
-        "message": "AssertionError: expected 'Error: Tool explore is disabled via C…' to contain 'different git worktree'\n    at /workspace/codegraph-regression-fixes/__tests__/worktree-detection.test.ts:184:38\n    at file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:533:5\n    at runTest (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1056:11)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runFiles (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1262:5)\n    at startTests (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1271:3)\n    at file:///workspace/codegraph-install/node_modules/vitest/dist/chunks/runBaseTests.3qpJUEJM.js"
-      }
-    ],
-    "newFailures": [],
-    "previousReleaseFailureSubset": {
-      "counts": {
-        "passed": 81,
-        "failed": 13
-      },
-      "failures": [
+      "addedContainsTargets": [
         {
-          "file": "adaptive-explore-sizing.test.ts",
-          "test": "adaptive codegraph_explore sizing — sibling skeletonization skeletonizes off-spine polymorphic siblings (bodies elided, signatures kept)",
-          "message": "AssertionError: expected 'codegraph_explore 使用符号名/文件名效果最好，不支持自然…' to contain '## Flow (call path among the symbols …'\n    at /workspace/codegraph-baseline-289/__tests__/adaptive-explore-sizing.test.ts:292:18\n    at file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:533:5\n    at runTest (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1056:11)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runFiles (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1262:5)\n    at startTests (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1271:3)\n    at file:///workspace/codegraph-install/node_modules/vitest/dist/chunks/runBase"
+          "source": "ROCKSDB_NAMESPACE::crc32c::CRC_Crc32cCombineBasicTest_Test",
+          "target": "ROCKSDB_NAMESPACE::crc32c::CRC_Crc32cCombineBasicTest_Test::CRC_Crc32cCombineBasicTest_Test",
+          "file": "util/crc32c_test.cc"
         },
         {
-          "file": "adaptive-explore-sizing.test.ts",
-          "test": "adaptive codegraph_explore sizing — sibling skeletonization keeps the on-spine exemplar full even though it is a sibling",
-          "message": "AssertionError: logging-interceptor.ts should be present: expected '' not to be '' // Object.is equality\n    at /workspace/codegraph-baseline-289/__tests__/adaptive-explore-sizing.test.ts:313:69\n    at file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:533:5\n    at runTest (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1056:11)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runFiles (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1262:5)\n    at startTests (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1271:3)\n    at file:///workspace/codegraph-install/node_modules/vitest/dist/chunks/runBaseTests.3qpJUEJ"
+          "source": "ROCKSDB_NAMESPACE::crc32c::CRC_Values_Test",
+          "target": "ROCKSDB_NAMESPACE::crc32c::CRC_Values_Test::CRC_Values_Test",
+          "file": "util/crc32c_test.cc"
         },
         {
-          "file": "adaptive-explore-sizing.test.ts",
-          "test": "adaptive codegraph_explore sizing — sibling skeletonization keeps a distinct step full (off-spine but supertype has < 3 implementers)",
-          "message": "AssertionError: response-formatter.ts should be present: expected '' not to be '' // Object.is equality\n    at /workspace/codegraph-baseline-289/__tests__/adaptive-explore-sizing.test.ts:324:68\n    at file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:533:5\n    at runTest (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1056:11)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runFiles (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1262:5)\n    at startTests (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1271:3)\n    at file:///workspace/codegraph-install/node_modules/vitest/dist/chunks/runBaseTests.3qpJUEJM"
+          "source": "ROCKSDB_NAMESPACE::crc32c::CRC_Crc32cCombineOrderMattersTest_Test",
+          "target": "ROCKSDB_NAMESPACE::crc32c::CRC_Crc32cCombineOrderMattersTest_Test::CRC_Crc32cCombineOrderMattersTest_Test",
+          "file": "util/crc32c_test.cc"
         },
         {
-          "file": "adaptive-explore-sizing.test.ts",
-          "test": "adaptive codegraph_explore sizing — sibling skeletonization CODEGRAPH_ADAPTIVE_EXPLORE=0 disables skeletonization (siblings render full)",
-          "message": "AssertionError: expected '' not to be '' // Object.is equality\n    at /workspace/codegraph-baseline-289/__tests__/adaptive-explore-sizing.test.ts:338:27\n    at file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:533:5\n    at runTest (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1056:11)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runFiles (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1262:5)\n    at startTests (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1271:3)\n    at file:///workspace/codegraph-install/node_modules/vitest/dist/chunks/runBaseTests.3qpJUEJM.js:126:11\n    at withEnv (file:///worksp"
+          "source": "ROCKSDB_NAMESPACE::crc32c::CRC_Mask_Test",
+          "target": "ROCKSDB_NAMESPACE::crc32c::CRC_Mask_Test::CRC_Mask_Test",
+          "file": "util/crc32c_test.cc"
         },
         {
-          "file": "adaptive-explore-sizing.test.ts",
-          "test": "adaptive codegraph_explore sizing — sibling skeletonization spares an off-spine sibling when the agent NAMED a callable in it (RealCall fix)",
-          "message": "AssertionError: expected 'codegraph_explore 使用符号名/文件名效果最好，不支持自然…' to contain '## Flow (call path among the symbols …'\n    at /workspace/codegraph-baseline-289/__tests__/adaptive-explore-sizing.test.ts:353:18\n    at file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:533:5\n    at runTest (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1056:11)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runFiles (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1262:5)\n    at startTests (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1271:3)\n    at file:///workspace/codegraph-install/node_modules/vitest/dist/chunks/runBase"
+          "source": "ROCKSDB_NAMESPACE::crc32c::CRC_StandardResults_Test",
+          "target": "ROCKSDB_NAMESPACE::crc32c::CRC_StandardResults_Test::CRC_StandardResults_Test",
+          "file": "util/crc32c_test.cc"
         },
         {
-          "file": "adaptive-explore-sizing.test.ts",
-          "test": "adaptive codegraph_explore sizing — sibling skeletonization collapses a base+subclasses family file to a FOCUSED view — base method body kept, non-named subclasses signature-only (compiler.py)",
-          "message": "AssertionError: codec.ts should be present: expected '' not to be '' // Object.is equality\n    at /workspace/codegraph-baseline-289/__tests__/adaptive-explore-sizing.test.ts:380:53\n    at file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:533:5\n    at runTest (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1056:11)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runFiles (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1262:5)\n    at startTests (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1271:3)\n    at file:///workspace/codegraph-install/node_modules/vitest/dist/chunks/runBaseTests.3qpJUEJM.js:126:11\n  "
+          "source": "ROCKSDB_NAMESPACE::crc32c::CRC_Crc32cCombineFullCoverTest_Test",
+          "target": "ROCKSDB_NAMESPACE::crc32c::CRC_Crc32cCombineFullCoverTest_Test::CRC_Crc32cCombineFullCoverTest_Test",
+          "file": "util/crc32c_test.cc"
         },
         {
-          "file": "adaptive-explore-sizing.test.ts",
-          "test": "adaptive codegraph_explore sizing — sibling skeletonization naming a SHARED/polymorphic method does not spare the siblings (uniqueness-aware)",
-          "message": "AssertionError: a sibling named only via a shared method is not spared: expected '' to contain '· skeleton (signatures only'\n    at /workspace/codegraph-baseline-289/__tests__/adaptive-explore-sizing.test.ts:395:78\n    at file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:533:5\n    at runTest (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1056:11)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runFiles (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1262:5)\n    at startTests (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1271:3)\n    at file:///workspace/codegraph-install/node_modules/vitest/dist/chunks/"
+          "source": "ROCKSDB_NAMESPACE::crc32c::CRC_Crc32cCombineBigSizeTest_Test",
+          "target": "ROCKSDB_NAMESPACE::crc32c::CRC_Crc32cCombineBigSizeTest_Test::CRC_Crc32cCombineBigSizeTest_Test",
+          "file": "util/crc32c_test.cc"
         },
         {
-          "file": "explore-output-budget.test.ts",
-          "test": "codegraph_explore output respects the adaptive budget still includes the Relationships section — it is the cheapest structural signal",
-          "message": "AssertionError: expected false to be true // Object.is equality\n    at /workspace/codegraph-baseline-289/__tests__/explore-output-budget.test.ts:217:53\n    at file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:533:5\n    at runTest (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1056:11)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runFiles (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1262:5)\n    at startTests (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1271:3)\n    at file:///workspace/codegraph-install/node_modules/vitest/dist/chunks/runBaseTests.3qpJUEJM.js:126:11\n    at withEnv (file:///workspa"
+          "source": "ROCKSDB_NAMESPACE::crc32c::CRC_Extend_Test",
+          "target": "ROCKSDB_NAMESPACE::crc32c::CRC_Extend_Test::CRC_Extend_Test",
+          "file": "util/crc32c_test.cc"
         },
         {
-          "file": "explore-output-budget.test.ts",
-          "test": "codegraph_explore output respects the adaptive budget prefixes source lines with line numbers by default (cat -n style)",
-          "message": "AssertionError: expected false to be true // Object.is equality\n    at /workspace/codegraph-baseline-289/__tests__/explore-output-budget.test.ts:225:34\n    at file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:533:5\n    at runTest (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1056:11)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runFiles (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1262:5)\n    at startTests (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1271:3)\n    at file:///workspace/codegraph-install/node_modules/vitest/dist/chunks/runBaseTests.3qpJUEJM.js:126:11\n    at withEnv (file:///workspa"
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::blob_read_time",
+          "file": "monitoring/perf_context.cc"
         },
         {
-          "file": "explore-output-budget.test.ts",
-          "test": "codegraph_explore output respects the adaptive budget does not collapse a whole-file class into just its header (envelope filter)",
-          "message": "AssertionError: expected false to be true // Object.is equality\n    at /workspace/codegraph-baseline-289/__tests__/explore-output-budget.test.ts:260:27\n    at file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:533:5\n    at runTest (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1056:11)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runFiles (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1262:5)\n    at startTests (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1271:3)\n    at file:///workspace/codegraph-install/node_modules/vitest/dist/chunks/runBaseTests.3qpJUEJM.js:126:11\n    at withEnv (file:///workspa"
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::seek_child_seek_time",
+          "file": "monitoring/perf_context.cc"
         },
         {
-          "file": "mcp-daemon.test.ts",
-          "test": "Shared MCP daemon (issue #411) daemon idle-times-out after the last client disconnects",
-          "message": "AssertionError: expected false to be true // Object.is equality\n    at /workspace/codegraph-baseline-289/__tests__/mcp-daemon.test.ts:407:53\n    at file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:533:5\n    at runTest (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1056:11)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runFiles (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1262:5)\n    at startTests (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1271:3)\n    at file:///workspace/codegraph-install/node_modules/vitest/dist/chunks/runBaseTests.3qpJUEJM.js:126:11\n    at withEnv (file:///workspace/codegrap"
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::compression_dict_block_read_count",
+          "file": "monitoring/perf_context.cc"
         },
         {
-          "file": "mcp-ppid-watchdog.test.ts",
-          "test": "MCP PPID watchdog (#277) shuts down when its parent is SIGKILL'd and stdin stays open",
-          "message": "AssertionError: codegraph child (pid=42398) did not exit within 5s after wrapper was SIGKILL'd.\nstderr:\n[CodeGraph MCP] Parent process exited (host pid 42390 exited); shutting down.\n: expected false to be true // Object.is equality\n    at /workspace/codegraph-baseline-289/__tests__/mcp-ppid-watchdog.test.ts:161:7\n    at file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:533:5\n    at runTest (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1056:11)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runFiles (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1262:5)\n    at startTests (file:///workspace/codegraph-install/node_modules/@vitest/runn"
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::block_read_byte",
+          "file": "monitoring/perf_context.cc"
         },
         {
-          "file": "worktree-detection.test.ts",
-          "test": "worktree mismatch surfaces on hot read tools (issue #155) caches detection — a later tool call needs no further git spawn",
-          "message": "AssertionError: expected 'Error: Tool explore is disabled via C…' to contain 'different git worktree'\n    at /workspace/codegraph-baseline-289/__tests__/worktree-detection.test.ts:184:38\n    at file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:533:5\n    at runTest (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1056:11)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runFiles (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1262:5)\n    at startTests (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1271:3)\n    at file:///workspace/codegraph-install/node_modules/vitest/dist/chunks/runBaseTests.3qpJUEJM.js:126"
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::write_scheduling_flushes_compactions_time",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::compressed_sec_cache_insert_dummy_count",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::secondary_cache_hit_count",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::env_create_dir_nanos",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::key_lock_wait_time",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::encrypt_data_nanos",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::env_rename_file_nanos",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::read_index_block_nanos",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::env_new_sequential_file_nanos",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::env_reuse_writable_file_nanos",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::blob_cache_hit_count",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::iter_next_count",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::env_new_random_access_file_nanos",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::internal_merge_count",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::decrypt_data_nanos",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::compressed_sec_cache_compressed_bytes",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::find_next_user_entry_time",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::block_cache_index_hit_count",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::internal_delete_skipped_count",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::env_create_dir_if_missing_nanos",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::iter_seek_count",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::env_new_writable_file_nanos",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::block_cache_filter_read_byte",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::internal_range_del_reseek_count",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::env_new_logger_nanos",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::get_from_memtable_count",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::multiget_read_bytes",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::block_read_time",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::env_get_children_nanos",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::env_get_file_size_nanos",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::get_post_process_time",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::filter_block_read_count",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::block_cache_standalone_handle_count",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::iter_next_cpu_nanos",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::blob_read_byte",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::internal_key_skipped_count",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::block_cache_hit_count",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::prev_on_memtable_count",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::write_wal_time",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::block_cache_compression_dict_read_byte",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::env_get_file_modification_time_nanos",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::internal_merge_point_lookup_count",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::bloom_memtable_miss_count",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::seek_on_memtable_count",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::env_get_children_file_attributes_nanos",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::block_cache_real_handle_count",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::seek_on_memtable_time",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::get_from_memtable_time",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::db_condition_wait_nanos",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::user_key_comparison_count",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::iter_prev_count",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::seek_child_seek_count",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::block_cache_read_byte",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::env_delete_dir_nanos",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::bloom_sst_miss_count",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::merge_operator_time_nanos",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::write_memtable_time",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::index_block_read_count",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::env_new_directory_nanos",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::env_lock_file_nanos",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::iter_seek_cpu_nanos",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::iter_read_bytes",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::write_delay_time",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::bloom_sst_hit_count",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::compressed_sec_cache_insert_real_count",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::seek_max_heap_time",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::block_checksum_time",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::read_filter_block_nanos",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::block_seek_nanos",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::env_unlock_file_nanos",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::block_read_count",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::env_new_random_rw_file_nanos",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::block_cache_index_read_byte",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::write_pre_and_post_process_time",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::find_table_nanos",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::block_read_cpu_time",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::get_from_output_files_time",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::env_link_file_nanos",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::block_decompress_time",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::blob_decompress_time",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::block_cache_filter_hit_count",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::next_on_memtable_count",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::new_table_iterator_nanos",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::compressed_sec_cache_uncompressed_bytes",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::blob_read_count",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::key_lock_wait_count",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::get_snapshot_time",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::write_thread_wait_nanos",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::env_delete_file_nanos",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::get_cpu_nanos",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::number_async_seek",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::bloom_memtable_hit_count",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::blob_checksum_time",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::seek_internal_seek_time",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::db_mutex_lock_nanos",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::iter_prev_cpu_nanos",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::env_file_exists_nanos",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::internal_recent_skipped_count",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::seek_min_heap_time",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::new_table_block_iter_nanos",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextInt::get_read_bytes",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextByLevelInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextByLevelInt::block_cache_miss_count",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextByLevelInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextByLevelInt::bloom_filter_useful",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextByLevelInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextByLevelInt::get_from_table_nanos",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextByLevelInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextByLevelInt::block_cache_hit_count",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextByLevelInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextByLevelInt::bloom_filter_full_positive",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextByLevelInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextByLevelInt::bloom_filter_full_true_positive",
+          "file": "monitoring/perf_context.cc"
+        },
+        {
+          "source": "ROCKSDB_NAMESPACE::PerfContextByLevelInt",
+          "target": "ROCKSDB_NAMESPACE::PerfContextByLevelInt::user_key_return_count",
+          "file": "monitoring/perf_context.cc"
         }
       ]
     }
   },
-  "portable": {
-    "passed": 37,
-    "skipped": 1,
-    "failed": 0
-  },
-  "benchmark": {
-    "summary": {
-      "baseline-init": {
-        "wall_seconds": {
-          "median": 1.5477380109999785,
-          "min": 1.5106575940001221,
-          "max": 1.6088472659998843
-        },
-        "process_group_peak_rss_mib": {
-          "median": 198.09765625,
-          "min": 191.50390625,
-          "max": 201.515625
-        }
+  "phaseLogs": {
+    "ts": {
+      "baseline": {
+        "init": [
+          [
+            "macro-detail mode=ts reason=disabled files=1286 readFiles=1286 readErrors=0 bytes=25526167 fallbackFiles=0 readWallMs=171ms namesMs=59ms bodylessMs=56ms definitionsMs=29ms mergeMs=4ms nativeWallMs=0ms nativeReadSumMs=0ms nativeScanSumMs=0ms totalMs=320ms names=1124 bodyless=101 definitions=902",
+            "Index phases: scan=161ms framework=19ms macroScan=321ms readSum=2342ms parsePipeline=72923ms storeAdmission=4018ms bufferBudgetMB=512 peakBufferedFiles=4 peakEstimatedBufferMB=21"
+          ],
+          [
+            "macro-detail mode=ts reason=disabled files=1286 readFiles=1286 readErrors=0 bytes=25526167 fallbackFiles=0 readWallMs=147ms namesMs=51ms bodylessMs=51ms definitionsMs=25ms mergeMs=2ms nativeWallMs=0ms nativeReadSumMs=0ms nativeScanSumMs=0ms totalMs=279ms names=1124 bodyless=101 definitions=902",
+            "Index phases: scan=113ms framework=19ms macroScan=279ms readSum=2108ms parsePipeline=68545ms storeAdmission=3764ms bufferBudgetMB=512 peakBufferedFiles=4 peakEstimatedBufferMB=21"
+          ]
+        ],
+        "edit": [
+          [
+            "macro-detail mode=ts reason=disabled files=1286 readFiles=1286 readErrors=0 bytes=25526271 fallbackFiles=0 readWallMs=135ms namesMs=50ms bodylessMs=50ms definitionsMs=24ms mergeMs=3ms nativeWallMs=0ms nativeReadSumMs=0ms nativeScanSumMs=0ms totalMs=263ms names=1124 bodyless=101 definitions=902",
+            "[sync] phases reconcile=150ms framework=17ms macroScan=264ms workerSetup=106ms read=1ms parseWall=133ms store=38ms"
+          ],
+          [
+            "macro-detail mode=ts reason=disabled files=1286 readFiles=1286 readErrors=0 bytes=25526271 fallbackFiles=0 readWallMs=172ms namesMs=58ms bodylessMs=60ms definitionsMs=28ms mergeMs=3ms nativeWallMs=0ms nativeReadSumMs=0ms nativeScanSumMs=0ms totalMs=321ms names=1124 bodyless=101 definitions=902",
+            "[sync] phases reconcile=111ms framework=18ms macroScan=322ms workerSetup=84ms read=1ms parseWall=146ms store=35ms"
+          ]
+        ]
       },
-      "baseline-noop": {
-        "wall_seconds": {
-          "median": 0.28465030749987363,
-          "min": 0.2766970139998648,
-          "max": 0.3402912770000057
-        },
-        "process_group_peak_rss_mib": {
-          "median": 88.78515625,
-          "min": 87.8125,
-          "max": 90.8046875
-        }
-      },
-      "baseline-edit": {
-        "wall_seconds": {
-          "median": 0.9560134264999078,
-          "min": 0.9330757139998695,
-          "max": 0.9734236350000174
-        },
-        "process_group_peak_rss_mib": {
-          "median": 170.41796875,
-          "min": 167.3125,
-          "max": 170.7890625
-        }
-      },
-      "fixed-init": {
-        "wall_seconds": {
-          "median": 1.5747403565000013,
-          "min": 1.5096623889999137,
-          "max": 1.704144185000132
-        },
-        "process_group_peak_rss_mib": {
-          "median": 201.271484375,
-          "min": 195.7421875,
-          "max": 203.6015625
-        }
-      },
-      "fixed-noop": {
-        "wall_seconds": {
-          "median": 0.3008382634999407,
-          "min": 0.2768555379998361,
-          "max": 0.31780579000019316
-        },
-        "process_group_peak_rss_mib": {
-          "median": 90.208984375,
-          "min": 89.4453125,
-          "max": 90.8984375
-        }
-      },
-      "fixed-edit": {
-        "wall_seconds": {
-          "median": 1.00196176750012,
-          "min": 0.9560268860000178,
-          "max": 1.0609777679999297
-        },
-        "process_group_peak_rss_mib": {
-          "median": 172.755859375,
-          "min": 170.44140625,
-          "max": 174.125
-        }
+      "fixed": {
+        "init": [
+          [
+            "macro-detail mode=ts reason=disabled files=1286 readFiles=1286 readErrors=0 bytes=25526167 provenanceReadFiles=0 provenanceBytes=0 fallbackFiles=0 readWallMs=146ms namesMs=51ms bodylessMs=50ms definitionsMs=25ms mergeMs=3ms nativeWallMs=0ms nativeReadSumMs=0ms nativeScanSumMs=0ms totalMs=545ms names=1124 bodyless=101 definitions=902",
+            "Index phases: scan=106ms framework=18ms macroScan=546ms readSum=1703ms parsePipeline=71191ms storeAdmission=3605ms bufferBudgetMB=512 peakBufferedFiles=4 peakEstimatedBufferMB=21"
+          ],
+          [
+            "macro-detail mode=ts reason=disabled files=1286 readFiles=1286 readErrors=0 bytes=25526167 provenanceReadFiles=0 provenanceBytes=0 fallbackFiles=0 readWallMs=112ms namesMs=53ms bodylessMs=51ms definitionsMs=25ms mergeMs=4ms nativeWallMs=0ms nativeReadSumMs=0ms nativeScanSumMs=0ms totalMs=534ms names=1124 bodyless=101 definitions=902",
+            "Index phases: scan=113ms framework=19ms macroScan=535ms readSum=1894ms parsePipeline=69074ms storeAdmission=3400ms bufferBudgetMB=512 peakBufferedFiles=4 peakEstimatedBufferMB=21"
+          ]
+        ],
+        "edit": [
+          [
+            "macro-detail mode=ts reason=disabled files=1286 readFiles=1286 readErrors=0 bytes=25526271 provenanceReadFiles=0 provenanceBytes=0 fallbackFiles=0 readWallMs=112ms namesMs=51ms bodylessMs=51ms definitionsMs=26ms mergeMs=4ms nativeWallMs=0ms nativeReadSumMs=0ms nativeScanSumMs=0ms totalMs=538ms names=1124 bodyless=101 definitions=902",
+            "[sync] phases reconcile=118ms framework=24ms macroScan=539ms workerSetup=121ms read=1ms parseWall=161ms store=42ms"
+          ],
+          [
+            "macro-detail mode=ts reason=disabled files=1286 readFiles=1286 readErrors=0 bytes=25526271 provenanceReadFiles=0 provenanceBytes=0 fallbackFiles=0 readWallMs=146ms namesMs=51ms bodylessMs=52ms definitionsMs=27ms mergeMs=5ms nativeWallMs=0ms nativeReadSumMs=0ms nativeScanSumMs=0ms totalMs=585ms names=1124 bodyless=101 definitions=902",
+            "[sync] phases reconcile=130ms framework=20ms macroScan=586ms workerSetup=135ms read=1ms parseWall=176ms store=40ms"
+          ]
+        ]
       }
     },
-    "graphChecks": {
-      "baseline-repeatable": true,
-      "fixed-repeatable": true,
-      "crossVersionInitialEqual": true,
-      "crossVersionEditedEqual": true,
-      "baseline-incrementalFresh": {
-        "nodes": {
-          "equal": true,
-          "freshOnly": 0,
-          "incrementalOnly": 0
-        },
-        "edges": {
-          "equal": true,
-          "freshOnly": 0,
-          "incrementalOnly": 0
-        }
+    "native": {
+      "baseline": {
+        "init": [
+          [
+            "macro-detail mode=rust reason=none files=1286 readFiles=1286 readErrors=0 bytes=25526167 fallbackFiles=0 readWallMs=0ms namesMs=0ms bodylessMs=0ms definitionsMs=0ms mergeMs=3ms nativeWallMs=154ms nativeReadSumMs=175ms nativeScanSumMs=108ms totalMs=156ms names=1124 bodyless=101 definitions=902",
+            "Index phases: scan=204ms framework=22ms macroScan=157ms readSum=2534ms parsePipeline=71667ms storeAdmission=4513ms bufferBudgetMB=512 peakBufferedFiles=4 peakEstimatedBufferMB=21"
+          ],
+          [
+            "macro-detail mode=rust reason=none files=1286 readFiles=1286 readErrors=0 bytes=25526167 fallbackFiles=0 readWallMs=0ms namesMs=0ms bodylessMs=0ms definitionsMs=0ms mergeMs=3ms nativeWallMs=145ms nativeReadSumMs=169ms nativeScanSumMs=107ms totalMs=147ms names=1124 bodyless=101 definitions=902",
+            "Index phases: scan=113ms framework=19ms macroScan=148ms readSum=1955ms parsePipeline=70294ms storeAdmission=3677ms bufferBudgetMB=512 peakBufferedFiles=4 peakEstimatedBufferMB=21"
+          ]
+        ],
+        "edit": [
+          [
+            "macro-detail mode=rust reason=none files=1286 readFiles=1286 readErrors=0 bytes=25526271 fallbackFiles=0 readWallMs=0ms namesMs=0ms bodylessMs=0ms definitionsMs=0ms mergeMs=3ms nativeWallMs=138ms nativeReadSumMs=155ms nativeScanSumMs=107ms totalMs=140ms names=1124 bodyless=101 definitions=902",
+            "[sync] phases reconcile=109ms framework=21ms macroScan=141ms workerSetup=89ms read=1ms parseWall=150ms store=38ms"
+          ],
+          [
+            "macro-detail mode=rust reason=none files=1286 readFiles=1286 readErrors=0 bytes=25526271 fallbackFiles=0 readWallMs=0ms namesMs=0ms bodylessMs=0ms definitionsMs=0ms mergeMs=3ms nativeWallMs=164ms nativeReadSumMs=199ms nativeScanSumMs=111ms totalMs=166ms names=1124 bodyless=101 definitions=902",
+            "[sync] phases reconcile=113ms framework=19ms macroScan=167ms workerSetup=96ms read=1ms parseWall=131ms store=40ms"
+          ]
+        ]
       },
-      "fixed-incrementalFresh": {
-        "nodes": {
-          "equal": true,
-          "freshOnly": 0,
-          "incrementalOnly": 0
-        },
-        "edges": {
-          "equal": true,
-          "freshOnly": 0,
-          "incrementalOnly": 0
-        }
-      }
-    },
-    "configuration": {
-      "orders": "AB, BA, AB, BA",
-      "node": "v24.19.0",
-      "rss": "sum of process-group RSS sampled at 25 ms; includes shared pages per process",
-      "sourceCommit": "8224e427b655b83dae5e2298f1e6919523a78737",
-      "environment": {
-        "CODEGRAPH_RUST_SCAN": "0",
-        "CODEGRAPH_RUST_MACROS": "0",
-        "CODEGRAPH_ALL_LANGUAGES": "1",
-        "NODE_OPTIONS": "--max-old-space-size=4096",
-        "CODEGRAPH_PARSE_WORKERS": "1",
-        "CODEGRAPH_NO_STORE_WORKER": "1"
+      "fixed": {
+        "init": [
+          [
+            "macro-detail mode=rust reason=none files=1286 readFiles=2572 readErrors=0 bytes=51052334 provenanceReadFiles=1286 provenanceBytes=25526167 fallbackFiles=0 readWallMs=137ms namesMs=0ms bodylessMs=0ms definitionsMs=0ms mergeMs=3ms nativeWallMs=559ms nativeReadSumMs=175ms nativeScanSumMs=110ms totalMs=561ms names=1124 bodyless=101 definitions=902",
+            "Index phases: scan=118ms framework=19ms macroScan=562ms readSum=2185ms parsePipeline=70922ms storeAdmission=3760ms bufferBudgetMB=512 peakBufferedFiles=4 peakEstimatedBufferMB=21"
+          ],
+          [
+            "macro-detail mode=rust reason=none files=1286 readFiles=2572 readErrors=0 bytes=51052334 provenanceReadFiles=1286 provenanceBytes=25526167 fallbackFiles=0 readWallMs=102ms namesMs=0ms bodylessMs=0ms definitionsMs=0ms mergeMs=3ms nativeWallMs=520ms nativeReadSumMs=165ms nativeScanSumMs=113ms totalMs=522ms names=1124 bodyless=101 definitions=902",
+            "Index phases: scan=112ms framework=19ms macroScan=523ms readSum=1730ms parsePipeline=68899ms storeAdmission=3555ms bufferBudgetMB=512 peakBufferedFiles=4 peakEstimatedBufferMB=21"
+          ]
+        ],
+        "edit": [
+          [
+            "macro-detail mode=rust reason=none files=1286 readFiles=2572 readErrors=0 bytes=51052542 provenanceReadFiles=1286 provenanceBytes=25526271 fallbackFiles=0 readWallMs=112ms namesMs=0ms bodylessMs=0ms definitionsMs=0ms mergeMs=3ms nativeWallMs=530ms nativeReadSumMs=156ms nativeScanSumMs=99ms totalMs=532ms names=1124 bodyless=101 definitions=902",
+            "[sync] phases reconcile=112ms framework=18ms macroScan=533ms workerSetup=89ms read=1ms parseWall=133ms store=34ms"
+          ],
+          [
+            "macro-detail mode=rust reason=none files=1286 readFiles=2572 readErrors=0 bytes=51052542 provenanceReadFiles=1286 provenanceBytes=25526271 fallbackFiles=0 readWallMs=173ms namesMs=0ms bodylessMs=0ms definitionsMs=0ms mergeMs=3ms nativeWallMs=649ms nativeReadSumMs=195ms nativeScanSumMs=109ms totalMs=651ms names=1124 bodyless=101 definitions=902",
+            "[sync] phases reconcile=141ms framework=19ms macroScan=653ms workerSetup=122ms read=1ms parseWall=174ms store=58ms"
+          ]
+        ]
       }
     }
   },
-  "oldDatabaseUpgrade": {
+  "oldDatabaseUpgrades": {
     "old": {
       "beforeNodes": 1204,
       "afterNodes": 1205,
@@ -385,244 +1638,68 @@
       "integrity": "ok"
     }
   },
-  "minimalCli": {
-    "minimal-old-0": [
-      {
-        "name": "CRC_StandardResults_Test::TestBody",
-        "declaration": false
-      }
-    ],
-    "minimal-old-1": [
-      {
-        "name": "_StandardResults_Test::TestBody",
-        "declaration": false
-      }
-    ],
-    "minimal-baseline-0": [
-      {
-        "name": "rocksdb::crc32c::CRC_StandardResults_Test::TestBody",
-        "declaration": false
-      }
-    ],
-    "minimal-baseline-1": [
-      {
-        "name": "rocksdb::crc32c::x1edc6f41_StandardResults_Test::TestBody",
-        "declaration": true
-      },
-      {
-        "name": "rocksdb::crc32c::_StandardResults_Test::TestBody",
-        "declaration": false
-      }
-    ],
-    "minimal-fixed-0": [
-      {
-        "name": "rocksdb::crc32c::CRC_StandardResults_Test::TestBody",
-        "declaration": false
-      }
-    ],
-    "minimal-fixed-1": [
-      {
-        "name": "rocksdb::crc32c::CRC_StandardResults_Test::TestBody",
-        "declaration": false
-      }
-    ]
+  "isolatedPackage": {
+    "nodes": 1204,
+    "edges": 4724,
+    "integrity": "ok",
+    "packageSha256": "5577f8a4a91cf213dafffa4e1a3e28ac1a717c9995e99aa125f84726885ca321"
   },
-  "rocksdb": {
-    "old": {
-      "errors": [],
-      "symbols": [
-        {
-          "name": "_StandardResults_Test::TestBody",
-          "declaration": false,
-          "line": 66
-        },
-        {
-          "name": "_Values_Test::TestBody",
-          "declaration": false,
-          "line": 113
-        },
-        {
-          "name": "_Extend_Test::TestBody",
-          "declaration": false,
-          "line": 115
-        },
-        {
-          "name": "_Mask_Test::TestBody",
-          "declaration": false,
-          "line": 119
-        },
-        {
-          "name": "_Crc32cCombineBasicTest_Test::TestBody",
-          "declaration": false,
-          "line": 127
-        },
-        {
-          "name": "_Crc32cCombineOrderMattersTest_Test::TestBody",
-          "declaration": false,
-          "line": 135
-        },
-        {
-          "name": "_Crc32cCombineFullCoverTest_Test::TestBody",
-          "declaration": false,
-          "line": 143
-        },
-        {
-          "name": "_Crc32cCombineBigSizeTest_Test::TestBody",
-          "declaration": false,
-          "line": 159
-        }
-      ]
+  "commits": [
+    "3c12493767e0ede16c2a08742ad8832223c4c124 test: 固化未包含头文件污染声明宏的发布回归",
+    "ff6bbcaca0cf025ecdfdc609184966e28f3b0cf7 test: 对齐新库 schema 9 初始化断言",
+    "9db518cff2d432a66248f64db3506e612e0cdb83 fix: 将声明宏递归展开限制在可见 include 证据内",
+    "e1185483b5d5ca2683b495425f2bbb57fc4c0c3f fix: 标记声明宏语义升级并补齐同步用例的 include 证据",
+    "e436ac631f3e63505f9882e53dd957202ceb0c66 docs: 记录发布回归完整验证及不直接发布结论",
+    "a84f978f558b3b71c2a84059881da9f6e3f83eb7 fix: 修复 include 词法与重导入顺序并保留声明入口兼容恢复",
+    "be7b13cd92b3c56f8469986ac2bdf0b94d4bc688 perf: 并发读取宏来源并如实统计 native 额外 I/O"
+  ],
+  "abortedNativeAttempt": [
+    {
+      "version": "baseline",
+      "operation": "init",
+      "label": "r1-baseline-init",
+      "wall_seconds": 100.61215516300035,
+      "process_group_peak_rss_mib": 1795.55078125,
+      "samples": 1931,
+      "exitCode": 0,
+      "stopReasons": []
     },
-    "baseline": {
-      "errors": [],
-      "symbols": [
-        {
-          "name": "ROCKSDB_NAMESPACE::crc32c::x1edc6f41_StandardResults_Test::TestBody",
-          "declaration": true,
-          "line": 66
-        },
-        {
-          "name": "ROCKSDB_NAMESPACE::crc32c::_StandardResults_Test::TestBody",
-          "declaration": false,
-          "line": 66
-        },
-        {
-          "name": "ROCKSDB_NAMESPACE::crc32c::x1edc6f41_Values_Test::TestBody",
-          "declaration": true,
-          "line": 113
-        },
-        {
-          "name": "ROCKSDB_NAMESPACE::crc32c::_Values_Test::TestBody",
-          "declaration": false,
-          "line": 113
-        },
-        {
-          "name": "ROCKSDB_NAMESPACE::crc32c::x1edc6f41_Extend_Test::TestBody",
-          "declaration": true,
-          "line": 115
-        },
-        {
-          "name": "ROCKSDB_NAMESPACE::crc32c::_Extend_Test::TestBody",
-          "declaration": false,
-          "line": 115
-        },
-        {
-          "name": "ROCKSDB_NAMESPACE::crc32c::x1edc6f41_Mask_Test::TestBody",
-          "declaration": true,
-          "line": 119
-        },
-        {
-          "name": "ROCKSDB_NAMESPACE::crc32c::_Mask_Test::TestBody",
-          "declaration": false,
-          "line": 119
-        },
-        {
-          "name": "ROCKSDB_NAMESPACE::crc32c::x1edc6f41_Crc32cCombineBasicTest_Test::TestBody",
-          "declaration": true,
-          "line": 127
-        },
-        {
-          "name": "ROCKSDB_NAMESPACE::crc32c::_Crc32cCombineBasicTest_Test::TestBody",
-          "declaration": false,
-          "line": 127
-        },
-        {
-          "name": "ROCKSDB_NAMESPACE::crc32c::x1edc6f41_Crc32cCombineOrderMattersTest_Test::TestBody",
-          "declaration": true,
-          "line": 135
-        },
-        {
-          "name": "ROCKSDB_NAMESPACE::crc32c::_Crc32cCombineOrderMattersTest_Test::TestBody",
-          "declaration": false,
-          "line": 135
-        },
-        {
-          "name": "ROCKSDB_NAMESPACE::crc32c::x1edc6f41_Crc32cCombineFullCoverTest_Test::TestBody",
-          "declaration": true,
-          "line": 143
-        },
-        {
-          "name": "ROCKSDB_NAMESPACE::crc32c::_Crc32cCombineFullCoverTest_Test::TestBody",
-          "declaration": false,
-          "line": 143
-        },
-        {
-          "name": "ROCKSDB_NAMESPACE::crc32c::x1edc6f41_Crc32cCombineBigSizeTest_Test::TestBody",
-          "declaration": true,
-          "line": 159
-        },
-        {
-          "name": "ROCKSDB_NAMESPACE::crc32c::_Crc32cCombineBigSizeTest_Test::TestBody",
-          "declaration": false,
-          "line": 159
-        }
-      ]
+    {
+      "version": "baseline",
+      "operation": "sync",
+      "label": "r1-baseline-noop",
+      "wall_seconds": 0.5488727870006187,
+      "process_group_peak_rss_mib": 244.25390625,
+      "samples": 11,
+      "exitCode": 0,
+      "stopReasons": []
     },
-    "fixed": {
-      "errors": [],
-      "symbols": [
-        {
-          "name": "ROCKSDB_NAMESPACE::crc32c::CRC_StandardResults_Test::TestBody",
-          "declaration": false,
-          "line": 66
-        },
-        {
-          "name": "ROCKSDB_NAMESPACE::crc32c::CRC_Values_Test::TestBody",
-          "declaration": false,
-          "line": 113
-        },
-        {
-          "name": "ROCKSDB_NAMESPACE::crc32c::CRC_Extend_Test::TestBody",
-          "declaration": false,
-          "line": 115
-        },
-        {
-          "name": "ROCKSDB_NAMESPACE::crc32c::CRC_Mask_Test::TestBody",
-          "declaration": false,
-          "line": 119
-        },
-        {
-          "name": "ROCKSDB_NAMESPACE::crc32c::CRC_Crc32cCombineBasicTest_Test::TestBody",
-          "declaration": false,
-          "line": 127
-        },
-        {
-          "name": "ROCKSDB_NAMESPACE::crc32c::CRC_Crc32cCombineOrderMattersTest_Test::TestBody",
-          "declaration": false,
-          "line": 135
-        },
-        {
-          "name": "ROCKSDB_NAMESPACE::crc32c::CRC_Crc32cCombineFullCoverTest_Test::TestBody",
-          "declaration": false,
-          "line": 143
-        },
-        {
-          "name": "ROCKSDB_NAMESPACE::crc32c::CRC_Crc32cCombineBigSizeTest_Test::TestBody",
-          "declaration": false,
-          "line": 159
-        }
+    {
+      "version": "baseline",
+      "operation": "sync",
+      "label": "r1-baseline-edit",
+      "wall_seconds": 5.49809557000026,
+      "process_group_peak_rss_mib": 607.2265625,
+      "samples": 107,
+      "exitCode": 0,
+      "stopReasons": []
+    },
+    {
+      "version": "fixed",
+      "operation": "init",
+      "label": "r1-fixed-init",
+      "wall_seconds": 75.23418770900025,
+      "process_group_peak_rss_mib": 1229.8671875,
+      "samples": 1465,
+      "exitCode": -9,
+      "stopReasons": [
+        "cgroup memory limit"
       ]
     }
+  ],
+  "memoryReclamation": {
+    "identicalSnapshotsHardlinked": 74,
+    "generatedProjectCopiesRemoved": 15
   },
-  "package": {
-    "file": "sdd-codegraph-wx-1.1.2.tgz",
-    "mode": "CODEGRAPH_PACK_ALLOW_INCOMPLETE=1; isolated offline install, followed by successful npm rebuild/postinstall; TypeScript fallback only",
-    "formalMultiPlatformPackage": false,
-    "formalPackFailure": "binary-missing"
-  },
-  "environment": {
-    "node": "v24.19.0",
-    "cpuQuota": "400000 100000",
-    "memoryLimitBytes": "17179869184",
-    "allowedCpuCount": 5
-  },
-  "limitations": [
-    "Original TestBody tar could not be materialized; reconstructed from fully read HTML report.",
-    "Historical review thread unavailable through read-only personal context search; not restarted.",
-    "No Rust toolchain/native helpers in this environment; 38 native tests skipped plus 2 existing security skips.",
-    "Conditional/computed/forced includes and external unscanned headers are outside the supported evidence model; conflicting included definitions remain conservative.",
-    "Native macro protocol lacks include evidence, so native mode adds a source read; native performance is unverified.",
-    "RocksDB namespace macro remains source-spelled; eight corrected owners do not prove full compiler-semantic equivalence.",
-    "Inherited failing tests remain; no cross-platform release certification."
-  ]
+  "completeEvidence": "reviewed-validation-summary.json in the delivery evidence archive retains all edge changes, failure messages and cleanup paths."
 }
