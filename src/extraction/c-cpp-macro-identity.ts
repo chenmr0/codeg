@@ -21,12 +21,31 @@ function callableDeclarator(node: SyntaxNode): SyntaxNode | null {
   return null;
 }
 
-function semanticQualifiedName(symbol: Node, syntax: SyntaxNode | null): string {
+function completeNumericOwner(qualified: string, name: SyntaxNode | null, source: string): string {
+  if (!name || !/[\w.]/.test(source[name.startIndex - 1] ?? '')) return qualified;
+  let start = name.startIndex;
+  while (start > 0 && /[\w.]/.test(source[start - 1]!)) start--;
+  const token = source.slice(start, name.endIndex);
+  if (!/^(?:\d|\.\d)/.test(token)) return qualified;
+  const at = qualified.lastIndexOf(name.text + '::');
+  return at < 0 ? qualified : qualified.slice(0, at) + token + qualified.slice(at + name.text.length);
+}
+
+function semanticQualifiedName(symbol: Node, syntax: SyntaxNode | null, source: string): string {
   let qualified = symbol.qualifiedName;
+  // Error recovery can split the same preprocessing number differently in a
+  // type header and an out-of-line definition. Preserve its full spelling in
+  // callable identity; existing parameter/qualifier checks still decide pairing.
+  const callable = symbol.kind === 'method' || symbol.kind === 'function';
+  if (callable && syntax?.hasError) {
+    const name = callableDeclarator(syntax)?.childForFieldName('declarator');
+    qualified = completeNumericOwner(qualified, name?.childForFieldName('scope') ?? null, source);
+  }
   for (let owner = syntax?.parent; owner; owner = owner.parent) {
-    if (!['class_specifier','struct_specifier','union_specifier'].includes(owner.type)
-      || owner.parent?.type !== 'template_declaration') continue;
+    if (!['class_specifier','struct_specifier','union_specifier'].includes(owner.type)) continue;
     const name = owner.childForFieldName('name');
+    if (callable) qualified = completeNumericOwner(qualified, name, source);
+    if (owner.parent?.type !== 'template_declaration') continue;
     if (name?.type !== 'type_identifier') continue;
     const parameters = owner.parent.childForFieldName('parameters')?.namedChildren ?? [];
     const names = parameters.map(cppTemplateParameterName);
@@ -41,7 +60,7 @@ function semanticQualifiedName(symbol: Node, syntax: SyntaxNode | null): string 
 
 export function macroSemanticId(symbol: Node, syntax: SyntaxNode | null, source: string, bindings?: CppTypeBindings): string {
   if (symbol.kind === 'file' || symbol.kind === 'macro' || symbol.kind === 'import') return symbol.id;
-  const qualifiedName = semanticQualifiedName(symbol, syntax);
+  const qualifiedName = semanticQualifiedName(symbol, syntax, source);
   const {normalize, templates, callableNormalizer} = cppTemplateIdentity(syntax, qualifiedName, source);
   let callable: unknown = null;
   let parameterPosition: {row:number; column:number} | undefined;
