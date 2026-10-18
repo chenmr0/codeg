@@ -147,7 +147,7 @@ describe('sync per-invocation full file list reuse', () => {
     await cg.sync({ paths: ['keep/first.js'] });
     // The first non-C sync warmed framework detection, but not macro context.
     write('keep/extra.h', '#define DECLARE_EXTRA(name) int name;\n');
-    write('keep/new.c', 'DECLARE_EXTRA(extra_value)\n');
+    write('keep/new.c', '#include "extra.h"\nDECLARE_EXTRA(extra_value)\n');
     const frameworks = vi.spyOn(context(), 'ensureDetectedFrameworks');
     const macros = vi.spyOn(context(), 'ensureGlobalMacroNames');
     resetObservations();
@@ -156,7 +156,7 @@ describe('sync per-invocation full file list reuse', () => {
     expect(frameworks.mock.calls[0]?.[0]).toBeUndefined();
     expect(macros.mock.calls[0]?.[0]).toContain('keep/extra.h');
     expect(cg.getNodesInFile('keep/new.c')).toEqual(expect.arrayContaining([
-      expect.objectContaining({ name: 'extra_value', kind: 'variable', startLine: 1 }),
+      expect.objectContaining({ name: 'extra_value', kind: 'variable', startLine: 2 }),
     ]));
     expect(cg.getNodesInFile('keep/extra.h')).toHaveLength(0);
     expect(detail()).toBe('[sync] context-files source=scoped-scan files=5 reuses=0 extraScans=1');
