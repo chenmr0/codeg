@@ -22,12 +22,20 @@ function callableDeclarator(node: SyntaxNode): SyntaxNode | null {
 }
 
 function completeNumericOwner(qualified: string, name: SyntaxNode | null, source: string): string {
-  if (!name || !/[\w.]/.test(source[name.startIndex - 1] ?? '')) return qualified;
+  if (!name || (name.type !== 'type_identifier' && name.type !== 'namespace_identifier')) return qualified;
   let start = name.startIndex;
   while (start > 0 && /[\w.]/.test(source[start - 1]!)) start--;
+  // Deliberately accept only a simple ASCII token with proven delimiters.
+  // Exponent signs, separators, escapes, Unicode and composite scopes must
+  // retain their old identity rather than being completed from a suffix.
+  if (start === name.startIndex || (start > 0 && !/[ \t]/.test(source[start - 1]!))) return qualified;
   const token = source.slice(start, name.endIndex);
-  if (!/^(?:\d|\.\d)/.test(token)) return qualified;
-  const at = qualified.lastIndexOf(name.text + '::');
+  if (!/^(?:\d|\.\d)[A-Za-z0-9_.]*$/.test(token)
+    || (name.endIndex < source.length && !/[ \t\r\n\f\v:;{}]/.test(source[name.endIndex]!))) return qualified;
+  const component = name.text + '::';
+  const at = qualified.indexOf(component);
+  // Do not guess which nested owner (or suffix of another name) it denotes.
+  if (at !== qualified.lastIndexOf(component) || (at > 0 && qualified.slice(at - 2, at) !== '::')) return qualified;
   return at < 0 ? qualified : qualified.slice(0, at) + token + qualified.slice(at + name.text.length);
 }
 
@@ -44,7 +52,7 @@ function semanticQualifiedName(symbol: Node, syntax: SyntaxNode | null, source: 
   for (let owner = syntax?.parent; owner; owner = owner.parent) {
     if (!['class_specifier','struct_specifier','union_specifier'].includes(owner.type)) continue;
     const name = owner.childForFieldName('name');
-    if (callable) qualified = completeNumericOwner(qualified, name, source);
+    if (callable && owner.hasError) qualified = completeNumericOwner(qualified, name, source);
     if (owner.parent?.type !== 'template_declaration') continue;
     if (name?.type !== 'type_identifier') continue;
     const parameters = owner.parent.childForFieldName('parameters')?.namedChildren ?? [];
