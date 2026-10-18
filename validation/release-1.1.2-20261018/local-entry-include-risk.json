@@ -1,0 +1,229 @@
+{
+  "cases": {
+    "forced": {
+      "source": "#define DECL(n) HELPER(n)\nDECL(A)\n",
+      "args": [
+        "-std=c++17",
+        "-include",
+        "/workspace/codegraph-evidence/local-entry-include-risk/forced/defs.h",
+        "-fsyntax-only",
+        "/workspace/codegraph-evidence/local-entry-include-risk/forced/main.cpp"
+      ],
+      "compilerExit": 0,
+      "preprocessed": "struct A {};\n",
+      "compilerDeclaresA": true
+    },
+    "computed": {
+      "source": "#define H \"defs.h\"\n#include H\n#define DECL(n) HELPER(n)\nDECL(A)\n",
+      "args": [
+        "-std=c++17",
+        "-fsyntax-only",
+        "/workspace/codegraph-evidence/local-entry-include-risk/computed/main.cpp"
+      ],
+      "compilerExit": 0,
+      "preprocessed": "struct A {};\n",
+      "compilerDeclaresA": true
+    },
+    "literal": {
+      "source": "#include \"defs.h\"\n#define DECL(n) HELPER(n)\nDECL(A)\n",
+      "args": [
+        "-std=c++17",
+        "-fsyntax-only",
+        "/workspace/codegraph-evidence/local-entry-include-risk/literal/main.cpp"
+      ],
+      "compilerExit": 0,
+      "preprocessed": "struct A {};\n",
+      "compilerDeclaresA": true
+    },
+    "negative": {
+      "source": "#define DECL(n) HELPER(n)\nDECL(A)\n",
+      "args": [
+        "-std=c++17",
+        "-fsyntax-only",
+        "/workspace/codegraph-evidence/local-entry-include-risk/negative/main.cpp"
+      ],
+      "compilerExit": 1,
+      "preprocessed": "HELPER(A)\n",
+      "compilerDeclaresA": false
+    }
+  },
+  "versions": {
+    "baseline": {
+      "forced": {
+        "nodes": [
+          {
+            "name": "main.cpp",
+            "qualifiedName": "main.cpp",
+            "kind": "file"
+          },
+          {
+            "name": "DECL",
+            "qualifiedName": "DECL",
+            "kind": "macro"
+          },
+          {
+            "name": "A",
+            "qualifiedName": "A",
+            "kind": "struct"
+          }
+        ],
+        "hasA": true,
+        "errors": []
+      },
+      "computed": {
+        "nodes": [
+          {
+            "name": "main.cpp",
+            "qualifiedName": "main.cpp",
+            "kind": "file"
+          },
+          {
+            "name": "H",
+            "qualifiedName": "H",
+            "kind": "macro"
+          },
+          {
+            "name": "DECL",
+            "qualifiedName": "DECL",
+            "kind": "macro"
+          },
+          {
+            "name": "A",
+            "qualifiedName": "A",
+            "kind": "struct"
+          }
+        ],
+        "hasA": true,
+        "errors": []
+      },
+      "literal": {
+        "nodes": [
+          {
+            "name": "main.cpp",
+            "qualifiedName": "main.cpp",
+            "kind": "file"
+          },
+          {
+            "name": "defs.h",
+            "qualifiedName": "defs.h",
+            "kind": "import"
+          },
+          {
+            "name": "DECL",
+            "qualifiedName": "DECL",
+            "kind": "macro"
+          },
+          {
+            "name": "A",
+            "qualifiedName": "A",
+            "kind": "struct"
+          }
+        ],
+        "hasA": true,
+        "errors": []
+      },
+      "negative": {
+        "nodes": [
+          {
+            "name": "main.cpp",
+            "qualifiedName": "main.cpp",
+            "kind": "file"
+          },
+          {
+            "name": "DECL",
+            "qualifiedName": "DECL",
+            "kind": "macro"
+          },
+          {
+            "name": "A",
+            "qualifiedName": "A",
+            "kind": "struct"
+          }
+        ],
+        "hasA": true,
+        "errors": []
+      }
+    },
+    "fixed": {
+      "forced": {
+        "nodes": [
+          {
+            "name": "main.cpp",
+            "qualifiedName": "main.cpp",
+            "kind": "file"
+          },
+          {
+            "name": "DECL",
+            "qualifiedName": "DECL",
+            "kind": "macro"
+          }
+        ],
+        "hasA": false,
+        "errors": []
+      },
+      "computed": {
+        "nodes": [
+          {
+            "name": "main.cpp",
+            "qualifiedName": "main.cpp",
+            "kind": "file"
+          },
+          {
+            "name": "H",
+            "qualifiedName": "H",
+            "kind": "macro"
+          },
+          {
+            "name": "DECL",
+            "qualifiedName": "DECL",
+            "kind": "macro"
+          }
+        ],
+        "hasA": false,
+        "errors": []
+      },
+      "literal": {
+        "nodes": [
+          {
+            "name": "main.cpp",
+            "qualifiedName": "main.cpp",
+            "kind": "file"
+          },
+          {
+            "name": "defs.h",
+            "qualifiedName": "defs.h",
+            "kind": "import"
+          },
+          {
+            "name": "DECL",
+            "qualifiedName": "DECL",
+            "kind": "macro"
+          },
+          {
+            "name": "A",
+            "qualifiedName": "A",
+            "kind": "struct"
+          }
+        ],
+        "hasA": true,
+        "errors": []
+      },
+      "negative": {
+        "nodes": [
+          {
+            "name": "main.cpp",
+            "qualifiedName": "main.cpp",
+            "kind": "file"
+          },
+          {
+            "name": "DECL",
+            "qualifiedName": "DECL",
+            "kind": "macro"
+          }
+        ],
+        "hasA": false,
+        "errors": []
+      }
+    }
+  }
+}

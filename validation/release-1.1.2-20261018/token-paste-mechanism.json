@@ -1,0 +1,98 @@
+{
+  "compiler": "g++ (Debian 14.2.0-19) 14.2.0",
+  "actualMacroDefinitions": [
+    {
+      "name": "GTEST_TEST_CLASS_NAME_",
+      "parameters": [
+        "test_case_name",
+        "test_name"
+      ],
+      "replacement": "test_case_name##_##test_name##_Test",
+      "start": 394178,
+      "end": 394275
+    },
+    {
+      "name": "GTEST_TEST_",
+      "parameters": [
+        "test_case_name",
+        "test_name",
+        "parent_class",
+        "parent_id"
+      ],
+      "replacement": "class GTEST_TEST_CLASS_NAME_(test_case_name, test_name) : public parent_class {  public:   GTEST_TEST_CLASS_NAME_(test_case_name, test_name)() {}  private:   virtual void TestBody();   static ::testing::TestInfo* const test_info_ GTEST_ATTRIBUTE_UNUSED_;   GTEST_DISALLOW_COPY_AND_ASSIGN_(       GTEST_TEST_CLASS_NAME_(test_case_name, test_name)); };  ::testing::TestInfo* const GTEST_TEST_CLASS_NAME_(test_case_name, test_name)   ::test_info_ =     ::testing::internal::MakeAndRegisterTestInfo(         #test_case_name, #test_name, NULL, NULL,          ::testing::internal::CodeLocation(__FILE__, __LINE__),          (parent_id),          parent_class::SetUpTestCase,          parent_class::TearDownTestCase,          new ::testing::internal::TestFactoryImpl<             GTEST_TEST_CLASS_NAME_(test_case_name, test_name)>); void GTEST_TEST_CLASS_NAME_(test_case_name, test_name)::TestBody()",
+      "start": 394313,
+      "end": 395298
+    },
+    {
+      "name": "GTEST_TEST",
+      "parameters": [
+        "test_case_name",
+        "test_name"
+      ],
+      "replacement": "GTEST_TEST_(test_case_name, test_name,                ::testing::Test, ::testing::internal::GetTestTypeId())",
+      "start": 915497,
+      "end": 915655
+    },
+    {
+      "name": "TEST",
+      "parameters": [
+        "test_case_name",
+        "test_name"
+      ],
+      "replacement": "GTEST_TEST(test_case_name, test_name)",
+      "start": 915811,
+      "end": 915889
+    }
+  ],
+  "cases": {
+    "direct": {
+      "source": "#define CRC 0x1edc6f41\n#define CLASS(x) struct x##_Probe_Test {};\nCLASS(CRC)\n",
+      "compilerExit": 0,
+      "compilerOutput": "struct CRC_Probe_Test {};\n",
+      "compilerError": "",
+      "baselineExpansion": "#define CRC 0x1edc6f41\n#define CLASS(x) struct x##_Probe_Test {};\nstruct CRC_Probe_Test {};\n"
+    },
+    "forward": {
+      "source": "#define CRC 0x1edc6f41\n#define CLASS(x) struct x##_Probe_Test {};\n#define WRAP(x) CLASS(x)\nWRAP(CRC)\n",
+      "compilerExit": 0,
+      "compilerOutput": "struct 0x1edc6f41_Probe_Test {};\n",
+      "compilerError": "",
+      "baselineExpansion": "#define CRC 0x1edc6f41\n#define CLASS(x) struct x##_Probe_Test {};\n#define WRAP(x) CLASS(x)\nstruct 0x1edc6f41_Probe_Test {};\n"
+    },
+    "rescan": {
+      "source": "#define CRC 0x1edc6f41\n#define CRC_Probe_Test Rescanned\n#define CLASS(x) struct x##_Probe_Test {};\nCLASS(CRC)\n",
+      "compilerExit": 0,
+      "compilerOutput": "struct Rescanned {};\n",
+      "compilerError": "",
+      "baselineExpansion": "#define CRC 0x1edc6f41\n#define CRC_Probe_Test Rescanned\n#define CLASS(x) struct x##_Probe_Test {};\nstruct Rescanned {};\n"
+    },
+    "stringify": {
+      "source": "#define CRC 0x1edc6f41\n#define TEXT(x) const char* text = #x;\nTEXT(CRC)\n",
+      "compilerExit": 0,
+      "compilerOutput": "const char* text = \"CRC\";\n",
+      "compilerError": "",
+      "baselineExpansion": "#define CRC 0x1edc6f41\n#define TEXT(x) const char* text = #x;\nconst char* text = \"CRC\";\n"
+    },
+    "forwardStringify": {
+      "source": "#define CRC 0x1edc6f41\n#define TEXT(x) const char* text = #x;\n#define WRAP(x) TEXT(x)\nWRAP(CRC)\n",
+      "compilerExit": 0,
+      "compilerOutput": "const char* text = \"0x1edc6f41\";\n",
+      "compilerError": "",
+      "baselineExpansion": "#define CRC 0x1edc6f41\n#define TEXT(x) const char* text = #x;\n#define WRAP(x) TEXT(x)\nconst char* text = \"0x1edc6f41\";\n"
+    },
+    "actualUnrelated": {
+      "source": "#define GTEST_TEST_CLASS_NAME_(test_case_name,test_name) test_case_name##_##test_name##_Test\n#define GTEST_TEST_(test_case_name,test_name,parent_class,parent_id) class GTEST_TEST_CLASS_NAME_(test_case_name, test_name) : public parent_class {  public:   GTEST_TEST_CLASS_NAME_(test_case_name, test_name)() {}  private:   virtual void TestBody();   static ::testing::TestInfo* const test_info_ GTEST_ATTRIBUTE_UNUSED_;   GTEST_DISALLOW_COPY_AND_ASSIGN_(       GTEST_TEST_CLASS_NAME_(test_case_name, test_name)); };  ::testing::TestInfo* const GTEST_TEST_CLASS_NAME_(test_case_name, test_name)   ::test_info_ =     ::testing::internal::MakeAndRegisterTestInfo(         #test_case_name, #test_name, NULL, NULL,          ::testing::internal::CodeLocation(__FILE__, __LINE__),          (parent_id),          parent_class::SetUpTestCase,          parent_class::TearDownTestCase,          new ::testing::internal::TestFactoryImpl<             GTEST_TEST_CLASS_NAME_(test_case_name, test_name)>); void GTEST_TEST_CLASS_NAME_(test_case_name, test_name)::TestBody()\n#define GTEST_TEST(test_case_name,test_name) GTEST_TEST_(test_case_name, test_name,                ::testing::Test, ::testing::internal::GetTestTypeId())\n#define TEST(test_case_name,test_name) GTEST_TEST(test_case_name, test_name)\nTEST(CRC, StandardResults) {}\n",
+      "compilerExit": 0,
+      "compilerOutput": "class CRC_StandardResults_Test : public ::testing::Test { public: CRC_StandardResults_Test() {} private: virtual void TestBody(); static ::testing::TestInfo* const test_info_ GTEST_ATTRIBUTE_UNUSED_; GTEST_DISALLOW_COPY_AND_ASSIGN_( CRC_StandardResults_Test); }; ::testing::TestInfo* const CRC_StandardResults_Test ::test_info_ = ::testing::internal::MakeAndRegisterTestInfo( \"CRC\", \"StandardResults\", NULL, NULL, ::testing::internal::CodeLocation(\"/workspace/codegraph-evidence/token-paste-mechanism/actualUnrelated.cpp\", 5), (::testing::internal::GetTestTypeId()), ::testing::Test::SetUpTestCase, ::testing::Test::TearDownTestCase, new ::testing::internal::TestFactoryImpl< CRC_StandardResults_Test>); void CRC_StandardResults_Test::TestBody() {}\n",
+      "compilerError": "",
+      "baselineExpansion": "#define GTEST_TEST_CLASS_NAME_(test_case_name,test_name) test_case_name##_##test_name##_Test\n#define GTEST_TEST_(test_case_name,test_name,parent_class,parent_id) class GTEST_TEST_CLASS_NAME_(test_case_name, test_name) : public parent_class {  public:   GTEST_TEST_CLASS_NAME_(test_case_name, test_name)() {}  private:   virtual void TestBody();   static ::testing::TestInfo* const test_info_ GTEST_ATTRIBUTE_UNUSED_;   GTEST_DISALLOW_COPY_AND_ASSIGN_(       GTEST_TEST_CLASS_NAME_(test_case_name, test_name)); };  ::testing::TestInfo* const GTEST_TEST_CLASS_NAME_(test_case_name, test_name)   ::test_info_ =     ::testing::internal::MakeAndRegisterTestInfo(         #test_case_name, #test_name, NULL, NULL,          ::testing::internal::CodeLocation(__FILE__, __LINE__),          (parent_id),          parent_class::SetUpTestCase,          parent_class::TearDownTestCase,          new ::testing::internal::TestFactoryImpl<             GTEST_TEST_CLASS_NAME_(test_case_name, test_name)>); void GTEST_TEST_CLASS_NAME_(test_case_name, test_name)::TestBody()\n#define GTEST_TEST(test_case_name,test_name) GTEST_TEST_(test_case_name, test_name,                ::testing::Test, ::testing::internal::GetTestTypeId())\n#define TEST(test_case_name,test_name) GTEST_TEST(test_case_name, test_name)\nclass 0x1edc6f41_StandardResults_Test : public ::testing::Test {  public:   0x1edc6f41_StandardResults_Test() {}  private:   virtual void TestBody();   static ::testing::TestInfo* const test_info_ GTEST_ATTRIBUTE_UNUSED_;   GTEST_DISALLOW_COPY_AND_ASSIGN_(       0x1edc6f41_StandardResults_Test); };  ::testing::TestInfo* const 0x1edc6f41_StandardResults_Test   ::test_info_ =     ::testing::internal::MakeAndRegisterTestInfo(         \"0x1edc6f41\", \"StandardResults\", NULL, NULL,          ::testing::internal::CodeLocation(__FILE__, __LINE__),          (::testing::internal::GetTestTypeId()),          ::testing::Test::SetUpTestCase,          ::testing::Test::TearDownTestCase,          new ::testing::internal::TestFactoryImpl<             0x1edc6f41_StandardResults_Test>); void 0x1edc6f41_StandardResults_Test::TestBody() {}\n"
+    },
+    "actualVisible": {
+      "source": "#define CRC 0x1edc6f41\n#define GTEST_TEST_CLASS_NAME_(test_case_name,test_name) test_case_name##_##test_name##_Test\n#define GTEST_TEST_(test_case_name,test_name,parent_class,parent_id) class GTEST_TEST_CLASS_NAME_(test_case_name, test_name) : public parent_class {  public:   GTEST_TEST_CLASS_NAME_(test_case_name, test_name)() {}  private:   virtual void TestBody();   static ::testing::TestInfo* const test_info_ GTEST_ATTRIBUTE_UNUSED_;   GTEST_DISALLOW_COPY_AND_ASSIGN_(       GTEST_TEST_CLASS_NAME_(test_case_name, test_name)); };  ::testing::TestInfo* const GTEST_TEST_CLASS_NAME_(test_case_name, test_name)   ::test_info_ =     ::testing::internal::MakeAndRegisterTestInfo(         #test_case_name, #test_name, NULL, NULL,          ::testing::internal::CodeLocation(__FILE__, __LINE__),          (parent_id),          parent_class::SetUpTestCase,          parent_class::TearDownTestCase,          new ::testing::internal::TestFactoryImpl<             GTEST_TEST_CLASS_NAME_(test_case_name, test_name)>); void GTEST_TEST_CLASS_NAME_(test_case_name, test_name)::TestBody()\n#define GTEST_TEST(test_case_name,test_name) GTEST_TEST_(test_case_name, test_name,                ::testing::Test, ::testing::internal::GetTestTypeId())\n#define TEST(test_case_name,test_name) GTEST_TEST(test_case_name, test_name)\nTEST(CRC, StandardResults) {}\n",
+      "compilerExit": 0,
+      "compilerOutput": "class 0x1edc6f41_StandardResults_Test : public ::testing::Test { public: 0x1edc6f41_StandardResults_Test() {} private: virtual void TestBody(); static ::testing::TestInfo* const test_info_ GTEST_ATTRIBUTE_UNUSED_; GTEST_DISALLOW_COPY_AND_ASSIGN_( 0x1edc6f41_StandardResults_Test); }; ::testing::TestInfo* const 0x1edc6f41_StandardResults_Test ::test_info_ = ::testing::internal::MakeAndRegisterTestInfo( \"0x1edc6f41\", \"StandardResults\", NULL, NULL, ::testing::internal::CodeLocation(\"/workspace/codegraph-evidence/token-paste-mechanism/actualVisible.cpp\", 6), (::testing::internal::GetTestTypeId()), ::testing::Test::SetUpTestCase, ::testing::Test::TearDownTestCase, new ::testing::internal::TestFactoryImpl< 0x1edc6f41_StandardResults_Test>); void 0x1edc6f41_StandardResults_Test::TestBody() {}\n",
+      "compilerError": "",
+      "baselineExpansion": "#define CRC 0x1edc6f41\n#define GTEST_TEST_CLASS_NAME_(test_case_name,test_name) test_case_name##_##test_name##_Test\n#define GTEST_TEST_(test_case_name,test_name,parent_class,parent_id) class GTEST_TEST_CLASS_NAME_(test_case_name, test_name) : public parent_class {  public:   GTEST_TEST_CLASS_NAME_(test_case_name, test_name)() {}  private:   virtual void TestBody();   static ::testing::TestInfo* const test_info_ GTEST_ATTRIBUTE_UNUSED_;   GTEST_DISALLOW_COPY_AND_ASSIGN_(       GTEST_TEST_CLASS_NAME_(test_case_name, test_name)); };  ::testing::TestInfo* const GTEST_TEST_CLASS_NAME_(test_case_name, test_name)   ::test_info_ =     ::testing::internal::MakeAndRegisterTestInfo(         #test_case_name, #test_name, NULL, NULL,          ::testing::internal::CodeLocation(__FILE__, __LINE__),          (parent_id),          parent_class::SetUpTestCase,          parent_class::TearDownTestCase,          new ::testing::internal::TestFactoryImpl<             GTEST_TEST_CLASS_NAME_(test_case_name, test_name)>); void GTEST_TEST_CLASS_NAME_(test_case_name, test_name)::TestBody()\n#define GTEST_TEST(test_case_name,test_name) GTEST_TEST_(test_case_name, test_name,                ::testing::Test, ::testing::internal::GetTestTypeId())\n#define TEST(test_case_name,test_name) GTEST_TEST(test_case_name, test_name)\nclass 0x1edc6f41_StandardResults_Test : public ::testing::Test {  public:   0x1edc6f41_StandardResults_Test() {}  private:   virtual void TestBody();   static ::testing::TestInfo* const test_info_ GTEST_ATTRIBUTE_UNUSED_;   GTEST_DISALLOW_COPY_AND_ASSIGN_(       0x1edc6f41_StandardResults_Test); };  ::testing::TestInfo* const 0x1edc6f41_StandardResults_Test   ::test_info_ =     ::testing::internal::MakeAndRegisterTestInfo(         \"0x1edc6f41\", \"StandardResults\", NULL, NULL,          ::testing::internal::CodeLocation(__FILE__, __LINE__),          (::testing::internal::GetTestTypeId()),          ::testing::Test::SetUpTestCase,          ::testing::Test::TearDownTestCase,          new ::testing::internal::TestFactoryImpl<             0x1edc6f41_StandardResults_Test>); void 0x1edc6f41_StandardResults_Test::TestBody() {}\n"
+    }
+  }
+}

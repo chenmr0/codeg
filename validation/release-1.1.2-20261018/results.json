@@ -1,152 +1,220 @@
 {
-  "testedCodeCommit": "be7b13cd92b3c56f8469986ac2bdf0b94d4bc688",
+  "testedCodeCommit": "3dc310b26082980e255baa2b168ebfabc5cb597d",
   "baseline": "30d595909771c8a24748dbbdcca26a6714616b1e",
   "previousRelease": "28910d25a3913ff1233170143e1c8a864c5e9e19",
-  "fullSuite": {
-    "passed": 3390,
-    "failed": 13,
-    "skipped": 2
-  },
-  "newFailureIdentities": [],
-  "baselineSuite": {
-    "passed": 3332,
-    "failed": 15,
-    "skipped": 40
-  },
-  "remainingFailures": [
-    {
-      "file": "adaptive-explore-sizing.test.ts",
-      "test": "adaptive codegraph_explore sizing — sibling skeletonization skeletonizes off-spine polymorphic siblings (bodies elided, signatures kept)"
+  "releaseDecision": "HOLD",
+  "tests": {
+    "baseline": {
+      "counts": {
+        "passed": 3332,
+        "failed": 15,
+        "skipped": 40
+      },
+      "total": 3387,
+      "failures": [
+        [
+          "adaptive-explore-sizing.test.ts",
+          "adaptive codegraph_explore sizing — sibling skeletonization skeletonizes off-spine polymorphic siblings (bodies elided, signatures kept)"
+        ],
+        [
+          "adaptive-explore-sizing.test.ts",
+          "adaptive codegraph_explore sizing — sibling skeletonization keeps the on-spine exemplar full even though it is a sibling"
+        ],
+        [
+          "adaptive-explore-sizing.test.ts",
+          "adaptive codegraph_explore sizing — sibling skeletonization keeps a distinct step full (off-spine but supertype has < 3 implementers)"
+        ],
+        [
+          "adaptive-explore-sizing.test.ts",
+          "adaptive codegraph_explore sizing — sibling skeletonization CODEGRAPH_ADAPTIVE_EXPLORE=0 disables skeletonization (siblings render full)"
+        ],
+        [
+          "adaptive-explore-sizing.test.ts",
+          "adaptive codegraph_explore sizing — sibling skeletonization spares an off-spine sibling when the agent NAMED a callable in it (RealCall fix)"
+        ],
+        [
+          "adaptive-explore-sizing.test.ts",
+          "adaptive codegraph_explore sizing — sibling skeletonization collapses a base+subclasses family file to a FOCUSED view — base method body kept, non-named subclasses signature-only (compiler.py)"
+        ],
+        [
+          "adaptive-explore-sizing.test.ts",
+          "adaptive codegraph_explore sizing — sibling skeletonization naming a SHARED/polymorphic method does not spare the siblings (uniqueness-aware)"
+        ],
+        [
+          "explore-output-budget.test.ts",
+          "codegraph_explore output respects the adaptive budget still includes the Relationships section — it is the cheapest structural signal"
+        ],
+        [
+          "explore-output-budget.test.ts",
+          "codegraph_explore output respects the adaptive budget prefixes source lines with line numbers by default (cat -n style)"
+        ],
+        [
+          "explore-output-budget.test.ts",
+          "codegraph_explore output respects the adaptive budget does not collapse a whole-file class into just its header (envelope filter)"
+        ],
+        [
+          "foundation.test.ts",
+          "Database Connection should get schema version"
+        ],
+        [
+          "mcp-daemon.test.ts",
+          "Shared MCP daemon (issue #411) daemon idle-times-out after the last client disconnects"
+        ],
+        [
+          "mcp-ppid-watchdog.test.ts",
+          "MCP PPID watchdog (#277) shuts down when its parent is SIGKILL'd and stdin stays open"
+        ],
+        [
+          "raw-source-worker.test.ts",
+          "isolated raw-source workers cleans up an active rg when the host exits without waiting for cancellation"
+        ],
+        [
+          "worktree-detection.test.ts",
+          "worktree mismatch surfaces on hot read tools (issue #155) caches detection — a later tool call needs no further git spawn"
+        ]
+      ]
     },
-    {
-      "file": "adaptive-explore-sizing.test.ts",
-      "test": "adaptive codegraph_explore sizing — sibling skeletonization keeps the on-spine exemplar full even though it is a sibling"
+    "optimized-final": {
+      "counts": {
+        "passed": 3393,
+        "failed": 14,
+        "skipped": 2
+      },
+      "total": 3409,
+      "failures": [
+        [
+          "adaptive-explore-sizing.test.ts",
+          "adaptive codegraph_explore sizing — sibling skeletonization skeletonizes off-spine polymorphic siblings (bodies elided, signatures kept)"
+        ],
+        [
+          "adaptive-explore-sizing.test.ts",
+          "adaptive codegraph_explore sizing — sibling skeletonization keeps the on-spine exemplar full even though it is a sibling"
+        ],
+        [
+          "adaptive-explore-sizing.test.ts",
+          "adaptive codegraph_explore sizing — sibling skeletonization keeps a distinct step full (off-spine but supertype has < 3 implementers)"
+        ],
+        [
+          "adaptive-explore-sizing.test.ts",
+          "adaptive codegraph_explore sizing — sibling skeletonization CODEGRAPH_ADAPTIVE_EXPLORE=0 disables skeletonization (siblings render full)"
+        ],
+        [
+          "adaptive-explore-sizing.test.ts",
+          "adaptive codegraph_explore sizing — sibling skeletonization spares an off-spine sibling when the agent NAMED a callable in it (RealCall fix)"
+        ],
+        [
+          "adaptive-explore-sizing.test.ts",
+          "adaptive codegraph_explore sizing — sibling skeletonization collapses a base+subclasses family file to a FOCUSED view — base method body kept, non-named subclasses signature-only (compiler.py)"
+        ],
+        [
+          "adaptive-explore-sizing.test.ts",
+          "adaptive codegraph_explore sizing — sibling skeletonization naming a SHARED/polymorphic method does not spare the siblings (uniqueness-aware)"
+        ],
+        [
+          "explore-output-budget.test.ts",
+          "codegraph_explore output respects the adaptive budget still includes the Relationships section — it is the cheapest structural signal"
+        ],
+        [
+          "explore-output-budget.test.ts",
+          "codegraph_explore output respects the adaptive budget prefixes source lines with line numbers by default (cat -n style)"
+        ],
+        [
+          "explore-output-budget.test.ts",
+          "codegraph_explore output respects the adaptive budget does not collapse a whole-file class into just its header (envelope filter)"
+        ],
+        [
+          "mcp-daemon.test.ts",
+          "Shared MCP daemon (issue #411) daemon idle-times-out after the last client disconnects"
+        ],
+        [
+          "mcp-ppid-watchdog.test.ts",
+          "MCP PPID watchdog (#277) shuts down when its parent is SIGKILL'd and stdin stays open"
+        ],
+        [
+          "raw-source-worker.test.ts",
+          "isolated raw-source workers cleans up an active rg when the host exits without waiting for cancellation"
+        ],
+        [
+          "worktree-detection.test.ts",
+          "worktree mismatch surfaces on hot read tools (issue #155) caches detection — a later tool call needs no further git spawn"
+        ]
+      ]
     },
-    {
-      "file": "adaptive-explore-sizing.test.ts",
-      "test": "adaptive codegraph_explore sizing — sibling skeletonization keeps a distinct step full (off-spine but supertype has < 3 implementers)"
-    },
-    {
-      "file": "adaptive-explore-sizing.test.ts",
-      "test": "adaptive codegraph_explore sizing — sibling skeletonization CODEGRAPH_ADAPTIVE_EXPLORE=0 disables skeletonization (siblings render full)"
-    },
-    {
-      "file": "adaptive-explore-sizing.test.ts",
-      "test": "adaptive codegraph_explore sizing — sibling skeletonization spares an off-spine sibling when the agent NAMED a callable in it (RealCall fix)"
-    },
-    {
-      "file": "adaptive-explore-sizing.test.ts",
-      "test": "adaptive codegraph_explore sizing — sibling skeletonization collapses a base+subclasses family file to a FOCUSED view — base method body kept, non-named subclasses signature-only (compiler.py)"
-    },
-    {
-      "file": "adaptive-explore-sizing.test.ts",
-      "test": "adaptive codegraph_explore sizing — sibling skeletonization naming a SHARED/polymorphic method does not spare the siblings (uniqueness-aware)"
-    },
-    {
-      "file": "explore-output-budget.test.ts",
-      "test": "codegraph_explore output respects the adaptive budget still includes the Relationships section — it is the cheapest structural signal"
-    },
-    {
-      "file": "explore-output-budget.test.ts",
-      "test": "codegraph_explore output respects the adaptive budget prefixes source lines with line numbers by default (cat -n style)"
-    },
-    {
-      "file": "explore-output-budget.test.ts",
-      "test": "codegraph_explore output respects the adaptive budget does not collapse a whole-file class into just its header (envelope filter)"
-    },
-    {
-      "file": "mcp-daemon.test.ts",
-      "test": "Shared MCP daemon (issue #411) daemon idle-times-out after the last client disconnects"
-    },
-    {
-      "file": "mcp-ppid-watchdog.test.ts",
-      "test": "MCP PPID watchdog (#277) shuts down when its parent is SIGKILL'd and stdin stays open"
-    },
-    {
-      "file": "worktree-detection.test.ts",
-      "test": "worktree mismatch surfaces on hot read tools (issue #155) caches detection — a later tool call needs no further git spawn"
-    }
-  ],
-  "extraction483": "All passed in eight partitions, avoiding monolithic WASM worker memory exhaustion.",
-  "nativeValidation": {
-    "previouslySkipped38": "all passed",
-    "helperPresenceAdditionalAssertion": "passed",
-    "scannerReleaseValidation": "16 real differential fixtures passed",
-    "macroReleaseValidation": "macro-parity-v1 passed"
+    "newFailures": []
   },
   "benchmarks": {
     "ts": {
       "performance": {
         "baseline-init": {
           "wall_seconds": {
-            "median": 102.03140071849998,
-            "min": 96.64924384200003,
-            "max": 107.41355759499993
+            "median": 101.52985817850004,
+            "min": 99.62780671400014,
+            "max": 110.23894181600008
           },
           "process_group_peak_rss_mib": {
-            "median": 1795.94140625,
-            "min": 1791.48046875,
-            "max": 1800.40234375
+            "median": 1777.828125,
+            "min": 1756.67578125,
+            "max": 1795.15625
           }
         },
         "baseline-noop": {
           "wall_seconds": {
-            "median": 0.662039149499833,
-            "min": 0.5248655969999163,
-            "max": 0.7992127019997497
+            "median": 0.559512787499898,
+            "min": 0.4863438860002134,
+            "max": 0.9677132360011456
           },
           "process_group_peak_rss_mib": {
-            "median": 244.26953125,
-            "min": 243.3984375,
-            "max": 245.140625
+            "median": 239.513671875,
+            "min": 231.703125,
+            "max": 242.87890625
           }
         },
         "baseline-edit": {
           "wall_seconds": {
-            "median": 5.217742761499721,
-            "min": 5.211248488999445,
-            "max": 5.224237033999998
+            "median": 5.371980761500254,
+            "min": 5.009795313000723,
+            "max": 5.777783799000645
           },
           "process_group_peak_rss_mib": {
-            "median": 614.498046875,
-            "min": 611.11328125,
-            "max": 617.8828125
+            "median": 610.990234375,
+            "min": 606.953125,
+            "max": 616.48828125
           }
         },
         "fixed-init": {
           "wall_seconds": {
-            "median": 99.28440468699978,
-            "min": 98.45614802399996,
-            "max": 100.1126613499996
+            "median": 103.53001820500003,
+            "min": 93.93426808000004,
+            "max": 109.48015264800051
           },
           "process_group_peak_rss_mib": {
-            "median": 1799.10546875,
-            "min": 1797.69140625,
-            "max": 1800.51953125
+            "median": 1797.58203125,
+            "min": 1790.359375,
+            "max": 1801.6171875
           }
         },
         "fixed-noop": {
           "wall_seconds": {
-            "median": 0.5760880600000746,
-            "min": 0.5537791470005686,
-            "max": 0.5983969729995806
+            "median": 0.579980457000147,
+            "min": 0.5643190769997091,
+            "max": 0.7641135739995661
           },
           "process_group_peak_rss_mib": {
-            "median": 240.275390625,
-            "min": 239.43359375,
-            "max": 241.1171875
+            "median": 238.91015625,
+            "min": 236.05078125,
+            "max": 247.37890625
           }
         },
         "fixed-edit": {
           "wall_seconds": {
-            "median": 5.780475939000098,
-            "min": 5.609260504000304,
-            "max": 5.951691373999893
+            "median": 5.636441100999946,
+            "min": 5.391660470999341,
+            "max": 5.944431677000466
           },
           "process_group_peak_rss_mib": {
-            "median": 613.689453125,
-            "min": 609.25390625,
-            "max": 618.125
+            "median": 609.298828125,
+            "min": 605.859375,
+            "max": 617.40625
           }
         }
       },
@@ -171,74 +239,74 @@
       "performance": {
         "baseline-init": {
           "wall_seconds": {
-            "median": 101.99144512099974,
-            "min": 101.63702216799993,
-            "max": 102.34586807399955
+            "median": 95.02068979700016,
+            "min": 93.36491963000117,
+            "max": 99.98917388200061
           },
           "process_group_peak_rss_mib": {
-            "median": 1794.40625,
-            "min": 1794.30078125,
-            "max": 1794.51171875
+            "median": 1783.525390625,
+            "min": 1770.796875,
+            "max": 1802.125
           }
         },
         "baseline-noop": {
           "wall_seconds": {
-            "median": 0.5307494490002682,
-            "min": 0.48614988700046524,
-            "max": 0.5753490110000712
+            "median": 0.5386020330006431,
+            "min": 0.50833329300076,
+            "max": 0.5870618219996686
           },
           "process_group_peak_rss_mib": {
-            "median": 246.166015625,
-            "min": 245.796875,
-            "max": 246.53515625
+            "median": 241.595703125,
+            "min": 230.1796875,
+            "max": 246.21875
           }
         },
         "baseline-edit": {
           "wall_seconds": {
-            "median": 5.688258169999699,
-            "min": 5.243403024000145,
-            "max": 6.133113315999253
+            "median": 5.05819094150047,
+            "min": 4.7232484859996475,
+            "max": 6.220931691001169
           },
           "process_group_peak_rss_mib": {
-            "median": 621.228515625,
-            "min": 619.375,
-            "max": 623.08203125
+            "median": 615.6953125,
+            "min": 607.99609375,
+            "max": 616.44140625
           }
         },
         "fixed-init": {
           "wall_seconds": {
-            "median": 98.20039033749981,
-            "min": 97.1717998690001,
-            "max": 99.22898080599953
+            "median": 97.07579101649935,
+            "min": 95.16217454199978,
+            "max": 97.35103567199985
           },
           "process_group_peak_rss_mib": {
-            "median": 1812.828125,
-            "min": 1811.08984375,
-            "max": 1814.56640625
+            "median": 1797.302734375,
+            "min": 1791.71484375,
+            "max": 1799.05859375
           }
         },
         "fixed-noop": {
           "wall_seconds": {
-            "median": 0.5705454115004613,
-            "min": 0.5149213450004027,
-            "max": 0.62616947800052
+            "median": 0.5368116159988858,
+            "min": 0.49351813400062383,
+            "max": 0.6442516410006647
           },
           "process_group_peak_rss_mib": {
-            "median": 241.56640625,
-            "min": 238.71484375,
-            "max": 244.41796875
+            "median": 244.646484375,
+            "min": 242.55859375,
+            "max": 245.22265625
           }
         },
         "fixed-edit": {
           "wall_seconds": {
-            "median": 5.415245974500067,
-            "min": 5.12143256499985,
-            "max": 5.709059384000284
+            "median": 5.28534158850016,
+            "min": 5.032026476001192,
+            "max": 5.961135040999579
           },
           "process_group_peak_rss_mib": {
-            "median": 629.724609375,
-            "min": 628.85546875,
-            "max": 630.59375
+            "median": 615.6796875,
+            "min": 614.33203125,
+            "max": 626.9609375
           }
         }
       },
@@ -260,1365 +328,823 @@
       }
     }
   },
-  "crossModeGraphParity": {
-    "baseline": {
-      "nodes": true,
-      "edges": true
-    },
-    "fixed": {
-      "nodes": true,
-      "edges": true
-    }
+  "rawPerformance": {
+    "ts": [
+      {
+        "version": "baseline",
+        "operation": "init",
+        "label": "r1-baseline-init",
+        "wall_seconds": 99.62780671400014,
+        "process_group_peak_rss_mib": 1756.67578125,
+        "samples": 1925,
+        "exitCode": 0,
+        "stopReasons": []
+      },
+      {
+        "version": "baseline",
+        "operation": "sync",
+        "label": "r1-baseline-noop",
+        "wall_seconds": 0.5556785449998642,
+        "process_group_peak_rss_mib": 231.703125,
+        "samples": 11,
+        "exitCode": 0,
+        "stopReasons": []
+      },
+      {
+        "version": "baseline",
+        "operation": "sync",
+        "label": "r1-baseline-edit",
+        "wall_seconds": 5.2442283310001585,
+        "process_group_peak_rss_mib": 616.48828125,
+        "samples": 102,
+        "exitCode": 0,
+        "stopReasons": []
+      },
+      {
+        "version": "fixed",
+        "operation": "init",
+        "label": "r1-fixed-init",
+        "wall_seconds": 93.93426808000004,
+        "process_group_peak_rss_mib": 1790.359375,
+        "samples": 1823,
+        "exitCode": 0,
+        "stopReasons": []
+      },
+      {
+        "version": "fixed",
+        "operation": "sync",
+        "label": "r1-fixed-noop",
+        "wall_seconds": 0.5652475400002004,
+        "process_group_peak_rss_mib": 239.44921875,
+        "samples": 11,
+        "exitCode": 0,
+        "stopReasons": []
+      },
+      {
+        "version": "fixed",
+        "operation": "sync",
+        "label": "r1-fixed-edit",
+        "wall_seconds": 5.391660470999341,
+        "process_group_peak_rss_mib": 617.40625,
+        "samples": 105,
+        "exitCode": 0,
+        "stopReasons": []
+      },
+      {
+        "version": "fixed",
+        "operation": "init",
+        "label": "r2-fixed-init",
+        "wall_seconds": 105.47729509500004,
+        "process_group_peak_rss_mib": 1801.6171875,
+        "samples": 2025,
+        "exitCode": 0,
+        "stopReasons": []
+      },
+      {
+        "version": "fixed",
+        "operation": "sync",
+        "label": "r2-fixed-noop",
+        "wall_seconds": 0.5643190769997091,
+        "process_group_peak_rss_mib": 236.05078125,
+        "samples": 11,
+        "exitCode": 0,
+        "stopReasons": []
+      },
+      {
+        "version": "fixed",
+        "operation": "sync",
+        "label": "r2-fixed-edit",
+        "wall_seconds": 5.855036881999695,
+        "process_group_peak_rss_mib": 611.30078125,
+        "samples": 113,
+        "exitCode": 0,
+        "stopReasons": []
+      },
+      {
+        "version": "baseline",
+        "operation": "init",
+        "label": "r2-baseline-init",
+        "wall_seconds": 101.24021426800027,
+        "process_group_peak_rss_mib": 1792.25,
+        "samples": 1952,
+        "exitCode": 0,
+        "stopReasons": []
+      },
+      {
+        "version": "baseline",
+        "operation": "sync",
+        "label": "r2-baseline-noop",
+        "wall_seconds": 0.5633470299999317,
+        "process_group_peak_rss_mib": 239.0703125,
+        "samples": 11,
+        "exitCode": 0,
+        "stopReasons": []
+      },
+      {
+        "version": "baseline",
+        "operation": "sync",
+        "label": "r2-baseline-edit",
+        "wall_seconds": 5.777783799000645,
+        "process_group_peak_rss_mib": 611.609375,
+        "samples": 112,
+        "exitCode": 0,
+        "stopReasons": []
+      },
+      {
+        "version": "baseline",
+        "operation": "init",
+        "label": "r3-baseline-init",
+        "wall_seconds": 101.8195020889998,
+        "process_group_peak_rss_mib": 1795.15625,
+        "samples": 1965,
+        "exitCode": 0,
+        "stopReasons": []
+      },
+      {
+        "version": "baseline",
+        "operation": "sync",
+        "label": "r3-baseline-noop",
+        "wall_seconds": 0.4863438860002134,
+        "process_group_peak_rss_mib": 242.87890625,
+        "samples": 10,
+        "exitCode": 0,
+        "stopReasons": []
+      },
+      {
+        "version": "baseline",
+        "operation": "sync",
+        "label": "r3-baseline-edit",
+        "wall_seconds": 5.009795313000723,
+        "process_group_peak_rss_mib": 606.953125,
+        "samples": 98,
+        "exitCode": 0,
+        "stopReasons": []
+      },
+      {
+        "version": "fixed",
+        "operation": "init",
+        "label": "r3-fixed-init",
+        "wall_seconds": 109.48015264800051,
+        "process_group_peak_rss_mib": 1798.13671875,
+        "samples": 2100,
+        "exitCode": 0,
+        "stopReasons": []
+      },
+      {
+        "version": "fixed",
+        "operation": "sync",
+        "label": "r3-fixed-noop",
+        "wall_seconds": 0.7641135739995661,
+        "process_group_peak_rss_mib": 238.37109375,
+        "samples": 15,
+        "exitCode": 0,
+        "stopReasons": []
+      },
+      {
+        "version": "fixed",
+        "operation": "sync",
+        "label": "r3-fixed-edit",
+        "wall_seconds": 5.417845320000197,
+        "process_group_peak_rss_mib": 607.296875,
+        "samples": 105,
+        "exitCode": 0,
+        "stopReasons": []
+      },
+      {
+        "version": "fixed",
+        "operation": "init",
+        "label": "r4-fixed-init",
+        "wall_seconds": 101.58274131500002,
+        "process_group_peak_rss_mib": 1797.02734375,
+        "samples": 1958,
+        "exitCode": 0,
+        "stopReasons": []
+      },
+      {
+        "version": "fixed",
+        "operation": "sync",
+        "label": "r4-fixed-noop",
+        "wall_seconds": 0.5947133740000936,
+        "process_group_peak_rss_mib": 247.37890625,
+        "samples": 12,
+        "exitCode": 0,
+        "stopReasons": []
+      },
+      {
+        "version": "fixed",
+        "operation": "sync",
+        "label": "r4-fixed-edit",
+        "wall_seconds": 5.944431677000466,
+        "process_group_peak_rss_mib": 605.859375,
+        "samples": 115,
+        "exitCode": 0,
+        "stopReasons": []
+      },
+      {
+        "version": "baseline",
+        "operation": "init",
+        "label": "r4-baseline-init",
+        "wall_seconds": 110.23894181600008,
+        "process_group_peak_rss_mib": 1763.40625,
+        "samples": 2114,
+        "exitCode": 0,
+        "stopReasons": []
+      },
+      {
+        "version": "baseline",
+        "operation": "sync",
+        "label": "r4-baseline-noop",
+        "wall_seconds": 0.9677132360011456,
+        "process_group_peak_rss_mib": 239.95703125,
+        "samples": 18,
+        "exitCode": 0,
+        "stopReasons": []
+      },
+      {
+        "version": "baseline",
+        "operation": "sync",
+        "label": "r4-baseline-edit",
+        "wall_seconds": 5.499733192000349,
+        "process_group_peak_rss_mib": 610.37109375,
+        "samples": 106,
+        "exitCode": 0,
+        "stopReasons": []
+      },
+      {
+        "version": "baseline",
+        "operation": "init",
+        "label": "fresh-edited-baseline",
+        "wall_seconds": 99.69778701500036,
+        "process_group_peak_rss_mib": 1799.125,
+        "samples": 1919,
+        "exitCode": 0,
+        "stopReasons": []
+      },
+      {
+        "version": "fixed",
+        "operation": "init",
+        "label": "fresh-edited-fixed",
+        "wall_seconds": 101.00171317999957,
+        "process_group_peak_rss_mib": 1788.45703125,
+        "samples": 1954,
+        "exitCode": 0,
+        "stopReasons": []
+      }
+    ],
+    "native": [
+      {
+        "version": "baseline",
+        "operation": "init",
+        "label": "r1-baseline-init",
+        "wall_seconds": 99.98917388200061,
+        "process_group_peak_rss_mib": 1788.3046875,
+        "samples": 1928,
+        "exitCode": 0,
+        "stopReasons": []
+      },
+      {
+        "version": "baseline",
+        "operation": "sync",
+        "label": "r1-baseline-noop",
+        "wall_seconds": 0.50833329300076,
+        "process_group_peak_rss_mib": 230.1796875,
+        "samples": 10,
+        "exitCode": 0,
+        "stopReasons": []
+      },
+      {
+        "version": "baseline",
+        "operation": "sync",
+        "label": "r1-baseline-edit",
+        "wall_seconds": 4.7232484859996475,
+        "process_group_peak_rss_mib": 616.44140625,
+        "samples": 92,
+        "exitCode": 0,
+        "stopReasons": []
+      },
+      {
+        "version": "fixed",
+        "operation": "init",
+        "label": "r1-fixed-init",
+        "wall_seconds": 95.16217454199978,
+        "process_group_peak_rss_mib": 1797.390625,
+        "samples": 1842,
+        "exitCode": 0,
+        "stopReasons": []
+      },
+      {
+        "version": "fixed",
+        "operation": "sync",
+        "label": "r1-fixed-noop",
+        "wall_seconds": 0.5727392979988508,
+        "process_group_peak_rss_mib": 244.578125,
+        "samples": 12,
+        "exitCode": 0,
+        "stopReasons": []
+      },
+      {
+        "version": "fixed",
+        "operation": "sync",
+        "label": "r1-fixed-edit",
+        "wall_seconds": 5.467311791000611,
+        "process_group_peak_rss_mib": 614.51953125,
+        "samples": 106,
+        "exitCode": 0,
+        "stopReasons": []
+      },
+      {
+        "version": "fixed",
+        "operation": "init",
+        "label": "r2-fixed-init",
+        "wall_seconds": 97.35103567199985,
+        "process_group_peak_rss_mib": 1799.05859375,
+        "samples": 1884,
+        "exitCode": 0,
+        "stopReasons": []
+      },
+      {
+        "version": "fixed",
+        "operation": "sync",
+        "label": "r2-fixed-noop",
+        "wall_seconds": 0.6442516410006647,
+        "process_group_peak_rss_mib": 242.55859375,
+        "samples": 13,
+        "exitCode": 0,
+        "stopReasons": []
+      },
+      {
+        "version": "fixed",
+        "operation": "sync",
+        "label": "r2-fixed-edit",
+        "wall_seconds": 5.961135040999579,
+        "process_group_peak_rss_mib": 616.83984375,
+        "samples": 115,
+        "exitCode": 0,
+        "stopReasons": []
+      },
+      {
+        "version": "baseline",
+        "operation": "init",
+        "label": "r2-baseline-init",
+        "wall_seconds": 95.1681455880007,
+        "process_group_peak_rss_mib": 1802.125,
+        "samples": 1838,
+        "exitCode": 0,
+        "stopReasons": []
+      },
+      {
+        "version": "baseline",
+        "operation": "sync",
+        "label": "r2-baseline-noop",
+        "wall_seconds": 0.5413597660008236,
+        "process_group_peak_rss_mib": 239.5234375,
+        "samples": 11,
+        "exitCode": 0,
+        "stopReasons": []
+      },
+      {
+        "version": "baseline",
+        "operation": "sync",
+        "label": "r2-baseline-edit",
+        "wall_seconds": 5.1666994229999545,
+        "process_group_peak_rss_mib": 607.99609375,
+        "samples": 101,
+        "exitCode": 0,
+        "stopReasons": []
+      },
+      {
+        "version": "baseline",
+        "operation": "init",
+        "label": "r3-baseline-init",
+        "wall_seconds": 93.36491963000117,
+        "process_group_peak_rss_mib": 1770.796875,
+        "samples": 1810,
+        "exitCode": 0,
+        "stopReasons": []
+      },
+      {
+        "version": "baseline",
+        "operation": "sync",
+        "label": "r3-baseline-noop",
+        "wall_seconds": 0.5358443000004627,
+        "process_group_peak_rss_mib": 243.66796875,
+        "samples": 11,
+        "exitCode": 0,
+        "stopReasons": []
+      },
+      {
+        "version": "baseline",
+        "operation": "sync",
+        "label": "r3-baseline-edit",
+        "wall_seconds": 6.220931691001169,
+        "process_group_peak_rss_mib": 616.30859375,
+        "samples": 119,
+        "exitCode": 0,
+        "stopReasons": []
+      },
+      {
+        "version": "fixed",
+        "operation": "init",
+        "label": "r3-fixed-init",
+        "wall_seconds": 96.87043973899927,
+        "process_group_peak_rss_mib": 1797.21484375,
+        "samples": 1865,
+        "exitCode": 0,
+        "stopReasons": []
+      },
+      {
+        "version": "fixed",
+        "operation": "sync",
+        "label": "r3-fixed-noop",
+        "wall_seconds": 0.49351813400062383,
+        "process_group_peak_rss_mib": 245.22265625,
+        "samples": 10,
+        "exitCode": 0,
+        "stopReasons": []
+      },
+      {
+        "version": "fixed",
+        "operation": "sync",
+        "label": "r3-fixed-edit",
+        "wall_seconds": 5.103371385999708,
+        "process_group_peak_rss_mib": 626.9609375,
+        "samples": 100,
+        "exitCode": 0,
+        "stopReasons": []
+      },
+      {
+        "version": "fixed",
+        "operation": "init",
+        "label": "r4-fixed-init",
+        "wall_seconds": 97.28114229399944,
+        "process_group_peak_rss_mib": 1791.71484375,
+        "samples": 1882,
+        "exitCode": 0,
+        "stopReasons": []
+      },
+      {
+        "version": "fixed",
+        "operation": "sync",
+        "label": "r4-fixed-noop",
+        "wall_seconds": 0.5008839339989208,
+        "process_group_peak_rss_mib": 244.71484375,
+        "samples": 10,
+        "exitCode": 0,
+        "stopReasons": []
+      },
+      {
+        "version": "fixed",
+        "operation": "sync",
+        "label": "r4-fixed-edit",
+        "wall_seconds": 5.032026476001192,
+        "process_group_peak_rss_mib": 614.33203125,
+        "samples": 98,
+        "exitCode": 0,
+        "stopReasons": []
+      },
+      {
+        "version": "baseline",
+        "operation": "init",
+        "label": "r4-baseline-init",
+        "wall_seconds": 94.87323400599962,
+        "process_group_peak_rss_mib": 1778.74609375,
+        "samples": 1835,
+        "exitCode": 0,
+        "stopReasons": []
+      },
+      {
+        "version": "baseline",
+        "operation": "sync",
+        "label": "r4-baseline-noop",
+        "wall_seconds": 0.5870618219996686,
+        "process_group_peak_rss_mib": 246.21875,
+        "samples": 12,
+        "exitCode": 0,
+        "stopReasons": []
+      },
+      {
+        "version": "baseline",
+        "operation": "sync",
+        "label": "r4-baseline-edit",
+        "wall_seconds": 4.949682460000986,
+        "process_group_peak_rss_mib": 615.08203125,
+        "samples": 97,
+        "exitCode": 0,
+        "stopReasons": []
+      },
+      {
+        "version": "baseline",
+        "operation": "init",
+        "label": "fresh-edited-baseline",
+        "wall_seconds": 97.86795506399903,
+        "process_group_peak_rss_mib": 1773.6640625,
+        "samples": 1886,
+        "exitCode": 0,
+        "stopReasons": []
+      },
+      {
+        "version": "fixed",
+        "operation": "init",
+        "label": "fresh-edited-fixed",
+        "wall_seconds": 94.86003660200004,
+        "process_group_peak_rss_mib": 1794.90234375,
+        "samples": 1832,
+        "exitCode": 0,
+        "stopReasons": []
+      }
+    ]
   },
-  "graphReviews": {
-    "ts": {
-      "mode": "ts",
-      "baselineNodes": 107724,
-      "fixedNodes": 107836,
-      "changedRows": 62,
-      "changedByFile": {
-        "util/crc32c_test.cc": 56,
-        "util/xxhash.h": 6
+  "graphPreservation": {
+    "priorVsOptimized": {
+      "ts-baseline-init": {
+        "nodes": true,
+        "edges": true
       },
-      "lostAfterCrcCanonicalization": [],
-      "addedSemanticNodes": 112,
-      "compilerConfirmedNewFields": 112,
-      "unclassifiedAddedNodes": [],
-      "edgeCountsByKind": {
-        "removed": {},
-        "added": {
-          "contains": 120
-        }
+      "ts-baseline-edit": {
+        "nodes": true,
+        "edges": true
       },
-      "addedContainsTargetsByFile": {
-        "util/crc32c_test.cc": 8,
-        "monitoring/perf_context.cc": 112
+      "ts-fixed-init": {
+        "nodes": true,
+        "edges": true
       },
-      "addedContainsTargets": [
-        {
-          "source": "ROCKSDB_NAMESPACE::crc32c::CRC_Crc32cCombineBasicTest_Test",
-          "target": "ROCKSDB_NAMESPACE::crc32c::CRC_Crc32cCombineBasicTest_Test::CRC_Crc32cCombineBasicTest_Test",
-          "file": "util/crc32c_test.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::crc32c::CRC_Values_Test",
-          "target": "ROCKSDB_NAMESPACE::crc32c::CRC_Values_Test::CRC_Values_Test",
-          "file": "util/crc32c_test.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::crc32c::CRC_Crc32cCombineOrderMattersTest_Test",
-          "target": "ROCKSDB_NAMESPACE::crc32c::CRC_Crc32cCombineOrderMattersTest_Test::CRC_Crc32cCombineOrderMattersTest_Test",
-          "file": "util/crc32c_test.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::crc32c::CRC_Mask_Test",
-          "target": "ROCKSDB_NAMESPACE::crc32c::CRC_Mask_Test::CRC_Mask_Test",
-          "file": "util/crc32c_test.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::crc32c::CRC_StandardResults_Test",
-          "target": "ROCKSDB_NAMESPACE::crc32c::CRC_StandardResults_Test::CRC_StandardResults_Test",
-          "file": "util/crc32c_test.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::crc32c::CRC_Crc32cCombineFullCoverTest_Test",
-          "target": "ROCKSDB_NAMESPACE::crc32c::CRC_Crc32cCombineFullCoverTest_Test::CRC_Crc32cCombineFullCoverTest_Test",
-          "file": "util/crc32c_test.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::crc32c::CRC_Crc32cCombineBigSizeTest_Test",
-          "target": "ROCKSDB_NAMESPACE::crc32c::CRC_Crc32cCombineBigSizeTest_Test::CRC_Crc32cCombineBigSizeTest_Test",
-          "file": "util/crc32c_test.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::crc32c::CRC_Extend_Test",
-          "target": "ROCKSDB_NAMESPACE::crc32c::CRC_Extend_Test::CRC_Extend_Test",
-          "file": "util/crc32c_test.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::blob_read_time",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::seek_child_seek_time",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::compression_dict_block_read_count",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::block_read_byte",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::write_scheduling_flushes_compactions_time",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::compressed_sec_cache_insert_dummy_count",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::secondary_cache_hit_count",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::env_create_dir_nanos",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::key_lock_wait_time",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::encrypt_data_nanos",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::env_rename_file_nanos",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::read_index_block_nanos",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::env_new_sequential_file_nanos",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::env_reuse_writable_file_nanos",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::blob_cache_hit_count",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::iter_next_count",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::env_new_random_access_file_nanos",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::internal_merge_count",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::decrypt_data_nanos",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::compressed_sec_cache_compressed_bytes",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::find_next_user_entry_time",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::block_cache_index_hit_count",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::internal_delete_skipped_count",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::env_create_dir_if_missing_nanos",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::iter_seek_count",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::env_new_writable_file_nanos",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::block_cache_filter_read_byte",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::internal_range_del_reseek_count",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::env_new_logger_nanos",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::get_from_memtable_count",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::multiget_read_bytes",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::block_read_time",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::env_get_children_nanos",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::env_get_file_size_nanos",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::get_post_process_time",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::filter_block_read_count",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::block_cache_standalone_handle_count",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::iter_next_cpu_nanos",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::blob_read_byte",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::internal_key_skipped_count",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::block_cache_hit_count",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::prev_on_memtable_count",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::write_wal_time",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::block_cache_compression_dict_read_byte",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::env_get_file_modification_time_nanos",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::internal_merge_point_lookup_count",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::bloom_memtable_miss_count",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::seek_on_memtable_count",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::env_get_children_file_attributes_nanos",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::block_cache_real_handle_count",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::seek_on_memtable_time",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::get_from_memtable_time",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::db_condition_wait_nanos",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::user_key_comparison_count",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::iter_prev_count",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::seek_child_seek_count",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::block_cache_read_byte",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::env_delete_dir_nanos",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::bloom_sst_miss_count",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::merge_operator_time_nanos",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::write_memtable_time",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::index_block_read_count",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::env_new_directory_nanos",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::env_lock_file_nanos",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::iter_seek_cpu_nanos",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::iter_read_bytes",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::write_delay_time",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::bloom_sst_hit_count",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::compressed_sec_cache_insert_real_count",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::seek_max_heap_time",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::block_checksum_time",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::read_filter_block_nanos",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::block_seek_nanos",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::env_unlock_file_nanos",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::block_read_count",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::env_new_random_rw_file_nanos",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::block_cache_index_read_byte",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::write_pre_and_post_process_time",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::find_table_nanos",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::block_read_cpu_time",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::get_from_output_files_time",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::env_link_file_nanos",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::block_decompress_time",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::blob_decompress_time",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::block_cache_filter_hit_count",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::next_on_memtable_count",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::new_table_iterator_nanos",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::compressed_sec_cache_uncompressed_bytes",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::blob_read_count",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::key_lock_wait_count",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::get_snapshot_time",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::write_thread_wait_nanos",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::env_delete_file_nanos",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::get_cpu_nanos",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::number_async_seek",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::bloom_memtable_hit_count",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::blob_checksum_time",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::seek_internal_seek_time",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::db_mutex_lock_nanos",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::iter_prev_cpu_nanos",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::env_file_exists_nanos",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::internal_recent_skipped_count",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::seek_min_heap_time",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::new_table_block_iter_nanos",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::get_read_bytes",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextByLevelInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextByLevelInt::block_cache_miss_count",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextByLevelInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextByLevelInt::bloom_filter_useful",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextByLevelInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextByLevelInt::get_from_table_nanos",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextByLevelInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextByLevelInt::block_cache_hit_count",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextByLevelInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextByLevelInt::bloom_filter_full_positive",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextByLevelInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextByLevelInt::bloom_filter_full_true_positive",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextByLevelInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextByLevelInt::user_key_return_count",
-          "file": "monitoring/perf_context.cc"
-        }
-      ]
-    },
-    "native": {
-      "mode": "native",
-      "baselineNodes": 107724,
-      "fixedNodes": 107836,
-      "changedRows": 62,
-      "changedByFile": {
-        "util/crc32c_test.cc": 56,
-        "util/xxhash.h": 6
+      "ts-fixed-edit": {
+        "nodes": true,
+        "edges": true
       },
-      "lostAfterCrcCanonicalization": [],
-      "addedSemanticNodes": 112,
-      "compilerConfirmedNewFields": 112,
-      "unclassifiedAddedNodes": [],
-      "edgeCountsByKind": {
-        "removed": {},
-        "added": {
-          "contains": 120
-        }
+      "native-baseline-init": {
+        "nodes": true,
+        "edges": true
       },
-      "addedContainsTargetsByFile": {
-        "util/crc32c_test.cc": 8,
-        "monitoring/perf_context.cc": 112
+      "native-baseline-edit": {
+        "nodes": true,
+        "edges": true
       },
-      "addedContainsTargets": [
-        {
-          "source": "ROCKSDB_NAMESPACE::crc32c::CRC_Crc32cCombineBasicTest_Test",
-          "target": "ROCKSDB_NAMESPACE::crc32c::CRC_Crc32cCombineBasicTest_Test::CRC_Crc32cCombineBasicTest_Test",
-          "file": "util/crc32c_test.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::crc32c::CRC_Values_Test",
-          "target": "ROCKSDB_NAMESPACE::crc32c::CRC_Values_Test::CRC_Values_Test",
-          "file": "util/crc32c_test.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::crc32c::CRC_Crc32cCombineOrderMattersTest_Test",
-          "target": "ROCKSDB_NAMESPACE::crc32c::CRC_Crc32cCombineOrderMattersTest_Test::CRC_Crc32cCombineOrderMattersTest_Test",
-          "file": "util/crc32c_test.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::crc32c::CRC_Mask_Test",
-          "target": "ROCKSDB_NAMESPACE::crc32c::CRC_Mask_Test::CRC_Mask_Test",
-          "file": "util/crc32c_test.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::crc32c::CRC_StandardResults_Test",
-          "target": "ROCKSDB_NAMESPACE::crc32c::CRC_StandardResults_Test::CRC_StandardResults_Test",
-          "file": "util/crc32c_test.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::crc32c::CRC_Crc32cCombineFullCoverTest_Test",
-          "target": "ROCKSDB_NAMESPACE::crc32c::CRC_Crc32cCombineFullCoverTest_Test::CRC_Crc32cCombineFullCoverTest_Test",
-          "file": "util/crc32c_test.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::crc32c::CRC_Crc32cCombineBigSizeTest_Test",
-          "target": "ROCKSDB_NAMESPACE::crc32c::CRC_Crc32cCombineBigSizeTest_Test::CRC_Crc32cCombineBigSizeTest_Test",
-          "file": "util/crc32c_test.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::crc32c::CRC_Extend_Test",
-          "target": "ROCKSDB_NAMESPACE::crc32c::CRC_Extend_Test::CRC_Extend_Test",
-          "file": "util/crc32c_test.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::blob_read_time",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::seek_child_seek_time",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::compression_dict_block_read_count",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::block_read_byte",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::write_scheduling_flushes_compactions_time",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::compressed_sec_cache_insert_dummy_count",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::secondary_cache_hit_count",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::env_create_dir_nanos",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::key_lock_wait_time",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::encrypt_data_nanos",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::env_rename_file_nanos",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::read_index_block_nanos",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::env_new_sequential_file_nanos",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::env_reuse_writable_file_nanos",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::blob_cache_hit_count",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::iter_next_count",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::env_new_random_access_file_nanos",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::internal_merge_count",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::decrypt_data_nanos",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::compressed_sec_cache_compressed_bytes",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::find_next_user_entry_time",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::block_cache_index_hit_count",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::internal_delete_skipped_count",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::env_create_dir_if_missing_nanos",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::iter_seek_count",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::env_new_writable_file_nanos",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::block_cache_filter_read_byte",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::internal_range_del_reseek_count",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::env_new_logger_nanos",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::get_from_memtable_count",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::multiget_read_bytes",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::block_read_time",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::env_get_children_nanos",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::env_get_file_size_nanos",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::get_post_process_time",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::filter_block_read_count",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::block_cache_standalone_handle_count",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::iter_next_cpu_nanos",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::blob_read_byte",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::internal_key_skipped_count",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::block_cache_hit_count",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::prev_on_memtable_count",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::write_wal_time",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::block_cache_compression_dict_read_byte",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::env_get_file_modification_time_nanos",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::internal_merge_point_lookup_count",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::bloom_memtable_miss_count",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::seek_on_memtable_count",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::env_get_children_file_attributes_nanos",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::block_cache_real_handle_count",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::seek_on_memtable_time",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::get_from_memtable_time",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::db_condition_wait_nanos",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::user_key_comparison_count",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::iter_prev_count",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::seek_child_seek_count",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::block_cache_read_byte",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::env_delete_dir_nanos",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::bloom_sst_miss_count",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::merge_operator_time_nanos",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::write_memtable_time",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::index_block_read_count",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::env_new_directory_nanos",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::env_lock_file_nanos",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::iter_seek_cpu_nanos",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::iter_read_bytes",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::write_delay_time",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::bloom_sst_hit_count",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::compressed_sec_cache_insert_real_count",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::seek_max_heap_time",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::block_checksum_time",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::read_filter_block_nanos",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::block_seek_nanos",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::env_unlock_file_nanos",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::block_read_count",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::env_new_random_rw_file_nanos",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::block_cache_index_read_byte",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::write_pre_and_post_process_time",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::find_table_nanos",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::block_read_cpu_time",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::get_from_output_files_time",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::env_link_file_nanos",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::block_decompress_time",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::blob_decompress_time",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::block_cache_filter_hit_count",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::next_on_memtable_count",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::new_table_iterator_nanos",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::compressed_sec_cache_uncompressed_bytes",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::blob_read_count",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::key_lock_wait_count",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::get_snapshot_time",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::write_thread_wait_nanos",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::env_delete_file_nanos",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::get_cpu_nanos",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::number_async_seek",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::bloom_memtable_hit_count",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::blob_checksum_time",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::seek_internal_seek_time",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::db_mutex_lock_nanos",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::iter_prev_cpu_nanos",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::env_file_exists_nanos",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::internal_recent_skipped_count",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::seek_min_heap_time",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::new_table_block_iter_nanos",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextInt::get_read_bytes",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextByLevelInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextByLevelInt::block_cache_miss_count",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextByLevelInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextByLevelInt::bloom_filter_useful",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextByLevelInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextByLevelInt::get_from_table_nanos",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextByLevelInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextByLevelInt::block_cache_hit_count",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextByLevelInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextByLevelInt::bloom_filter_full_positive",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextByLevelInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextByLevelInt::bloom_filter_full_true_positive",
-          "file": "monitoring/perf_context.cc"
-        },
-        {
-          "source": "ROCKSDB_NAMESPACE::PerfContextByLevelInt",
-          "target": "ROCKSDB_NAMESPACE::PerfContextByLevelInt::user_key_return_count",
-          "file": "monitoring/perf_context.cc"
-        }
-      ]
-    }
-  },
-  "phaseLogs": {
-    "ts": {
-      "baseline": {
-        "init": [
-          [
-            "macro-detail mode=ts reason=disabled files=1286 readFiles=1286 readErrors=0 bytes=25526167 fallbackFiles=0 readWallMs=171ms namesMs=59ms bodylessMs=56ms definitionsMs=29ms mergeMs=4ms nativeWallMs=0ms nativeReadSumMs=0ms nativeScanSumMs=0ms totalMs=320ms names=1124 bodyless=101 definitions=902",
-            "Index phases: scan=161ms framework=19ms macroScan=321ms readSum=2342ms parsePipeline=72923ms storeAdmission=4018ms bufferBudgetMB=512 peakBufferedFiles=4 peakEstimatedBufferMB=21"
-          ],
-          [
-            "macro-detail mode=ts reason=disabled files=1286 readFiles=1286 readErrors=0 bytes=25526167 fallbackFiles=0 readWallMs=147ms namesMs=51ms bodylessMs=51ms definitionsMs=25ms mergeMs=2ms nativeWallMs=0ms nativeReadSumMs=0ms nativeScanSumMs=0ms totalMs=279ms names=1124 bodyless=101 definitions=902",
-            "Index phases: scan=113ms framework=19ms macroScan=279ms readSum=2108ms parsePipeline=68545ms storeAdmission=3764ms bufferBudgetMB=512 peakBufferedFiles=4 peakEstimatedBufferMB=21"
-          ]
-        ],
-        "edit": [
-          [
-            "macro-detail mode=ts reason=disabled files=1286 readFiles=1286 readErrors=0 bytes=25526271 fallbackFiles=0 readWallMs=135ms namesMs=50ms bodylessMs=50ms definitionsMs=24ms mergeMs=3ms nativeWallMs=0ms nativeReadSumMs=0ms nativeScanSumMs=0ms totalMs=263ms names=1124 bodyless=101 definitions=902",
-            "[sync] phases reconcile=150ms framework=17ms macroScan=264ms workerSetup=106ms read=1ms parseWall=133ms store=38ms"
-          ],
-          [
-            "macro-detail mode=ts reason=disabled files=1286 readFiles=1286 readErrors=0 bytes=25526271 fallbackFiles=0 readWallMs=172ms namesMs=58ms bodylessMs=60ms definitionsMs=28ms mergeMs=3ms nativeWallMs=0ms nativeReadSumMs=0ms nativeScanSumMs=0ms totalMs=321ms names=1124 bodyless=101 definitions=902",
-            "[sync] phases reconcile=111ms framework=18ms macroScan=322ms workerSetup=84ms read=1ms parseWall=146ms store=35ms"
-          ]
-        ]
+      "native-fixed-init": {
+        "nodes": true,
+        "edges": true
       },
-      "fixed": {
-        "init": [
-          [
-            "macro-detail mode=ts reason=disabled files=1286 readFiles=1286 readErrors=0 bytes=25526167 provenanceReadFiles=0 provenanceBytes=0 fallbackFiles=0 readWallMs=146ms namesMs=51ms bodylessMs=50ms definitionsMs=25ms mergeMs=3ms nativeWallMs=0ms nativeReadSumMs=0ms nativeScanSumMs=0ms totalMs=545ms names=1124 bodyless=101 definitions=902",
-            "Index phases: scan=106ms framework=18ms macroScan=546ms readSum=1703ms parsePipeline=71191ms storeAdmission=3605ms bufferBudgetMB=512 peakBufferedFiles=4 peakEstimatedBufferMB=21"
-          ],
-          [
-            "macro-detail mode=ts reason=disabled files=1286 readFiles=1286 readErrors=0 bytes=25526167 provenanceReadFiles=0 provenanceBytes=0 fallbackFiles=0 readWallMs=112ms namesMs=53ms bodylessMs=51ms definitionsMs=25ms mergeMs=4ms nativeWallMs=0ms nativeReadSumMs=0ms nativeScanSumMs=0ms totalMs=534ms names=1124 bodyless=101 definitions=902",
-            "Index phases: scan=113ms framework=19ms macroScan=535ms readSum=1894ms parsePipeline=69074ms storeAdmission=3400ms bufferBudgetMB=512 peakBufferedFiles=4 peakEstimatedBufferMB=21"
-          ]
-        ],
-        "edit": [
-          [
-            "macro-detail mode=ts reason=disabled files=1286 readFiles=1286 readErrors=0 bytes=25526271 provenanceReadFiles=0 provenanceBytes=0 fallbackFiles=0 readWallMs=112ms namesMs=51ms bodylessMs=51ms definitionsMs=26ms mergeMs=4ms nativeWallMs=0ms nativeReadSumMs=0ms nativeScanSumMs=0ms totalMs=538ms names=1124 bodyless=101 definitions=902",
-            "[sync] phases reconcile=118ms framework=24ms macroScan=539ms workerSetup=121ms read=1ms parseWall=161ms store=42ms"
-          ],
-          [
-            "macro-detail mode=ts reason=disabled files=1286 readFiles=1286 readErrors=0 bytes=25526271 provenanceReadFiles=0 provenanceBytes=0 fallbackFiles=0 readWallMs=146ms namesMs=51ms bodylessMs=52ms definitionsMs=27ms mergeMs=5ms nativeWallMs=0ms nativeReadSumMs=0ms nativeScanSumMs=0ms totalMs=585ms names=1124 bodyless=101 definitions=902",
-            "[sync] phases reconcile=130ms framework=20ms macroScan=586ms workerSetup=135ms read=1ms parseWall=176ms store=40ms"
-          ]
-        ]
+      "native-fixed-edit": {
+        "nodes": true,
+        "edges": true
       }
     },
-    "native": {
-      "baseline": {
-        "init": [
-          [
-            "macro-detail mode=rust reason=none files=1286 readFiles=1286 readErrors=0 bytes=25526167 fallbackFiles=0 readWallMs=0ms namesMs=0ms bodylessMs=0ms definitionsMs=0ms mergeMs=3ms nativeWallMs=154ms nativeReadSumMs=175ms nativeScanSumMs=108ms totalMs=156ms names=1124 bodyless=101 definitions=902",
-            "Index phases: scan=204ms framework=22ms macroScan=157ms readSum=2534ms parsePipeline=71667ms storeAdmission=4513ms bufferBudgetMB=512 peakBufferedFiles=4 peakEstimatedBufferMB=21"
-          ],
-          [
-            "macro-detail mode=rust reason=none files=1286 readFiles=1286 readErrors=0 bytes=25526167 fallbackFiles=0 readWallMs=0ms namesMs=0ms bodylessMs=0ms definitionsMs=0ms mergeMs=3ms nativeWallMs=145ms nativeReadSumMs=169ms nativeScanSumMs=107ms totalMs=147ms names=1124 bodyless=101 definitions=902",
-            "Index phases: scan=113ms framework=19ms macroScan=148ms readSum=1955ms parsePipeline=70294ms storeAdmission=3677ms bufferBudgetMB=512 peakBufferedFiles=4 peakEstimatedBufferMB=21"
-          ]
-        ],
-        "edit": [
-          [
-            "macro-detail mode=rust reason=none files=1286 readFiles=1286 readErrors=0 bytes=25526271 fallbackFiles=0 readWallMs=0ms namesMs=0ms bodylessMs=0ms definitionsMs=0ms mergeMs=3ms nativeWallMs=138ms nativeReadSumMs=155ms nativeScanSumMs=107ms totalMs=140ms names=1124 bodyless=101 definitions=902",
-            "[sync] phases reconcile=109ms framework=21ms macroScan=141ms workerSetup=89ms read=1ms parseWall=150ms store=38ms"
-          ],
-          [
-            "macro-detail mode=rust reason=none files=1286 readFiles=1286 readErrors=0 bytes=25526271 fallbackFiles=0 readWallMs=0ms namesMs=0ms bodylessMs=0ms definitionsMs=0ms mergeMs=3ms nativeWallMs=164ms nativeReadSumMs=199ms nativeScanSumMs=111ms totalMs=166ms names=1124 bodyless=101 definitions=902",
-            "[sync] phases reconcile=113ms framework=19ms macroScan=167ms workerSetup=96ms read=1ms parseWall=131ms store=40ms"
-          ]
-        ]
+    "crossMode": {
+      "baseline-init": {
+        "nodes": true,
+        "edges": true
       },
-      "fixed": {
-        "init": [
-          [
-            "macro-detail mode=rust reason=none files=1286 readFiles=2572 readErrors=0 bytes=51052334 provenanceReadFiles=1286 provenanceBytes=25526167 fallbackFiles=0 readWallMs=137ms namesMs=0ms bodylessMs=0ms definitionsMs=0ms mergeMs=3ms nativeWallMs=559ms nativeReadSumMs=175ms nativeScanSumMs=110ms totalMs=561ms names=1124 bodyless=101 definitions=902",
-            "Index phases: scan=118ms framework=19ms macroScan=562ms readSum=2185ms parsePipeline=70922ms storeAdmission=3760ms bufferBudgetMB=512 peakBufferedFiles=4 peakEstimatedBufferMB=21"
-          ],
-          [
-            "macro-detail mode=rust reason=none files=1286 readFiles=2572 readErrors=0 bytes=51052334 provenanceReadFiles=1286 provenanceBytes=25526167 fallbackFiles=0 readWallMs=102ms namesMs=0ms bodylessMs=0ms definitionsMs=0ms mergeMs=3ms nativeWallMs=520ms nativeReadSumMs=165ms nativeScanSumMs=113ms totalMs=522ms names=1124 bodyless=101 definitions=902",
-            "Index phases: scan=112ms framework=19ms macroScan=523ms readSum=1730ms parsePipeline=68899ms storeAdmission=3555ms bufferBudgetMB=512 peakBufferedFiles=4 peakEstimatedBufferMB=21"
-          ]
-        ],
-        "edit": [
-          [
-            "macro-detail mode=rust reason=none files=1286 readFiles=2572 readErrors=0 bytes=51052542 provenanceReadFiles=1286 provenanceBytes=25526271 fallbackFiles=0 readWallMs=112ms namesMs=0ms bodylessMs=0ms definitionsMs=0ms mergeMs=3ms nativeWallMs=530ms nativeReadSumMs=156ms nativeScanSumMs=99ms totalMs=532ms names=1124 bodyless=101 definitions=902",
-            "[sync] phases reconcile=112ms framework=18ms macroScan=533ms workerSetup=89ms read=1ms parseWall=133ms store=34ms"
-          ],
-          [
-            "macro-detail mode=rust reason=none files=1286 readFiles=2572 readErrors=0 bytes=51052542 provenanceReadFiles=1286 provenanceBytes=25526271 fallbackFiles=0 readWallMs=173ms namesMs=0ms bodylessMs=0ms definitionsMs=0ms mergeMs=3ms nativeWallMs=649ms nativeReadSumMs=195ms nativeScanSumMs=109ms totalMs=651ms names=1124 bodyless=101 definitions=902",
-            "[sync] phases reconcile=141ms framework=19ms macroScan=653ms workerSetup=122ms read=1ms parseWall=174ms store=58ms"
-          ]
-        ]
+      "baseline-edit": {
+        "nodes": true,
+        "edges": true
+      },
+      "fixed-init": {
+        "nodes": true,
+        "edges": true
+      },
+      "fixed-edit": {
+        "nodes": true,
+        "edges": true
       }
     }
   },
-  "oldDatabaseUpgrades": {
+  "includeScannerOracle": {
+    "oracleCommit": "be7b13cd92b3c56f8469986ac2bdf0b94d4bc688",
+    "files": 1286,
+    "bytes": 25526271,
+    "includes": 10957,
+    "exactNamesAndOffsets": true
+  },
+  "localEntryIncludeRisk": {
+    "cases": {
+      "forced": {
+        "source": "#define DECL(n) HELPER(n)\nDECL(A)\n",
+        "args": [
+          "-std=c++17",
+          "-include",
+          "/workspace/codegraph-evidence/local-entry-include-risk/forced/defs.h",
+          "-fsyntax-only",
+          "/workspace/codegraph-evidence/local-entry-include-risk/forced/main.cpp"
+        ],
+        "compilerExit": 0,
+        "preprocessed": "struct A {};\n",
+        "compilerDeclaresA": true
+      },
+      "computed": {
+        "source": "#define H \"defs.h\"\n#include H\n#define DECL(n) HELPER(n)\nDECL(A)\n",
+        "args": [
+          "-std=c++17",
+          "-fsyntax-only",
+          "/workspace/codegraph-evidence/local-entry-include-risk/computed/main.cpp"
+        ],
+        "compilerExit": 0,
+        "preprocessed": "struct A {};\n",
+        "compilerDeclaresA": true
+      },
+      "literal": {
+        "source": "#include \"defs.h\"\n#define DECL(n) HELPER(n)\nDECL(A)\n",
+        "args": [
+          "-std=c++17",
+          "-fsyntax-only",
+          "/workspace/codegraph-evidence/local-entry-include-risk/literal/main.cpp"
+        ],
+        "compilerExit": 0,
+        "preprocessed": "struct A {};\n",
+        "compilerDeclaresA": true
+      },
+      "negative": {
+        "source": "#define DECL(n) HELPER(n)\nDECL(A)\n",
+        "args": [
+          "-std=c++17",
+          "-fsyntax-only",
+          "/workspace/codegraph-evidence/local-entry-include-risk/negative/main.cpp"
+        ],
+        "compilerExit": 1,
+        "preprocessed": "HELPER(A)\n",
+        "compilerDeclaresA": false
+      }
+    },
+    "versions": {
+      "baseline": {
+        "forced": {
+          "nodes": [
+            {
+              "name": "main.cpp",
+              "qualifiedName": "main.cpp",
+              "kind": "file"
+            },
+            {
+              "name": "DECL",
+              "qualifiedName": "DECL",
+              "kind": "macro"
+            },
+            {
+              "name": "A",
+              "qualifiedName": "A",
+              "kind": "struct"
+            }
+          ],
+          "hasA": true,
+          "errors": []
+        },
+        "computed": {
+          "nodes": [
+            {
+              "name": "main.cpp",
+              "qualifiedName": "main.cpp",
+              "kind": "file"
+            },
+            {
+              "name": "H",
+              "qualifiedName": "H",
+              "kind": "macro"
+            },
+            {
+              "name": "DECL",
+              "qualifiedName": "DECL",
+              "kind": "macro"
+            },
+            {
+              "name": "A",
+              "qualifiedName": "A",
+              "kind": "struct"
+            }
+          ],
+          "hasA": true,
+          "errors": []
+        },
+        "literal": {
+          "nodes": [
+            {
+              "name": "main.cpp",
+              "qualifiedName": "main.cpp",
+              "kind": "file"
+            },
+            {
+              "name": "defs.h",
+              "qualifiedName": "defs.h",
+              "kind": "import"
+            },
+            {
+              "name": "DECL",
+              "qualifiedName": "DECL",
+              "kind": "macro"
+            },
+            {
+              "name": "A",
+              "qualifiedName": "A",
+              "kind": "struct"
+            }
+          ],
+          "hasA": true,
+          "errors": []
+        },
+        "negative": {
+          "nodes": [
+            {
+              "name": "main.cpp",
+              "qualifiedName": "main.cpp",
+              "kind": "file"
+            },
+            {
+              "name": "DECL",
+              "qualifiedName": "DECL",
+              "kind": "macro"
+            },
+            {
+              "name": "A",
+              "qualifiedName": "A",
+              "kind": "struct"
+            }
+          ],
+          "hasA": true,
+          "errors": []
+        }
+      },
+      "fixed": {
+        "forced": {
+          "nodes": [
+            {
+              "name": "main.cpp",
+              "qualifiedName": "main.cpp",
+              "kind": "file"
+            },
+            {
+              "name": "DECL",
+              "qualifiedName": "DECL",
+              "kind": "macro"
+            }
+          ],
+          "hasA": false,
+          "errors": []
+        },
+        "computed": {
+          "nodes": [
+            {
+              "name": "main.cpp",
+              "qualifiedName": "main.cpp",
+              "kind": "file"
+            },
+            {
+              "name": "H",
+              "qualifiedName": "H",
+              "kind": "macro"
+            },
+            {
+              "name": "DECL",
+              "qualifiedName": "DECL",
+              "kind": "macro"
+            }
+          ],
+          "hasA": false,
+          "errors": []
+        },
+        "literal": {
+          "nodes": [
+            {
+              "name": "main.cpp",
+              "qualifiedName": "main.cpp",
+              "kind": "file"
+            },
+            {
+              "name": "defs.h",
+              "qualifiedName": "defs.h",
+              "kind": "import"
+            },
+            {
+              "name": "DECL",
+              "qualifiedName": "DECL",
+              "kind": "macro"
+            },
+            {
+              "name": "A",
+              "qualifiedName": "A",
+              "kind": "struct"
+            }
+          ],
+          "hasA": true,
+          "errors": []
+        },
+        "negative": {
+          "nodes": [
+            {
+              "name": "main.cpp",
+              "qualifiedName": "main.cpp",
+              "kind": "file"
+            },
+            {
+              "name": "DECL",
+              "qualifiedName": "DECL",
+              "kind": "macro"
+            }
+          ],
+          "hasA": false,
+          "errors": []
+        }
+      }
+    }
+  },
+  "oldDatabaseUpgrade": {
     "old": {
       "beforeNodes": 1204,
       "afterNodes": 1205,
@@ -1638,68 +1164,108 @@
       "integrity": "ok"
     }
   },
-  "isolatedPackage": {
-    "nodes": 1204,
-    "edges": 4724,
-    "integrity": "ok",
-    "packageSha256": "5577f8a4a91cf213dafffa4e1a3e28ac1a717c9995e99aa125f84726885ca321"
-  },
-  "commits": [
-    "3c12493767e0ede16c2a08742ad8832223c4c124 test: 固化未包含头文件污染声明宏的发布回归",
-    "ff6bbcaca0cf025ecdfdc609184966e28f3b0cf7 test: 对齐新库 schema 9 初始化断言",
-    "9db518cff2d432a66248f64db3506e612e0cdb83 fix: 将声明宏递归展开限制在可见 include 证据内",
-    "e1185483b5d5ca2683b495425f2bbb57fc4c0c3f fix: 标记声明宏语义升级并补齐同步用例的 include 证据",
-    "e436ac631f3e63505f9882e53dd957202ceb0c66 docs: 记录发布回归完整验证及不直接发布结论",
-    "a84f978f558b3b71c2a84059881da9f6e3f83eb7 fix: 修复 include 词法与重导入顺序并保留声明入口兼容恢复",
-    "be7b13cd92b3c56f8469986ac2bdf0b94d4bc688 perf: 并发读取宏来源并如实统计 native 额外 I/O"
-  ],
-  "abortedNativeAttempt": [
-    {
-      "version": "baseline",
-      "operation": "init",
-      "label": "r1-baseline-init",
-      "wall_seconds": 100.61215516300035,
-      "process_group_peak_rss_mib": 1795.55078125,
-      "samples": 1931,
-      "exitCode": 0,
-      "stopReasons": []
-    },
-    {
-      "version": "baseline",
-      "operation": "sync",
-      "label": "r1-baseline-noop",
-      "wall_seconds": 0.5488727870006187,
-      "process_group_peak_rss_mib": 244.25390625,
-      "samples": 11,
-      "exitCode": 0,
-      "stopReasons": []
-    },
-    {
-      "version": "baseline",
-      "operation": "sync",
-      "label": "r1-baseline-edit",
-      "wall_seconds": 5.49809557000026,
-      "process_group_peak_rss_mib": 607.2265625,
-      "samples": 107,
-      "exitCode": 0,
-      "stopReasons": []
-    },
-    {
-      "version": "fixed",
-      "operation": "init",
-      "label": "r1-fixed-init",
-      "wall_seconds": 75.23418770900025,
-      "process_group_peak_rss_mib": 1229.8671875,
-      "samples": 1465,
-      "exitCode": -9,
-      "stopReasons": [
-        "cgroup memory limit"
-      ]
+  "preprocessingOrderEvidence": {
+    "compiler": "g++ (Debian 14.2.0-19) 14.2.0",
+    "actualMacroDefinitions": [
+      {
+        "name": "GTEST_TEST_CLASS_NAME_",
+        "parameters": [
+          "test_case_name",
+          "test_name"
+        ],
+        "replacement": "test_case_name##_##test_name##_Test",
+        "start": 394178,
+        "end": 394275
+      },
+      {
+        "name": "GTEST_TEST_",
+        "parameters": [
+          "test_case_name",
+          "test_name",
+          "parent_class",
+          "parent_id"
+        ],
+        "replacement": "class GTEST_TEST_CLASS_NAME_(test_case_name, test_name) : public parent_class {  public:   GTEST_TEST_CLASS_NAME_(test_case_name, test_name)() {}  private:   virtual void TestBody();   static ::testing::TestInfo* const test_info_ GTEST_ATTRIBUTE_UNUSED_;   GTEST_DISALLOW_COPY_AND_ASSIGN_(       GTEST_TEST_CLASS_NAME_(test_case_name, test_name)); };  ::testing::TestInfo* const GTEST_TEST_CLASS_NAME_(test_case_name, test_name)   ::test_info_ =     ::testing::internal::MakeAndRegisterTestInfo(         #test_case_name, #test_name, NULL, NULL,          ::testing::internal::CodeLocation(__FILE__, __LINE__),          (parent_id),          parent_class::SetUpTestCase,          parent_class::TearDownTestCase,          new ::testing::internal::TestFactoryImpl<             GTEST_TEST_CLASS_NAME_(test_case_name, test_name)>); void GTEST_TEST_CLASS_NAME_(test_case_name, test_name)::TestBody()",
+        "start": 394313,
+        "end": 395298
+      },
+      {
+        "name": "GTEST_TEST",
+        "parameters": [
+          "test_case_name",
+          "test_name"
+        ],
+        "replacement": "GTEST_TEST_(test_case_name, test_name,                ::testing::Test, ::testing::internal::GetTestTypeId())",
+        "start": 915497,
+        "end": 915655
+      },
+      {
+        "name": "TEST",
+        "parameters": [
+          "test_case_name",
+          "test_name"
+        ],
+        "replacement": "GTEST_TEST(test_case_name, test_name)",
+        "start": 915811,
+        "end": 915889
+      }
+    ],
+    "cases": {
+      "direct": {
+        "source": "#define CRC 0x1edc6f41\n#define CLASS(x) struct x##_Probe_Test {};\nCLASS(CRC)\n",
+        "compilerExit": 0,
+        "compilerOutput": "struct CRC_Probe_Test {};\n",
+        "compilerError": "",
+        "baselineExpansion": "#define CRC 0x1edc6f41\n#define CLASS(x) struct x##_Probe_Test {};\nstruct CRC_Probe_Test {};\n"
+      },
+      "forward": {
+        "source": "#define CRC 0x1edc6f41\n#define CLASS(x) struct x##_Probe_Test {};\n#define WRAP(x) CLASS(x)\nWRAP(CRC)\n",
+        "compilerExit": 0,
+        "compilerOutput": "struct 0x1edc6f41_Probe_Test {};\n",
+        "compilerError": "",
+        "baselineExpansion": "#define CRC 0x1edc6f41\n#define CLASS(x) struct x##_Probe_Test {};\n#define WRAP(x) CLASS(x)\nstruct 0x1edc6f41_Probe_Test {};\n"
+      },
+      "rescan": {
+        "source": "#define CRC 0x1edc6f41\n#define CRC_Probe_Test Rescanned\n#define CLASS(x) struct x##_Probe_Test {};\nCLASS(CRC)\n",
+        "compilerExit": 0,
+        "compilerOutput": "struct Rescanned {};\n",
+        "compilerError": "",
+        "baselineExpansion": "#define CRC 0x1edc6f41\n#define CRC_Probe_Test Rescanned\n#define CLASS(x) struct x##_Probe_Test {};\nstruct Rescanned {};\n"
+      },
+      "stringify": {
+        "source": "#define CRC 0x1edc6f41\n#define TEXT(x) const char* text = #x;\nTEXT(CRC)\n",
+        "compilerExit": 0,
+        "compilerOutput": "const char* text = \"CRC\";\n",
+        "compilerError": "",
+        "baselineExpansion": "#define CRC 0x1edc6f41\n#define TEXT(x) const char* text = #x;\nconst char* text = \"CRC\";\n"
+      },
+      "forwardStringify": {
+        "source": "#define CRC 0x1edc6f41\n#define TEXT(x) const char* text = #x;\n#define WRAP(x) TEXT(x)\nWRAP(CRC)\n",
+        "compilerExit": 0,
+        "compilerOutput": "const char* text = \"0x1edc6f41\";\n",
+        "compilerError": "",
+        "baselineExpansion": "#define CRC 0x1edc6f41\n#define TEXT(x) const char* text = #x;\n#define WRAP(x) TEXT(x)\nconst char* text = \"0x1edc6f41\";\n"
+      },
+      "actualUnrelated": {
+        "source": "#define GTEST_TEST_CLASS_NAME_(test_case_name,test_name) test_case_name##_##test_name##_Test\n#define GTEST_TEST_(test_case_name,test_name,parent_class,parent_id) class GTEST_TEST_CLASS_NAME_(test_case_name, test_name) : public parent_class {  public:   GTEST_TEST_CLASS_NAME_(test_case_name, test_name)() {}  private:   virtual void TestBody();   static ::testing::TestInfo* const test_info_ GTEST_ATTRIBUTE_UNUSED_;   GTEST_DISALLOW_COPY_AND_ASSIGN_(       GTEST_TEST_CLASS_NAME_(test_case_name, test_name)); };  ::testing::TestInfo* const GTEST_TEST_CLASS_NAME_(test_case_name, test_name)   ::test_info_ =     ::testing::internal::MakeAndRegisterTestInfo(         #test_case_name, #test_name, NULL, NULL,          ::testing::internal::CodeLocation(__FILE__, __LINE__),          (parent_id),          parent_class::SetUpTestCase,          parent_class::TearDownTestCase,          new ::testing::internal::TestFactoryImpl<             GTEST_TEST_CLASS_NAME_(test_case_name, test_name)>); void GTEST_TEST_CLASS_NAME_(test_case_name, test_name)::TestBody()\n#define GTEST_TEST(test_case_name,test_name) GTEST_TEST_(test_case_name, test_name,                ::testing::Test, ::testing::internal::GetTestTypeId())\n#define TEST(test_case_name,test_name) GTEST_TEST(test_case_name, test_name)\nTEST(CRC, StandardResults) {}\n",
+        "compilerExit": 0,
+        "compilerOutput": "class CRC_StandardResults_Test : public ::testing::Test { public: CRC_StandardResults_Test() {} private: virtual void TestBody(); static ::testing::TestInfo* const test_info_ GTEST_ATTRIBUTE_UNUSED_; GTEST_DISALLOW_COPY_AND_ASSIGN_( CRC_StandardResults_Test); }; ::testing::TestInfo* const CRC_StandardResults_Test ::test_info_ = ::testing::internal::MakeAndRegisterTestInfo( \"CRC\", \"StandardResults\", NULL, NULL, ::testing::internal::CodeLocation(\"/workspace/codegraph-evidence/token-paste-mechanism/actualUnrelated.cpp\", 5), (::testing::internal::GetTestTypeId()), ::testing::Test::SetUpTestCase, ::testing::Test::TearDownTestCase, new ::testing::internal::TestFactoryImpl< CRC_StandardResults_Test>); void CRC_StandardResults_Test::TestBody() {}\n",
+        "compilerError": "",
+        "baselineExpansion": "#define GTEST_TEST_CLASS_NAME_(test_case_name,test_name) test_case_name##_##test_name##_Test\n#define GTEST_TEST_(test_case_name,test_name,parent_class,parent_id) class GTEST_TEST_CLASS_NAME_(test_case_name, test_name) : public parent_class {  public:   GTEST_TEST_CLASS_NAME_(test_case_name, test_name)() {}  private:   virtual void TestBody();   static ::testing::TestInfo* const test_info_ GTEST_ATTRIBUTE_UNUSED_;   GTEST_DISALLOW_COPY_AND_ASSIGN_(       GTEST_TEST_CLASS_NAME_(test_case_name, test_name)); };  ::testing::TestInfo* const GTEST_TEST_CLASS_NAME_(test_case_name, test_name)   ::test_info_ =     ::testing::internal::MakeAndRegisterTestInfo(         #test_case_name, #test_name, NULL, NULL,          ::testing::internal::CodeLocation(__FILE__, __LINE__),          (parent_id),          parent_class::SetUpTestCase,          parent_class::TearDownTestCase,          new ::testing::internal::TestFactoryImpl<             GTEST_TEST_CLASS_NAME_(test_case_name, test_name)>); void GTEST_TEST_CLASS_NAME_(test_case_name, test_name)::TestBody()\n#define GTEST_TEST(test_case_name,test_name) GTEST_TEST_(test_case_name, test_name,                ::testing::Test, ::testing::internal::GetTestTypeId())\n#define TEST(test_case_name,test_name) GTEST_TEST(test_case_name, test_name)\nclass 0x1edc6f41_StandardResults_Test : public ::testing::Test {  public:   0x1edc6f41_StandardResults_Test() {}  private:   virtual void TestBody();   static ::testing::TestInfo* const test_info_ GTEST_ATTRIBUTE_UNUSED_;   GTEST_DISALLOW_COPY_AND_ASSIGN_(       0x1edc6f41_StandardResults_Test); };  ::testing::TestInfo* const 0x1edc6f41_StandardResults_Test   ::test_info_ =     ::testing::internal::MakeAndRegisterTestInfo(         \"0x1edc6f41\", \"StandardResults\", NULL, NULL,          ::testing::internal::CodeLocation(__FILE__, __LINE__),          (::testing::internal::GetTestTypeId()),          ::testing::Test::SetUpTestCase,          ::testing::Test::TearDownTestCase,          new ::testing::internal::TestFactoryImpl<             0x1edc6f41_StandardResults_Test>); void 0x1edc6f41_StandardResults_Test::TestBody() {}\n"
+      },
+      "actualVisible": {
+        "source": "#define CRC 0x1edc6f41\n#define GTEST_TEST_CLASS_NAME_(test_case_name,test_name) test_case_name##_##test_name##_Test\n#define GTEST_TEST_(test_case_name,test_name,parent_class,parent_id) class GTEST_TEST_CLASS_NAME_(test_case_name, test_name) : public parent_class {  public:   GTEST_TEST_CLASS_NAME_(test_case_name, test_name)() {}  private:   virtual void TestBody();   static ::testing::TestInfo* const test_info_ GTEST_ATTRIBUTE_UNUSED_;   GTEST_DISALLOW_COPY_AND_ASSIGN_(       GTEST_TEST_CLASS_NAME_(test_case_name, test_name)); };  ::testing::TestInfo* const GTEST_TEST_CLASS_NAME_(test_case_name, test_name)   ::test_info_ =     ::testing::internal::MakeAndRegisterTestInfo(         #test_case_name, #test_name, NULL, NULL,          ::testing::internal::CodeLocation(__FILE__, __LINE__),          (parent_id),          parent_class::SetUpTestCase,          parent_class::TearDownTestCase,          new ::testing::internal::TestFactoryImpl<             GTEST_TEST_CLASS_NAME_(test_case_name, test_name)>); void GTEST_TEST_CLASS_NAME_(test_case_name, test_name)::TestBody()\n#define GTEST_TEST(test_case_name,test_name) GTEST_TEST_(test_case_name, test_name,                ::testing::Test, ::testing::internal::GetTestTypeId())\n#define TEST(test_case_name,test_name) GTEST_TEST(test_case_name, test_name)\nTEST(CRC, StandardResults) {}\n",
+        "compilerExit": 0,
+        "compilerOutput": "class 0x1edc6f41_StandardResults_Test : public ::testing::Test { public: 0x1edc6f41_StandardResults_Test() {} private: virtual void TestBody(); static ::testing::TestInfo* const test_info_ GTEST_ATTRIBUTE_UNUSED_; GTEST_DISALLOW_COPY_AND_ASSIGN_( 0x1edc6f41_StandardResults_Test); }; ::testing::TestInfo* const 0x1edc6f41_StandardResults_Test ::test_info_ = ::testing::internal::MakeAndRegisterTestInfo( \"0x1edc6f41\", \"StandardResults\", NULL, NULL, ::testing::internal::CodeLocation(\"/workspace/codegraph-evidence/token-paste-mechanism/actualVisible.cpp\", 6), (::testing::internal::GetTestTypeId()), ::testing::Test::SetUpTestCase, ::testing::Test::TearDownTestCase, new ::testing::internal::TestFactoryImpl< 0x1edc6f41_StandardResults_Test>); void 0x1edc6f41_StandardResults_Test::TestBody() {}\n",
+        "compilerError": "",
+        "baselineExpansion": "#define CRC 0x1edc6f41\n#define GTEST_TEST_CLASS_NAME_(test_case_name,test_name) test_case_name##_##test_name##_Test\n#define GTEST_TEST_(test_case_name,test_name,parent_class,parent_id) class GTEST_TEST_CLASS_NAME_(test_case_name, test_name) : public parent_class {  public:   GTEST_TEST_CLASS_NAME_(test_case_name, test_name)() {}  private:   virtual void TestBody();   static ::testing::TestInfo* const test_info_ GTEST_ATTRIBUTE_UNUSED_;   GTEST_DISALLOW_COPY_AND_ASSIGN_(       GTEST_TEST_CLASS_NAME_(test_case_name, test_name)); };  ::testing::TestInfo* const GTEST_TEST_CLASS_NAME_(test_case_name, test_name)   ::test_info_ =     ::testing::internal::MakeAndRegisterTestInfo(         #test_case_name, #test_name, NULL, NULL,          ::testing::internal::CodeLocation(__FILE__, __LINE__),          (parent_id),          parent_class::SetUpTestCase,          parent_class::TearDownTestCase,          new ::testing::internal::TestFactoryImpl<             GTEST_TEST_CLASS_NAME_(test_case_name, test_name)>); void GTEST_TEST_CLASS_NAME_(test_case_name, test_name)::TestBody()\n#define GTEST_TEST(test_case_name,test_name) GTEST_TEST_(test_case_name, test_name,                ::testing::Test, ::testing::internal::GetTestTypeId())\n#define TEST(test_case_name,test_name) GTEST_TEST(test_case_name, test_name)\nclass 0x1edc6f41_StandardResults_Test : public ::testing::Test {  public:   0x1edc6f41_StandardResults_Test() {}  private:   virtual void TestBody();   static ::testing::TestInfo* const test_info_ GTEST_ATTRIBUTE_UNUSED_;   GTEST_DISALLOW_COPY_AND_ASSIGN_(       0x1edc6f41_StandardResults_Test); };  ::testing::TestInfo* const 0x1edc6f41_StandardResults_Test   ::test_info_ =     ::testing::internal::MakeAndRegisterTestInfo(         \"0x1edc6f41\", \"StandardResults\", NULL, NULL,          ::testing::internal::CodeLocation(__FILE__, __LINE__),          (::testing::internal::GetTestTypeId()),          ::testing::Test::SetUpTestCase,          ::testing::Test::TearDownTestCase,          new ::testing::internal::TestFactoryImpl<             0x1edc6f41_StandardResults_Test>); void 0x1edc6f41_StandardResults_Test::TestBody() {}\n"
+      }
     }
-  ],
-  "memoryReclamation": {
-    "identicalSnapshotsHardlinked": 74,
-    "generatedProjectCopiesRemoved": 15
   },
-  "completeEvidence": "reviewed-validation-summary.json in the delivery evidence archive retains all edge changes, failure messages and cleanup paths."
+  "alternativeDecision": "Token paste/prescan rules already match compiler; no effective alternative proven; no revert performed",
+  "additionalFocusedTests": {
+    "passed": 140,
+    "newTests": 6,
+    "sourceUnchangedSinceFrozenSuite": true
+  }
 }
