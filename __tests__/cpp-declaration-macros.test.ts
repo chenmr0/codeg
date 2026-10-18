@@ -440,7 +440,7 @@ describe('C/C++ declaration macro expansion', () => {
         path.join(directory, 'declarations.ipp'),
         '#define DECLARE_RECORD(Name) struct Name { int value; };\n',
       );
-      fs.writeFileSync(path.join(directory, 'consumer.cpp'), 'DECLARE_RECORD(RecoveredRecord)\n');
+      fs.writeFileSync(path.join(directory, 'consumer.cpp'), '#include "declarations.ipp"\nDECLARE_RECORD(RecoveredRecord)\n');
       graph = await CodeGraph.init(directory, { silent: true });
       await graph.indexAll();
       const rows = (graph as any).db.db.prepare(

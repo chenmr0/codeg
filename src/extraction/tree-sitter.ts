@@ -1,3 +1,4 @@
+import { visibleMacroDefinitions, type MacroProjectEvidence } from './macro-visibility';
 /**
  * Tree-sitter Parser Wrapper
  *
@@ -2101,7 +2102,6 @@ export class TreeSitterExtractor {
     if (
       (this.language !== 'c' && this.language !== 'cpp') ||
       !this.globalMacroDefinitions ||
-      this.globalMacroDefinitions.length === 0 ||
       !this.tree
     ) {
       return;
@@ -3101,7 +3101,7 @@ export class TreeSitterExtractor {
         declaration = declaration.parent;
       }
     }
-    else if (this.globalMacroDefinitions?.length) this.macroPrimarySyntax.set(newNode, node);
+    else if (this.globalMacroDefinitions) this.macroPrimarySyntax.set(newNode, node);
     this.nodes.push(newNode);
     if (this.language === 'cpp' && ['enum_member', 'class', 'struct', 'enum', 'type_alias', 'namespace'].includes(kind)) {
       this.cppEnumEvidence.addSymbol(kind, newNode.qualifiedName, kind === 'enum_member' ? this.cppConditionalPath(node) : []);
@@ -9065,6 +9065,7 @@ export function extractFromSource(
   bodylessMacroNames?: Set<string>,
   macroDefinitions?: readonly CppMacroDefinition[],
   parserOverride?: WasmParser,
+  macroProject?: MacroProjectEvidence,
 ): ExtractionResult {
   const detectedLanguage = language || detectLanguage(filePath, source);
   const fileExtension = path.extname(filePath).toLowerCase();
@@ -9112,7 +9113,7 @@ export function extractFromSource(
       detectedLanguage,
       globalMacroNames,
       bodylessMacroNames,
-      macroDefinitions,
+      macroProject && macroDefinitions ? visibleMacroDefinitions(macroProject, filePath, source) : macroDefinitions,
       parserOverride,
     );
     result = extractor.extract();

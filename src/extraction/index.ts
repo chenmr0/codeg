@@ -1,3 +1,4 @@
+import type { MacroProjectEvidence } from './macro-visibility';
 /**
  * Extraction Orchestrator
  *
@@ -1121,6 +1122,7 @@ export class ExtractionOrchestrator {
    * declaration-macro recovery parse. Conflicting platform/config spellings
    * are excluded; same-file definitions can still override them safely.
    */
+  private macroProject?: MacroProjectEvidence;
   private globalMacroDefinitions: CppMacroDefinition[] | null = null;
   /**
    * Accumulates source file paths of nodes whose incoming edges couldn't be
@@ -1271,6 +1273,7 @@ export class ExtractionOrchestrator {
     this.globalMacroNames = context.names;
     this.globalBodylessMacroNames = context.bodyless;
     this.globalMacroDefinitions = context.definitions;
+    this.macroProject = context.project;
     return context.names;
   }
 
@@ -1371,6 +1374,7 @@ export class ExtractionOrchestrator {
     const globalMacroNames = await this.ensureGlobalMacroNames(files, verbose ? log : undefined);
     const globalBodylessMacroNames = this.globalBodylessMacroNames!;
     const globalMacroDefinitions = this.globalMacroDefinitions!;
+    const macroProject = this.macroProject;
     const macroScanMs = performance.now() - macroScanStarted;
 
     if (signal?.aborted) {
@@ -1466,6 +1470,7 @@ export class ExtractionOrchestrator {
         macroNames: [...globalMacroNames],
         bodylessMacroNames: [...globalBodylessMacroNames],
         macroDefinitions: globalMacroDefinitions,
+        macroProject: this.macroProject,
       });
       parsePool.prewarm();
       log(`Parse worker pool: ${poolSize} worker(s)`);
@@ -1599,6 +1604,7 @@ export class ExtractionOrchestrator {
             macroNames: [...globalMacroNames],
             bodylessMacroNames: [...globalBodylessMacroNames],
             macroDefinitions: globalMacroDefinitions,
+            macroProject,
           });
         });
       }
@@ -1653,6 +1659,7 @@ export class ExtractionOrchestrator {
           globalMacroNames,
           globalBodylessMacroNames,
           skipDeclarationMacroRecovery ? undefined : globalMacroDefinitions,
+          undefined, macroProject,
         );
       }
 
@@ -2304,6 +2311,7 @@ export class ExtractionOrchestrator {
       globalMacroNames,
       this.globalBodylessMacroNames ?? undefined,
       this.globalMacroDefinitions ?? undefined,
+      undefined, this.macroProject,
     );
 
     // Store in database
@@ -3019,6 +3027,7 @@ export class ExtractionOrchestrator {
           macroNames: [...globalMacroNames],
           bodylessMacroNames: [...globalBodylessMacroNames],
           macroDefinitions: globalMacroDefinitions,
+          macroProject: this.macroProject,
         });
         parsePool.prewarm();
         await parsePool.waitUntilReady();
@@ -3084,6 +3093,7 @@ export class ExtractionOrchestrator {
                     globalMacroNames,
                     globalBodylessMacroNames,
                     globalMacroDefinitions,
+                    undefined, this.macroProject,
                   );
               return { ...item, language, result, parseError: null as unknown };
             } catch (parseError) {

@@ -1,3 +1,4 @@
+import type { MacroProjectEvidence } from './macro-visibility';
 /**
  * Multi-core tree-sitter parse pool.
  *
@@ -89,6 +90,7 @@ export interface ParseWorkerPoolOptions {
   macroNames?: string[];
   bodylessMacroNames?: string[];
   macroDefinitions?: CppMacroDefinition[];
+  macroProject?: MacroProjectEvidence;
 }
 
 export class ParseWorkerPool {
@@ -115,6 +117,7 @@ export class ParseWorkerPool {
   private readonly grammarBuffers?: Record<string, Uint8Array>;
   private readonly macroNames: string[];
   private readonly bodylessMacroNames: string[];
+  private readonly macroProject?: MacroProjectEvidence;
   private readonly macroDefinitions: CppMacroDefinition[];
 
   constructor(options: ParseWorkerPoolOptions) {
@@ -127,6 +130,7 @@ export class ParseWorkerPool {
     this.macroNames = options.macroNames ?? [];
     this.bodylessMacroNames = options.bodylessMacroNames ?? [];
     this.macroDefinitions = options.macroDefinitions ?? [];
+    this.macroProject = options.macroProject;
 
     if (options.createWorker) {
       this.createWorker = options.createWorker;
@@ -226,6 +230,7 @@ export class ParseWorkerPool {
       macroNames: this.macroNames,
       bodylessMacroNames: this.bodylessMacroNames,
       macroDefinitions: this.macroDefinitions,
+      macroProject: this.macroProject,
     });
   }
 

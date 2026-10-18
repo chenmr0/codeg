@@ -1,5 +1,6 @@
 /** Stateless project macro context. The TS scanner remains the parity oracle. */
 import * as fsp from 'fs/promises';
+import { scanLiteralIncludes, type MacroProjectEvidence } from './macro-visibility';
 import { performance } from 'perf_hooks';
 import { validatePathWithinRoot } from '../utils';
 import { scanCppMacroDefinitions, selectUnambiguousCppMacroDefinitions, type CppMacroDefinition } from './declaration-macros';
@@ -19,6 +20,7 @@ export interface MacroScanMetrics {
 export interface MacroContext {
   names: Set<string>; bodyless: Set<string>; definitions: CppMacroDefinition[];
   metrics: MacroScanMetrics;
+  project: MacroProjectEvidence;
 }
 
 /**
@@ -65,7 +67,9 @@ export async function buildMacroContext(root: string, files: string[]): Promise<
   let metrics = emptyMetrics(files.length);
   let names = new Set<string>(), bodyless = new Set<string>();
   let definitions: CppMacroDefinition[] = [];
-  const add = (part: MacroContribution): void => {
+  let project: MacroProjectEvidence = Object.create(null);
+  const add = (part: MacroContribution, file: string, source: string): void => {
+    project[file] = { definitions: part.definitions, includes: scanLiteralIncludes(source).map(item => detachMacroString(item.name)) };
     const t = performance.now();
     for (const name of part.names) names.add(name);
     for (const name of part.bodyless) bodyless.add(name);
@@ -73,21 +77,24 @@ export async function buildMacroContext(root: string, files: string[]): Promise<
     for (const definition of part.definitions) definitions.push(definition);
     metrics.mergeMs += performance.now() - t;
   };
-  const read = async (file: string): Promise<string | null> => {
+  const read = async (file: string, account = true): Promise<string | null> => {
     const full = validatePathWithinRoot(root, file);
     try {
       if (!full) throw new Error('outside-root');
       const bytes = await fsp.readFile(full);
-      metrics.readFiles++; metrics.bytes += bytes.length;
+      if (account) { metrics.readFiles++; metrics.bytes += bytes.length; }
       return bytes.toString('utf8');
     } catch { metrics.readErrors++; return null; }
   };
   const baseline = async (): Promise<void> => {
     for (let i = 0; i < files.length; i += 50) {
       const t = performance.now();
-      const contents = await Promise.all(files.slice(i, i + 50).map(read));
+      const contents = await Promise.all(files.slice(i, i + 50).map(file => read(file)));
       metrics.readWallMs += performance.now() - t;
-      for (const source of contents) if (source) add(scanMacroContribution(source, metrics));
+      for (let j = 0; j < contents.length; j++) {
+        const source = contents[j];
+        if (source !== null) add(scanMacroContribution(source!, metrics), files[i + j]!, source!);
+      }
     }
   };
   const requestedMode = rustMacroMode(files.length);
@@ -109,10 +116,15 @@ export async function buildMacroContext(root: string, files: string[]): Promise<
           const oracle = scanMacroContribution(source ?? '', metrics);
           if (row.status === 'fallback') metrics.fallbackFiles++;
           else if (JSON.stringify(row.contribution) !== JSON.stringify(oracle)) throw new Error('parity-mismatch');
-          add(oracle);
+          add(oracle, row.path, source ?? '');
         } else {
           metrics.readFiles++; metrics.bytes += row.bytes;
-          add(row.contribution!);
+          // Native protocol supplies definitions, but not include provenance.
+          // Read source only for the bounded literal-include scan.
+          const readStarted = performance.now();
+          const source = await read(row.path, false);
+          metrics.readWallMs += performance.now() - readStarted;
+          if (source !== null) add(row.contribution!, row.path, source);
         }
       }
       metrics.mode = mode === 'verify' ? 'verify' : 'rust'; metrics.reason = 'none';
@@ -122,7 +134,7 @@ export async function buildMacroContext(root: string, files: string[]): Promise<
       const reason = error instanceof Error && /^[a-z-]+$/.test(error.message) ? error.message : 'native-error';
       // Never retain a partial native context after a crash or malformed stream.
       metrics = { ...emptyMetrics(files.length), mode: 'fallback', reason, nativeWallMs };
-      names = new Set(); bodyless = new Set(); definitions = [];
+      names = new Set(); bodyless = new Set(); definitions = []; project = Object.create(null);
       await baseline();
     }
   } else await baseline();
@@ -130,7 +142,7 @@ export async function buildMacroContext(root: string, files: string[]): Promise<
   const selected = selectUnambiguousCppMacroDefinitions(definitions);
   metrics.mergeMs += performance.now() - mergeStarted;
   metrics.totalMs = performance.now() - started;
-  return { names, bodyless, definitions: selected, metrics };
+  return { names, bodyless, definitions: selected, metrics, project };
 }
 
 export function formatMacroScanMetrics(m: MacroScanMetrics): string {

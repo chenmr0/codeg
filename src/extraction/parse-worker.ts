@@ -1,3 +1,4 @@
+import type { MacroProjectEvidence } from './macro-visibility';
 /**
  * Parse Worker
  *
@@ -75,9 +76,10 @@ let globalMacroNames: Set<string> | undefined = undefined;
 // by the orchestrator's pre-scan. Passed to extractFromSource so the C/C++
 // preParse transform can blank them. See c-cpp.ts preprocessStatementMacros.
 let globalBodylessMacroNames: Set<string> | undefined = undefined;
+let macroProject: MacroProjectEvidence | undefined;
 let globalMacroDefinitions: CppMacroDefinition[] | undefined = undefined;
 
-parentPort!.on('message', async (msg: { type: string; id?: number; filePath?: string; content?: string; language?: Language; languages?: Language[]; frameworkNames?: string[]; macroNames?: string[]; bodylessMacroNames?: string[]; macroDefinitions?: CppMacroDefinition[]; grammarBuffers?: Record<string, Uint8Array>; skipDeclarationMacroRecovery?: boolean }) => {
+parentPort!.on('message', async (msg: { type: string; id?: number; filePath?: string; content?: string; language?: Language; languages?: Language[]; frameworkNames?: string[]; macroNames?: string[]; bodylessMacroNames?: string[]; macroDefinitions?: CppMacroDefinition[]; macroProject?: MacroProjectEvidence; grammarBuffers?: Record<string, Uint8Array>; skipDeclarationMacroRecovery?: boolean }) => {
   if (msg.type === 'load-grammars') {
     // grammarBuffers (when the orchestrator pre-read them) let a spawn/respawn
     // load grammars from memory instead of re-reading from disk — on slow
@@ -90,11 +92,13 @@ parentPort!.on('message', async (msg: { type: string; id?: number; filePath?: st
     globalMacroNames = new Set(msg.macroNames ?? []);
     globalBodylessMacroNames = new Set(msg.bodylessMacroNames ?? []);
     globalMacroDefinitions = msg.macroDefinitions ?? [];
+    macroProject = msg.macroProject;
     parentPort!.postMessage({ type: 'grammars-loaded' });
   } else if (msg.type === 'set-global-macros') {
     globalMacroNames = new Set(msg.macroNames);
     globalBodylessMacroNames = new Set(msg.bodylessMacroNames);
     globalMacroDefinitions = msg.macroDefinitions ?? [];
+    macroProject = msg.macroProject;
     parentPort!.postMessage({ type: 'global-macros-set' });
   } else if (msg.type === 'parse') {
     const { id, filePath, content, frameworkNames } = msg;
@@ -114,6 +118,7 @@ parentPort!.on('message', async (msg: { type: string; id?: number; filePath?: st
         globalMacroNames,
         globalBodylessMacroNames,
         msg.skipDeclarationMacroRecovery ? undefined : globalMacroDefinitions,
+        undefined, macroProject,
       );
 
       // Periodic parser reset to reclaim WASM heap memory
