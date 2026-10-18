@@ -1,0 +1,628 @@
+{
+  "baseline": "30d595909771c8a24748dbbdcca26a6714616b1e",
+  "fixedCodeCommit": "e1185483b5d5ca2683b495425f2bbb57fc4c0c3f",
+  "previousRelease": "28910d25a3913ff1233170143e1c8a864c5e9e19",
+  "fullTests": {
+    "baseline": {
+      "passed": 3332,
+      "failed": 15,
+      "skipped": 40
+    },
+    "fixed": {
+      "passed": 3342,
+      "failed": 14,
+      "skipped": 40
+    },
+    "baselineFiles": 208,
+    "fixedFiles": 209,
+    "extraction483": "Both versions fully rerun in eight groups after monolithic worker OOM; final run excludes this file and merges confirmed results.",
+    "baselineFailures": [
+      {
+        "file": "adaptive-explore-sizing.test.ts",
+        "test": "adaptive codegraph_explore sizing — sibling skeletonization skeletonizes off-spine polymorphic siblings (bodies elided, signatures kept)",
+        "message": "AssertionError: expected 'codegraph_explore 使用符号名/文件名效果最好，不支持自然…' to contain '## Flow (call path among the symbols …'\n    at /workspace/codegraph-baseline-30d/__tests__/adaptive-explore-sizing.test.ts:292:18\n    at file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:533:5\n    at runTest (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1056:11)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runFiles (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1262:5)\n    at startTests (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1271:3)\n    at file:///workspace/codegraph-install/node_modules/vitest/dist/chunks/runBase"
+      },
+      {
+        "file": "adaptive-explore-sizing.test.ts",
+        "test": "adaptive codegraph_explore sizing — sibling skeletonization keeps the on-spine exemplar full even though it is a sibling",
+        "message": "AssertionError: logging-interceptor.ts should be present: expected '' not to be '' // Object.is equality\n    at /workspace/codegraph-baseline-30d/__tests__/adaptive-explore-sizing.test.ts:313:69\n    at file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:533:5\n    at runTest (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1056:11)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runFiles (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1262:5)\n    at startTests (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1271:3)\n    at file:///workspace/codegraph-install/node_modules/vitest/dist/chunks/runBaseTests.3qpJUEJ"
+      },
+      {
+        "file": "adaptive-explore-sizing.test.ts",
+        "test": "adaptive codegraph_explore sizing — sibling skeletonization keeps a distinct step full (off-spine but supertype has < 3 implementers)",
+        "message": "AssertionError: response-formatter.ts should be present: expected '' not to be '' // Object.is equality\n    at /workspace/codegraph-baseline-30d/__tests__/adaptive-explore-sizing.test.ts:324:68\n    at file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:533:5\n    at runTest (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1056:11)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runFiles (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1262:5)\n    at startTests (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1271:3)\n    at file:///workspace/codegraph-install/node_modules/vitest/dist/chunks/runBaseTests.3qpJUEJM"
+      },
+      {
+        "file": "adaptive-explore-sizing.test.ts",
+        "test": "adaptive codegraph_explore sizing — sibling skeletonization CODEGRAPH_ADAPTIVE_EXPLORE=0 disables skeletonization (siblings render full)",
+        "message": "AssertionError: expected '' not to be '' // Object.is equality\n    at /workspace/codegraph-baseline-30d/__tests__/adaptive-explore-sizing.test.ts:338:27\n    at file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:533:5\n    at runTest (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1056:11)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runFiles (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1262:5)\n    at startTests (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1271:3)\n    at file:///workspace/codegraph-install/node_modules/vitest/dist/chunks/runBaseTests.3qpJUEJM.js:126:11\n    at withEnv (file:///worksp"
+      },
+      {
+        "file": "adaptive-explore-sizing.test.ts",
+        "test": "adaptive codegraph_explore sizing — sibling skeletonization spares an off-spine sibling when the agent NAMED a callable in it (RealCall fix)",
+        "message": "AssertionError: expected 'codegraph_explore 使用符号名/文件名效果最好，不支持自然…' to contain '## Flow (call path among the symbols …'\n    at /workspace/codegraph-baseline-30d/__tests__/adaptive-explore-sizing.test.ts:353:18\n    at file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:533:5\n    at runTest (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1056:11)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runFiles (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1262:5)\n    at startTests (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1271:3)\n    at file:///workspace/codegraph-install/node_modules/vitest/dist/chunks/runBase"
+      },
+      {
+        "file": "adaptive-explore-sizing.test.ts",
+        "test": "adaptive codegraph_explore sizing — sibling skeletonization collapses a base+subclasses family file to a FOCUSED view — base method body kept, non-named subclasses signature-only (compiler.py)",
+        "message": "AssertionError: codec.ts should be present: expected '' not to be '' // Object.is equality\n    at /workspace/codegraph-baseline-30d/__tests__/adaptive-explore-sizing.test.ts:380:53\n    at file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:533:5\n    at runTest (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1056:11)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runFiles (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1262:5)\n    at startTests (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1271:3)\n    at file:///workspace/codegraph-install/node_modules/vitest/dist/chunks/runBaseTests.3qpJUEJM.js:126:11\n  "
+      },
+      {
+        "file": "adaptive-explore-sizing.test.ts",
+        "test": "adaptive codegraph_explore sizing — sibling skeletonization naming a SHARED/polymorphic method does not spare the siblings (uniqueness-aware)",
+        "message": "AssertionError: a sibling named only via a shared method is not spared: expected '' to contain '· skeleton (signatures only'\n    at /workspace/codegraph-baseline-30d/__tests__/adaptive-explore-sizing.test.ts:395:78\n    at file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:533:5\n    at runTest (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1056:11)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runFiles (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1262:5)\n    at startTests (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1271:3)\n    at file:///workspace/codegraph-install/node_modules/vitest/dist/chunks/"
+      },
+      {
+        "file": "explore-output-budget.test.ts",
+        "test": "codegraph_explore output respects the adaptive budget still includes the Relationships section — it is the cheapest structural signal",
+        "message": "AssertionError: expected false to be true // Object.is equality\n    at /workspace/codegraph-baseline-30d/__tests__/explore-output-budget.test.ts:217:53\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:533:5\n    at runTest (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1056:11)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runFiles (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1262:5)\n    at startTests (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1271:3)\n    at file:///workspace/codegraph-install/node_modules/vitest/"
+      },
+      {
+        "file": "explore-output-budget.test.ts",
+        "test": "codegraph_explore output respects the adaptive budget prefixes source lines with line numbers by default (cat -n style)",
+        "message": "AssertionError: expected false to be true // Object.is equality\n    at /workspace/codegraph-baseline-30d/__tests__/explore-output-budget.test.ts:225:34\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:533:5\n    at runTest (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1056:11)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runFiles (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1262:5)\n    at startTests (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1271:3)\n    at file:///workspace/codegraph-install/node_modules/vitest/"
+      },
+      {
+        "file": "explore-output-budget.test.ts",
+        "test": "codegraph_explore output respects the adaptive budget does not collapse a whole-file class into just its header (envelope filter)",
+        "message": "AssertionError: expected false to be true // Object.is equality\n    at /workspace/codegraph-baseline-30d/__tests__/explore-output-budget.test.ts:260:27\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:533:5\n    at runTest (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1056:11)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runFiles (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1262:5)\n    at startTests (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1271:3)\n    at file:///workspace/codegraph-install/node_modules/vitest/"
+      },
+      {
+        "file": "foundation.test.ts",
+        "test": "Database Connection should get schema version",
+        "message": "AssertionError: expected 9 to be 8 // Object.is equality\n    at /workspace/codegraph-baseline-30d/__tests__/foundation.test.ts:245:30\n    at file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:146:14\n    at file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:533:11\n    at runWithTimeout (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:39:7)\n    at runTest (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1056:17)\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runFiles (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/ind"
+      },
+      {
+        "file": "mcp-daemon.test.ts",
+        "test": "Shared MCP daemon (issue #411) daemon idle-times-out after the last client disconnects",
+        "message": "AssertionError: expected false to be true // Object.is equality\n    at /workspace/codegraph-baseline-30d/__tests__/mcp-daemon.test.ts:407:53\n    at file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:533:5\n    at runTest (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1056:11)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runFiles (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1262:5)\n    at startTests (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1271:3)\n    at file:///workspace/codegraph-install/node_modules/vitest/dist/chunks/runBaseTests.3qpJUEJM.js:126:11\n    at withEnv (file:///workspace/codegrap"
+      },
+      {
+        "file": "mcp-ppid-watchdog.test.ts",
+        "test": "MCP PPID watchdog (#277) shuts down when its parent is SIGKILL'd and stdin stays open",
+        "message": "AssertionError: codegraph child (pid=13529) did not exit within 5s after wrapper was SIGKILL'd.\nstderr:\n[CodeGraph MCP] Parent process exited (host pid 13521 exited); shutting down.\n: expected false to be true // Object.is equality\n    at /workspace/codegraph-baseline-30d/__tests__/mcp-ppid-watchdog.test.ts:161:7\n    at file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:533:5\n    at runTest (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1056:11)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runFiles (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1262:5)\n    at startTests (file:///workspace/codegraph-install/node_modules/@vitest/runn"
+      },
+      {
+        "file": "raw-source-worker.test.ts",
+        "test": "isolated raw-source workers cleans up an active rg when the host exits without waiting for cancellation",
+        "message": "AssertionError: expected [Function] to throw an error\n    at Proxy.<anonymous> (file:///workspace/codegraph-install/node_modules/@vitest/expect/dist/index.js:1509:21)\n    at Proxy.<anonymous> (file:///workspace/codegraph-install/node_modules/@vitest/expect/dist/index.js:972:17)\n    at Proxy.methodWrapper (file:///workspace/codegraph-install/node_modules/chai/index.js:1686:25)\n    at /workspace/codegraph-baseline-30d/__tests__/raw-source-worker.test.ts:131:64\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:533:5\n    at runTest (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1056:11)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runSuite (file:///workspace/codegraph-install/node_module"
+      },
+      {
+        "file": "worktree-detection.test.ts",
+        "test": "worktree mismatch surfaces on hot read tools (issue #155) caches detection — a later tool call needs no further git spawn",
+        "message": "AssertionError: expected 'Error: Tool explore is disabled via C…' to contain 'different git worktree'\n    at /workspace/codegraph-baseline-30d/__tests__/worktree-detection.test.ts:184:38\n    at file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:533:5\n    at runTest (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1056:11)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runFiles (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1262:5)\n    at startTests (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1271:3)\n    at file:///workspace/codegraph-install/node_modules/vitest/dist/chunks/runBaseTests.3qpJUEJM.js:126"
+      }
+    ],
+    "fixedFailures": [
+      {
+        "file": "adaptive-explore-sizing.test.ts",
+        "test": "adaptive codegraph_explore sizing — sibling skeletonization skeletonizes off-spine polymorphic siblings (bodies elided, signatures kept)",
+        "message": "AssertionError: expected 'codegraph_explore 使用符号名/文件名效果最好，不支持自然…' to contain '## Flow (call path among the symbols …'\n    at /workspace/codegraph-regression-fixes/__tests__/adaptive-explore-sizing.test.ts:292:18\n    at file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:533:5\n    at runTest (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1056:11)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runFiles (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1262:5)\n    at startTests (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1271:3)\n    at file:///workspace/codegraph-install/node_modules/vitest/dist/chunks/run"
+      },
+      {
+        "file": "adaptive-explore-sizing.test.ts",
+        "test": "adaptive codegraph_explore sizing — sibling skeletonization keeps the on-spine exemplar full even though it is a sibling",
+        "message": "AssertionError: logging-interceptor.ts should be present: expected '' not to be '' // Object.is equality\n    at /workspace/codegraph-regression-fixes/__tests__/adaptive-explore-sizing.test.ts:313:69\n    at file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:533:5\n    at runTest (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1056:11)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runFiles (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1262:5)\n    at startTests (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1271:3)\n    at file:///workspace/codegraph-install/node_modules/vitest/dist/chunks/runBaseTests.3qp"
+      },
+      {
+        "file": "adaptive-explore-sizing.test.ts",
+        "test": "adaptive codegraph_explore sizing — sibling skeletonization keeps a distinct step full (off-spine but supertype has < 3 implementers)",
+        "message": "AssertionError: response-formatter.ts should be present: expected '' not to be '' // Object.is equality\n    at /workspace/codegraph-regression-fixes/__tests__/adaptive-explore-sizing.test.ts:324:68\n    at file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:533:5\n    at runTest (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1056:11)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runFiles (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1262:5)\n    at startTests (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1271:3)\n    at file:///workspace/codegraph-install/node_modules/vitest/dist/chunks/runBaseTests.3qpJ"
+      },
+      {
+        "file": "adaptive-explore-sizing.test.ts",
+        "test": "adaptive codegraph_explore sizing — sibling skeletonization CODEGRAPH_ADAPTIVE_EXPLORE=0 disables skeletonization (siblings render full)",
+        "message": "AssertionError: expected '' not to be '' // Object.is equality\n    at /workspace/codegraph-regression-fixes/__tests__/adaptive-explore-sizing.test.ts:338:27\n    at file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:533:5\n    at runTest (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1056:11)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runFiles (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1262:5)\n    at startTests (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1271:3)\n    at file:///workspace/codegraph-install/node_modules/vitest/dist/chunks/runBaseTests.3qpJUEJM.js:126:11\n    at withEnv (file:///wo"
+      },
+      {
+        "file": "adaptive-explore-sizing.test.ts",
+        "test": "adaptive codegraph_explore sizing — sibling skeletonization spares an off-spine sibling when the agent NAMED a callable in it (RealCall fix)",
+        "message": "AssertionError: expected 'codegraph_explore 使用符号名/文件名效果最好，不支持自然…' to contain '## Flow (call path among the symbols …'\n    at /workspace/codegraph-regression-fixes/__tests__/adaptive-explore-sizing.test.ts:353:18\n    at file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:533:5\n    at runTest (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1056:11)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runFiles (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1262:5)\n    at startTests (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1271:3)\n    at file:///workspace/codegraph-install/node_modules/vitest/dist/chunks/run"
+      },
+      {
+        "file": "adaptive-explore-sizing.test.ts",
+        "test": "adaptive codegraph_explore sizing — sibling skeletonization collapses a base+subclasses family file to a FOCUSED view — base method body kept, non-named subclasses signature-only (compiler.py)",
+        "message": "AssertionError: codec.ts should be present: expected '' not to be '' // Object.is equality\n    at /workspace/codegraph-regression-fixes/__tests__/adaptive-explore-sizing.test.ts:380:53\n    at file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:533:5\n    at runTest (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1056:11)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runFiles (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1262:5)\n    at startTests (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1271:3)\n    at file:///workspace/codegraph-install/node_modules/vitest/dist/chunks/runBaseTests.3qpJUEJM.js:126:1"
+      },
+      {
+        "file": "adaptive-explore-sizing.test.ts",
+        "test": "adaptive codegraph_explore sizing — sibling skeletonization naming a SHARED/polymorphic method does not spare the siblings (uniqueness-aware)",
+        "message": "AssertionError: a sibling named only via a shared method is not spared: expected '' to contain '· skeleton (signatures only'\n    at /workspace/codegraph-regression-fixes/__tests__/adaptive-explore-sizing.test.ts:395:78\n    at file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:533:5\n    at runTest (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1056:11)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runFiles (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1262:5)\n    at startTests (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1271:3)\n    at file:///workspace/codegraph-install/node_modules/vitest/dist/chu"
+      },
+      {
+        "file": "explore-output-budget.test.ts",
+        "test": "codegraph_explore output respects the adaptive budget still includes the Relationships section — it is the cheapest structural signal",
+        "message": "AssertionError: expected false to be true // Object.is equality\n    at /workspace/codegraph-regression-fixes/__tests__/explore-output-budget.test.ts:217:53\n    at file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:533:5\n    at runTest (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1056:11)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runFiles (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1262:5)\n    at startTests (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1271:3)\n    at file:///workspace/codegraph-install/node_modules/vitest/dist/chunks/runBaseTests.3qpJUEJM.js:126:11\n    at withEnv (file:///wor"
+      },
+      {
+        "file": "explore-output-budget.test.ts",
+        "test": "codegraph_explore output respects the adaptive budget prefixes source lines with line numbers by default (cat -n style)",
+        "message": "AssertionError: expected false to be true // Object.is equality\n    at /workspace/codegraph-regression-fixes/__tests__/explore-output-budget.test.ts:225:34\n    at file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:533:5\n    at runTest (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1056:11)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runFiles (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1262:5)\n    at startTests (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1271:3)\n    at file:///workspace/codegraph-install/node_modules/vitest/dist/chunks/runBaseTests.3qpJUEJM.js:126:11\n    at withEnv (file:///wor"
+      },
+      {
+        "file": "explore-output-budget.test.ts",
+        "test": "codegraph_explore output respects the adaptive budget does not collapse a whole-file class into just its header (envelope filter)",
+        "message": "AssertionError: expected false to be true // Object.is equality\n    at /workspace/codegraph-regression-fixes/__tests__/explore-output-budget.test.ts:260:27\n    at file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:533:5\n    at runTest (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1056:11)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runFiles (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1262:5)\n    at startTests (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1271:3)\n    at file:///workspace/codegraph-install/node_modules/vitest/dist/chunks/runBaseTests.3qpJUEJM.js:126:11\n    at withEnv (file:///wor"
+      },
+      {
+        "file": "mcp-daemon.test.ts",
+        "test": "Shared MCP daemon (issue #411) daemon idle-times-out after the last client disconnects",
+        "message": "AssertionError: expected false to be true // Object.is equality\n    at /workspace/codegraph-regression-fixes/__tests__/mcp-daemon.test.ts:407:53\n    at file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:533:5\n    at runTest (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1056:11)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runFiles (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1262:5)\n    at startTests (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1271:3)\n    at file:///workspace/codegraph-install/node_modules/vitest/dist/chunks/runBaseTests.3qpJUEJM.js:126:11\n    at withEnv (file:///workspace/code"
+      },
+      {
+        "file": "mcp-ppid-watchdog.test.ts",
+        "test": "MCP PPID watchdog (#277) shuts down when its parent is SIGKILL'd and stdin stays open",
+        "message": "AssertionError: codegraph child (pid=49822) did not exit within 5s after wrapper was SIGKILL'd.\nstderr:\n[CodeGraph MCP] Parent process exited (host pid 49814 exited); shutting down.\n: expected false to be true // Object.is equality\n    at /workspace/codegraph-regression-fixes/__tests__/mcp-ppid-watchdog.test.ts:161:7\n    at file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:533:5\n    at runTest (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1056:11)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runFiles (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1262:5)\n    at startTests (file:///workspace/codegraph-install/node_modules/@vitest/"
+      },
+      {
+        "file": "raw-source-worker.test.ts",
+        "test": "isolated raw-source workers cleans up an active rg when the host exits without waiting for cancellation",
+        "message": "AssertionError: expected [Function] to throw an error\n    at Proxy.<anonymous> (file:///workspace/codegraph-install/node_modules/@vitest/expect/dist/index.js:1509:21)\n    at Proxy.<anonymous> (file:///workspace/codegraph-install/node_modules/@vitest/expect/dist/index.js:972:17)\n    at Proxy.methodWrapper (file:///workspace/codegraph-install/node_modules/chai/index.js:1686:25)\n    at /workspace/codegraph-regression-fixes/__tests__/raw-source-worker.test.ts:131:64\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:533:5\n    at runTest (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1056:11)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runSuite (file:///workspace/codegraph-install/node_mo"
+      },
+      {
+        "file": "worktree-detection.test.ts",
+        "test": "worktree mismatch surfaces on hot read tools (issue #155) caches detection — a later tool call needs no further git spawn",
+        "message": "AssertionError: expected 'Error: Tool explore is disabled via C…' to contain 'different git worktree'\n    at /workspace/codegraph-regression-fixes/__tests__/worktree-detection.test.ts:184:38\n    at file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:533:5\n    at runTest (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1056:11)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runFiles (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1262:5)\n    at startTests (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1271:3)\n    at file:///workspace/codegraph-install/node_modules/vitest/dist/chunks/runBaseTests.3qpJUEJM.js"
+      }
+    ],
+    "newFailures": [],
+    "previousReleaseFailureSubset": {
+      "counts": {
+        "passed": 81,
+        "failed": 13
+      },
+      "failures": [
+        {
+          "file": "adaptive-explore-sizing.test.ts",
+          "test": "adaptive codegraph_explore sizing — sibling skeletonization skeletonizes off-spine polymorphic siblings (bodies elided, signatures kept)",
+          "message": "AssertionError: expected 'codegraph_explore 使用符号名/文件名效果最好，不支持自然…' to contain '## Flow (call path among the symbols …'\n    at /workspace/codegraph-baseline-289/__tests__/adaptive-explore-sizing.test.ts:292:18\n    at file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:533:5\n    at runTest (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1056:11)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runFiles (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1262:5)\n    at startTests (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1271:3)\n    at file:///workspace/codegraph-install/node_modules/vitest/dist/chunks/runBase"
+        },
+        {
+          "file": "adaptive-explore-sizing.test.ts",
+          "test": "adaptive codegraph_explore sizing — sibling skeletonization keeps the on-spine exemplar full even though it is a sibling",
+          "message": "AssertionError: logging-interceptor.ts should be present: expected '' not to be '' // Object.is equality\n    at /workspace/codegraph-baseline-289/__tests__/adaptive-explore-sizing.test.ts:313:69\n    at file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:533:5\n    at runTest (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1056:11)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runFiles (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1262:5)\n    at startTests (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1271:3)\n    at file:///workspace/codegraph-install/node_modules/vitest/dist/chunks/runBaseTests.3qpJUEJ"
+        },
+        {
+          "file": "adaptive-explore-sizing.test.ts",
+          "test": "adaptive codegraph_explore sizing — sibling skeletonization keeps a distinct step full (off-spine but supertype has < 3 implementers)",
+          "message": "AssertionError: response-formatter.ts should be present: expected '' not to be '' // Object.is equality\n    at /workspace/codegraph-baseline-289/__tests__/adaptive-explore-sizing.test.ts:324:68\n    at file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:533:5\n    at runTest (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1056:11)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runFiles (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1262:5)\n    at startTests (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1271:3)\n    at file:///workspace/codegraph-install/node_modules/vitest/dist/chunks/runBaseTests.3qpJUEJM"
+        },
+        {
+          "file": "adaptive-explore-sizing.test.ts",
+          "test": "adaptive codegraph_explore sizing — sibling skeletonization CODEGRAPH_ADAPTIVE_EXPLORE=0 disables skeletonization (siblings render full)",
+          "message": "AssertionError: expected '' not to be '' // Object.is equality\n    at /workspace/codegraph-baseline-289/__tests__/adaptive-explore-sizing.test.ts:338:27\n    at file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:533:5\n    at runTest (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1056:11)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runFiles (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1262:5)\n    at startTests (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1271:3)\n    at file:///workspace/codegraph-install/node_modules/vitest/dist/chunks/runBaseTests.3qpJUEJM.js:126:11\n    at withEnv (file:///worksp"
+        },
+        {
+          "file": "adaptive-explore-sizing.test.ts",
+          "test": "adaptive codegraph_explore sizing — sibling skeletonization spares an off-spine sibling when the agent NAMED a callable in it (RealCall fix)",
+          "message": "AssertionError: expected 'codegraph_explore 使用符号名/文件名效果最好，不支持自然…' to contain '## Flow (call path among the symbols …'\n    at /workspace/codegraph-baseline-289/__tests__/adaptive-explore-sizing.test.ts:353:18\n    at file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:533:5\n    at runTest (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1056:11)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runFiles (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1262:5)\n    at startTests (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1271:3)\n    at file:///workspace/codegraph-install/node_modules/vitest/dist/chunks/runBase"
+        },
+        {
+          "file": "adaptive-explore-sizing.test.ts",
+          "test": "adaptive codegraph_explore sizing — sibling skeletonization collapses a base+subclasses family file to a FOCUSED view — base method body kept, non-named subclasses signature-only (compiler.py)",
+          "message": "AssertionError: codec.ts should be present: expected '' not to be '' // Object.is equality\n    at /workspace/codegraph-baseline-289/__tests__/adaptive-explore-sizing.test.ts:380:53\n    at file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:533:5\n    at runTest (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1056:11)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runFiles (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1262:5)\n    at startTests (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1271:3)\n    at file:///workspace/codegraph-install/node_modules/vitest/dist/chunks/runBaseTests.3qpJUEJM.js:126:11\n  "
+        },
+        {
+          "file": "adaptive-explore-sizing.test.ts",
+          "test": "adaptive codegraph_explore sizing — sibling skeletonization naming a SHARED/polymorphic method does not spare the siblings (uniqueness-aware)",
+          "message": "AssertionError: a sibling named only via a shared method is not spared: expected '' to contain '· skeleton (signatures only'\n    at /workspace/codegraph-baseline-289/__tests__/adaptive-explore-sizing.test.ts:395:78\n    at file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:533:5\n    at runTest (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1056:11)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runFiles (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1262:5)\n    at startTests (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1271:3)\n    at file:///workspace/codegraph-install/node_modules/vitest/dist/chunks/"
+        },
+        {
+          "file": "explore-output-budget.test.ts",
+          "test": "codegraph_explore output respects the adaptive budget still includes the Relationships section — it is the cheapest structural signal",
+          "message": "AssertionError: expected false to be true // Object.is equality\n    at /workspace/codegraph-baseline-289/__tests__/explore-output-budget.test.ts:217:53\n    at file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:533:5\n    at runTest (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1056:11)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runFiles (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1262:5)\n    at startTests (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1271:3)\n    at file:///workspace/codegraph-install/node_modules/vitest/dist/chunks/runBaseTests.3qpJUEJM.js:126:11\n    at withEnv (file:///workspa"
+        },
+        {
+          "file": "explore-output-budget.test.ts",
+          "test": "codegraph_explore output respects the adaptive budget prefixes source lines with line numbers by default (cat -n style)",
+          "message": "AssertionError: expected false to be true // Object.is equality\n    at /workspace/codegraph-baseline-289/__tests__/explore-output-budget.test.ts:225:34\n    at file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:533:5\n    at runTest (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1056:11)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runFiles (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1262:5)\n    at startTests (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1271:3)\n    at file:///workspace/codegraph-install/node_modules/vitest/dist/chunks/runBaseTests.3qpJUEJM.js:126:11\n    at withEnv (file:///workspa"
+        },
+        {
+          "file": "explore-output-budget.test.ts",
+          "test": "codegraph_explore output respects the adaptive budget does not collapse a whole-file class into just its header (envelope filter)",
+          "message": "AssertionError: expected false to be true // Object.is equality\n    at /workspace/codegraph-baseline-289/__tests__/explore-output-budget.test.ts:260:27\n    at file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:533:5\n    at runTest (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1056:11)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runFiles (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1262:5)\n    at startTests (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1271:3)\n    at file:///workspace/codegraph-install/node_modules/vitest/dist/chunks/runBaseTests.3qpJUEJM.js:126:11\n    at withEnv (file:///workspa"
+        },
+        {
+          "file": "mcp-daemon.test.ts",
+          "test": "Shared MCP daemon (issue #411) daemon idle-times-out after the last client disconnects",
+          "message": "AssertionError: expected false to be true // Object.is equality\n    at /workspace/codegraph-baseline-289/__tests__/mcp-daemon.test.ts:407:53\n    at file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:533:5\n    at runTest (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1056:11)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runFiles (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1262:5)\n    at startTests (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1271:3)\n    at file:///workspace/codegraph-install/node_modules/vitest/dist/chunks/runBaseTests.3qpJUEJM.js:126:11\n    at withEnv (file:///workspace/codegrap"
+        },
+        {
+          "file": "mcp-ppid-watchdog.test.ts",
+          "test": "MCP PPID watchdog (#277) shuts down when its parent is SIGKILL'd and stdin stays open",
+          "message": "AssertionError: codegraph child (pid=42398) did not exit within 5s after wrapper was SIGKILL'd.\nstderr:\n[CodeGraph MCP] Parent process exited (host pid 42390 exited); shutting down.\n: expected false to be true // Object.is equality\n    at /workspace/codegraph-baseline-289/__tests__/mcp-ppid-watchdog.test.ts:161:7\n    at file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:533:5\n    at runTest (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1056:11)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runFiles (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1262:5)\n    at startTests (file:///workspace/codegraph-install/node_modules/@vitest/runn"
+        },
+        {
+          "file": "worktree-detection.test.ts",
+          "test": "worktree mismatch surfaces on hot read tools (issue #155) caches detection — a later tool call needs no further git spawn",
+          "message": "AssertionError: expected 'Error: Tool explore is disabled via C…' to contain 'different git worktree'\n    at /workspace/codegraph-baseline-289/__tests__/worktree-detection.test.ts:184:38\n    at file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:533:5\n    at runTest (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1056:11)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runSuite (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1205:15)\n    at runFiles (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1262:5)\n    at startTests (file:///workspace/codegraph-install/node_modules/@vitest/runner/dist/index.js:1271:3)\n    at file:///workspace/codegraph-install/node_modules/vitest/dist/chunks/runBaseTests.3qpJUEJM.js:126"
+        }
+      ]
+    }
+  },
+  "portable": {
+    "passed": 37,
+    "skipped": 1,
+    "failed": 0
+  },
+  "benchmark": {
+    "summary": {
+      "baseline-init": {
+        "wall_seconds": {
+          "median": 1.5477380109999785,
+          "min": 1.5106575940001221,
+          "max": 1.6088472659998843
+        },
+        "process_group_peak_rss_mib": {
+          "median": 198.09765625,
+          "min": 191.50390625,
+          "max": 201.515625
+        }
+      },
+      "baseline-noop": {
+        "wall_seconds": {
+          "median": 0.28465030749987363,
+          "min": 0.2766970139998648,
+          "max": 0.3402912770000057
+        },
+        "process_group_peak_rss_mib": {
+          "median": 88.78515625,
+          "min": 87.8125,
+          "max": 90.8046875
+        }
+      },
+      "baseline-edit": {
+        "wall_seconds": {
+          "median": 0.9560134264999078,
+          "min": 0.9330757139998695,
+          "max": 0.9734236350000174
+        },
+        "process_group_peak_rss_mib": {
+          "median": 170.41796875,
+          "min": 167.3125,
+          "max": 170.7890625
+        }
+      },
+      "fixed-init": {
+        "wall_seconds": {
+          "median": 1.5747403565000013,
+          "min": 1.5096623889999137,
+          "max": 1.704144185000132
+        },
+        "process_group_peak_rss_mib": {
+          "median": 201.271484375,
+          "min": 195.7421875,
+          "max": 203.6015625
+        }
+      },
+      "fixed-noop": {
+        "wall_seconds": {
+          "median": 0.3008382634999407,
+          "min": 0.2768555379998361,
+          "max": 0.31780579000019316
+        },
+        "process_group_peak_rss_mib": {
+          "median": 90.208984375,
+          "min": 89.4453125,
+          "max": 90.8984375
+        }
+      },
+      "fixed-edit": {
+        "wall_seconds": {
+          "median": 1.00196176750012,
+          "min": 0.9560268860000178,
+          "max": 1.0609777679999297
+        },
+        "process_group_peak_rss_mib": {
+          "median": 172.755859375,
+          "min": 170.44140625,
+          "max": 174.125
+        }
+      }
+    },
+    "graphChecks": {
+      "baseline-repeatable": true,
+      "fixed-repeatable": true,
+      "crossVersionInitialEqual": true,
+      "crossVersionEditedEqual": true,
+      "baseline-incrementalFresh": {
+        "nodes": {
+          "equal": true,
+          "freshOnly": 0,
+          "incrementalOnly": 0
+        },
+        "edges": {
+          "equal": true,
+          "freshOnly": 0,
+          "incrementalOnly": 0
+        }
+      },
+      "fixed-incrementalFresh": {
+        "nodes": {
+          "equal": true,
+          "freshOnly": 0,
+          "incrementalOnly": 0
+        },
+        "edges": {
+          "equal": true,
+          "freshOnly": 0,
+          "incrementalOnly": 0
+        }
+      }
+    },
+    "configuration": {
+      "orders": "AB, BA, AB, BA",
+      "node": "v24.19.0",
+      "rss": "sum of process-group RSS sampled at 25 ms; includes shared pages per process",
+      "sourceCommit": "8224e427b655b83dae5e2298f1e6919523a78737",
+      "environment": {
+        "CODEGRAPH_RUST_SCAN": "0",
+        "CODEGRAPH_RUST_MACROS": "0",
+        "CODEGRAPH_ALL_LANGUAGES": "1",
+        "NODE_OPTIONS": "--max-old-space-size=4096",
+        "CODEGRAPH_PARSE_WORKERS": "1",
+        "CODEGRAPH_NO_STORE_WORKER": "1"
+      }
+    }
+  },
+  "oldDatabaseUpgrade": {
+    "old": {
+      "beforeNodes": 1204,
+      "afterNodes": 1205,
+      "oldStamp": "24",
+      "finalStamp": "24",
+      "unchangedNoop": true,
+      "unchangedOtherFilesAfterEdit": true,
+      "integrity": "ok"
+    },
+    "baseline": {
+      "beforeNodes": 1204,
+      "afterNodes": 1205,
+      "oldStamp": "36",
+      "finalStamp": "36",
+      "unchangedNoop": true,
+      "unchangedOtherFilesAfterEdit": true,
+      "integrity": "ok"
+    }
+  },
+  "minimalCli": {
+    "minimal-old-0": [
+      {
+        "name": "CRC_StandardResults_Test::TestBody",
+        "declaration": false
+      }
+    ],
+    "minimal-old-1": [
+      {
+        "name": "_StandardResults_Test::TestBody",
+        "declaration": false
+      }
+    ],
+    "minimal-baseline-0": [
+      {
+        "name": "rocksdb::crc32c::CRC_StandardResults_Test::TestBody",
+        "declaration": false
+      }
+    ],
+    "minimal-baseline-1": [
+      {
+        "name": "rocksdb::crc32c::x1edc6f41_StandardResults_Test::TestBody",
+        "declaration": true
+      },
+      {
+        "name": "rocksdb::crc32c::_StandardResults_Test::TestBody",
+        "declaration": false
+      }
+    ],
+    "minimal-fixed-0": [
+      {
+        "name": "rocksdb::crc32c::CRC_StandardResults_Test::TestBody",
+        "declaration": false
+      }
+    ],
+    "minimal-fixed-1": [
+      {
+        "name": "rocksdb::crc32c::CRC_StandardResults_Test::TestBody",
+        "declaration": false
+      }
+    ]
+  },
+  "rocksdb": {
+    "old": {
+      "errors": [],
+      "symbols": [
+        {
+          "name": "_StandardResults_Test::TestBody",
+          "declaration": false,
+          "line": 66
+        },
+        {
+          "name": "_Values_Test::TestBody",
+          "declaration": false,
+          "line": 113
+        },
+        {
+          "name": "_Extend_Test::TestBody",
+          "declaration": false,
+          "line": 115
+        },
+        {
+          "name": "_Mask_Test::TestBody",
+          "declaration": false,
+          "line": 119
+        },
+        {
+          "name": "_Crc32cCombineBasicTest_Test::TestBody",
+          "declaration": false,
+          "line": 127
+        },
+        {
+          "name": "_Crc32cCombineOrderMattersTest_Test::TestBody",
+          "declaration": false,
+          "line": 135
+        },
+        {
+          "name": "_Crc32cCombineFullCoverTest_Test::TestBody",
+          "declaration": false,
+          "line": 143
+        },
+        {
+          "name": "_Crc32cCombineBigSizeTest_Test::TestBody",
+          "declaration": false,
+          "line": 159
+        }
+      ]
+    },
+    "baseline": {
+      "errors": [],
+      "symbols": [
+        {
+          "name": "ROCKSDB_NAMESPACE::crc32c::x1edc6f41_StandardResults_Test::TestBody",
+          "declaration": true,
+          "line": 66
+        },
+        {
+          "name": "ROCKSDB_NAMESPACE::crc32c::_StandardResults_Test::TestBody",
+          "declaration": false,
+          "line": 66
+        },
+        {
+          "name": "ROCKSDB_NAMESPACE::crc32c::x1edc6f41_Values_Test::TestBody",
+          "declaration": true,
+          "line": 113
+        },
+        {
+          "name": "ROCKSDB_NAMESPACE::crc32c::_Values_Test::TestBody",
+          "declaration": false,
+          "line": 113
+        },
+        {
+          "name": "ROCKSDB_NAMESPACE::crc32c::x1edc6f41_Extend_Test::TestBody",
+          "declaration": true,
+          "line": 115
+        },
+        {
+          "name": "ROCKSDB_NAMESPACE::crc32c::_Extend_Test::TestBody",
+          "declaration": false,
+          "line": 115
+        },
+        {
+          "name": "ROCKSDB_NAMESPACE::crc32c::x1edc6f41_Mask_Test::TestBody",
+          "declaration": true,
+          "line": 119
+        },
+        {
+          "name": "ROCKSDB_NAMESPACE::crc32c::_Mask_Test::TestBody",
+          "declaration": false,
+          "line": 119
+        },
+        {
+          "name": "ROCKSDB_NAMESPACE::crc32c::x1edc6f41_Crc32cCombineBasicTest_Test::TestBody",
+          "declaration": true,
+          "line": 127
+        },
+        {
+          "name": "ROCKSDB_NAMESPACE::crc32c::_Crc32cCombineBasicTest_Test::TestBody",
+          "declaration": false,
+          "line": 127
+        },
+        {
+          "name": "ROCKSDB_NAMESPACE::crc32c::x1edc6f41_Crc32cCombineOrderMattersTest_Test::TestBody",
+          "declaration": true,
+          "line": 135
+        },
+        {
+          "name": "ROCKSDB_NAMESPACE::crc32c::_Crc32cCombineOrderMattersTest_Test::TestBody",
+          "declaration": false,
+          "line": 135
+        },
+        {
+          "name": "ROCKSDB_NAMESPACE::crc32c::x1edc6f41_Crc32cCombineFullCoverTest_Test::TestBody",
+          "declaration": true,
+          "line": 143
+        },
+        {
+          "name": "ROCKSDB_NAMESPACE::crc32c::_Crc32cCombineFullCoverTest_Test::TestBody",
+          "declaration": false,
+          "line": 143
+        },
+        {
+          "name": "ROCKSDB_NAMESPACE::crc32c::x1edc6f41_Crc32cCombineBigSizeTest_Test::TestBody",
+          "declaration": true,
+          "line": 159
+        },
+        {
+          "name": "ROCKSDB_NAMESPACE::crc32c::_Crc32cCombineBigSizeTest_Test::TestBody",
+          "declaration": false,
+          "line": 159
+        }
+      ]
+    },
+    "fixed": {
+      "errors": [],
+      "symbols": [
+        {
+          "name": "ROCKSDB_NAMESPACE::crc32c::CRC_StandardResults_Test::TestBody",
+          "declaration": false,
+          "line": 66
+        },
+        {
+          "name": "ROCKSDB_NAMESPACE::crc32c::CRC_Values_Test::TestBody",
+          "declaration": false,
+          "line": 113
+        },
+        {
+          "name": "ROCKSDB_NAMESPACE::crc32c::CRC_Extend_Test::TestBody",
+          "declaration": false,
+          "line": 115
+        },
+        {
+          "name": "ROCKSDB_NAMESPACE::crc32c::CRC_Mask_Test::TestBody",
+          "declaration": false,
+          "line": 119
+        },
+        {
+          "name": "ROCKSDB_NAMESPACE::crc32c::CRC_Crc32cCombineBasicTest_Test::TestBody",
+          "declaration": false,
+          "line": 127
+        },
+        {
+          "name": "ROCKSDB_NAMESPACE::crc32c::CRC_Crc32cCombineOrderMattersTest_Test::TestBody",
+          "declaration": false,
+          "line": 135
+        },
+        {
+          "name": "ROCKSDB_NAMESPACE::crc32c::CRC_Crc32cCombineFullCoverTest_Test::TestBody",
+          "declaration": false,
+          "line": 143
+        },
+        {
+          "name": "ROCKSDB_NAMESPACE::crc32c::CRC_Crc32cCombineBigSizeTest_Test::TestBody",
+          "declaration": false,
+          "line": 159
+        }
+      ]
+    }
+  },
+  "package": {
+    "file": "sdd-codegraph-wx-1.1.2.tgz",
+    "mode": "CODEGRAPH_PACK_ALLOW_INCOMPLETE=1; isolated offline install, followed by successful npm rebuild/postinstall; TypeScript fallback only",
+    "formalMultiPlatformPackage": false,
+    "formalPackFailure": "binary-missing"
+  },
+  "environment": {
+    "node": "v24.19.0",
+    "cpuQuota": "400000 100000",
+    "memoryLimitBytes": "17179869184",
+    "allowedCpuCount": 5
+  },
+  "limitations": [
+    "Original TestBody tar could not be materialized; reconstructed from fully read HTML report.",
+    "Historical review thread unavailable through read-only personal context search; not restarted.",
+    "No Rust toolchain/native helpers in this environment; 38 native tests skipped plus 2 existing security skips.",
+    "Conditional/computed/forced includes and external unscanned headers are outside the supported evidence model; conflicting included definitions remain conservative.",
+    "Native macro protocol lacks include evidence, so native mode adds a source read; native performance is unverified.",
+    "RocksDB namespace macro remains source-spelled; eight corrected owners do not prove full compiler-semantic equivalence.",
+    "Inherited failing tests remain; no cross-platform release certification."
+  ]
+}

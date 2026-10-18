@@ -1,0 +1,61 @@
+CodeGraph 1.1.2 发布回归修复验证（2026-10-18）
+
+结论：本次限定范围的宏污染新增错误声明及 schema 初始化断言已修复；不建议直接发布。最终测试仍有既有失败，正式 npm pack 因原生制品缺失失败，跨平台和原生模式性能未验证。
+
+一、来源与范围
+独立云目录 /workspace/codegraph-regression-fixes，分支 release/1.1.2-regression-fixes-20261018，精确起点 30d595909771c8a24748dbbdcca26a6714616b1e。
+验证代码提交 e1185483b5d5ca2683b495425f2bbb57fc4c0c3f；保留 /workspace/OpenSpec-cn 原有 work 分支及干净状态。未启动本地 Codex/其他 Codex CLI，未使用用户电脑或私有源码，未推送、合并、发布。
+未混入 fix/general-symbol-coverage-20261016；没有处理500符号历史缺口。
+已完整读取 HTML libfile_e80806900fec8191bdb0db37c63d71eb。原 tar libfile_43608033738881918e451cc74602cfbc 下载失败且未绕过；最小源码从HTML独立重建。历史审查线程只读检索不可用，未重启。
+
+二、修复与边界
+保留 d66f716 的语义身份去重；不恢复同行同名去重，不特判 TEST、CRC 或仓库。宏预扫描保留逐文件定义与字面 include 图，声明恢复仅使用当前文件可达且无冲突的宏定义。主线程、单worker、worker池统一传递证据。递归helper按调用位置查找并尊重局部define/undef。
+include 环迭代终止，后缀解析只接受唯一候选，注释/字符串不构成include证据。9个新增用例覆盖污染、真实include、嵌套宏、局部define/undef、冲突、合法重载、owner、const/ref、构造函数。另3个原测试补上真实include，原功能断言保留。
+schema断言只从8改9，独立迁移行为测试保留并通过。提取版本36升37，旧库提示显式重建；不强制恢复，也不把未重建旧图伪装为新提取版本。
+不实现完整预处理器：条件编译、计算式/强制include、扫描范围外头、头内配置分支仍有限制；include内冲突保守拒绝。原生协议未提供include，原生模式需要额外读取源码，其性能未验证。
+
+三、复现与图验证
+基线红灯先提交3c12493。最小CLI对照：28910d25在冲突头存在时1个错误定义；30d为错误定义+错误声明；最终安装包无论冲突头有无，均只有正确 rocksdb::crc32c::CRC_StandardResults_Test::TestBody 定义。G++编译成功，nm -C独立确认此名称。
+真实RocksDB v9.7.3 / 0e2801ac30b3f283c3b14e523ba3667eca024f09 的util/crc32c_test.cc：旧版8个错误定义，30d共16个错误节点，修复版8个CRC owner正确的定义。ROCKSDB_NAMESPACE仍为源码宏拼写，不能把这8个结果宣称为完整编译器语义召回。
+TinyXML2 8224e427b655b83dae5e2298f1e6919523a78737：G++编译和项目自身测试528通过0失败；索引1204节点4724边，小变更后1205节点4725边。四轮间、两版间、空sync前后、增量与同版fresh的完整节点/边语义行一致；仅排除节点updated_at及边自增id。
+
+四、构建和完整测试
+两版及28910d25构建成功；最终源码构建、diff --check通过。
+30d完整测试：{'passed': 3332, 'failed': 15, 'skipped': 40}；最终修复完整测试：{'passed': 3342, 'failed': 14, 'skipped': 40}。
+单次全集的extraction worker曾OOM，136/154项pending未算通过；两版各483项extraction按8组补跑全部通过。最终全集稳定执行其余文件，再合并最终代码的483项确认结果；最终共209测试文件。
+最终相对30d新增失败：0。失败逐项见validation-summary.json；只比较相同测试身份，不把总数差当归因。
+28910d25仅重跑失败相关7文件，结果：{'passed': 81, 'failed': 13}，未声称旧发布全集重跑。
+40跳过=38原生相关测试（无Rust工具链/原生helper）+2现有security跳过。Portable另计37通过、1跳过；独立迁移行为1通过（同文件其余4项为定向过滤，全集已覆盖）。
+最终失败项：
+  adaptive-explore-sizing.test.ts :: adaptive codegraph_explore sizing — sibling skeletonization skeletonizes off-spine polymorphic siblings (bodies elided, signatures kept)
+  adaptive-explore-sizing.test.ts :: adaptive codegraph_explore sizing — sibling skeletonization keeps the on-spine exemplar full even though it is a sibling
+  adaptive-explore-sizing.test.ts :: adaptive codegraph_explore sizing — sibling skeletonization keeps a distinct step full (off-spine but supertype has < 3 implementers)
+  adaptive-explore-sizing.test.ts :: adaptive codegraph_explore sizing — sibling skeletonization CODEGRAPH_ADAPTIVE_EXPLORE=0 disables skeletonization (siblings render full)
+  adaptive-explore-sizing.test.ts :: adaptive codegraph_explore sizing — sibling skeletonization spares an off-spine sibling when the agent NAMED a callable in it (RealCall fix)
+  adaptive-explore-sizing.test.ts :: adaptive codegraph_explore sizing — sibling skeletonization collapses a base+subclasses family file to a FOCUSED view — base method body kept, non-named subclasses signature-only (compiler.py)
+  adaptive-explore-sizing.test.ts :: adaptive codegraph_explore sizing — sibling skeletonization naming a SHARED/polymorphic method does not spare the siblings (uniqueness-aware)
+  explore-output-budget.test.ts :: codegraph_explore output respects the adaptive budget still includes the Relationships section — it is the cheapest structural signal
+  explore-output-budget.test.ts :: codegraph_explore output respects the adaptive budget prefixes source lines with line numbers by default (cat -n style)
+  explore-output-budget.test.ts :: codegraph_explore output respects the adaptive budget does not collapse a whole-file class into just its header (envelope filter)
+  mcp-daemon.test.ts :: Shared MCP daemon (issue #411) daemon idle-times-out after the last client disconnects
+  mcp-ppid-watchdog.test.ts :: MCP PPID watchdog (#277) shuts down when its parent is SIGKILL'd and stdin stays open
+  raw-source-worker.test.ts :: isolated raw-source workers cleans up an active rg when the host exits without waiting for cancellation
+  worktree-detection.test.ts :: worktree mismatch surfaces on hot read tools (issue #155) caches detection — a later tool call needs no further git spawn
+
+五、安装包与真实旧库升级
+产品package-lock.json未改。独立安装副本只将sql.js-fts5@1.4.0的resolved从拒绝访问的镜像换成官方；SHA-512完全相同且保留npm完整性校验。没有重试镜像、改代理或绕过策略。
+候选npm pack使用仓库显式CODEGRAPH_PACK_ALLOW_INCOMPLETE=1，隔离离线安装后正常npm rebuild/postinstall成功；关键产物SHA-256与构建目录一致。正式不带该开关的npm pack实测失败：binary-missing。故本包仅可用于TS fallback验证。
+最终安装包分别打开真实28910d25（提取戳24）和30d（戳36）创建的TinyXML2数据库：两次空sync均不改节点；改一个cpp后只更新该文件，其他节点逐行含更新时间保持不变；提取戳仍24/36，SQLite integrity_check=ok。未请求15GB数据库。
+
+六、四轮性能对照
+最终代码、Node24.19.0，同一配置：native scan/macros关闭、parse workers=1、store worker关闭、Node old-space=4096MiB、verbose开启。AB/BA/AB/BA，每版4次真正空库init、空sync、小变更sync。串行执行，测量时无测试/构建负载。文件复制、SQL检查、下载不计时；OS缓存未清，不能外推到冷缓存、大仓或原生模式。
+wall是子进程启动至阻塞wait返回；RSS为25ms采样的进程组RSS之和（共享页可能重复计算）。停止保护180秒。
+操作 | 30d wall中位[最小,最大]秒 / RSS中位MiB | 修复 wall中位[最小,最大]秒 / RSS中位MiB
+init | 1.548 [1.511,1.609] / 198.1 | 1.575 [1.510,1.704] / 201.3
+noop | 0.285 [0.277,0.340] / 88.8 | 0.301 [0.277,0.318] / 90.2
+edit | 0.956 [0.933,0.973] / 170.4 | 1.002 [0.956,1.061] / 172.8
+中位耗时本轮略高，区间重叠；四轮与小项目不足以认定普遍/统计显著的性能退化。预备轮日志保留，但期间代码版本更新，不纳入最终结论。
+
+七、发布判断及交付
+本次目标回归修复通过；发布门禁未满足：既有测试失败、正式原生制品缺失、Windows/macOS/旧glibc及Node18/20未重测。原报告中的写锁、权限、宏头变更不重解析消费者等共享问题不在此次修复范围，未声称解决。
+全部提交仅本地。验证摘要、最终矩阵脚本、完整日志与图快照位于/workspace/codegraph-evidence；交付另含git bundle和证据tar。原始失败、修复中间结果、分组补跑与最终结果均保留，避免把早期失败隐藏或当成最终结果。
