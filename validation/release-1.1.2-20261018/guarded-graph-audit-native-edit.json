@@ -1,0 +1,318 @@
+{
+  "mode": "native",
+  "operation": "edit",
+  "baselineNodes": 107726,
+  "fixedNodes": 107718,
+  "removedDeclarations": [
+    {
+      "id": "method:9e2c9303c710d7ea0c08bac961233e7a",
+      "kind": "method",
+      "name": "TestBody",
+      "qualified_name": "ROCKSDB_NAMESPACE::crc32c::x1edc6f41_Crc32cCombineFullCoverTest_Test::TestBody",
+      "file_path": "util/crc32c_test.cc",
+      "language": "cpp",
+      "start_line": 143,
+      "end_line": 143,
+      "start_column": 0,
+      "end_column": 39,
+      "docstring": null,
+      "signature": "void TestBody()",
+      "visibility": "public",
+      "is_exported": 0,
+      "is_async": 0,
+      "is_static": 0,
+      "is_abstract": 0,
+      "is_declaration": 1,
+      "decorators": null,
+      "type_parameters": null,
+      "return_type": null
+    },
+    {
+      "id": "method:4374586ee1cdc72b1aa242e37b0a1e8d",
+      "kind": "method",
+      "name": "TestBody",
+      "qualified_name": "ROCKSDB_NAMESPACE::crc32c::x1edc6f41_StandardResults_Test::TestBody",
+      "file_path": "util/crc32c_test.cc",
+      "language": "cpp",
+      "start_line": 66,
+      "end_line": 66,
+      "start_column": 0,
+      "end_column": 28,
+      "docstring": null,
+      "signature": "void TestBody()",
+      "visibility": "public",
+      "is_exported": 0,
+      "is_async": 0,
+      "is_static": 0,
+      "is_abstract": 0,
+      "is_declaration": 1,
+      "decorators": null,
+      "type_parameters": null,
+      "return_type": null
+    },
+    {
+      "id": "method:95730a7b475ea274e21acef7ca0d7c28",
+      "kind": "method",
+      "name": "TestBody",
+      "qualified_name": "ROCKSDB_NAMESPACE::crc32c::x1edc6f41_Mask_Test::TestBody",
+      "file_path": "util/crc32c_test.cc",
+      "language": "cpp",
+      "start_line": 119,
+      "end_line": 119,
+      "start_column": 0,
+      "end_column": 17,
+      "docstring": null,
+      "signature": "void TestBody()",
+      "visibility": "public",
+      "is_exported": 0,
+      "is_async": 0,
+      "is_static": 0,
+      "is_abstract": 0,
+      "is_declaration": 1,
+      "decorators": null,
+      "type_parameters": null,
+      "return_type": null
+    },
+    {
+      "id": "method:ed78294834b3753fda8dffd0bfa4c02c",
+      "kind": "method",
+      "name": "TestBody",
+      "qualified_name": "ROCKSDB_NAMESPACE::crc32c::x1edc6f41_Crc32cCombineBigSizeTest_Test::TestBody",
+      "file_path": "util/crc32c_test.cc",
+      "language": "cpp",
+      "start_line": 159,
+      "end_line": 159,
+      "start_column": 0,
+      "end_column": 37,
+      "docstring": null,
+      "signature": "void TestBody()",
+      "visibility": "public",
+      "is_exported": 0,
+      "is_async": 0,
+      "is_static": 0,
+      "is_abstract": 0,
+      "is_declaration": 1,
+      "decorators": null,
+      "type_parameters": null,
+      "return_type": null
+    },
+    {
+      "id": "method:0141e1d729e13715610606f82530242a",
+      "kind": "method",
+      "name": "TestBody",
+      "qualified_name": "ROCKSDB_NAMESPACE::crc32c::x1edc6f41_Crc32cCombineBasicTest_Test::TestBody",
+      "file_path": "util/crc32c_test.cc",
+      "language": "cpp",
+      "start_line": 127,
+      "end_line": 127,
+      "start_column": 0,
+      "end_column": 35,
+      "docstring": null,
+      "signature": "void TestBody()",
+      "visibility": "public",
+      "is_exported": 0,
+      "is_async": 0,
+      "is_static": 0,
+      "is_abstract": 0,
+      "is_declaration": 1,
+      "decorators": null,
+      "type_parameters": null,
+      "return_type": null
+    },
+    {
+      "id": "method:512603cf6c29787f8abcc0a7c5d20a0e",
+      "kind": "method",
+      "name": "TestBody",
+      "qualified_name": "ROCKSDB_NAMESPACE::crc32c::x1edc6f41_Crc32cCombineOrderMattersTest_Test::TestBody",
+      "file_path": "util/crc32c_test.cc",
+      "language": "cpp",
+      "start_line": 135,
+      "end_line": 135,
+      "start_column": 0,
+      "end_column": 42,
+      "docstring": null,
+      "signature": "void TestBody()",
+      "visibility": "public",
+      "is_exported": 0,
+      "is_async": 0,
+      "is_static": 0,
+      "is_abstract": 0,
+      "is_declaration": 1,
+      "decorators": null,
+      "type_parameters": null,
+      "return_type": null
+    },
+    {
+      "id": "method:fc1510edb8a03525d9690879351529d7",
+      "kind": "method",
+      "name": "TestBody",
+      "qualified_name": "ROCKSDB_NAMESPACE::crc32c::x1edc6f41_Extend_Test::TestBody",
+      "file_path": "util/crc32c_test.cc",
+      "language": "cpp",
+      "start_line": 115,
+      "end_line": 115,
+      "start_column": 0,
+      "end_column": 19,
+      "docstring": null,
+      "signature": "void TestBody()",
+      "visibility": "public",
+      "is_exported": 0,
+      "is_async": 0,
+      "is_static": 0,
+      "is_abstract": 0,
+      "is_declaration": 1,
+      "decorators": null,
+      "type_parameters": null,
+      "return_type": null
+    },
+    {
+      "id": "method:0e02ce4072d0845da2cf8e9f2dc3ab21",
+      "kind": "method",
+      "name": "TestBody",
+      "qualified_name": "ROCKSDB_NAMESPACE::crc32c::x1edc6f41_Values_Test::TestBody",
+      "file_path": "util/crc32c_test.cc",
+      "language": "cpp",
+      "start_line": 113,
+      "end_line": 113,
+      "start_column": 0,
+      "end_column": 64,
+      "docstring": null,
+      "signature": "void TestBody()",
+      "visibility": "public",
+      "is_exported": 0,
+      "is_async": 0,
+      "is_static": 0,
+      "is_abstract": 0,
+      "is_declaration": 1,
+      "decorators": null,
+      "type_parameters": null,
+      "return_type": null
+    }
+  ],
+  "changedNodes": [
+    {
+      "oldId": "method:a06dafc31789ad7ca13f2d917d6c031b",
+      "newId": "method:8a92b794abc18b1ed31fed8ace77955a",
+      "name": "ROCKSDB_NAMESPACE::crc32c::_Crc32cCombineBigSizeTest_Test::TestBody",
+      "fields": {
+        "id": [
+          "method:a06dafc31789ad7ca13f2d917d6c031b",
+          "method:8a92b794abc18b1ed31fed8ace77955a"
+        ],
+        "visibility": [
+          null,
+          "public"
+        ]
+      }
+    },
+    {
+      "oldId": "method:6ea631ba474ec1e35c9e55dfcdb3e904",
+      "newId": "method:248d1af020dc788dc9c5aa25c6e917f1",
+      "name": "ROCKSDB_NAMESPACE::crc32c::_Crc32cCombineBasicTest_Test::TestBody",
+      "fields": {
+        "id": [
+          "method:6ea631ba474ec1e35c9e55dfcdb3e904",
+          "method:248d1af020dc788dc9c5aa25c6e917f1"
+        ],
+        "visibility": [
+          null,
+          "public"
+        ]
+      }
+    },
+    {
+      "oldId": "method:1d7f084714b0d047e883a5864120a56b",
+      "newId": "method:0e55a509037e8eb3c6e37e240191e0b2",
+      "name": "ROCKSDB_NAMESPACE::crc32c::_Mask_Test::TestBody",
+      "fields": {
+        "id": [
+          "method:1d7f084714b0d047e883a5864120a56b",
+          "method:0e55a509037e8eb3c6e37e240191e0b2"
+        ],
+        "visibility": [
+          null,
+          "public"
+        ]
+      }
+    },
+    {
+      "oldId": "method:494bd46691636e2d61e28d5943324bc2",
+      "newId": "method:01541b36b582c9abc4b39f8507d2634f",
+      "name": "ROCKSDB_NAMESPACE::crc32c::_Extend_Test::TestBody",
+      "fields": {
+        "id": [
+          "method:494bd46691636e2d61e28d5943324bc2",
+          "method:01541b36b582c9abc4b39f8507d2634f"
+        ],
+        "visibility": [
+          null,
+          "public"
+        ]
+      }
+    },
+    {
+      "oldId": "method:00f0bcf9711d9bd39137394274e9b4b7",
+      "newId": "method:770716f98f1d7a18fcd6f9d65b8b5a5c",
+      "name": "ROCKSDB_NAMESPACE::crc32c::_StandardResults_Test::TestBody",
+      "fields": {
+        "id": [
+          "method:00f0bcf9711d9bd39137394274e9b4b7",
+          "method:770716f98f1d7a18fcd6f9d65b8b5a5c"
+        ],
+        "visibility": [
+          null,
+          "public"
+        ]
+      }
+    },
+    {
+      "oldId": "method:65cd1cd2909f841cf6a0de4e9db35649",
+      "newId": "method:8da9ee83007429a28029be5c4a803dc9",
+      "name": "ROCKSDB_NAMESPACE::crc32c::_Crc32cCombineFullCoverTest_Test::TestBody",
+      "fields": {
+        "id": [
+          "method:65cd1cd2909f841cf6a0de4e9db35649",
+          "method:8da9ee83007429a28029be5c4a803dc9"
+        ],
+        "visibility": [
+          null,
+          "public"
+        ]
+      }
+    },
+    {
+      "oldId": "method:8bbcc919b0dee0ef2ec2670e395abd09",
+      "newId": "method:624763a37b8a90a4c041bee45c73d773",
+      "name": "ROCKSDB_NAMESPACE::crc32c::_Values_Test::TestBody",
+      "fields": {
+        "id": [
+          "method:8bbcc919b0dee0ef2ec2670e395abd09",
+          "method:624763a37b8a90a4c041bee45c73d773"
+        ],
+        "visibility": [
+          null,
+          "public"
+        ]
+      }
+    },
+    {
+      "oldId": "method:740d27f8b9d99a5aca14b51dc496bb94",
+      "newId": "method:14677c054d1d834cda9e03d096ed66a5",
+      "name": "ROCKSDB_NAMESPACE::crc32c::_Crc32cCombineOrderMattersTest_Test::TestBody",
+      "fields": {
+        "id": [
+          "method:740d27f8b9d99a5aca14b51dc496bb94",
+          "method:14677c054d1d834cda9e03d096ed66a5"
+        ],
+        "visibility": [
+          null,
+          "public"
+        ]
+      }
+    }
+  ],
+  "unexplainedRemoved": [],
+  "unexplainedAdded": [],
+  "removedEdgesAfterExactPairMapping": [],
+  "addedEdgesAfterExactPairMapping": []
+}

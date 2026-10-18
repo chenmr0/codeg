@@ -1,93 +1,114 @@
-CodeGraph 1.1.2 回归修复：优化后最终复核（禁止视为发布通过）
+CodeGraph 发布回归：收回广泛方案后的窄修复最终记录
 
-结论：暂不可发布。仅云环境本地提交，未推送、合并或发布。OpenSpec 工作区保留。
-源码冻结点 3dc310b26082980e255baa2b168ebfabc5cb597d；精确基线30d595909771c8a24748dbbdcca26a6714616b1e。
+范围与状态
+仅云环境操作，保留OpenSpec-cn；从30d精确创建的release/1.1.2-regression-fixes-20261018分支，仅本地提交，无push/merge/release。产品冻结594c45f7e10654b1fa64cd14dc58549942276c5c。
+b14378df923cc714a426dc67919bd3a7560db3f9以新提交恢复所有src至30d，撤回include来源限制、worker载荷、native额外读取、词法优化和提取版本37；保留schema9初始化断言、实验记录与独立预处理测试。22项依赖废弃方案的测试移至rejected-include-experiment，不计常规套件通过数。原TestBody失败复现保留，未改为假通过。
+当前相对30d仅修改c-cpp-macro-identity.ts：31行新增、4行删除；无include扫描、无跨sync缓存，提取版本仍36。schema迁移代码不变。
 
-本轮产品变化：单次词法扫描替代 include 来源提取的整文件双重遮罩；少见CR/Unicode行分隔符退回原扫描语义。未增加跨sync缓存，未改变Rust协议、解析并行数或内存限制。之前修复维持宏来源约束、语义身份与 schema9 初始化断言。
+为什么换方案
+广泛来源约束能排除未include宏，却丢失forced/computed include中本地DECL→HELPER合法入口，并带来同步成本。随后9行拒绝整个无效owner声明的试验会额外删除16个289已有字段/赋值声明，未提交采用。最终选择现有语义身份内的精确声明/定义配对，原参数、限定符、模板、文件/行和命名空间判定保留，不恢复同行同名去重。
+be5初版身份补全又被真实AST探针证明过于乐观：指数符号、数字分隔符、Unicode/$/转义及重复/后缀同名owner不应按截断后缀补全。594只接受有明确两端分隔的简单ASCII数字token、简单AST标识符叶节点、唯一完整限定名组件；类内路径还需owner.hasError。不能证明就保持30d身份。它不实现完整C预处理token词法，也不认证非法数字token是合法C++类型。展示名和已有错误定义不被修正。
 
-定位依据：同一1286文件、25,526,271字节上下文，优化前5次TS上下文中位546.37ms，其中include扫描265.09ms；native为481.17/238.62ms。初版优化后TS311.92/56.05ms，native303.91/49.30ms。clone代理约4ms、可见性冷查询约4–7ms、热查询小于1ms。上述组件数据是7db词法优化时测得，不声称等于最终CLI收益。最终3dc扫描与be7冻结旧实现对1286文件10,957个include名称及UTF-16位置完全相同。10000组差分用例和3个非LF反例通过。
+两条历史必须分开
+1. 3b7b88551db1a4471c14fc1712db1a5eef1d938c（2026-08-10 23:10:59 +0800）首次新增declaration-macros.ts及项目级递归后备，其父提交无此模块。独立转译该模块重放最小例证实未include的CRC被展开；28910d25（2026-09-27）已经存在8个错误定义。这是根因路径，不是d66引入。
+2. d66f7169f0ac919ef09c5c212bcbc83c9230f7da（2026-09-30）采用语义身份后，解析器把同一非法数字owner在类头截为x…、在类外定义截为_…，额外保留8个错误声明。直接父e8f3cfc1c4eb755ec3df8cd0b7ffcd0ee5e39342及289在真实crc32c_test.cc均65节点，d66/30d为73；窄修复回到65。相对d66父的语义节点集合完全相同；相对289还保留后来增加的8个定义命名空间信息。
 
-测试：构建通过；冻结完整测试3393通过、14失败、2跳过，总3409。提取483用例分8组全部通过；不要累加分组中未选中的skip或按重名用例去重。30d为3332通过、15失败、40跳过，总3387。14个失败身份全部已有：adaptive-explore-sizing7、explore-output-budget3、mcp-daemon1、mcp-ppid-watchdog1、raw-source-worker1、worktree-detection1。不能称全套全绿。289仅做7个相关失败文件对照，未跑完整套件。
+引入改动是否必要
+d66原始19项身份测试原样在父版本重跑为3通过16失败，在d66为19通过。16个改善包括3个同行重载、1个构造、1个static配对、2个不同owner场景、1个const/ref、4个模板相关场景，以及回调参数、长签名、稳定ID、源码同行符号各1项。完整撤销其身份策略会丢失这些收益；不能以CRC退化为由恢复粗去重。今天112项扩展身份测试也全部保留通过。
+公开RocksDB gtest头父版4817节点、d66为4826：新增5个CmpHelper NE/LE/LT/GE/GT模板重载由真实g++预处理确认；另4个构造来自#if 0示例，明确不计运行配置下的真实收益。另3个核对文件无语义增删。此处是父子版本隔离对照，不声称在30d上机械revert全部d66会只有这些影响，也未重新运行历史提交声称的OceanBase/MAME审查。
+通用声明宏恢复有价值；无编译环境证据的全项目可见性只是启发式，并非C++语言要求。保留它是本次兼容边界，不代表该根因正确或已解决。
 
-独立打包/升级：optimized-package中的npm pack候选在隔离目录安装，安装后dist扫描文件SHA与源码构建一致。真实289旧库stamp24及30d stamp36均保持；两次空sync节点及updated_at不变，小变更1204→1205节点，其他文件不变，integrity_check=ok，没有强制全库恢复。Linux真实native scanner16fixtures和macro-parity-v1验证已通过；Windows二进制缺失仍阻止正式全平台pack，候选包使用显式不完整平台打包选项，不是正式发布包。
+编译器与测试
+真实g++14.2确认#/##原始参数、普通包装预展开及拼接后重扫描与30d一致，因此没有沿无效参数顺序路线修改。原附件tar不可取得，最小复现是根据可读HTML重建；另以真实RocksDB公开源码编译验证，不冒称取得原附件。
+新增7个实际tree-sitter AST黄金身份用例在be5全部失败，594全部通过；它们保留30d对不可靠数字拼写及歧义路径的身份。非ASCII空白/续行探针没有生成目标成员AST，作为不可达记录，不计通过。8组合法非类型模板参数、表达式、匿名结构/命名空间、生成名字、嵌套、alignas、十六进制默认参数均通过g++，完整节点/边/诊断与30d相同。131项相关测试通过，构建通过。
+冻结完整套件：{'passed': 3391, 'failed': 13, 'skipped': 2}，总3406；提取483项分8组执行。新增失败身份：[]。30d为3332通过/15失败/40跳过。raw-source-worker本轮通过是既有波动，不归因于本修复。剩余13失败集中于adaptive-explore-sizing7、explore-output-budget3、mcp-daemon1、mcp-ppid-watchdog1、worktree-detection1；不能称全套全绿。
 
-公开项目：RocksDB v9.7.3 0e2801ac30b3f283c3b14e523ba3667eca024f09完整1684文件；g++真实crc32c_test对象有8个正确TestBody，旧289共有8个错误定义、30d另多8个错误声明；本分支该案例8个正确定义。TinyXML2 8224e427b655b83dae5e2298f1e6919523a78737自身测试528通过，索引1204节点4724边，修改后1205/4725。未使用涉敏源码或用户15GB库。原TestBody tar未取得，最小案例是根据可读HTML重建，不能称附件复现；历史审查线程没有重启。
+真实图与兼容性
+RocksDB v9.7.3完整1684文件，同一104字节util/crc32c.cc探针修改；各模式4对AB/BA，额外2次修改后新建init。全量排序nodes去updated_at、edges去自增id保存JSONL。每模式初始和修改图均做差异分类；全部轮次、空sync、增量/新建和跨模式哈希核对。
+仅8个已确认额外TestBody声明与相应定义进行语义配对。8个旧定义仍保留原错误展示名，ID因碰撞组收敛重分配，可见性由匹配声明补入。初始107724→107716，修改后107726→107718；定义没有被删除，也不声称CRC实体已经正确。精确配对映射后无边增删，无未解释新增/删除节点。若有不符合者，应以JSON审计为准，阻断发布。
+TinyXML2 8224e427b655b83dae5e2298f1e6919523a78737的1204节点4724边与30d逐行一致，自身编译测试528通过0失败。隔离npm候选安装后，真实289旧库stamp24及30d stamp36均保持，两次空sync不改节点/updated_at；小变更1204→1205，其他文件不变，integrity_check=ok，无强制全库恢复。由于版本仍36，既存未变化文件不会自动清除历史重复，需文件正常重索引或用户显式重建；没有静默全库修复。
+最终包清除了撤回方案遗留的4个未引用macro-visibility生成文件；隔离重装后核心JS SHA256与冻结构建一致，旧库与TinyXML2验证重新执行通过。此清理不改变运行代码，TS/native计时使用相同身份实现。Linux真实native二进制保持既有验证；Windows产物缺失，npm pack使用显式不完整平台候选选项，不能当正式全平台发布包。打包初次默认npm缓存缺失ENOENT，随后使用已有/tmp/codegraph-npm-cache完成，没有权限升级。
 
-性能方法：每个模式四对AB/BA/AB/BA，每版本每操作4个样本；TS与native串行，额外各2个修改后全新init，总52次CLI。相同真实104字节util/crc32c.cc修改，ALL_LANGUAGES=1、PARSE_WORKERS=1、NO_STORE_WORKER=1、node --liftoff-only、heap4096、CPU4。RSS为50ms采样进程组求和，可能重复计算共享页；复制/SQL快照不计时，未清OS缓存。完整原始wall/RSS保存在results.json及raw.json，未剔除不利样本。
+性能（仅594最终冻结数据）
+每模式AB/BA/AB/BA四对，每版本每操作4样本，TS/native串行，共52次CLI；相同源树、104字节修改、ALL_LANGUAGES=1、PARSE_WORKERS=1、NO_STORE_WORKER=1、node --liftoff-only、heap4096、CPU4。RSS为50ms采样进程组求和，可能重复计算共享页；复制和SQL快照不计时，未清OS缓存。184份完全相同旧快照在计时前经SHA验证硬链接去重，仅控制缓存占用，不改变内容。所有原始不利样本保留，不混入be5或广泛候选数据。
 
-ts（基线→修复，中位wall秒 / RSS MiB）：
-init: 101.529858→103.530018 (+1.97%) / 1777.83→1797.58
-noop: 0.559513→0.579980 (+3.66%) / 239.51→238.91
-edit: 5.371981→5.636441 (+4.92%) / 610.99→609.30
-  r1-baseline-init: wall=99.627807s RSS=1756.68MiB exit=0
-  r1-baseline-noop: wall=0.555679s RSS=231.70MiB exit=0
-  r1-baseline-edit: wall=5.244228s RSS=616.49MiB exit=0
-  r1-fixed-init: wall=93.934268s RSS=1790.36MiB exit=0
-  r1-fixed-noop: wall=0.565248s RSS=239.45MiB exit=0
-  r1-fixed-edit: wall=5.391660s RSS=617.41MiB exit=0
-  r2-fixed-init: wall=105.477295s RSS=1801.62MiB exit=0
-  r2-fixed-noop: wall=0.564319s RSS=236.05MiB exit=0
-  r2-fixed-edit: wall=5.855037s RSS=611.30MiB exit=0
-  r2-baseline-init: wall=101.240214s RSS=1792.25MiB exit=0
-  r2-baseline-noop: wall=0.563347s RSS=239.07MiB exit=0
-  r2-baseline-edit: wall=5.777784s RSS=611.61MiB exit=0
-  r3-baseline-init: wall=101.819502s RSS=1795.16MiB exit=0
-  r3-baseline-noop: wall=0.486344s RSS=242.88MiB exit=0
-  r3-baseline-edit: wall=5.009795s RSS=606.95MiB exit=0
-  r3-fixed-init: wall=109.480153s RSS=1798.14MiB exit=0
-  r3-fixed-noop: wall=0.764114s RSS=238.37MiB exit=0
-  r3-fixed-edit: wall=5.417845s RSS=607.30MiB exit=0
-  r4-fixed-init: wall=101.582741s RSS=1797.03MiB exit=0
-  r4-fixed-noop: wall=0.594713s RSS=247.38MiB exit=0
-  r4-fixed-edit: wall=5.944432s RSS=605.86MiB exit=0
-  r4-baseline-init: wall=110.238942s RSS=1763.41MiB exit=0
-  r4-baseline-noop: wall=0.967713s RSS=239.96MiB exit=0
-  r4-baseline-edit: wall=5.499733s RSS=610.37MiB exit=0
-  fresh-edited-baseline: wall=99.697787s RSS=1799.12MiB exit=0
-  fresh-edited-fixed: wall=101.001713s RSS=1788.46MiB exit=0
+ts 基线→修复，中位wall秒 / RSS MiB：
+init: 103.065587→98.716264 (-4.22%) / 1789.51→1794.79
+noop: 0.573787→0.534903 (-6.78%) / 243.39→240.21
+edit: 5.362965→5.399507 (+0.68%) / 610.35→611.50
+  r1-baseline-init: 111.191265s / 1791.08MiB / exit0
+  r1-baseline-noop: 0.567740s / 243.00MiB / exit0
+  r1-baseline-edit: 5.103675s / 610.07MiB / exit0
+  r1-fixed-init: 100.653700s / 1798.06MiB / exit0
+  r1-fixed-noop: 0.631896s / 242.07MiB / exit0
+  r1-fixed-edit: 5.527857s / 609.58MiB / exit0
+  r2-fixed-init: 94.347097s / 1772.16MiB / exit0
+  r2-fixed-noop: 0.533641s / 233.81MiB / exit0
+  r2-fixed-edit: 5.271157s / 613.41MiB / exit0
+  r2-baseline-init: 98.218317s / 1787.94MiB / exit0
+  r2-baseline-noop: 0.559767s / 243.34MiB / exit0
+  r2-baseline-edit: 5.434746s / 608.25MiB / exit0
+  r3-baseline-init: 102.550882s / 1775.61MiB / exit0
+  r3-baseline-noop: 0.579834s / 243.44MiB / exit0
+  r3-baseline-edit: 5.526351s / 629.81MiB / exit0
+  r3-fixed-init: 96.778827s / 1799.12MiB / exit0
+  r3-fixed-noop: 0.532383s / 243.27MiB / exit0
+  r3-fixed-edit: 5.128914s / 605.97MiB / exit0
+  r4-fixed-init: 101.968495s / 1791.52MiB / exit0
+  r4-fixed-noop: 0.536165s / 238.35MiB / exit0
+  r4-fixed-edit: 5.752695s / 648.89MiB / exit0
+  r4-baseline-init: 103.580293s / 1800.84MiB / exit0
+  r4-baseline-noop: 0.584533s / 243.85MiB / exit0
+  r4-baseline-edit: 5.291184s / 610.62MiB / exit0
+  fresh-edited-baseline: 111.617690s / 1785.56MiB / exit0
+  fresh-edited-fixed: 103.461712s / 1811.54MiB / exit0
 
-native（基线→修复，中位wall秒 / RSS MiB）：
-init: 95.020690→97.075791 (+2.16%) / 1783.53→1797.30
-noop: 0.538602→0.536812 (-0.33%) / 241.60→244.65
-edit: 5.058191→5.285342 (+4.49%) / 615.70→615.68
-  r1-baseline-init: wall=99.989174s RSS=1788.30MiB exit=0
-  r1-baseline-noop: wall=0.508333s RSS=230.18MiB exit=0
-  r1-baseline-edit: wall=4.723248s RSS=616.44MiB exit=0
-  r1-fixed-init: wall=95.162175s RSS=1797.39MiB exit=0
-  r1-fixed-noop: wall=0.572739s RSS=244.58MiB exit=0
-  r1-fixed-edit: wall=5.467312s RSS=614.52MiB exit=0
-  r2-fixed-init: wall=97.351036s RSS=1799.06MiB exit=0
-  r2-fixed-noop: wall=0.644252s RSS=242.56MiB exit=0
-  r2-fixed-edit: wall=5.961135s RSS=616.84MiB exit=0
-  r2-baseline-init: wall=95.168146s RSS=1802.12MiB exit=0
-  r2-baseline-noop: wall=0.541360s RSS=239.52MiB exit=0
-  r2-baseline-edit: wall=5.166699s RSS=608.00MiB exit=0
-  r3-baseline-init: wall=93.364920s RSS=1770.80MiB exit=0
-  r3-baseline-noop: wall=0.535844s RSS=243.67MiB exit=0
-  r3-baseline-edit: wall=6.220932s RSS=616.31MiB exit=0
-  r3-fixed-init: wall=96.870440s RSS=1797.21MiB exit=0
-  r3-fixed-noop: wall=0.493518s RSS=245.22MiB exit=0
-  r3-fixed-edit: wall=5.103371s RSS=626.96MiB exit=0
-  r4-fixed-init: wall=97.281142s RSS=1791.71MiB exit=0
-  r4-fixed-noop: wall=0.500884s RSS=244.71MiB exit=0
-  r4-fixed-edit: wall=5.032026s RSS=614.33MiB exit=0
-  r4-baseline-init: wall=94.873234s RSS=1778.75MiB exit=0
-  r4-baseline-noop: wall=0.587062s RSS=246.22MiB exit=0
-  r4-baseline-edit: wall=4.949682s RSS=615.08MiB exit=0
-  fresh-edited-baseline: wall=97.867955s RSS=1773.66MiB exit=0
-  fresh-edited-fixed: wall=94.860037s RSS=1794.90MiB exit=0
+native 基线→修复，中位wall秒 / RSS MiB：
+init: 106.352007→114.774301 (+7.92%) / 1782.56→1781.16
+noop: 0.644390→0.631985 (-1.92%) / 243.66→241.95
+edit: 5.460881→5.902980 (+8.10%) / 621.72→620.42
+  r1-baseline-init: 109.319060s / 1800.43MiB / exit0
+  r1-baseline-noop: 0.605834s / 246.02MiB / exit0
+  r1-baseline-edit: 5.828981s / 622.87MiB / exit0
+  r1-fixed-init: 104.982099s / 1796.73MiB / exit0
+  r1-fixed-noop: 0.614707s / 236.33MiB / exit0
+  r1-fixed-edit: 5.730226s / 621.41MiB / exit0
+  r2-fixed-init: 101.725845s / 1778.84MiB / exit0
+  r2-fixed-noop: 0.496564s / 244.17MiB / exit0
+  r2-fixed-edit: 4.988581s / 619.43MiB / exit0
+  r2-baseline-init: 96.278616s / 1779.49MiB / exit0
+  r2-baseline-noop: 0.484491s / 243.57MiB / exit0
+  r2-baseline-edit: 4.808577s / 623.81MiB / exit0
+  r3-baseline-init: 103.384954s / 1785.62MiB / exit0
+  r3-baseline-noop: 0.811109s / 243.74MiB / exit0
+  r3-baseline-edit: 5.092780s / 620.58MiB / exit0
+  r3-fixed-init: 125.551797s / 1782.75MiB / exit0
+  r3-fixed-noop: 0.754058s / 241.31MiB / exit0
+  r3-fixed-edit: 6.075734s / 615.00MiB / exit0
+  r4-fixed-init: 124.566503s / 1779.57MiB / exit0
+  r4-fixed-noop: 0.649264s / 242.60MiB / exit0
+  r4-fixed-edit: 7.511991s / 622.39MiB / exit0
+  r4-baseline-init: 128.681686s / 1765.68MiB / exit0
+  r4-baseline-noop: 0.682945s / 240.66MiB / exit0
+  r4-baseline-edit: 6.580412s / 618.42MiB / exit0
+  fresh-edited-baseline: 131.277669s / 1728.18MiB / exit0
+  fresh-edited-fixed: 118.960521s / 1787.73MiB / exit0
 
-图审计方法与覆盖：完整排序nodes排除updated_at、edges排除自增id后哈希。本轮52张快照（每模式26张）均保留JSONL；各版本四轮一致、空sync不变、增量与修改后新建一致，TS/native同版本完全一致。初始图和修改图均与优化前be7相同，零优化引入的未解释差异。
-此前语义分类只独立检查每模式第一轮初始差异，共2个差异对，其余通过全图哈希复用结论；不能称每张图都独立逐符号人工审查。该分类：基线107724节点、修复107836；62条旧节点变化（CRC56，xxhash注释签名6），112新增PerfContext字段由真实g++预处理全部确认。只规范化已由源TEST行确定的错误CRC名称/owner，保留ID或用kind/qname/file/line匹配；归一化后无旧合法节点丢失、无删边，120条新增contains=112字段+8正确CRC owner。未解释新增节点/删边为0。原始不等价差异仍完整保留，未以行号同名去重掩盖。
+发布判断与限制
+窄修复只针对289→30d新增的8条错误声明，不修复原有错误定义、不扩展全预处理可见性、不混入另一符号覆盖任务。性能结论必须结合上述全部配对方向，不以单轮作结论。不建议直接发布：正确性与旧库兼容性通过，但native小变更3/4对变慢，不能证明性能门槛已通过；Windows正式产物及13项基线已有失败也尚未解决。当前数据不足以把运行环境变化与修复本身的成本分离，不声称已证实因果性退化，也不忽略风险。没有授权或执行push/merge/release。
+Library官方上传如网络失败只记录失败，不改走旁路。旧optimized/reviewed材料是历史候选，guarded材料才对应本次冻结提交。
 
-新增发布阻断——本地宏入口的include兼容性：defs.h定义HELPER(n) struct n {};，main本地定义DECL(n) HELPER(n)再DECL(A)。g++ -include defs.h及本地宏化#include H均合法声明A；30d恢复A，3dc不恢复A。普通字面量include两版均有A；完全无include编译失败，30d错误恢复A，3dc不恢复A。可复现实验local-entry-include-risk.cjs及4份源代码/编译stderr/预处理结果保留。此项是已证实兼容回归，不可用现有测试无新增失败覆盖掉。
-原因：recoveryOnly只允许项目候选作为入口，其recoveryScope限于定义来源头闭包；本地DECL没有该闭包，递归HELPER被拒绝。禁止再次无条件开放全项目后备，否则无include负例及CRC污染复发。强制include与负例源码相同，必须获得编译参数证据才能安全区分。当前宏上下文没有强制include编译配置；宏化include也未建模，简单对象宏可另行设计受限解析，但本轮不以推测扩大范围。直接项目宏入口的兼容恢复并不等于所有本地包装宏兼容；原有说明需按此收窄。
+ts逐对wall变化（修复/基线-1）：
+init: -9.48%, -3.94%, -5.63%, -1.56%
+noop: +11.30%, -4.67%, -8.18%, -8.27%
+edit: +8.31%, -3.01%, -7.19%, +8.72%
 
-发布判断：HOLD。TS小变更四对均较慢；即使词法成本显著下降，也不能宣称无回退。另有上述真实编译器确认的合法A丢失、完整测试14个已有失败及Windows发布产物未验证。未进行推送/合并/发布。
+native逐对wall变化（修复/基线-1）：
+init: -3.97%, +5.66%, +21.44%, -3.20%
+noop: +1.46%, +2.49%, -7.03%, -4.93%
+edit: -1.69%, +3.74%, +19.30%, +14.16%
 
-Library官方上传如失败只报告网络失败，不使用替代签名链接或旁路；本地文件/提交/校验和为实际交付。此前reviewed文件为历史be7/da3材料，新optimized文件才对应本次冻结版本。
-
-本地提交（30d之后）：
+提交链（30d之后）：
 3c12493767e0ede16c2a08742ad8832223c4c124 test: 固化未包含头文件污染声明宏的发布回归
 ff6bbcaca0cf025ecdfdc609184966e28f3b0cf7 test: 对齐新库 schema 9 初始化断言
 9db518cff2d432a66248f64db3506e612e0cdb83 fix: 将声明宏递归展开限制在可见 include 证据内
@@ -98,13 +119,7 @@ be7b13cd92b3c56f8469986ac2bdf0b94d4bc688 perf: 并发读取宏来源并如实统
 da3c0ac0aa6494779f92bf33eda3a582313c2cfe docs: 完成 Linux 原生与 RocksDB 全图验收并记录性能代价
 7db25cf4f57be92f85f1048e1693e829ae40d3e8 perf: 用单次词法遍历消除 include 来源扫描的整文件双重遮罩
 3dc310b26082980e255baa2b168ebfabc5cb597d fix: 保留 include 扫描在非 LF 行边界下的既有语义
-
-追加机制结论（真实g++ 14.2.0预处理对照）：
-1. 直接##参数保留CRC；普通包装宏先预展开，得到0x1edc6f41再进入拼接。
-2. 拼接后的CRC_Probe_Test可再次展开为Rescanned。直接#得到"CRC"，包装后#得到"0x1edc6f41"。30d五组结果全部与编译器一致。
-3. 从RocksDB真实gtest.h提取TEST/GTEST_TEST/GTEST_TEST_/GTEST_TEST_CLASS_NAME_四个宏，编译器未include CRC时得到CRC_StandardResults_Test；显式定义CRC时得到0x1edc6f41_StandardResults_Test。30d在CRC仅来自项目后备时错误地生成后一形式。
-因此#／##参数顺序不是本案例污染根因。不能把深层##保护追溯到外层普通参数，否则破坏合法宏展开；不能禁止拼接后重扫描。新增6项编译器依据的顺序测试用于防止这种错误替代修复。
-两方案比较：来源约束候选能隔离未include的宏，但缺失forced/computed环境时损失合法本地包装入口并增加I/O；单纯#／##顺序方案无需include读取，却无法解决本案例，因为对应规则30d已正确。尚未证明满足全部要求的替代实现，因此未执行revert、未改宏产品逻辑、没有宣称修复闭环通过。现有候选停留在发布阻断状态，所有历史提交/原回归测试保留。后续最小必要信息是区分宏是否属于当前翻译单元的证据；若不提供该信息，只能明确接受恢复精度的权衡，不能同时承诺无污染与全部隐式include恢复。
-本次native中位小变更5.058191→5.285342秒（+4.49%），配对3慢1快；TS+4.92%且4慢0快。两个模式均不宣称性能回退消失。
-
-机制测试最终结果：新增6项及原22项可见性、112项语义身份测试合计140通过。完整套件结果仍指产品冻结3dc，之后只新增测试与验收文档，没有再次宣称完整套件全绿。
+a4b9a38fbca45776890426f5bed9c7c3845d3583 test: 固化预处理顺序证据并记录候选不可发布的兼容与性能结果
+b14378df923cc714a426dc67919bd3a7560db3f9 revert: 撤回未通过验收的宏来源限制及附属优化并恢复30d产品行为
+be5d8b22102d0540465989793503527968ac5c31 fix: 用完整数字token配对宏恢复的同一成员声明与定义
+594c45f7e10654b1fa64cd14dc58549942276c5c fix: 对宏恢复owner补全要求可靠词法边界及唯一组件

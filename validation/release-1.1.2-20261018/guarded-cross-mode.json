@@ -1,0 +1,110 @@
+{
+  "crossMode": {
+    "baseline-init": {
+      "nodes": true,
+      "edges": true
+    },
+    "baseline-edit": {
+      "nodes": true,
+      "edges": true
+    },
+    "fixed-init": {
+      "nodes": true,
+      "edges": true
+    },
+    "fixed-edit": {
+      "nodes": true,
+      "edges": true
+    }
+  },
+  "sameAsPriorNarrow": {
+    "ts-baseline-init": {
+      "nodes": true,
+      "edges": true
+    },
+    "native-baseline-init": {
+      "nodes": true,
+      "edges": true
+    },
+    "ts-baseline-edit": {
+      "nodes": true,
+      "edges": true
+    },
+    "native-baseline-edit": {
+      "nodes": true,
+      "edges": true
+    },
+    "ts-fixed-init": {
+      "nodes": true,
+      "edges": true
+    },
+    "native-fixed-init": {
+      "nodes": true,
+      "edges": true
+    },
+    "ts-fixed-edit": {
+      "nodes": true,
+      "edges": true
+    },
+    "native-fixed-edit": {
+      "nodes": true,
+      "edges": true
+    }
+  },
+  "nativeExecution": {
+    "r4-baseline-edit.log": [
+      "\u001b[K\u001b[2m\u2502\u001b[0m  \u001b[38;2;243;183;34m\u001b[1m\u00b7\u001b[0m Scanning files...[sync] macro-detail mode=rust reason=none files=1286 readFiles=1286 readErrors=0 bytes=25526271 fallbackFiles=0 readWallMs=0ms namesMs=0ms bodylessMs=0ms definitionsMs=0ms mergeMs=3ms nativeWallMs=167ms nativeReadSumMs=214ms nativeScanSumMs=120ms totalMs=169ms names=1124 bodyless=101 definitions=902"
+    ],
+    "r4-fixed-init.log": [
+      "[worker] macro-detail mode=rust reason=none files=1286 readFiles=1286 readErrors=0 bytes=25526167 fallbackFiles=0 readWallMs=0ms namesMs=0ms bodylessMs=0ms definitionsMs=0ms mergeMs=2ms nativeWallMs=156ms nativeReadSumMs=183ms nativeScanSumMs=121ms totalMs=158ms names=1124 bodyless=101 definitions=902"
+    ],
+    "r2-fixed-init.log": [
+      "[worker] macro-detail mode=rust reason=none files=1286 readFiles=1286 readErrors=0 bytes=25526167 fallbackFiles=0 readWallMs=0ms namesMs=0ms bodylessMs=0ms definitionsMs=0ms mergeMs=3ms nativeWallMs=156ms nativeReadSumMs=189ms nativeScanSumMs=115ms totalMs=158ms names=1124 bodyless=101 definitions=902"
+    ],
+    "r3-fixed-init.log": [
+      "[worker] macro-detail mode=rust reason=none files=1286 readFiles=1286 readErrors=0 bytes=25526167 fallbackFiles=0 readWallMs=0ms namesMs=0ms bodylessMs=0ms definitionsMs=0ms mergeMs=2ms nativeWallMs=158ms nativeReadSumMs=181ms nativeScanSumMs=114ms totalMs=160ms names=1124 bodyless=101 definitions=902"
+    ],
+    "r4-fixed-edit.log": [
+      "\u001b[K\u001b[2m\u2502\u001b[0m  \u001b[38;2;251;191;36m\u001b[1m\u2722\u001b[0m Scanning files...[sync] macro-detail mode=rust reason=none files=1286 readFiles=1286 readErrors=0 bytes=25526271 fallbackFiles=0 readWallMs=0ms namesMs=0ms bodylessMs=0ms definitionsMs=0ms mergeMs=3ms nativeWallMs=213ms nativeReadSumMs=257ms nativeScanSumMs=126ms totalMs=215ms names=1124 bodyless=101 definitions=902"
+    ],
+    "r2-fixed-edit.log": [
+      "\u001b[K\u001b[2m\u2502\u001b[0m  \u001b[38;2;227;167;29m\u001b[1m\u00b7\u001b[0m Scanning files...[sync] macro-detail mode=rust reason=none files=1286 readFiles=1286 readErrors=0 bytes=25526271 fallbackFiles=0 readWallMs=0ms namesMs=0ms bodylessMs=0ms definitionsMs=0ms mergeMs=3ms nativeWallMs=144ms nativeReadSumMs=161ms nativeScanSumMs=107ms totalMs=147ms names=1124 bodyless=101 definitions=902"
+    ],
+    "r1-baseline-edit.log": [
+      "\u001b[K\u001b[2m\u2502\u001b[0m  \u001b[38;2;251;191;36m\u001b[1m\u2722\u001b[0m Scanning files...[sync] macro-detail mode=rust reason=none files=1286 readFiles=1286 readErrors=0 bytes=25526271 fallbackFiles=0 readWallMs=0ms namesMs=0ms bodylessMs=0ms definitionsMs=0ms mergeMs=4ms nativeWallMs=290ms nativeReadSumMs=349ms nativeScanSumMs=164ms totalMs=292ms names=1124 bodyless=101 definitions=902"
+    ],
+    "r1-fixed-init.log": [
+      "[worker] macro-detail mode=rust reason=none files=1286 readFiles=1286 readErrors=0 bytes=25526167 fallbackFiles=0 readWallMs=0ms namesMs=0ms bodylessMs=0ms definitionsMs=0ms mergeMs=4ms nativeWallMs=232ms nativeReadSumMs=212ms nativeScanSumMs=148ms totalMs=235ms names=1124 bodyless=101 definitions=902"
+    ],
+    "r3-fixed-edit.log": [
+      "\u001b[K\u001b[2m\u2502\u001b[0m  \u001b[38;2;243;183;34m\u001b[1m\u00b7\u001b[0m Scanning files...[sync] macro-detail mode=rust reason=none files=1286 readFiles=1286 readErrors=0 bytes=25526271 fallbackFiles=0 readWallMs=0ms namesMs=0ms bodylessMs=0ms definitionsMs=0ms mergeMs=3ms nativeWallMs=151ms nativeReadSumMs=181ms nativeScanSumMs=112ms totalMs=153ms names=1124 bodyless=101 definitions=902"
+    ],
+    "r3-baseline-init.log": [
+      "[worker] macro-detail mode=rust reason=none files=1286 readFiles=1286 readErrors=0 bytes=25526167 fallbackFiles=0 readWallMs=0ms namesMs=0ms bodylessMs=0ms definitionsMs=0ms mergeMs=3ms nativeWallMs=145ms nativeReadSumMs=162ms nativeScanSumMs=109ms totalMs=147ms names=1124 bodyless=101 definitions=902"
+    ],
+    "r1-baseline-init.log": [
+      "[worker] macro-detail mode=rust reason=none files=1286 readFiles=1286 readErrors=0 bytes=25526167 fallbackFiles=0 readWallMs=0ms namesMs=0ms bodylessMs=0ms definitionsMs=0ms mergeMs=3ms nativeWallMs=185ms nativeReadSumMs=227ms nativeScanSumMs=129ms totalMs=187ms names=1124 bodyless=101 definitions=902"
+    ],
+    "fresh-edited-baseline.log": [
+      "[worker] macro-detail mode=rust reason=none files=1286 readFiles=1286 readErrors=0 bytes=25526271 fallbackFiles=0 readWallMs=0ms namesMs=0ms bodylessMs=0ms definitionsMs=0ms mergeMs=3ms nativeWallMs=155ms nativeReadSumMs=175ms nativeScanSumMs=116ms totalMs=157ms names=1124 bodyless=101 definitions=902"
+    ],
+    "r3-baseline-edit.log": [
+      "\u001b[K\u001b[2m\u2502\u001b[0m  \u001b[38;2;243;183;34m\u001b[1m\u00b7\u001b[0m Scanning files...[sync] macro-detail mode=rust reason=none files=1286 readFiles=1286 readErrors=0 bytes=25526271 fallbackFiles=0 readWallMs=0ms namesMs=0ms bodylessMs=0ms definitionsMs=0ms mergeMs=3ms nativeWallMs=155ms nativeReadSumMs=181ms nativeScanSumMs=118ms totalMs=157ms names=1124 bodyless=101 definitions=902"
+    ],
+    "r4-baseline-init.log": [
+      "[worker] macro-detail mode=rust reason=none files=1286 readFiles=1286 readErrors=0 bytes=25526167 fallbackFiles=0 readWallMs=0ms namesMs=0ms bodylessMs=0ms definitionsMs=0ms mergeMs=4ms nativeWallMs=205ms nativeReadSumMs=190ms nativeScanSumMs=131ms totalMs=207ms names=1124 bodyless=101 definitions=902"
+    ],
+    "r1-fixed-edit.log": [
+      "\u001b[K\u001b[2m\u2502\u001b[0m  \u001b[38;2;243;183;34m\u001b[1m\u00b7\u001b[0m Scanning files...[sync] macro-detail mode=rust reason=none files=1286 readFiles=1286 readErrors=0 bytes=25526271 fallbackFiles=0 readWallMs=0ms namesMs=0ms bodylessMs=0ms definitionsMs=0ms mergeMs=3ms nativeWallMs=170ms nativeReadSumMs=213ms nativeScanSumMs=117ms totalMs=172ms names=1124 bodyless=101 definitions=902"
+    ],
+    "r2-baseline-edit.log": [
+      "\u001b[K\u001b[2m\u2502\u001b[0m  \u001b[38;2;227;167;29m\u001b[1m\u00b7\u001b[0m Scanning files...[sync] macro-detail mode=rust reason=none files=1286 readFiles=1286 readErrors=0 bytes=25526271 fallbackFiles=0 readWallMs=0ms namesMs=0ms bodylessMs=0ms definitionsMs=0ms mergeMs=3ms nativeWallMs=146ms nativeReadSumMs=168ms nativeScanSumMs=107ms totalMs=147ms names=1124 bodyless=101 definitions=902"
+    ],
+    "fresh-edited-fixed.log": [
+      "[worker] macro-detail mode=rust reason=none files=1286 readFiles=1286 readErrors=0 bytes=25526271 fallbackFiles=0 readWallMs=0ms namesMs=0ms bodylessMs=0ms definitionsMs=0ms mergeMs=3ms nativeWallMs=257ms nativeReadSumMs=283ms nativeScanSumMs=153ms totalMs=259ms names=1124 bodyless=101 definitions=902"
+    ],
+    "r2-baseline-init.log": [
+      "[worker] macro-detail mode=rust reason=none files=1286 readFiles=1286 readErrors=0 bytes=25526167 fallbackFiles=0 readWallMs=0ms namesMs=0ms bodylessMs=0ms definitionsMs=0ms mergeMs=5ms nativeWallMs=168ms nativeReadSumMs=230ms nativeScanSumMs=114ms totalMs=171ms names=1124 bodyless=101 definitions=902"
+    ]
+  }
+}

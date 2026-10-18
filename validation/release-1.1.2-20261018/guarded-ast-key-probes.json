@@ -1,0 +1,540 @@
+{
+  "baseline": {
+    "exponent": {
+      "source": "class 1e+2Foo { void run(); }; class 3e+2Foo { void run(); };",
+      "ast": "(translation_unit (class_specifier (ERROR (number_literal)) name: (type_identifier) body: (field_declaration_list (field_declaration type: (primitive_type) declarator: (function_declarator declarator: (field_identifier) parameters: (parameter_list))))) (class_specifier (ERROR (number_literal)) name: (type_identifier) body: (field_declaration_list (field_declaration type: (primitive_type) declarator: (function_declarator declarator: (field_identifier) parameters: (parameter_list))))))",
+      "rows": [
+        {
+          "owners": [
+            {
+              "name": "oo",
+              "start": 11,
+              "end": 13,
+              "type": "type_identifier",
+              "error": true
+            }
+          ],
+          "qualified": "oo::run",
+          "key": "method:d53bc29825f0576528ae2231f10eeb40",
+          "nodeType": "field_declaration",
+          "nodeText": "void run();"
+        },
+        {
+          "owners": [
+            {
+              "name": "oo",
+              "start": 42,
+              "end": 44,
+              "type": "type_identifier",
+              "error": true
+            }
+          ],
+          "qualified": "oo::run",
+          "key": "method:d53bc29825f0576528ae2231f10eeb40",
+          "nodeType": "field_declaration",
+          "nodeText": "void run();"
+        }
+      ]
+    },
+    "separator": {
+      "source": "class 1'000Foo { void run(); }; class 2'000Foo { void run(); };",
+      "ast": "(translation_unit (class_specifier (ERROR (number_literal)) name: (type_identifier) body: (field_declaration_list (field_declaration type: (primitive_type) declarator: (function_declarator declarator: (field_identifier) parameters: (parameter_list))))) (class_specifier (ERROR (number_literal)) name: (type_identifier) body: (field_declaration_list (field_declaration type: (primitive_type) declarator: (function_declarator declarator: (field_identifier) parameters: (parameter_list))))))",
+      "rows": [
+        {
+          "owners": [
+            {
+              "name": "Foo",
+              "start": 11,
+              "end": 14,
+              "type": "type_identifier",
+              "error": true
+            }
+          ],
+          "qualified": "Foo::run",
+          "key": "method:631c622b4505fd8b13bb415bf1c953a2",
+          "nodeType": "field_declaration",
+          "nodeText": "void run();"
+        },
+        {
+          "owners": [
+            {
+              "name": "Foo",
+              "start": 43,
+              "end": 46,
+              "type": "type_identifier",
+              "error": true
+            }
+          ],
+          "qualified": "Foo::run",
+          "key": "method:631c622b4505fd8b13bb415bf1c953a2",
+          "nodeType": "field_declaration",
+          "nodeText": "void run();"
+        }
+      ]
+    },
+    "unicode": {
+      "source": "class 1α000Foo { void run(); }; class 2α000Foo { void run(); };",
+      "ast": "(translation_unit (class_specifier (ERROR (number_literal)) name: (type_identifier) body: (field_declaration_list (field_declaration type: (primitive_type) declarator: (function_declarator declarator: (field_identifier) parameters: (parameter_list))))) (class_specifier (ERROR (number_literal)) name: (type_identifier) body: (field_declaration_list (field_declaration type: (primitive_type) declarator: (function_declarator declarator: (field_identifier) parameters: (parameter_list))))))",
+      "rows": [
+        {
+          "owners": [
+            {
+              "name": "α000Foo",
+              "start": 7,
+              "end": 14,
+              "type": "type_identifier",
+              "error": true
+            }
+          ],
+          "qualified": "α000Foo::run",
+          "key": "method:25a01134f49d7d713ddfee2cab2e8f88",
+          "nodeType": "field_declaration",
+          "nodeText": "void run();"
+        },
+        {
+          "owners": [
+            {
+              "name": "α000Foo",
+              "start": 39,
+              "end": 46,
+              "type": "type_identifier",
+              "error": true
+            }
+          ],
+          "qualified": "α000Foo::run",
+          "key": "method:25a01134f49d7d713ddfee2cab2e8f88",
+          "nodeType": "field_declaration",
+          "nodeText": "void run();"
+        }
+      ]
+    },
+    "dollar": {
+      "source": "class 1$000Foo { void run(); }; class 2$000Foo { void run(); };",
+      "ast": "(translation_unit (class_specifier (ERROR (number_literal)) name: (type_identifier) body: (field_declaration_list (field_declaration type: (primitive_type) declarator: (function_declarator declarator: (field_identifier) parameters: (parameter_list))))) (class_specifier (ERROR (number_literal)) name: (type_identifier) body: (field_declaration_list (field_declaration type: (primitive_type) declarator: (function_declarator declarator: (field_identifier) parameters: (parameter_list))))))",
+      "rows": [
+        {
+          "owners": [
+            {
+              "name": "$000Foo",
+              "start": 7,
+              "end": 14,
+              "type": "type_identifier",
+              "error": true
+            }
+          ],
+          "qualified": "$000Foo::run",
+          "key": "method:57479a286df49181d05399e4792e7b85",
+          "nodeType": "field_declaration",
+          "nodeText": "void run();"
+        },
+        {
+          "owners": [
+            {
+              "name": "$000Foo",
+              "start": 39,
+              "end": 46,
+              "type": "type_identifier",
+              "error": true
+            }
+          ],
+          "qualified": "$000Foo::run",
+          "key": "method:57479a286df49181d05399e4792e7b85",
+          "nodeType": "field_declaration",
+          "nodeText": "void run();"
+        }
+      ]
+    },
+    "escaped": {
+      "source": "class 1\\u0061000Foo { void run(); }; class 2\\u0061000Foo { void run(); };",
+      "ast": "(translation_unit (class_specifier (ERROR (number_literal)) name: (type_identifier) body: (field_declaration_list (field_declaration type: (primitive_type) declarator: (function_declarator declarator: (field_identifier) parameters: (parameter_list))))) (class_specifier (ERROR (number_literal)) name: (type_identifier) body: (field_declaration_list (field_declaration type: (primitive_type) declarator: (function_declarator declarator: (field_identifier) parameters: (parameter_list))))))",
+      "rows": [
+        {
+          "owners": [
+            {
+              "name": "\\u0061000Foo",
+              "start": 7,
+              "end": 19,
+              "type": "type_identifier",
+              "error": true
+            }
+          ],
+          "qualified": "\\u0061000Foo::run",
+          "key": "method:69b0be5878d21b3bd20cdb0bc187610b",
+          "nodeType": "field_declaration",
+          "nodeText": "void run();"
+        },
+        {
+          "owners": [
+            {
+              "name": "\\u0061000Foo",
+              "start": 44,
+              "end": 56,
+              "type": "type_identifier",
+              "error": true
+            }
+          ],
+          "qualified": "\\u0061000Foo::run",
+          "key": "method:69b0be5878d21b3bd20cdb0bc187610b",
+          "nodeType": "field_declaration",
+          "nodeText": "void run();"
+        }
+      ]
+    },
+    "nestedSame": {
+      "source": "class 0x12Foo { struct x12Foo { void run(); }; };",
+      "ast": "(translation_unit (class_specifier (ERROR) name: (type_identifier) body: (field_declaration_list (field_declaration type: (struct_specifier name: (type_identifier) body: (field_declaration_list (field_declaration type: (primitive_type) declarator: (function_declarator declarator: (field_identifier) parameters: (parameter_list)))))))))",
+      "rows": [
+        {
+          "owners": [
+            {
+              "name": "x12Foo",
+              "start": 7,
+              "end": 13,
+              "type": "type_identifier",
+              "error": true
+            },
+            {
+              "name": "x12Foo",
+              "start": 23,
+              "end": 29,
+              "type": "type_identifier",
+              "error": false
+            }
+          ],
+          "qualified": "x12Foo::x12Foo::run",
+          "key": "method:f4e59f2136377cdaff35633e5aee371f",
+          "nodeType": "field_declaration",
+          "nodeText": "void run();"
+        }
+      ]
+    },
+    "nestedSuffix": {
+      "source": "class 0x12Foo { struct Prefixx12Foo { void run(); }; };",
+      "ast": "(translation_unit (class_specifier (ERROR) name: (type_identifier) body: (field_declaration_list (field_declaration type: (struct_specifier name: (type_identifier) body: (field_declaration_list (field_declaration type: (primitive_type) declarator: (function_declarator declarator: (field_identifier) parameters: (parameter_list)))))))))",
+      "rows": [
+        {
+          "owners": [
+            {
+              "name": "x12Foo",
+              "start": 7,
+              "end": 13,
+              "type": "type_identifier",
+              "error": true
+            },
+            {
+              "name": "Prefixx12Foo",
+              "start": 23,
+              "end": 35,
+              "type": "type_identifier",
+              "error": false
+            }
+          ],
+          "qualified": "x12Foo::Prefixx12Foo::run",
+          "key": "method:e2d35d4a4a0f161c6573af6e7fee4085",
+          "nodeType": "field_declaration",
+          "nodeText": "void run();"
+        }
+      ]
+    },
+    "simple": {
+      "source": "class 0x12Foo { void run(); };",
+      "ast": "(translation_unit (class_specifier (ERROR) name: (type_identifier) body: (field_declaration_list (field_declaration type: (primitive_type) declarator: (function_declarator declarator: (field_identifier) parameters: (parameter_list))))))",
+      "rows": [
+        {
+          "owners": [
+            {
+              "name": "x12Foo",
+              "start": 7,
+              "end": 13,
+              "type": "type_identifier",
+              "error": true
+            }
+          ],
+          "qualified": "x12Foo::run",
+          "key": "method:e871a47e1a058b779aa1ab21d4d1728f",
+          "nodeType": "field_declaration",
+          "nodeText": "void run();"
+        }
+      ]
+    },
+    "nonAsciiBoundary": {
+      "source": "class 1 2Foo { void run(); };",
+      "ast": "(translation_unit (ERROR (number_literal) (UNEXPECTED 160) (user_defined_literal (number_literal) (literal_suffix))) (compound_statement (declaration type: (primitive_type) declarator: (function_declarator declarator: (identifier) parameters: (parameter_list)))) (expression_statement))",
+      "rows": []
+    },
+    "lineContinuation": {
+      "source": "class 1\\\n23Foo { void run(); };",
+      "ast": "(translation_unit (ERROR (number_literal) (user_defined_literal (number_literal) (literal_suffix))) (compound_statement (declaration type: (primitive_type) declarator: (function_declarator declarator: (identifier) parameters: (parameter_list)))) (expression_statement))",
+      "rows": []
+    }
+  },
+  "fixed": {
+    "exponent": {
+      "source": "class 1e+2Foo { void run(); }; class 3e+2Foo { void run(); };",
+      "ast": "(translation_unit (class_specifier (ERROR (number_literal)) name: (type_identifier) body: (field_declaration_list (field_declaration type: (primitive_type) declarator: (function_declarator declarator: (field_identifier) parameters: (parameter_list))))) (class_specifier (ERROR (number_literal)) name: (type_identifier) body: (field_declaration_list (field_declaration type: (primitive_type) declarator: (function_declarator declarator: (field_identifier) parameters: (parameter_list))))))",
+      "rows": [
+        {
+          "owners": [
+            {
+              "name": "oo",
+              "start": 11,
+              "end": 13,
+              "type": "type_identifier",
+              "error": true
+            }
+          ],
+          "qualified": "oo::run",
+          "key": "method:d53bc29825f0576528ae2231f10eeb40",
+          "nodeType": "field_declaration",
+          "nodeText": "void run();"
+        },
+        {
+          "owners": [
+            {
+              "name": "oo",
+              "start": 42,
+              "end": 44,
+              "type": "type_identifier",
+              "error": true
+            }
+          ],
+          "qualified": "oo::run",
+          "key": "method:d53bc29825f0576528ae2231f10eeb40",
+          "nodeType": "field_declaration",
+          "nodeText": "void run();"
+        }
+      ]
+    },
+    "separator": {
+      "source": "class 1'000Foo { void run(); }; class 2'000Foo { void run(); };",
+      "ast": "(translation_unit (class_specifier (ERROR (number_literal)) name: (type_identifier) body: (field_declaration_list (field_declaration type: (primitive_type) declarator: (function_declarator declarator: (field_identifier) parameters: (parameter_list))))) (class_specifier (ERROR (number_literal)) name: (type_identifier) body: (field_declaration_list (field_declaration type: (primitive_type) declarator: (function_declarator declarator: (field_identifier) parameters: (parameter_list))))))",
+      "rows": [
+        {
+          "owners": [
+            {
+              "name": "Foo",
+              "start": 11,
+              "end": 14,
+              "type": "type_identifier",
+              "error": true
+            }
+          ],
+          "qualified": "Foo::run",
+          "key": "method:631c622b4505fd8b13bb415bf1c953a2",
+          "nodeType": "field_declaration",
+          "nodeText": "void run();"
+        },
+        {
+          "owners": [
+            {
+              "name": "Foo",
+              "start": 43,
+              "end": 46,
+              "type": "type_identifier",
+              "error": true
+            }
+          ],
+          "qualified": "Foo::run",
+          "key": "method:631c622b4505fd8b13bb415bf1c953a2",
+          "nodeType": "field_declaration",
+          "nodeText": "void run();"
+        }
+      ]
+    },
+    "unicode": {
+      "source": "class 1α000Foo { void run(); }; class 2α000Foo { void run(); };",
+      "ast": "(translation_unit (class_specifier (ERROR (number_literal)) name: (type_identifier) body: (field_declaration_list (field_declaration type: (primitive_type) declarator: (function_declarator declarator: (field_identifier) parameters: (parameter_list))))) (class_specifier (ERROR (number_literal)) name: (type_identifier) body: (field_declaration_list (field_declaration type: (primitive_type) declarator: (function_declarator declarator: (field_identifier) parameters: (parameter_list))))))",
+      "rows": [
+        {
+          "owners": [
+            {
+              "name": "α000Foo",
+              "start": 7,
+              "end": 14,
+              "type": "type_identifier",
+              "error": true
+            }
+          ],
+          "qualified": "α000Foo::run",
+          "key": "method:25a01134f49d7d713ddfee2cab2e8f88",
+          "nodeType": "field_declaration",
+          "nodeText": "void run();"
+        },
+        {
+          "owners": [
+            {
+              "name": "α000Foo",
+              "start": 39,
+              "end": 46,
+              "type": "type_identifier",
+              "error": true
+            }
+          ],
+          "qualified": "α000Foo::run",
+          "key": "method:25a01134f49d7d713ddfee2cab2e8f88",
+          "nodeType": "field_declaration",
+          "nodeText": "void run();"
+        }
+      ]
+    },
+    "dollar": {
+      "source": "class 1$000Foo { void run(); }; class 2$000Foo { void run(); };",
+      "ast": "(translation_unit (class_specifier (ERROR (number_literal)) name: (type_identifier) body: (field_declaration_list (field_declaration type: (primitive_type) declarator: (function_declarator declarator: (field_identifier) parameters: (parameter_list))))) (class_specifier (ERROR (number_literal)) name: (type_identifier) body: (field_declaration_list (field_declaration type: (primitive_type) declarator: (function_declarator declarator: (field_identifier) parameters: (parameter_list))))))",
+      "rows": [
+        {
+          "owners": [
+            {
+              "name": "$000Foo",
+              "start": 7,
+              "end": 14,
+              "type": "type_identifier",
+              "error": true
+            }
+          ],
+          "qualified": "$000Foo::run",
+          "key": "method:57479a286df49181d05399e4792e7b85",
+          "nodeType": "field_declaration",
+          "nodeText": "void run();"
+        },
+        {
+          "owners": [
+            {
+              "name": "$000Foo",
+              "start": 39,
+              "end": 46,
+              "type": "type_identifier",
+              "error": true
+            }
+          ],
+          "qualified": "$000Foo::run",
+          "key": "method:57479a286df49181d05399e4792e7b85",
+          "nodeType": "field_declaration",
+          "nodeText": "void run();"
+        }
+      ]
+    },
+    "escaped": {
+      "source": "class 1\\u0061000Foo { void run(); }; class 2\\u0061000Foo { void run(); };",
+      "ast": "(translation_unit (class_specifier (ERROR (number_literal)) name: (type_identifier) body: (field_declaration_list (field_declaration type: (primitive_type) declarator: (function_declarator declarator: (field_identifier) parameters: (parameter_list))))) (class_specifier (ERROR (number_literal)) name: (type_identifier) body: (field_declaration_list (field_declaration type: (primitive_type) declarator: (function_declarator declarator: (field_identifier) parameters: (parameter_list))))))",
+      "rows": [
+        {
+          "owners": [
+            {
+              "name": "\\u0061000Foo",
+              "start": 7,
+              "end": 19,
+              "type": "type_identifier",
+              "error": true
+            }
+          ],
+          "qualified": "\\u0061000Foo::run",
+          "key": "method:69b0be5878d21b3bd20cdb0bc187610b",
+          "nodeType": "field_declaration",
+          "nodeText": "void run();"
+        },
+        {
+          "owners": [
+            {
+              "name": "\\u0061000Foo",
+              "start": 44,
+              "end": 56,
+              "type": "type_identifier",
+              "error": true
+            }
+          ],
+          "qualified": "\\u0061000Foo::run",
+          "key": "method:69b0be5878d21b3bd20cdb0bc187610b",
+          "nodeType": "field_declaration",
+          "nodeText": "void run();"
+        }
+      ]
+    },
+    "nestedSame": {
+      "source": "class 0x12Foo { struct x12Foo { void run(); }; };",
+      "ast": "(translation_unit (class_specifier (ERROR) name: (type_identifier) body: (field_declaration_list (field_declaration type: (struct_specifier name: (type_identifier) body: (field_declaration_list (field_declaration type: (primitive_type) declarator: (function_declarator declarator: (field_identifier) parameters: (parameter_list)))))))))",
+      "rows": [
+        {
+          "owners": [
+            {
+              "name": "x12Foo",
+              "start": 7,
+              "end": 13,
+              "type": "type_identifier",
+              "error": true
+            },
+            {
+              "name": "x12Foo",
+              "start": 23,
+              "end": 29,
+              "type": "type_identifier",
+              "error": false
+            }
+          ],
+          "qualified": "x12Foo::x12Foo::run",
+          "key": "method:f4e59f2136377cdaff35633e5aee371f",
+          "nodeType": "field_declaration",
+          "nodeText": "void run();"
+        }
+      ]
+    },
+    "nestedSuffix": {
+      "source": "class 0x12Foo { struct Prefixx12Foo { void run(); }; };",
+      "ast": "(translation_unit (class_specifier (ERROR) name: (type_identifier) body: (field_declaration_list (field_declaration type: (struct_specifier name: (type_identifier) body: (field_declaration_list (field_declaration type: (primitive_type) declarator: (function_declarator declarator: (field_identifier) parameters: (parameter_list)))))))))",
+      "rows": [
+        {
+          "owners": [
+            {
+              "name": "x12Foo",
+              "start": 7,
+              "end": 13,
+              "type": "type_identifier",
+              "error": true
+            },
+            {
+              "name": "Prefixx12Foo",
+              "start": 23,
+              "end": 35,
+              "type": "type_identifier",
+              "error": false
+            }
+          ],
+          "qualified": "x12Foo::Prefixx12Foo::run",
+          "key": "method:e2d35d4a4a0f161c6573af6e7fee4085",
+          "nodeType": "field_declaration",
+          "nodeText": "void run();"
+        }
+      ]
+    },
+    "simple": {
+      "source": "class 0x12Foo { void run(); };",
+      "ast": "(translation_unit (class_specifier (ERROR) name: (type_identifier) body: (field_declaration_list (field_declaration type: (primitive_type) declarator: (function_declarator declarator: (field_identifier) parameters: (parameter_list))))))",
+      "rows": [
+        {
+          "owners": [
+            {
+              "name": "x12Foo",
+              "start": 7,
+              "end": 13,
+              "type": "type_identifier",
+              "error": true
+            }
+          ],
+          "qualified": "x12Foo::run",
+          "key": "method:633038afe70010a78cd354898aae203c",
+          "nodeType": "field_declaration",
+          "nodeText": "void run();"
+        }
+      ]
+    },
+    "nonAsciiBoundary": {
+      "source": "class 1 2Foo { void run(); };",
+      "ast": "(translation_unit (ERROR (number_literal) (UNEXPECTED 160) (user_defined_literal (number_literal) (literal_suffix))) (compound_statement (declaration type: (primitive_type) declarator: (function_declarator declarator: (identifier) parameters: (parameter_list)))) (expression_statement))",
+      "rows": []
+    },
+    "lineContinuation": {
+      "source": "class 1\\\n23Foo { void run(); };",
+      "ast": "(translation_unit (ERROR (number_literal) (user_defined_literal (number_literal) (literal_suffix))) (compound_statement (declaration type: (primitive_type) declarator: (function_declarator declarator: (identifier) parameters: (parameter_list)))) (expression_statement))",
+      "rows": []
+    }
+  }
+}

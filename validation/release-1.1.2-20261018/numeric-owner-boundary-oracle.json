@@ -1,0 +1,56 @@
+[
+  {
+    "name": "exponent",
+    "source": "class 1e+2Foo { void run(); }; class 3e+2Foo { void run(); };",
+    "keys": [
+      "method:d53bc29825f0576528ae2231f10eeb40",
+      "method:d53bc29825f0576528ae2231f10eeb40"
+    ]
+  },
+  {
+    "name": "separator",
+    "source": "class 1'000Foo { void run(); }; class 2'000Foo { void run(); };",
+    "keys": [
+      "method:631c622b4505fd8b13bb415bf1c953a2",
+      "method:631c622b4505fd8b13bb415bf1c953a2"
+    ]
+  },
+  {
+    "name": "unicode",
+    "source": "class 1α000Foo { void run(); }; class 2α000Foo { void run(); };",
+    "keys": [
+      "method:25a01134f49d7d713ddfee2cab2e8f88",
+      "method:25a01134f49d7d713ddfee2cab2e8f88"
+    ]
+  },
+  {
+    "name": "dollar",
+    "source": "class 1$000Foo { void run(); }; class 2$000Foo { void run(); };",
+    "keys": [
+      "method:57479a286df49181d05399e4792e7b85",
+      "method:57479a286df49181d05399e4792e7b85"
+    ]
+  },
+  {
+    "name": "escaped",
+    "source": "class 1\\u0061000Foo { void run(); }; class 2\\u0061000Foo { void run(); };",
+    "keys": [
+      "method:69b0be5878d21b3bd20cdb0bc187610b",
+      "method:69b0be5878d21b3bd20cdb0bc187610b"
+    ]
+  },
+  {
+    "name": "nestedSame",
+    "source": "class 0x12Foo { struct x12Foo { void run(); }; };",
+    "keys": [
+      "method:f4e59f2136377cdaff35633e5aee371f"
+    ]
+  },
+  {
+    "name": "nestedSuffix",
+    "source": "class 0x12Foo { struct Prefixx12Foo { void run(); }; };",
+    "keys": [
+      "method:e2d35d4a4a0f161c6573af6e7fee4085"
+    ]
+  }
+]

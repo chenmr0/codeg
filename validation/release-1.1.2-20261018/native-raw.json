@@ -1,0 +1,262 @@
+[
+  {
+    "version": "baseline",
+    "operation": "init",
+    "label": "r1-baseline-init",
+    "wall_seconds": 109.31906017700021,
+    "process_group_peak_rss_mib": 1800.43359375,
+    "samples": 2083,
+    "exitCode": 0,
+    "stopReasons": []
+  },
+  {
+    "version": "baseline",
+    "operation": "sync",
+    "label": "r1-baseline-noop",
+    "wall_seconds": 0.6058343830009107,
+    "process_group_peak_rss_mib": 246.01953125,
+    "samples": 12,
+    "exitCode": 0,
+    "stopReasons": []
+  },
+  {
+    "version": "baseline",
+    "operation": "sync",
+    "label": "r1-baseline-edit",
+    "wall_seconds": 5.828981481001392,
+    "process_group_peak_rss_mib": 622.87109375,
+    "samples": 113,
+    "exitCode": 0,
+    "stopReasons": []
+  },
+  {
+    "version": "fixed",
+    "operation": "init",
+    "label": "r1-fixed-init",
+    "wall_seconds": 104.9820991810011,
+    "process_group_peak_rss_mib": 1796.734375,
+    "samples": 2003,
+    "exitCode": 0,
+    "stopReasons": []
+  },
+  {
+    "version": "fixed",
+    "operation": "sync",
+    "label": "r1-fixed-noop",
+    "wall_seconds": 0.6147066590019676,
+    "process_group_peak_rss_mib": 236.33203125,
+    "samples": 12,
+    "exitCode": 0,
+    "stopReasons": []
+  },
+  {
+    "version": "fixed",
+    "operation": "sync",
+    "label": "r1-fixed-edit",
+    "wall_seconds": 5.7302256479997595,
+    "process_group_peak_rss_mib": 621.4140625,
+    "samples": 111,
+    "exitCode": 0,
+    "stopReasons": []
+  },
+  {
+    "version": "fixed",
+    "operation": "init",
+    "label": "r2-fixed-init",
+    "wall_seconds": 101.72584496999843,
+    "process_group_peak_rss_mib": 1778.8359375,
+    "samples": 1942,
+    "exitCode": 0,
+    "stopReasons": []
+  },
+  {
+    "version": "fixed",
+    "operation": "sync",
+    "label": "r2-fixed-noop",
+    "wall_seconds": 0.49656429099923116,
+    "process_group_peak_rss_mib": 244.16796875,
+    "samples": 10,
+    "exitCode": 0,
+    "stopReasons": []
+  },
+  {
+    "version": "fixed",
+    "operation": "sync",
+    "label": "r2-fixed-edit",
+    "wall_seconds": 4.988581118002912,
+    "process_group_peak_rss_mib": 619.43359375,
+    "samples": 96,
+    "exitCode": 0,
+    "stopReasons": []
+  },
+  {
+    "version": "baseline",
+    "operation": "init",
+    "label": "r2-baseline-init",
+    "wall_seconds": 96.27861610000036,
+    "process_group_peak_rss_mib": 1779.48828125,
+    "samples": 1843,
+    "exitCode": 0,
+    "stopReasons": []
+  },
+  {
+    "version": "baseline",
+    "operation": "sync",
+    "label": "r2-baseline-noop",
+    "wall_seconds": 0.48449117700147326,
+    "process_group_peak_rss_mib": 243.57421875,
+    "samples": 10,
+    "exitCode": 0,
+    "stopReasons": []
+  },
+  {
+    "version": "baseline",
+    "operation": "sync",
+    "label": "r2-baseline-edit",
+    "wall_seconds": 4.808576935000019,
+    "process_group_peak_rss_mib": 623.8125,
+    "samples": 92,
+    "exitCode": 0,
+    "stopReasons": []
+  },
+  {
+    "version": "baseline",
+    "operation": "init",
+    "label": "r3-baseline-init",
+    "wall_seconds": 103.38495428399983,
+    "process_group_peak_rss_mib": 1785.625,
+    "samples": 1973,
+    "exitCode": 0,
+    "stopReasons": []
+  },
+  {
+    "version": "baseline",
+    "operation": "sync",
+    "label": "r3-baseline-noop",
+    "wall_seconds": 0.8111085199998342,
+    "process_group_peak_rss_mib": 243.73828125,
+    "samples": 15,
+    "exitCode": 0,
+    "stopReasons": []
+  },
+  {
+    "version": "baseline",
+    "operation": "sync",
+    "label": "r3-baseline-edit",
+    "wall_seconds": 5.092779601000075,
+    "process_group_peak_rss_mib": 620.578125,
+    "samples": 99,
+    "exitCode": 0,
+    "stopReasons": []
+  },
+  {
+    "version": "fixed",
+    "operation": "init",
+    "label": "r3-fixed-init",
+    "wall_seconds": 125.5517974760005,
+    "process_group_peak_rss_mib": 1782.74609375,
+    "samples": 2363,
+    "exitCode": 0,
+    "stopReasons": []
+  },
+  {
+    "version": "fixed",
+    "operation": "sync",
+    "label": "r3-fixed-noop",
+    "wall_seconds": 0.7540580710010545,
+    "process_group_peak_rss_mib": 241.30859375,
+    "samples": 14,
+    "exitCode": 0,
+    "stopReasons": []
+  },
+  {
+    "version": "fixed",
+    "operation": "sync",
+    "label": "r3-fixed-edit",
+    "wall_seconds": 6.075734163001471,
+    "process_group_peak_rss_mib": 614.99609375,
+    "samples": 116,
+    "exitCode": 0,
+    "stopReasons": []
+  },
+  {
+    "version": "fixed",
+    "operation": "init",
+    "label": "r4-fixed-init",
+    "wall_seconds": 124.56650318799802,
+    "process_group_peak_rss_mib": 1779.5703125,
+    "samples": 2357,
+    "exitCode": 0,
+    "stopReasons": []
+  },
+  {
+    "version": "fixed",
+    "operation": "sync",
+    "label": "r4-fixed-noop",
+    "wall_seconds": 0.649264088999189,
+    "process_group_peak_rss_mib": 242.59765625,
+    "samples": 13,
+    "exitCode": 0,
+    "stopReasons": []
+  },
+  {
+    "version": "fixed",
+    "operation": "sync",
+    "label": "r4-fixed-edit",
+    "wall_seconds": 7.511991199000477,
+    "process_group_peak_rss_mib": 622.39453125,
+    "samples": 142,
+    "exitCode": 0,
+    "stopReasons": []
+  },
+  {
+    "version": "baseline",
+    "operation": "init",
+    "label": "r4-baseline-init",
+    "wall_seconds": 128.68168635099937,
+    "process_group_peak_rss_mib": 1765.67578125,
+    "samples": 2425,
+    "exitCode": 0,
+    "stopReasons": []
+  },
+  {
+    "version": "baseline",
+    "operation": "sync",
+    "label": "r4-baseline-noop",
+    "wall_seconds": 0.6829451490011706,
+    "process_group_peak_rss_mib": 240.66015625,
+    "samples": 13,
+    "exitCode": 0,
+    "stopReasons": []
+  },
+  {
+    "version": "baseline",
+    "operation": "sync",
+    "label": "r4-baseline-edit",
+    "wall_seconds": 6.580411628998263,
+    "process_group_peak_rss_mib": 618.421875,
+    "samples": 126,
+    "exitCode": 0,
+    "stopReasons": []
+  },
+  {
+    "version": "baseline",
+    "operation": "init",
+    "label": "fresh-edited-baseline",
+    "wall_seconds": 131.27766858799805,
+    "process_group_peak_rss_mib": 1728.18359375,
+    "samples": 2481,
+    "exitCode": 0,
+    "stopReasons": []
+  },
+  {
+    "version": "fixed",
+    "operation": "init",
+    "label": "fresh-edited-fixed",
+    "wall_seconds": 118.96052115299972,
+    "process_group_peak_rss_mib": 1787.734375,
+    "samples": 2236,
+    "exitCode": 0,
+    "stopReasons": []
+  }
+]

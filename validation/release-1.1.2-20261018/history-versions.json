@@ -1,0 +1,212 @@
+{
+  "289": {
+    "clean": {
+      "nodes": [
+        {
+          "id": "method:9b58cb366a25b16a460b0ab4bdc2dbda",
+          "kind": "method",
+          "name": "TestBody",
+          "qualifiedName": "CRC_Probe_Test::TestBody",
+          "filePath": "test.cpp",
+          "language": "cpp",
+          "startLine": 4,
+          "endLine": 4,
+          "startColumn": 0,
+          "endColumn": 54,
+          "updatedAt": 1792311366922,
+          "signature": "void CRC_Probe_Test::TestBody()",
+          "isStatic": false
+        }
+      ],
+      "errors": []
+    },
+    "poison": {
+      "nodes": [
+        {
+          "id": "method:9b58cb366a25b16a460b0ab4bdc2dbda",
+          "kind": "method",
+          "name": "TestBody",
+          "qualifiedName": "_Probe_Test::TestBody",
+          "filePath": "test.cpp",
+          "language": "cpp",
+          "startLine": 4,
+          "endLine": 4,
+          "startColumn": 0,
+          "endColumn": 54,
+          "updatedAt": 1792311366928,
+          "signature": "void 0x1edc6f41_Probe_Test::TestBody()",
+          "isStatic": false
+        }
+      ],
+      "errors": []
+    }
+  },
+  "d66-parent": {
+    "clean": {
+      "nodes": [
+        {
+          "id": "method:9b58cb366a25b16a460b0ab4bdc2dbda",
+          "kind": "method",
+          "name": "TestBody",
+          "qualifiedName": "sample::CRC_Probe_Test::TestBody",
+          "filePath": "test.cpp",
+          "language": "cpp",
+          "startLine": 4,
+          "endLine": 4,
+          "startColumn": 0,
+          "endColumn": 54,
+          "updatedAt": 1792311366985,
+          "signature": "void CRC_Probe_Test::TestBody()",
+          "isStatic": false
+        }
+      ],
+      "errors": []
+    },
+    "poison": {
+      "nodes": [
+        {
+          "id": "method:9b58cb366a25b16a460b0ab4bdc2dbda",
+          "kind": "method",
+          "name": "TestBody",
+          "qualifiedName": "sample::_Probe_Test::TestBody",
+          "filePath": "test.cpp",
+          "language": "cpp",
+          "startLine": 4,
+          "endLine": 4,
+          "startColumn": 0,
+          "endColumn": 54,
+          "updatedAt": 1792311366990,
+          "signature": "void 0x1edc6f41_Probe_Test::TestBody()",
+          "isStatic": false
+        }
+      ],
+      "errors": []
+    }
+  },
+  "d66": {
+    "clean": {
+      "nodes": [
+        {
+          "id": "method:9b58cb366a25b16a460b0ab4bdc2dbda",
+          "kind": "method",
+          "name": "TestBody",
+          "qualifiedName": "sample::CRC_Probe_Test::TestBody",
+          "filePath": "test.cpp",
+          "language": "cpp",
+          "startLine": 4,
+          "endLine": 4,
+          "startColumn": 0,
+          "endColumn": 54,
+          "updatedAt": 1792311367035,
+          "signature": "void CRC_Probe_Test::TestBody()",
+          "visibility": "public",
+          "isStatic": false
+        }
+      ],
+      "errors": []
+    },
+    "poison": {
+      "nodes": [
+        {
+          "id": "method:64c58d076a6cbeef373df4daafad3b76",
+          "kind": "method",
+          "name": "TestBody",
+          "qualifiedName": "sample::x1edc6f41_Probe_Test::TestBody",
+          "filePath": "test.cpp",
+          "language": "cpp",
+          "startLine": 4,
+          "endLine": 4,
+          "startColumn": 0,
+          "endColumn": 54,
+          "updatedAt": 1792311367040,
+          "visibility": "public",
+          "isStatic": false,
+          "signature": "void TestBody()",
+          "isDeclaration": true
+        },
+        {
+          "id": "method:a0519f88d28f203f26b0c07b03e9a2d6",
+          "kind": "method",
+          "name": "TestBody",
+          "qualifiedName": "sample::_Probe_Test::TestBody",
+          "filePath": "test.cpp",
+          "language": "cpp",
+          "startLine": 4,
+          "endLine": 4,
+          "startColumn": 0,
+          "endColumn": 54,
+          "updatedAt": 1792311367040,
+          "signature": "void 0x1edc6f41_Probe_Test::TestBody()",
+          "isStatic": false
+        }
+      ],
+      "errors": []
+    }
+  },
+  "30d": {
+    "clean": {
+      "nodes": [
+        {
+          "id": "method:9b58cb366a25b16a460b0ab4bdc2dbda",
+          "kind": "method",
+          "name": "TestBody",
+          "qualifiedName": "sample::CRC_Probe_Test::TestBody",
+          "filePath": "test.cpp",
+          "language": "cpp",
+          "startLine": 4,
+          "endLine": 4,
+          "startColumn": 0,
+          "endColumn": 54,
+          "updatedAt": 1792311367091,
+          "signature": "void CRC_Probe_Test::TestBody()",
+          "visibility": "public",
+          "isStatic": false
+        }
+      ],
+      "errors": []
+    },
+    "poison": {
+      "nodes": [
+        {
+          "id": "method:9d46703fd8479fbc03b5c4972311426b",
+          "kind": "method",
+          "name": "TestBody",
+          "qualifiedName": "sample::x1edc6f41_Probe_Test::TestBody",
+          "filePath": "test.cpp",
+          "language": "cpp",
+          "startLine": 4,
+          "endLine": 4,
+          "startColumn": 0,
+          "endColumn": 54,
+          "updatedAt": 1792311367097,
+          "visibility": "public",
+          "isStatic": false,
+          "signature": "void TestBody()",
+          "isDeclaration": true
+        },
+        {
+          "id": "method:11496c73e27914515de1b3e40e384dd6",
+          "kind": "method",
+          "name": "TestBody",
+          "qualifiedName": "sample::_Probe_Test::TestBody",
+          "filePath": "test.cpp",
+          "language": "cpp",
+          "startLine": 4,
+          "endLine": 4,
+          "startColumn": 0,
+          "endColumn": 54,
+          "updatedAt": 1792311367097,
+          "signature": "void 0x1edc6f41_Probe_Test::TestBody()",
+          "isStatic": false
+        }
+      ],
+      "errors": []
+    }
+  },
+  "expansionHistory": {
+    "3b7b885": "#define NAME(s,n) s##_##n##_Test\n#define IMPL(s,n) class NAME(s,n) { public: void TestBody(); }; void NAME(s,n)::TestBody()\n#define TEST(s,n) IMPL(s,n)\nnamespace sample { class CRC {}; class 0x1edc6f41_Probe_Test { public: void TestBody(); }; void 0x1edc6f41_Probe_Test::TestBody() {} }\n",
+    "28910d25": "#define NAME(s,n) s##_##n##_Test\n#define IMPL(s,n) class NAME(s,n) { public: void TestBody(); }; void NAME(s,n)::TestBody()\n#define TEST(s,n) IMPL(s,n)\nnamespace sample { class CRC {}; class 0x1edc6f41_Probe_Test { public: void TestBody(); }; void 0x1edc6f41_Probe_Test::TestBody() {} }\n",
+    "d66f7169": "#define NAME(s,n) s##_##n##_Test\n#define IMPL(s,n) class NAME(s,n) { public: void TestBody(); }; void NAME(s,n)::TestBody()\n#define TEST(s,n) IMPL(s,n)\nnamespace sample { class CRC {}; class 0x1edc6f41_Probe_Test { public: void TestBody(); }; void 0x1edc6f41_Probe_Test::TestBody() {} }\n",
+    "30d5959": "#define NAME(s,n) s##_##n##_Test\n#define IMPL(s,n) class NAME(s,n) { public: void TestBody(); }; void NAME(s,n)::TestBody()\n#define TEST(s,n) IMPL(s,n)\nnamespace sample { class CRC {}; class 0x1edc6f41_Probe_Test { public: void TestBody(); }; void 0x1edc6f41_Probe_Test::TestBody() {} }\n"
+  }
+}

@@ -1,0 +1,20 @@
+diff --git a/src/extraction/tree-sitter.ts b/src/extraction/tree-sitter.ts
+index 1b0dbdd..d06fe3f 100644
+--- a/src/extraction/tree-sitter.ts
++++ b/src/extraction/tree-sitter.ts
+@@ -2461,6 +2461,15 @@ export class TreeSitterExtractor {
+     const nodeType = node.type;
+     let skipChildren = false;
+ 
++    if (this.useMacroSemanticIds && nodeType === 'field_declaration') {
++      const owner = node.parent?.type === 'field_declaration_list' ? node.parent.parent : null;
++      const name = owner?.childForFieldName('name');
++      // A recovery parse can split `class 123_Name` into an ERROR number and
++      // a type identifier. That fragment cannot prove a member declaration's
++      // owner. Keep ordinary definitions and semantic overload pairing intact.
++      if (owner && name && /\b\d[\w.]*$/.test(this.originalSource.slice(owner.startIndex, name.startIndex))) return;
++    }
++
+     if (this.language === 'cpp' && ['using_declaration', 'namespace_alias_definition'].includes(nodeType)) {
+       this.cppEnumEvidence.addImport(nodeType, getNodeText(node, this.source),
+         this.buildQualifiedName('').replace(/::$/, ''), this.cppConditionalPath(node));

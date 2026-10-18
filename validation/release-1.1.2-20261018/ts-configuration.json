@@ -1,0 +1,31 @@
+{
+  "sourceCommit": "0e2801ac30b3f283c3b14e523ba3667eca024f09",
+  "codeCommit": "594c45f7e10654b1fa64cd14dc58549942276c5c",
+  "orders": [
+    "AB",
+    "BA",
+    "AB",
+    "BA"
+  ],
+  "environment": {
+    "CODEGRAPH_RUST_SCAN": "0",
+    "CODEGRAPH_RUST_MACROS": "0",
+    "CODEGRAPH_RUST_SCAN_PATH": "/workspace/codegraph-regression-fixes/dist/native-scan/linux-x64/codegraph-scan",
+    "CODEGRAPH_RUST_MACROS_PATH": "/workspace/codegraph-regression-fixes/dist/native-macros/linux-x64/codegraph-macros",
+    "CODEGRAPH_ALL_LANGUAGES": "1",
+    "CODEGRAPH_PARSE_WORKERS": "1",
+    "CODEGRAPH_NO_STORE_WORKER": "1",
+    "NODE_OPTIONS": "--max-old-space-size=4096"
+  },
+  "cpuQuota": "400000 100000",
+  "memoryLimit": "17179869184",
+  "initialMemory": "4692013056",
+  "diskFree": 27884474368,
+  "limits": {
+    "wallSeconds": 600,
+    "groupRssGiB": 8,
+    "cgroupMemoryGiB": 14,
+    "minimumFreeDiskGiB": 4
+  },
+  "rssSamplingSeconds": 0.05
+}

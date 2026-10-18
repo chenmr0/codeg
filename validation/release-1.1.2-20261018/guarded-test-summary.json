@@ -1,0 +1,65 @@
+{
+  "frozenCode": "594c45f7e10654b1fa64cd14dc58549942276c5c",
+  "counts": {
+    "passed": 3391,
+    "failed": 13,
+    "skipped": 2
+  },
+  "total": 3406,
+  "extractionExecuted": 483,
+  "failures": [
+    [
+      "adaptive-explore-sizing.test.ts",
+      "adaptive codegraph_explore sizing — sibling skeletonization skeletonizes off-spine polymorphic siblings (bodies elided, signatures kept)"
+    ],
+    [
+      "adaptive-explore-sizing.test.ts",
+      "adaptive codegraph_explore sizing — sibling skeletonization keeps the on-spine exemplar full even though it is a sibling"
+    ],
+    [
+      "adaptive-explore-sizing.test.ts",
+      "adaptive codegraph_explore sizing — sibling skeletonization keeps a distinct step full (off-spine but supertype has < 3 implementers)"
+    ],
+    [
+      "adaptive-explore-sizing.test.ts",
+      "adaptive codegraph_explore sizing — sibling skeletonization CODEGRAPH_ADAPTIVE_EXPLORE=0 disables skeletonization (siblings render full)"
+    ],
+    [
+      "adaptive-explore-sizing.test.ts",
+      "adaptive codegraph_explore sizing — sibling skeletonization spares an off-spine sibling when the agent NAMED a callable in it (RealCall fix)"
+    ],
+    [
+      "adaptive-explore-sizing.test.ts",
+      "adaptive codegraph_explore sizing — sibling skeletonization collapses a base+subclasses family file to a FOCUSED view — base method body kept, non-named subclasses signature-only (compiler.py)"
+    ],
+    [
+      "adaptive-explore-sizing.test.ts",
+      "adaptive codegraph_explore sizing — sibling skeletonization naming a SHARED/polymorphic method does not spare the siblings (uniqueness-aware)"
+    ],
+    [
+      "explore-output-budget.test.ts",
+      "codegraph_explore output respects the adaptive budget still includes the Relationships section — it is the cheapest structural signal"
+    ],
+    [
+      "explore-output-budget.test.ts",
+      "codegraph_explore output respects the adaptive budget prefixes source lines with line numbers by default (cat -n style)"
+    ],
+    [
+      "explore-output-budget.test.ts",
+      "codegraph_explore output respects the adaptive budget does not collapse a whole-file class into just its header (envelope filter)"
+    ],
+    [
+      "mcp-daemon.test.ts",
+      "Shared MCP daemon (issue #411) daemon idle-times-out after the last client disconnects"
+    ],
+    [
+      "mcp-ppid-watchdog.test.ts",
+      "MCP PPID watchdog (#277) shuts down when its parent is SIGKILL'd and stdin stays open"
+    ],
+    [
+      "worktree-detection.test.ts",
+      "worktree mismatch surfaces on hot read tools (issue #155) caches detection — a later tool call needs no further git spawn"
+    ]
+  ],
+  "newFailures": []
+}

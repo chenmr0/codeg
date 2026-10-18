@@ -1,0 +1,15 @@
+{
+  "templates": {
+    "NE": true,
+    "LE": true,
+    "LT": true,
+    "GE": true,
+    "GT": true
+  },
+  "disabledExamplesPresent": {
+    "FooTest_DoesBlah_Test": false,
+    "FooTest_HasBlahBlah_Test": false,
+    "BaseTest_HasFoo_Test": false,
+    "DerivedTest_DoesBlah_Test": false
+  }
+}

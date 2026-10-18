@@ -1,0 +1,92 @@
+{
+  "performance": {
+    "baseline-init": {
+      "wall_seconds": {
+        "median": 106.35200723050002,
+        "min": 96.27861610000036,
+        "max": 128.68168635099937
+      },
+      "process_group_peak_rss_mib": {
+        "median": 1782.556640625,
+        "min": 1765.67578125,
+        "max": 1800.43359375
+      }
+    },
+    "baseline-noop": {
+      "wall_seconds": {
+        "median": 0.6443897660010407,
+        "min": 0.48449117700147326,
+        "max": 0.8111085199998342
+      },
+      "process_group_peak_rss_mib": {
+        "median": 243.65625,
+        "min": 240.66015625,
+        "max": 246.01953125
+      }
+    },
+    "baseline-edit": {
+      "wall_seconds": {
+        "median": 5.4608805410007335,
+        "min": 4.808576935000019,
+        "max": 6.580411628998263
+      },
+      "process_group_peak_rss_mib": {
+        "median": 621.724609375,
+        "min": 618.421875,
+        "max": 623.8125
+      }
+    },
+    "fixed-init": {
+      "wall_seconds": {
+        "median": 114.77430118449956,
+        "min": 101.72584496999843,
+        "max": 125.5517974760005
+      },
+      "process_group_peak_rss_mib": {
+        "median": 1781.158203125,
+        "min": 1778.8359375,
+        "max": 1796.734375
+      }
+    },
+    "fixed-noop": {
+      "wall_seconds": {
+        "median": 0.6319853740005783,
+        "min": 0.49656429099923116,
+        "max": 0.7540580710010545
+      },
+      "process_group_peak_rss_mib": {
+        "median": 241.953125,
+        "min": 236.33203125,
+        "max": 244.16796875
+      }
+    },
+    "fixed-edit": {
+      "wall_seconds": {
+        "median": 5.902979905500615,
+        "min": 4.988581118002912,
+        "max": 7.511991199000477
+      },
+      "process_group_peak_rss_mib": {
+        "median": 620.423828125,
+        "min": 614.99609375,
+        "max": 622.39453125
+      }
+    }
+  },
+  "graphChecks": {
+    "baseline-repeatable": true,
+    "baseline-incrementalFresh": {
+      "nodes": true,
+      "edges": true
+    },
+    "fixed-repeatable": true,
+    "fixed-incrementalFresh": {
+      "nodes": true,
+      "edges": true
+    },
+    "crossVersion": {
+      "nodes": false,
+      "edges": false
+    }
+  }
+}

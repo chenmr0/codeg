@@ -1,0 +1,20 @@
+{
+  "old": {
+    "beforeNodes": 1204,
+    "afterNodes": 1205,
+    "oldStamp": "24",
+    "finalStamp": "24",
+    "unchangedNoop": true,
+    "unchangedOtherFilesAfterEdit": true,
+    "integrity": "ok"
+  },
+  "baseline": {
+    "beforeNodes": 1204,
+    "afterNodes": 1205,
+    "oldStamp": "36",
+    "finalStamp": "36",
+    "unchangedNoop": true,
+    "unchangedOtherFilesAfterEdit": true,
+    "integrity": "ok"
+  }
+}

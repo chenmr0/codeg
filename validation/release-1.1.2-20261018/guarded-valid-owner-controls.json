@@ -1,0 +1,1632 @@
+{
+  "compiler": {
+    "nonType": {
+      "exit": 0,
+      "stderr": ""
+    },
+    "expression": {
+      "exit": 0,
+      "stderr": ""
+    },
+    "anonymousStruct": {
+      "exit": 0,
+      "stderr": ""
+    },
+    "anonymousNamespace": {
+      "exit": 0,
+      "stderr": ""
+    },
+    "generatedName": {
+      "exit": 0,
+      "stderr": ""
+    },
+    "nested": {
+      "exit": 0,
+      "stderr": ""
+    },
+    "aligned": {
+      "exit": 0,
+      "stderr": ""
+    },
+    "defaultValue": {
+      "exit": 0,
+      "stderr": ""
+    }
+  },
+  "graphs": {
+    "baseline": {
+      "nonType": {
+        "nodes": [
+          {
+            "id": "file:nonType.cpp",
+            "kind": "file",
+            "name": "nonType.cpp",
+            "qualifiedName": "nonType.cpp",
+            "filePath": "nonType.cpp",
+            "language": "cpp",
+            "startLine": 1,
+            "endLine": 3,
+            "startColumn": 0,
+            "endColumn": 0,
+            "isExported": false
+          },
+          {
+            "id": "macro:fdef4318482aa4223455477d86407817",
+            "kind": "macro",
+            "name": "MAKE",
+            "qualifiedName": "MAKE",
+            "filePath": "nonType.cpp",
+            "language": "cpp",
+            "startLine": 1,
+            "endLine": 2,
+            "startColumn": 0,
+            "endColumn": 0,
+            "signature": "#define MAKE() template<int N> struct Box { void run(); }; template<int N> void Box<N>::run() {} template<> struct Box<123> { void run(int); void run(double); };\n",
+            "isExported": true
+          },
+          {
+            "id": "struct:3a5636445cdf026e9b39f8e6991a1f68",
+            "kind": "struct",
+            "name": "Box",
+            "qualifiedName": "Box",
+            "filePath": "nonType.cpp",
+            "language": "cpp",
+            "startLine": 2,
+            "endLine": 2,
+            "startColumn": 0,
+            "endColumn": 6,
+            "isExported": true,
+            "typeParameters": [
+              "N"
+            ]
+          },
+          {
+            "id": "method:8d7b4dbf79e8f0946d547dbafd2ca17b",
+            "kind": "method",
+            "name": "run",
+            "qualifiedName": "Box<N>::run",
+            "filePath": "nonType.cpp",
+            "language": "cpp",
+            "startLine": 2,
+            "endLine": 2,
+            "startColumn": 0,
+            "endColumn": 6,
+            "signature": "void Box<N>::run()",
+            "isStatic": false,
+            "typeParameters": [
+              "N"
+            ]
+          },
+          {
+            "id": "struct:d0b92830a935c1cea1d3bf98cf450384",
+            "kind": "struct",
+            "name": "Box<123>",
+            "qualifiedName": "Box<123>",
+            "filePath": "nonType.cpp",
+            "language": "cpp",
+            "startLine": 2,
+            "endLine": 2,
+            "startColumn": 0,
+            "endColumn": 6,
+            "isExported": true
+          },
+          {
+            "id": "method:05d12e8f6de55220793b7364a4ace37c",
+            "kind": "method",
+            "name": "run",
+            "qualifiedName": "Box<123>::run",
+            "filePath": "nonType.cpp",
+            "language": "cpp",
+            "startLine": 2,
+            "endLine": 2,
+            "startColumn": 0,
+            "endColumn": 6,
+            "isStatic": false,
+            "signature": "void run(int)",
+            "isDeclaration": true
+          },
+          {
+            "id": "method:03ee25f361b698ab5ef95ad3baf6542d",
+            "kind": "method",
+            "name": "run",
+            "qualifiedName": "Box<123>::run",
+            "filePath": "nonType.cpp",
+            "language": "cpp",
+            "startLine": 2,
+            "endLine": 2,
+            "startColumn": 0,
+            "endColumn": 6,
+            "isStatic": false,
+            "signature": "void run(double)",
+            "isDeclaration": true
+          }
+        ],
+        "edges": [
+          {
+            "source": "file:nonType.cpp",
+            "target": "macro:fdef4318482aa4223455477d86407817",
+            "kind": "contains"
+          },
+          {
+            "source": "file:nonType.cpp",
+            "target": "struct:3a5636445cdf026e9b39f8e6991a1f68",
+            "kind": "contains"
+          },
+          {
+            "source": "struct:3a5636445cdf026e9b39f8e6991a1f68",
+            "target": "method:8d7b4dbf79e8f0946d547dbafd2ca17b",
+            "kind": "contains"
+          },
+          {
+            "source": "file:nonType.cpp",
+            "target": "method:8d7b4dbf79e8f0946d547dbafd2ca17b",
+            "kind": "contains"
+          },
+          {
+            "source": "file:nonType.cpp",
+            "target": "struct:d0b92830a935c1cea1d3bf98cf450384",
+            "kind": "contains"
+          },
+          {
+            "source": "struct:d0b92830a935c1cea1d3bf98cf450384",
+            "target": "method:05d12e8f6de55220793b7364a4ace37c",
+            "kind": "contains"
+          },
+          {
+            "source": "struct:d0b92830a935c1cea1d3bf98cf450384",
+            "target": "method:03ee25f361b698ab5ef95ad3baf6542d",
+            "kind": "contains"
+          }
+        ],
+        "errors": []
+      },
+      "expression": {
+        "nodes": [
+          {
+            "id": "file:expression.cpp",
+            "kind": "file",
+            "name": "expression.cpp",
+            "qualifiedName": "expression.cpp",
+            "filePath": "expression.cpp",
+            "language": "cpp",
+            "startLine": 1,
+            "endLine": 3,
+            "startColumn": 0,
+            "endColumn": 0,
+            "isExported": false
+          },
+          {
+            "id": "macro:637c236911d7986061147deaa69ea0b1",
+            "kind": "macro",
+            "name": "MAKE",
+            "qualifiedName": "MAKE",
+            "filePath": "expression.cpp",
+            "language": "cpp",
+            "startLine": 1,
+            "endLine": 2,
+            "startColumn": 0,
+            "endColumn": 0,
+            "signature": "#define MAKE() template<int N> struct Box { void run(); }; template<> struct Box<(1 << 3)> { void run(); };\n",
+            "isExported": true
+          },
+          {
+            "id": "struct:8a7437272d2810f47ccea5fa9c194c2c",
+            "kind": "struct",
+            "name": "Box",
+            "qualifiedName": "Box",
+            "filePath": "expression.cpp",
+            "language": "cpp",
+            "startLine": 2,
+            "endLine": 2,
+            "startColumn": 0,
+            "endColumn": 6,
+            "isExported": true,
+            "typeParameters": [
+              "N"
+            ]
+          },
+          {
+            "id": "method:9c5a0624f2ff2e132031faa30db7b556",
+            "kind": "method",
+            "name": "run",
+            "qualifiedName": "Box::run",
+            "filePath": "expression.cpp",
+            "language": "cpp",
+            "startLine": 2,
+            "endLine": 2,
+            "startColumn": 0,
+            "endColumn": 6,
+            "isStatic": false,
+            "signature": "void run()",
+            "isDeclaration": true
+          },
+          {
+            "id": "struct:99504858b1cda1b8a69134f4feb68dca",
+            "kind": "struct",
+            "name": "Box<(1 << 3)>",
+            "qualifiedName": "Box<(1 << 3)>",
+            "filePath": "expression.cpp",
+            "language": "cpp",
+            "startLine": 2,
+            "endLine": 2,
+            "startColumn": 0,
+            "endColumn": 6,
+            "isExported": true
+          },
+          {
+            "id": "method:d85c9739eba1c3e97b7c3431631e447f",
+            "kind": "method",
+            "name": "run",
+            "qualifiedName": "Box<(1 << 3)>::run",
+            "filePath": "expression.cpp",
+            "language": "cpp",
+            "startLine": 2,
+            "endLine": 2,
+            "startColumn": 0,
+            "endColumn": 6,
+            "isStatic": false,
+            "signature": "void run()",
+            "isDeclaration": true
+          }
+        ],
+        "edges": [
+          {
+            "source": "file:expression.cpp",
+            "target": "macro:637c236911d7986061147deaa69ea0b1",
+            "kind": "contains"
+          },
+          {
+            "source": "file:expression.cpp",
+            "target": "struct:8a7437272d2810f47ccea5fa9c194c2c",
+            "kind": "contains"
+          },
+          {
+            "source": "struct:8a7437272d2810f47ccea5fa9c194c2c",
+            "target": "method:9c5a0624f2ff2e132031faa30db7b556",
+            "kind": "contains"
+          },
+          {
+            "source": "file:expression.cpp",
+            "target": "struct:99504858b1cda1b8a69134f4feb68dca",
+            "kind": "contains"
+          },
+          {
+            "source": "struct:99504858b1cda1b8a69134f4feb68dca",
+            "target": "method:d85c9739eba1c3e97b7c3431631e447f",
+            "kind": "contains"
+          }
+        ],
+        "errors": []
+      },
+      "anonymousStruct": {
+        "nodes": [
+          {
+            "id": "file:anonymousStruct.cpp",
+            "kind": "file",
+            "name": "anonymousStruct.cpp",
+            "qualifiedName": "anonymousStruct.cpp",
+            "filePath": "anonymousStruct.cpp",
+            "language": "cpp",
+            "startLine": 1,
+            "endLine": 3,
+            "startColumn": 0,
+            "endColumn": 0,
+            "isExported": false
+          },
+          {
+            "id": "macro:5daeadb78ee0be7740acbfbeab2dc8df",
+            "kind": "macro",
+            "name": "MAKE",
+            "qualifiedName": "MAKE",
+            "filePath": "anonymousStruct.cpp",
+            "language": "cpp",
+            "startLine": 1,
+            "endLine": 2,
+            "startColumn": 0,
+            "endColumn": 0,
+            "signature": "#define MAKE() struct Outer { struct { void run() {} } inner; };\n",
+            "isExported": true
+          },
+          {
+            "id": "struct:e3880955590f9eac3f21b2429d87c156",
+            "kind": "struct",
+            "name": "Outer",
+            "qualifiedName": "Outer",
+            "filePath": "anonymousStruct.cpp",
+            "language": "cpp",
+            "startLine": 2,
+            "endLine": 2,
+            "startColumn": 0,
+            "endColumn": 6,
+            "isExported": true
+          },
+          {
+            "id": "struct:1d5275f55b19d9f64ad5a1d14bc40f1d",
+            "kind": "struct",
+            "name": "(anonymous struct)",
+            "qualifiedName": "Outer::(anonymous struct)",
+            "filePath": "anonymousStruct.cpp",
+            "language": "cpp",
+            "startLine": 2,
+            "endLine": 2,
+            "startColumn": 0,
+            "endColumn": 6,
+            "isExported": true
+          },
+          {
+            "id": "method:c77c10ca168fba65cc9d7a4255b3b97d",
+            "kind": "method",
+            "name": "run",
+            "qualifiedName": "Outer::run",
+            "filePath": "anonymousStruct.cpp",
+            "language": "cpp",
+            "startLine": 2,
+            "endLine": 2,
+            "startColumn": 0,
+            "endColumn": 6,
+            "signature": "void run()",
+            "isStatic": false
+          },
+          {
+            "id": "field:13174df3774058bfc0f10d5bf93f6882",
+            "kind": "field",
+            "name": "inner",
+            "qualifiedName": "Outer::inner",
+            "filePath": "anonymousStruct.cpp",
+            "language": "cpp",
+            "startLine": 2,
+            "endLine": 2,
+            "startColumn": 0,
+            "endColumn": 6,
+            "signature": "struct { void run() {} } inner",
+            "isStatic": false
+          }
+        ],
+        "edges": [
+          {
+            "source": "file:anonymousStruct.cpp",
+            "target": "macro:5daeadb78ee0be7740acbfbeab2dc8df",
+            "kind": "contains"
+          },
+          {
+            "source": "file:anonymousStruct.cpp",
+            "target": "struct:e3880955590f9eac3f21b2429d87c156",
+            "kind": "contains"
+          },
+          {
+            "source": "struct:e3880955590f9eac3f21b2429d87c156",
+            "target": "struct:1d5275f55b19d9f64ad5a1d14bc40f1d",
+            "kind": "contains"
+          },
+          {
+            "source": "struct:e3880955590f9eac3f21b2429d87c156",
+            "target": "method:c77c10ca168fba65cc9d7a4255b3b97d",
+            "kind": "contains"
+          },
+          {
+            "source": "struct:e3880955590f9eac3f21b2429d87c156",
+            "target": "field:13174df3774058bfc0f10d5bf93f6882",
+            "kind": "contains"
+          }
+        ],
+        "errors": []
+      },
+      "anonymousNamespace": {
+        "nodes": [
+          {
+            "id": "file:anonymousNamespace.cpp",
+            "kind": "file",
+            "name": "anonymousNamespace.cpp",
+            "qualifiedName": "anonymousNamespace.cpp",
+            "filePath": "anonymousNamespace.cpp",
+            "language": "cpp",
+            "startLine": 1,
+            "endLine": 3,
+            "startColumn": 0,
+            "endColumn": 0,
+            "isExported": false
+          },
+          {
+            "id": "macro:004c7bc2aed09ad97fa3dc1a8a5829ff",
+            "kind": "macro",
+            "name": "MAKE",
+            "qualifiedName": "MAKE",
+            "filePath": "anonymousNamespace.cpp",
+            "language": "cpp",
+            "startLine": 1,
+            "endLine": 2,
+            "startColumn": 0,
+            "endColumn": 0,
+            "signature": "#define MAKE() namespace { struct Internal_123 { void run(); }; void Internal_123::run() {} }\n",
+            "isExported": true
+          },
+          {
+            "id": "struct:c87535d364f9553168fc8cc3cdc01b30",
+            "kind": "struct",
+            "name": "Internal_123",
+            "qualifiedName": "Internal_123",
+            "filePath": "anonymousNamespace.cpp",
+            "language": "cpp",
+            "startLine": 2,
+            "endLine": 2,
+            "startColumn": 0,
+            "endColumn": 6,
+            "isExported": true
+          },
+          {
+            "id": "method:172a98942a27f38023a1fd7e89e1ee05",
+            "kind": "method",
+            "name": "run",
+            "qualifiedName": "Internal_123::run",
+            "filePath": "anonymousNamespace.cpp",
+            "language": "cpp",
+            "startLine": 2,
+            "endLine": 2,
+            "startColumn": 0,
+            "endColumn": 6,
+            "signature": "void Internal_123::run()",
+            "isStatic": false
+          }
+        ],
+        "edges": [
+          {
+            "source": "file:anonymousNamespace.cpp",
+            "target": "macro:004c7bc2aed09ad97fa3dc1a8a5829ff",
+            "kind": "contains"
+          },
+          {
+            "source": "file:anonymousNamespace.cpp",
+            "target": "struct:c87535d364f9553168fc8cc3cdc01b30",
+            "kind": "contains"
+          },
+          {
+            "source": "struct:c87535d364f9553168fc8cc3cdc01b30",
+            "target": "method:172a98942a27f38023a1fd7e89e1ee05",
+            "kind": "contains"
+          },
+          {
+            "source": "file:anonymousNamespace.cpp",
+            "target": "method:172a98942a27f38023a1fd7e89e1ee05",
+            "kind": "contains"
+          }
+        ],
+        "errors": []
+      },
+      "generatedName": {
+        "nodes": [
+          {
+            "id": "file:generatedName.cpp",
+            "kind": "file",
+            "name": "generatedName.cpp",
+            "qualifiedName": "generatedName.cpp",
+            "filePath": "generatedName.cpp",
+            "language": "cpp",
+            "startLine": 1,
+            "endLine": 3,
+            "startColumn": 0,
+            "endColumn": 0,
+            "isExported": false
+          },
+          {
+            "id": "macro:533ebf30c81c6f44030d9d5b6a3e2baf",
+            "kind": "macro",
+            "name": "MAKE",
+            "qualifiedName": "MAKE",
+            "filePath": "generatedName.cpp",
+            "language": "cpp",
+            "startLine": 1,
+            "endLine": 2,
+            "startColumn": 0,
+            "endColumn": 0,
+            "signature": "#define MAKE() struct generated_internal_123 { void run(); }; void generated_internal_123::run() {}\n",
+            "isExported": true
+          },
+          {
+            "id": "struct:0e5e15320a2d0eab3371a71587a7f025",
+            "kind": "struct",
+            "name": "generated_internal_123",
+            "qualifiedName": "generated_internal_123",
+            "filePath": "generatedName.cpp",
+            "language": "cpp",
+            "startLine": 2,
+            "endLine": 2,
+            "startColumn": 0,
+            "endColumn": 6,
+            "isExported": true
+          },
+          {
+            "id": "method:ae30d7d008f9d608308321c0ca6ecf64",
+            "kind": "method",
+            "name": "run",
+            "qualifiedName": "generated_internal_123::run",
+            "filePath": "generatedName.cpp",
+            "language": "cpp",
+            "startLine": 2,
+            "endLine": 2,
+            "startColumn": 0,
+            "endColumn": 6,
+            "signature": "void generated_internal_123::run()",
+            "isStatic": false
+          }
+        ],
+        "edges": [
+          {
+            "source": "file:generatedName.cpp",
+            "target": "macro:533ebf30c81c6f44030d9d5b6a3e2baf",
+            "kind": "contains"
+          },
+          {
+            "source": "file:generatedName.cpp",
+            "target": "struct:0e5e15320a2d0eab3371a71587a7f025",
+            "kind": "contains"
+          },
+          {
+            "source": "struct:0e5e15320a2d0eab3371a71587a7f025",
+            "target": "method:ae30d7d008f9d608308321c0ca6ecf64",
+            "kind": "contains"
+          },
+          {
+            "source": "file:generatedName.cpp",
+            "target": "method:ae30d7d008f9d608308321c0ca6ecf64",
+            "kind": "contains"
+          }
+        ],
+        "errors": []
+      },
+      "nested": {
+        "nodes": [
+          {
+            "id": "file:nested.cpp",
+            "kind": "file",
+            "name": "nested.cpp",
+            "qualifiedName": "nested.cpp",
+            "filePath": "nested.cpp",
+            "language": "cpp",
+            "startLine": 1,
+            "endLine": 3,
+            "startColumn": 0,
+            "endColumn": 0,
+            "isExported": false
+          },
+          {
+            "id": "macro:d39fa753f9f9d10ffd48f5c5e48cf496",
+            "kind": "macro",
+            "name": "MAKE",
+            "qualifiedName": "MAKE",
+            "filePath": "nested.cpp",
+            "language": "cpp",
+            "startLine": 1,
+            "endLine": 2,
+            "startColumn": 0,
+            "endColumn": 0,
+            "signature": "#define MAKE() template<int N> struct Outer { struct Inner_12 { void run() {} }; };\n",
+            "isExported": true
+          },
+          {
+            "id": "struct:1b0c2671916ef82816eeb917ce342cc6",
+            "kind": "struct",
+            "name": "Outer",
+            "qualifiedName": "Outer",
+            "filePath": "nested.cpp",
+            "language": "cpp",
+            "startLine": 2,
+            "endLine": 2,
+            "startColumn": 0,
+            "endColumn": 6,
+            "isExported": true,
+            "typeParameters": [
+              "N"
+            ]
+          },
+          {
+            "id": "struct:94918df8a60b023a625c7b250ac472e9",
+            "kind": "struct",
+            "name": "Inner_12",
+            "qualifiedName": "Outer::Inner_12",
+            "filePath": "nested.cpp",
+            "language": "cpp",
+            "startLine": 2,
+            "endLine": 2,
+            "startColumn": 0,
+            "endColumn": 6,
+            "isExported": true
+          },
+          {
+            "id": "method:893958280d530d73e3c88c56f2a3d0fe",
+            "kind": "method",
+            "name": "run",
+            "qualifiedName": "Outer::Inner_12::run",
+            "filePath": "nested.cpp",
+            "language": "cpp",
+            "startLine": 2,
+            "endLine": 2,
+            "startColumn": 0,
+            "endColumn": 6,
+            "signature": "void run()",
+            "isStatic": false
+          }
+        ],
+        "edges": [
+          {
+            "source": "file:nested.cpp",
+            "target": "macro:d39fa753f9f9d10ffd48f5c5e48cf496",
+            "kind": "contains"
+          },
+          {
+            "source": "file:nested.cpp",
+            "target": "struct:1b0c2671916ef82816eeb917ce342cc6",
+            "kind": "contains"
+          },
+          {
+            "source": "struct:1b0c2671916ef82816eeb917ce342cc6",
+            "target": "struct:94918df8a60b023a625c7b250ac472e9",
+            "kind": "contains"
+          },
+          {
+            "source": "struct:94918df8a60b023a625c7b250ac472e9",
+            "target": "method:893958280d530d73e3c88c56f2a3d0fe",
+            "kind": "contains"
+          }
+        ],
+        "errors": []
+      },
+      "aligned": {
+        "nodes": [
+          {
+            "id": "file:aligned.cpp",
+            "kind": "file",
+            "name": "aligned.cpp",
+            "qualifiedName": "aligned.cpp",
+            "filePath": "aligned.cpp",
+            "language": "cpp",
+            "startLine": 1,
+            "endLine": 3,
+            "startColumn": 0,
+            "endColumn": 0,
+            "isExported": false
+          },
+          {
+            "id": "macro:7c171c62e7704d129f8fee8f8d3941d3",
+            "kind": "macro",
+            "name": "MAKE",
+            "qualifiedName": "MAKE",
+            "filePath": "aligned.cpp",
+            "language": "cpp",
+            "startLine": 1,
+            "endLine": 2,
+            "startColumn": 0,
+            "endColumn": 0,
+            "signature": "#define MAKE() struct alignas(16) Aligned_123 { void run() {} };\n",
+            "isExported": true
+          },
+          {
+            "id": "struct:598288c3a793d7305eb3f59b5fe3fe40",
+            "kind": "struct",
+            "name": "Aligned_123",
+            "qualifiedName": "Aligned_123",
+            "filePath": "aligned.cpp",
+            "language": "cpp",
+            "startLine": 2,
+            "endLine": 2,
+            "startColumn": 0,
+            "endColumn": 6,
+            "isExported": true
+          },
+          {
+            "id": "method:a101be23978cc0004a7c5d7870d1feb1",
+            "kind": "method",
+            "name": "run",
+            "qualifiedName": "Aligned_123::run",
+            "filePath": "aligned.cpp",
+            "language": "cpp",
+            "startLine": 2,
+            "endLine": 2,
+            "startColumn": 0,
+            "endColumn": 6,
+            "signature": "void run()",
+            "isStatic": false
+          }
+        ],
+        "edges": [
+          {
+            "source": "file:aligned.cpp",
+            "target": "macro:7c171c62e7704d129f8fee8f8d3941d3",
+            "kind": "contains"
+          },
+          {
+            "source": "file:aligned.cpp",
+            "target": "struct:598288c3a793d7305eb3f59b5fe3fe40",
+            "kind": "contains"
+          },
+          {
+            "source": "struct:598288c3a793d7305eb3f59b5fe3fe40",
+            "target": "method:a101be23978cc0004a7c5d7870d1feb1",
+            "kind": "contains"
+          }
+        ],
+        "errors": []
+      },
+      "defaultValue": {
+        "nodes": [
+          {
+            "id": "file:defaultValue.cpp",
+            "kind": "file",
+            "name": "defaultValue.cpp",
+            "qualifiedName": "defaultValue.cpp",
+            "filePath": "defaultValue.cpp",
+            "language": "cpp",
+            "startLine": 1,
+            "endLine": 3,
+            "startColumn": 0,
+            "endColumn": 0,
+            "isExported": false
+          },
+          {
+            "id": "macro:9cca0a45887b5bb5fee2200d7c77e8e2",
+            "kind": "macro",
+            "name": "MAKE",
+            "qualifiedName": "MAKE",
+            "filePath": "defaultValue.cpp",
+            "language": "cpp",
+            "startLine": 1,
+            "endLine": 2,
+            "startColumn": 0,
+            "endColumn": 0,
+            "signature": "#define MAKE() template<int N=0x123> struct Box { void run() {} };\n",
+            "isExported": true
+          },
+          {
+            "id": "struct:94174135c94101e96c54b21f38045801",
+            "kind": "struct",
+            "name": "Box",
+            "qualifiedName": "Box",
+            "filePath": "defaultValue.cpp",
+            "language": "cpp",
+            "startLine": 2,
+            "endLine": 2,
+            "startColumn": 0,
+            "endColumn": 6,
+            "isExported": true,
+            "typeParameters": [
+              "N"
+            ]
+          },
+          {
+            "id": "method:dcd54e5fa8e154cc029731cdba0de0a2",
+            "kind": "method",
+            "name": "run",
+            "qualifiedName": "Box::run",
+            "filePath": "defaultValue.cpp",
+            "language": "cpp",
+            "startLine": 2,
+            "endLine": 2,
+            "startColumn": 0,
+            "endColumn": 6,
+            "signature": "void run()",
+            "isStatic": false
+          }
+        ],
+        "edges": [
+          {
+            "source": "file:defaultValue.cpp",
+            "target": "macro:9cca0a45887b5bb5fee2200d7c77e8e2",
+            "kind": "contains"
+          },
+          {
+            "source": "file:defaultValue.cpp",
+            "target": "struct:94174135c94101e96c54b21f38045801",
+            "kind": "contains"
+          },
+          {
+            "source": "struct:94174135c94101e96c54b21f38045801",
+            "target": "method:dcd54e5fa8e154cc029731cdba0de0a2",
+            "kind": "contains"
+          }
+        ],
+        "errors": []
+      }
+    },
+    "fixed": {
+      "nonType": {
+        "nodes": [
+          {
+            "id": "file:nonType.cpp",
+            "kind": "file",
+            "name": "nonType.cpp",
+            "qualifiedName": "nonType.cpp",
+            "filePath": "nonType.cpp",
+            "language": "cpp",
+            "startLine": 1,
+            "endLine": 3,
+            "startColumn": 0,
+            "endColumn": 0,
+            "isExported": false
+          },
+          {
+            "id": "macro:fdef4318482aa4223455477d86407817",
+            "kind": "macro",
+            "name": "MAKE",
+            "qualifiedName": "MAKE",
+            "filePath": "nonType.cpp",
+            "language": "cpp",
+            "startLine": 1,
+            "endLine": 2,
+            "startColumn": 0,
+            "endColumn": 0,
+            "signature": "#define MAKE() template<int N> struct Box { void run(); }; template<int N> void Box<N>::run() {} template<> struct Box<123> { void run(int); void run(double); };\n",
+            "isExported": true
+          },
+          {
+            "id": "struct:3a5636445cdf026e9b39f8e6991a1f68",
+            "kind": "struct",
+            "name": "Box",
+            "qualifiedName": "Box",
+            "filePath": "nonType.cpp",
+            "language": "cpp",
+            "startLine": 2,
+            "endLine": 2,
+            "startColumn": 0,
+            "endColumn": 6,
+            "isExported": true,
+            "typeParameters": [
+              "N"
+            ]
+          },
+          {
+            "id": "method:8d7b4dbf79e8f0946d547dbafd2ca17b",
+            "kind": "method",
+            "name": "run",
+            "qualifiedName": "Box<N>::run",
+            "filePath": "nonType.cpp",
+            "language": "cpp",
+            "startLine": 2,
+            "endLine": 2,
+            "startColumn": 0,
+            "endColumn": 6,
+            "signature": "void Box<N>::run()",
+            "isStatic": false,
+            "typeParameters": [
+              "N"
+            ]
+          },
+          {
+            "id": "struct:d0b92830a935c1cea1d3bf98cf450384",
+            "kind": "struct",
+            "name": "Box<123>",
+            "qualifiedName": "Box<123>",
+            "filePath": "nonType.cpp",
+            "language": "cpp",
+            "startLine": 2,
+            "endLine": 2,
+            "startColumn": 0,
+            "endColumn": 6,
+            "isExported": true
+          },
+          {
+            "id": "method:05d12e8f6de55220793b7364a4ace37c",
+            "kind": "method",
+            "name": "run",
+            "qualifiedName": "Box<123>::run",
+            "filePath": "nonType.cpp",
+            "language": "cpp",
+            "startLine": 2,
+            "endLine": 2,
+            "startColumn": 0,
+            "endColumn": 6,
+            "isStatic": false,
+            "signature": "void run(int)",
+            "isDeclaration": true
+          },
+          {
+            "id": "method:03ee25f361b698ab5ef95ad3baf6542d",
+            "kind": "method",
+            "name": "run",
+            "qualifiedName": "Box<123>::run",
+            "filePath": "nonType.cpp",
+            "language": "cpp",
+            "startLine": 2,
+            "endLine": 2,
+            "startColumn": 0,
+            "endColumn": 6,
+            "isStatic": false,
+            "signature": "void run(double)",
+            "isDeclaration": true
+          }
+        ],
+        "edges": [
+          {
+            "source": "file:nonType.cpp",
+            "target": "macro:fdef4318482aa4223455477d86407817",
+            "kind": "contains"
+          },
+          {
+            "source": "file:nonType.cpp",
+            "target": "struct:3a5636445cdf026e9b39f8e6991a1f68",
+            "kind": "contains"
+          },
+          {
+            "source": "struct:3a5636445cdf026e9b39f8e6991a1f68",
+            "target": "method:8d7b4dbf79e8f0946d547dbafd2ca17b",
+            "kind": "contains"
+          },
+          {
+            "source": "file:nonType.cpp",
+            "target": "method:8d7b4dbf79e8f0946d547dbafd2ca17b",
+            "kind": "contains"
+          },
+          {
+            "source": "file:nonType.cpp",
+            "target": "struct:d0b92830a935c1cea1d3bf98cf450384",
+            "kind": "contains"
+          },
+          {
+            "source": "struct:d0b92830a935c1cea1d3bf98cf450384",
+            "target": "method:05d12e8f6de55220793b7364a4ace37c",
+            "kind": "contains"
+          },
+          {
+            "source": "struct:d0b92830a935c1cea1d3bf98cf450384",
+            "target": "method:03ee25f361b698ab5ef95ad3baf6542d",
+            "kind": "contains"
+          }
+        ],
+        "errors": []
+      },
+      "expression": {
+        "nodes": [
+          {
+            "id": "file:expression.cpp",
+            "kind": "file",
+            "name": "expression.cpp",
+            "qualifiedName": "expression.cpp",
+            "filePath": "expression.cpp",
+            "language": "cpp",
+            "startLine": 1,
+            "endLine": 3,
+            "startColumn": 0,
+            "endColumn": 0,
+            "isExported": false
+          },
+          {
+            "id": "macro:637c236911d7986061147deaa69ea0b1",
+            "kind": "macro",
+            "name": "MAKE",
+            "qualifiedName": "MAKE",
+            "filePath": "expression.cpp",
+            "language": "cpp",
+            "startLine": 1,
+            "endLine": 2,
+            "startColumn": 0,
+            "endColumn": 0,
+            "signature": "#define MAKE() template<int N> struct Box { void run(); }; template<> struct Box<(1 << 3)> { void run(); };\n",
+            "isExported": true
+          },
+          {
+            "id": "struct:8a7437272d2810f47ccea5fa9c194c2c",
+            "kind": "struct",
+            "name": "Box",
+            "qualifiedName": "Box",
+            "filePath": "expression.cpp",
+            "language": "cpp",
+            "startLine": 2,
+            "endLine": 2,
+            "startColumn": 0,
+            "endColumn": 6,
+            "isExported": true,
+            "typeParameters": [
+              "N"
+            ]
+          },
+          {
+            "id": "method:9c5a0624f2ff2e132031faa30db7b556",
+            "kind": "method",
+            "name": "run",
+            "qualifiedName": "Box::run",
+            "filePath": "expression.cpp",
+            "language": "cpp",
+            "startLine": 2,
+            "endLine": 2,
+            "startColumn": 0,
+            "endColumn": 6,
+            "isStatic": false,
+            "signature": "void run()",
+            "isDeclaration": true
+          },
+          {
+            "id": "struct:99504858b1cda1b8a69134f4feb68dca",
+            "kind": "struct",
+            "name": "Box<(1 << 3)>",
+            "qualifiedName": "Box<(1 << 3)>",
+            "filePath": "expression.cpp",
+            "language": "cpp",
+            "startLine": 2,
+            "endLine": 2,
+            "startColumn": 0,
+            "endColumn": 6,
+            "isExported": true
+          },
+          {
+            "id": "method:d85c9739eba1c3e97b7c3431631e447f",
+            "kind": "method",
+            "name": "run",
+            "qualifiedName": "Box<(1 << 3)>::run",
+            "filePath": "expression.cpp",
+            "language": "cpp",
+            "startLine": 2,
+            "endLine": 2,
+            "startColumn": 0,
+            "endColumn": 6,
+            "isStatic": false,
+            "signature": "void run()",
+            "isDeclaration": true
+          }
+        ],
+        "edges": [
+          {
+            "source": "file:expression.cpp",
+            "target": "macro:637c236911d7986061147deaa69ea0b1",
+            "kind": "contains"
+          },
+          {
+            "source": "file:expression.cpp",
+            "target": "struct:8a7437272d2810f47ccea5fa9c194c2c",
+            "kind": "contains"
+          },
+          {
+            "source": "struct:8a7437272d2810f47ccea5fa9c194c2c",
+            "target": "method:9c5a0624f2ff2e132031faa30db7b556",
+            "kind": "contains"
+          },
+          {
+            "source": "file:expression.cpp",
+            "target": "struct:99504858b1cda1b8a69134f4feb68dca",
+            "kind": "contains"
+          },
+          {
+            "source": "struct:99504858b1cda1b8a69134f4feb68dca",
+            "target": "method:d85c9739eba1c3e97b7c3431631e447f",
+            "kind": "contains"
+          }
+        ],
+        "errors": []
+      },
+      "anonymousStruct": {
+        "nodes": [
+          {
+            "id": "file:anonymousStruct.cpp",
+            "kind": "file",
+            "name": "anonymousStruct.cpp",
+            "qualifiedName": "anonymousStruct.cpp",
+            "filePath": "anonymousStruct.cpp",
+            "language": "cpp",
+            "startLine": 1,
+            "endLine": 3,
+            "startColumn": 0,
+            "endColumn": 0,
+            "isExported": false
+          },
+          {
+            "id": "macro:5daeadb78ee0be7740acbfbeab2dc8df",
+            "kind": "macro",
+            "name": "MAKE",
+            "qualifiedName": "MAKE",
+            "filePath": "anonymousStruct.cpp",
+            "language": "cpp",
+            "startLine": 1,
+            "endLine": 2,
+            "startColumn": 0,
+            "endColumn": 0,
+            "signature": "#define MAKE() struct Outer { struct { void run() {} } inner; };\n",
+            "isExported": true
+          },
+          {
+            "id": "struct:e3880955590f9eac3f21b2429d87c156",
+            "kind": "struct",
+            "name": "Outer",
+            "qualifiedName": "Outer",
+            "filePath": "anonymousStruct.cpp",
+            "language": "cpp",
+            "startLine": 2,
+            "endLine": 2,
+            "startColumn": 0,
+            "endColumn": 6,
+            "isExported": true
+          },
+          {
+            "id": "struct:1d5275f55b19d9f64ad5a1d14bc40f1d",
+            "kind": "struct",
+            "name": "(anonymous struct)",
+            "qualifiedName": "Outer::(anonymous struct)",
+            "filePath": "anonymousStruct.cpp",
+            "language": "cpp",
+            "startLine": 2,
+            "endLine": 2,
+            "startColumn": 0,
+            "endColumn": 6,
+            "isExported": true
+          },
+          {
+            "id": "method:c77c10ca168fba65cc9d7a4255b3b97d",
+            "kind": "method",
+            "name": "run",
+            "qualifiedName": "Outer::run",
+            "filePath": "anonymousStruct.cpp",
+            "language": "cpp",
+            "startLine": 2,
+            "endLine": 2,
+            "startColumn": 0,
+            "endColumn": 6,
+            "signature": "void run()",
+            "isStatic": false
+          },
+          {
+            "id": "field:13174df3774058bfc0f10d5bf93f6882",
+            "kind": "field",
+            "name": "inner",
+            "qualifiedName": "Outer::inner",
+            "filePath": "anonymousStruct.cpp",
+            "language": "cpp",
+            "startLine": 2,
+            "endLine": 2,
+            "startColumn": 0,
+            "endColumn": 6,
+            "signature": "struct { void run() {} } inner",
+            "isStatic": false
+          }
+        ],
+        "edges": [
+          {
+            "source": "file:anonymousStruct.cpp",
+            "target": "macro:5daeadb78ee0be7740acbfbeab2dc8df",
+            "kind": "contains"
+          },
+          {
+            "source": "file:anonymousStruct.cpp",
+            "target": "struct:e3880955590f9eac3f21b2429d87c156",
+            "kind": "contains"
+          },
+          {
+            "source": "struct:e3880955590f9eac3f21b2429d87c156",
+            "target": "struct:1d5275f55b19d9f64ad5a1d14bc40f1d",
+            "kind": "contains"
+          },
+          {
+            "source": "struct:e3880955590f9eac3f21b2429d87c156",
+            "target": "method:c77c10ca168fba65cc9d7a4255b3b97d",
+            "kind": "contains"
+          },
+          {
+            "source": "struct:e3880955590f9eac3f21b2429d87c156",
+            "target": "field:13174df3774058bfc0f10d5bf93f6882",
+            "kind": "contains"
+          }
+        ],
+        "errors": []
+      },
+      "anonymousNamespace": {
+        "nodes": [
+          {
+            "id": "file:anonymousNamespace.cpp",
+            "kind": "file",
+            "name": "anonymousNamespace.cpp",
+            "qualifiedName": "anonymousNamespace.cpp",
+            "filePath": "anonymousNamespace.cpp",
+            "language": "cpp",
+            "startLine": 1,
+            "endLine": 3,
+            "startColumn": 0,
+            "endColumn": 0,
+            "isExported": false
+          },
+          {
+            "id": "macro:004c7bc2aed09ad97fa3dc1a8a5829ff",
+            "kind": "macro",
+            "name": "MAKE",
+            "qualifiedName": "MAKE",
+            "filePath": "anonymousNamespace.cpp",
+            "language": "cpp",
+            "startLine": 1,
+            "endLine": 2,
+            "startColumn": 0,
+            "endColumn": 0,
+            "signature": "#define MAKE() namespace { struct Internal_123 { void run(); }; void Internal_123::run() {} }\n",
+            "isExported": true
+          },
+          {
+            "id": "struct:c87535d364f9553168fc8cc3cdc01b30",
+            "kind": "struct",
+            "name": "Internal_123",
+            "qualifiedName": "Internal_123",
+            "filePath": "anonymousNamespace.cpp",
+            "language": "cpp",
+            "startLine": 2,
+            "endLine": 2,
+            "startColumn": 0,
+            "endColumn": 6,
+            "isExported": true
+          },
+          {
+            "id": "method:172a98942a27f38023a1fd7e89e1ee05",
+            "kind": "method",
+            "name": "run",
+            "qualifiedName": "Internal_123::run",
+            "filePath": "anonymousNamespace.cpp",
+            "language": "cpp",
+            "startLine": 2,
+            "endLine": 2,
+            "startColumn": 0,
+            "endColumn": 6,
+            "signature": "void Internal_123::run()",
+            "isStatic": false
+          }
+        ],
+        "edges": [
+          {
+            "source": "file:anonymousNamespace.cpp",
+            "target": "macro:004c7bc2aed09ad97fa3dc1a8a5829ff",
+            "kind": "contains"
+          },
+          {
+            "source": "file:anonymousNamespace.cpp",
+            "target": "struct:c87535d364f9553168fc8cc3cdc01b30",
+            "kind": "contains"
+          },
+          {
+            "source": "struct:c87535d364f9553168fc8cc3cdc01b30",
+            "target": "method:172a98942a27f38023a1fd7e89e1ee05",
+            "kind": "contains"
+          },
+          {
+            "source": "file:anonymousNamespace.cpp",
+            "target": "method:172a98942a27f38023a1fd7e89e1ee05",
+            "kind": "contains"
+          }
+        ],
+        "errors": []
+      },
+      "generatedName": {
+        "nodes": [
+          {
+            "id": "file:generatedName.cpp",
+            "kind": "file",
+            "name": "generatedName.cpp",
+            "qualifiedName": "generatedName.cpp",
+            "filePath": "generatedName.cpp",
+            "language": "cpp",
+            "startLine": 1,
+            "endLine": 3,
+            "startColumn": 0,
+            "endColumn": 0,
+            "isExported": false
+          },
+          {
+            "id": "macro:533ebf30c81c6f44030d9d5b6a3e2baf",
+            "kind": "macro",
+            "name": "MAKE",
+            "qualifiedName": "MAKE",
+            "filePath": "generatedName.cpp",
+            "language": "cpp",
+            "startLine": 1,
+            "endLine": 2,
+            "startColumn": 0,
+            "endColumn": 0,
+            "signature": "#define MAKE() struct generated_internal_123 { void run(); }; void generated_internal_123::run() {}\n",
+            "isExported": true
+          },
+          {
+            "id": "struct:0e5e15320a2d0eab3371a71587a7f025",
+            "kind": "struct",
+            "name": "generated_internal_123",
+            "qualifiedName": "generated_internal_123",
+            "filePath": "generatedName.cpp",
+            "language": "cpp",
+            "startLine": 2,
+            "endLine": 2,
+            "startColumn": 0,
+            "endColumn": 6,
+            "isExported": true
+          },
+          {
+            "id": "method:ae30d7d008f9d608308321c0ca6ecf64",
+            "kind": "method",
+            "name": "run",
+            "qualifiedName": "generated_internal_123::run",
+            "filePath": "generatedName.cpp",
+            "language": "cpp",
+            "startLine": 2,
+            "endLine": 2,
+            "startColumn": 0,
+            "endColumn": 6,
+            "signature": "void generated_internal_123::run()",
+            "isStatic": false
+          }
+        ],
+        "edges": [
+          {
+            "source": "file:generatedName.cpp",
+            "target": "macro:533ebf30c81c6f44030d9d5b6a3e2baf",
+            "kind": "contains"
+          },
+          {
+            "source": "file:generatedName.cpp",
+            "target": "struct:0e5e15320a2d0eab3371a71587a7f025",
+            "kind": "contains"
+          },
+          {
+            "source": "struct:0e5e15320a2d0eab3371a71587a7f025",
+            "target": "method:ae30d7d008f9d608308321c0ca6ecf64",
+            "kind": "contains"
+          },
+          {
+            "source": "file:generatedName.cpp",
+            "target": "method:ae30d7d008f9d608308321c0ca6ecf64",
+            "kind": "contains"
+          }
+        ],
+        "errors": []
+      },
+      "nested": {
+        "nodes": [
+          {
+            "id": "file:nested.cpp",
+            "kind": "file",
+            "name": "nested.cpp",
+            "qualifiedName": "nested.cpp",
+            "filePath": "nested.cpp",
+            "language": "cpp",
+            "startLine": 1,
+            "endLine": 3,
+            "startColumn": 0,
+            "endColumn": 0,
+            "isExported": false
+          },
+          {
+            "id": "macro:d39fa753f9f9d10ffd48f5c5e48cf496",
+            "kind": "macro",
+            "name": "MAKE",
+            "qualifiedName": "MAKE",
+            "filePath": "nested.cpp",
+            "language": "cpp",
+            "startLine": 1,
+            "endLine": 2,
+            "startColumn": 0,
+            "endColumn": 0,
+            "signature": "#define MAKE() template<int N> struct Outer { struct Inner_12 { void run() {} }; };\n",
+            "isExported": true
+          },
+          {
+            "id": "struct:1b0c2671916ef82816eeb917ce342cc6",
+            "kind": "struct",
+            "name": "Outer",
+            "qualifiedName": "Outer",
+            "filePath": "nested.cpp",
+            "language": "cpp",
+            "startLine": 2,
+            "endLine": 2,
+            "startColumn": 0,
+            "endColumn": 6,
+            "isExported": true,
+            "typeParameters": [
+              "N"
+            ]
+          },
+          {
+            "id": "struct:94918df8a60b023a625c7b250ac472e9",
+            "kind": "struct",
+            "name": "Inner_12",
+            "qualifiedName": "Outer::Inner_12",
+            "filePath": "nested.cpp",
+            "language": "cpp",
+            "startLine": 2,
+            "endLine": 2,
+            "startColumn": 0,
+            "endColumn": 6,
+            "isExported": true
+          },
+          {
+            "id": "method:893958280d530d73e3c88c56f2a3d0fe",
+            "kind": "method",
+            "name": "run",
+            "qualifiedName": "Outer::Inner_12::run",
+            "filePath": "nested.cpp",
+            "language": "cpp",
+            "startLine": 2,
+            "endLine": 2,
+            "startColumn": 0,
+            "endColumn": 6,
+            "signature": "void run()",
+            "isStatic": false
+          }
+        ],
+        "edges": [
+          {
+            "source": "file:nested.cpp",
+            "target": "macro:d39fa753f9f9d10ffd48f5c5e48cf496",
+            "kind": "contains"
+          },
+          {
+            "source": "file:nested.cpp",
+            "target": "struct:1b0c2671916ef82816eeb917ce342cc6",
+            "kind": "contains"
+          },
+          {
+            "source": "struct:1b0c2671916ef82816eeb917ce342cc6",
+            "target": "struct:94918df8a60b023a625c7b250ac472e9",
+            "kind": "contains"
+          },
+          {
+            "source": "struct:94918df8a60b023a625c7b250ac472e9",
+            "target": "method:893958280d530d73e3c88c56f2a3d0fe",
+            "kind": "contains"
+          }
+        ],
+        "errors": []
+      },
+      "aligned": {
+        "nodes": [
+          {
+            "id": "file:aligned.cpp",
+            "kind": "file",
+            "name": "aligned.cpp",
+            "qualifiedName": "aligned.cpp",
+            "filePath": "aligned.cpp",
+            "language": "cpp",
+            "startLine": 1,
+            "endLine": 3,
+            "startColumn": 0,
+            "endColumn": 0,
+            "isExported": false
+          },
+          {
+            "id": "macro:7c171c62e7704d129f8fee8f8d3941d3",
+            "kind": "macro",
+            "name": "MAKE",
+            "qualifiedName": "MAKE",
+            "filePath": "aligned.cpp",
+            "language": "cpp",
+            "startLine": 1,
+            "endLine": 2,
+            "startColumn": 0,
+            "endColumn": 0,
+            "signature": "#define MAKE() struct alignas(16) Aligned_123 { void run() {} };\n",
+            "isExported": true
+          },
+          {
+            "id": "struct:598288c3a793d7305eb3f59b5fe3fe40",
+            "kind": "struct",
+            "name": "Aligned_123",
+            "qualifiedName": "Aligned_123",
+            "filePath": "aligned.cpp",
+            "language": "cpp",
+            "startLine": 2,
+            "endLine": 2,
+            "startColumn": 0,
+            "endColumn": 6,
+            "isExported": true
+          },
+          {
+            "id": "method:a101be23978cc0004a7c5d7870d1feb1",
+            "kind": "method",
+            "name": "run",
+            "qualifiedName": "Aligned_123::run",
+            "filePath": "aligned.cpp",
+            "language": "cpp",
+            "startLine": 2,
+            "endLine": 2,
+            "startColumn": 0,
+            "endColumn": 6,
+            "signature": "void run()",
+            "isStatic": false
+          }
+        ],
+        "edges": [
+          {
+            "source": "file:aligned.cpp",
+            "target": "macro:7c171c62e7704d129f8fee8f8d3941d3",
+            "kind": "contains"
+          },
+          {
+            "source": "file:aligned.cpp",
+            "target": "struct:598288c3a793d7305eb3f59b5fe3fe40",
+            "kind": "contains"
+          },
+          {
+            "source": "struct:598288c3a793d7305eb3f59b5fe3fe40",
+            "target": "method:a101be23978cc0004a7c5d7870d1feb1",
+            "kind": "contains"
+          }
+        ],
+        "errors": []
+      },
+      "defaultValue": {
+        "nodes": [
+          {
+            "id": "file:defaultValue.cpp",
+            "kind": "file",
+            "name": "defaultValue.cpp",
+            "qualifiedName": "defaultValue.cpp",
+            "filePath": "defaultValue.cpp",
+            "language": "cpp",
+            "startLine": 1,
+            "endLine": 3,
+            "startColumn": 0,
+            "endColumn": 0,
+            "isExported": false
+          },
+          {
+            "id": "macro:9cca0a45887b5bb5fee2200d7c77e8e2",
+            "kind": "macro",
+            "name": "MAKE",
+            "qualifiedName": "MAKE",
+            "filePath": "defaultValue.cpp",
+            "language": "cpp",
+            "startLine": 1,
+            "endLine": 2,
+            "startColumn": 0,
+            "endColumn": 0,
+            "signature": "#define MAKE() template<int N=0x123> struct Box { void run() {} };\n",
+            "isExported": true
+          },
+          {
+            "id": "struct:94174135c94101e96c54b21f38045801",
+            "kind": "struct",
+            "name": "Box",
+            "qualifiedName": "Box",
+            "filePath": "defaultValue.cpp",
+            "language": "cpp",
+            "startLine": 2,
+            "endLine": 2,
+            "startColumn": 0,
+            "endColumn": 6,
+            "isExported": true,
+            "typeParameters": [
+              "N"
+            ]
+          },
+          {
+            "id": "method:dcd54e5fa8e154cc029731cdba0de0a2",
+            "kind": "method",
+            "name": "run",
+            "qualifiedName": "Box::run",
+            "filePath": "defaultValue.cpp",
+            "language": "cpp",
+            "startLine": 2,
+            "endLine": 2,
+            "startColumn": 0,
+            "endColumn": 6,
+            "signature": "void run()",
+            "isStatic": false
+          }
+        ],
+        "edges": [
+          {
+            "source": "file:defaultValue.cpp",
+            "target": "macro:9cca0a45887b5bb5fee2200d7c77e8e2",
+            "kind": "contains"
+          },
+          {
+            "source": "file:defaultValue.cpp",
+            "target": "struct:94174135c94101e96c54b21f38045801",
+            "kind": "contains"
+          },
+          {
+            "source": "struct:94174135c94101e96c54b21f38045801",
+            "target": "method:dcd54e5fa8e154cc029731cdba0de0a2",
+            "kind": "contains"
+          }
+        ],
+        "errors": []
+      }
+    }
+  },
+  "equal": {
+    "nonType": true,
+    "expression": true,
+    "anonymousStruct": true,
+    "anonymousNamespace": true,
+    "generatedName": true,
+    "nested": true,
+    "aligned": true,
+    "defaultValue": true
+  }
+}
