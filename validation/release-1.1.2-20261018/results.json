@@ -2289,11 +2289,38 @@
   "releaseDecision": {
     "ready": false,
     "correctnessAndCompatibility": "passed within narrow regression scope",
+    "performanceGate": "No demonstrated direct identity-computation regression; original adverse wall samples retained; indirect database/synthesis effect unresolved",
+    "baselineFailures": 13,
+    "newTestFailures": 0,
+    "otherBlockers": [
+      "Windows binary missing"
+    ],
+    "noRemoteActions": true
+  },
+  "priorReleaseDecisionBeforeCausalDiagnosis": {
+    "ready": false,
+    "correctnessAndCompatibility": "passed within narrow regression scope",
     "performanceGate": "unresolved: native edit slower in 3/4 pairs",
     "otherBlockers": [
       "13 existing baseline failures",
       "Windows binary missing"
     ],
     "noRemoteActions": true
+  },
+  "causalDiagnosis": {
+    "productionChanged": false,
+    "changedFileIdentityCalls": 0,
+    "fullCFamilyFiles": 1286,
+    "fullIdentityCalls": 34395,
+    "fullHelperCalls": 194,
+    "candidateInclusiveIdentityMs": 1293.5570169999637,
+    "identical30dControlSeconds": [
+      5.581801925000036,
+      6.458919347998744,
+      5.537313714001357,
+      5.796143090999976
+    ],
+    "report": "causal-diagnosis/REPORT.zh-CN.txt",
+    "remainingUncertainty": "logical graph and SQLite layout / query-plan effects on synthesis not isolated"
   }
 }

@@ -1,0 +1,45 @@
+{
+  "contextFiles": 1286,
+  "files": {
+    "util/crc32c.cc": {
+      "nodes": 71,
+      "calls": 0,
+      "syntaxErrors": 0,
+      "callKinds": {}
+    },
+    "util/crc32c.cc:edited": {
+      "nodes": 73,
+      "calls": 0,
+      "syntaxErrors": 0,
+      "callKinds": {}
+    },
+    "util/crc32c_test.cc": {
+      "nodes": 65,
+      "calls": 57,
+      "syntaxErrors": 25,
+      "callKinds": {
+        "namespace": 1,
+        "class": 8,
+        "method": 32,
+        "field": 8,
+        "constant": 8
+      }
+    },
+    "third-party/gtest-1.8.1/fused-src/gtest/gtest.h": {
+      "nodes": 4826,
+      "calls": 629,
+      "syntaxErrors": 14,
+      "callKinds": {
+        "namespace": 39,
+        "class": 116,
+        "method": 132,
+        "struct": 119,
+        "type_alias": 191,
+        "variable": 12,
+        "field": 4,
+        "function": 14,
+        "constant": 2
+      }
+    }
+  }
+}

@@ -1,0 +1,106 @@
+{
+  "runtimeJsDifferences": {
+    "dist/extraction/c-cpp-macro-identity.js": [
+      "d3c9a8e7f24bcca15aeae4d0a8b54c08be05ca4436e91419adc82dc893ef9b5d",
+      "74e3a95013e9cc5634f90321ecae821b93d2a348d2716656e8784a586f7d4a4e"
+    ]
+  },
+  "packageVsFrozenJs": {},
+  "node": {
+    "version": "v24.19.0",
+    "binary": "bc17c508ffeed0ec622934f9b7fa72f8e78da65350e63c3eceb56fa688aa5e12"
+  },
+  "native": {
+    "dist/native-scan/linux-x64/codegraph-scan": "06acbcea524825c7ac49bdd7f8d3071f10da09869267c14f2e6f713adcc2afaa",
+    "dist/native-macros/linux-x64/codegraph-macros": "a4941a83726331c73ed803dac4ca1e3d37679497dab78ea377e90002668bdf8b"
+  },
+  "dependencyRealpaths": [
+    "/workspace/codegraph-install/node_modules",
+    "/workspace/codegraph-install/node_modules"
+  ],
+  "inputChanges": {
+    "ts": {
+      "path": "util/crc32c.cc",
+      "beforeBytes": 49987,
+      "afterBytes": 50091,
+      "beforeSha256": "c1f10602fd9fe9421c2783b556b48c39f217ceb67825d8d5906f15e8df45b352",
+      "afterSha256": "bc7ae82cc24891666c1332976a70fa28ebab1feff7ec2124e177e01300c97fc3",
+      "addedText": "\nnamespace ROCKSDB_NAMESPACE::crc32c {\nuint32_t codegraph_release_probe() { return Value(\"abc\", 3); }\n}\n"
+    },
+    "native": {
+      "path": "util/crc32c.cc",
+      "beforeBytes": 49987,
+      "afterBytes": 50091,
+      "beforeSha256": "c1f10602fd9fe9421c2783b556b48c39f217ceb67825d8d5906f15e8df45b352",
+      "afterSha256": "bc7ae82cc24891666c1332976a70fa28ebab1feff7ec2124e177e01300c97fc3",
+      "addedText": "\nnamespace ROCKSDB_NAMESPACE::crc32c {\nuint32_t codegraph_release_probe() { return Value(\"abc\", 3); }\n}\n"
+    }
+  },
+  "configs": {
+    "ts": {
+      "sourceCommit": "0e2801ac30b3f283c3b14e523ba3667eca024f09",
+      "codeCommit": "594c45f7e10654b1fa64cd14dc58549942276c5c",
+      "orders": [
+        "AB",
+        "BA",
+        "AB",
+        "BA"
+      ],
+      "environment": {
+        "CODEGRAPH_RUST_SCAN": "0",
+        "CODEGRAPH_RUST_MACROS": "0",
+        "CODEGRAPH_RUST_SCAN_PATH": "/workspace/codegraph-regression-fixes/dist/native-scan/linux-x64/codegraph-scan",
+        "CODEGRAPH_RUST_MACROS_PATH": "/workspace/codegraph-regression-fixes/dist/native-macros/linux-x64/codegraph-macros",
+        "CODEGRAPH_ALL_LANGUAGES": "1",
+        "CODEGRAPH_PARSE_WORKERS": "1",
+        "CODEGRAPH_NO_STORE_WORKER": "1",
+        "NODE_OPTIONS": "--max-old-space-size=4096"
+      },
+      "cpuQuota": "400000 100000",
+      "memoryLimit": "17179869184",
+      "initialMemory": "4692013056",
+      "diskFree": 27884474368,
+      "limits": {
+        "wallSeconds": 600,
+        "groupRssGiB": 8,
+        "cgroupMemoryGiB": 14,
+        "minimumFreeDiskGiB": 4
+      },
+      "rssSamplingSeconds": 0.05
+    },
+    "native": {
+      "sourceCommit": "0e2801ac30b3f283c3b14e523ba3667eca024f09",
+      "codeCommit": "594c45f7e10654b1fa64cd14dc58549942276c5c",
+      "orders": [
+        "AB",
+        "BA",
+        "AB",
+        "BA"
+      ],
+      "environment": {
+        "CODEGRAPH_RUST_SCAN": "1",
+        "CODEGRAPH_RUST_MACROS": "1",
+        "CODEGRAPH_RUST_SCAN_PATH": "/workspace/codegraph-regression-fixes/dist/native-scan/linux-x64/codegraph-scan",
+        "CODEGRAPH_RUST_MACROS_PATH": "/workspace/codegraph-regression-fixes/dist/native-macros/linux-x64/codegraph-macros",
+        "CODEGRAPH_ALL_LANGUAGES": "1",
+        "CODEGRAPH_PARSE_WORKERS": "1",
+        "CODEGRAPH_NO_STORE_WORKER": "1",
+        "NODE_OPTIONS": "--max-old-space-size=4096"
+      },
+      "cpuQuota": "400000 100000",
+      "memoryLimit": "17179869184",
+      "initialMemory": "5174247424",
+      "diskFree": 27423875072,
+      "limits": {
+        "wallSeconds": 600,
+        "groupRssGiB": 8,
+        "cgroupMemoryGiB": 14,
+        "minimumFreeDiskGiB": 4
+      },
+      "rssSamplingSeconds": 0.05
+    }
+  },
+  "originalDatabaseBytesRetained": false,
+  "originalDatabaseComparison": "logical nodes/edges hashes + indexed paths/bytes and logs; cannot retrospectively compare SQLite page layout or all metadata byte-for-byte",
+  "sourceDiff": "diff --git a/src/extraction/c-cpp-macro-identity.ts b/src/extraction/c-cpp-macro-identity.ts\nindex 42a0797..9f572e8 100644\n--- a/src/extraction/c-cpp-macro-identity.ts\n+++ b/src/extraction/c-cpp-macro-identity.ts\n@@ -21,12 +21,39 @@ function callableDeclarator(node: SyntaxNode): SyntaxNode | null {\n   return null;\n }\n \n-function semanticQualifiedName(symbol: Node, syntax: SyntaxNode | null): string {\n+function completeNumericOwner(qualified: string, name: SyntaxNode | null, source: string): string {\n+  if (!name || (name.type !== 'type_identifier' && name.type !== 'namespace_identifier')) return qualified;\n+  let start = name.startIndex;\n+  while (start > 0 && /[\\w.]/.test(source[start - 1]!)) start--;\n+  // Deliberately accept only a simple ASCII token with proven delimiters.\n+  // Exponent signs, separators, escapes, Unicode and composite scopes must\n+  // retain their old identity rather than being completed from a suffix.\n+  if (start === name.startIndex || (start > 0 && !/[ \\t]/.test(source[start - 1]!))) return qualified;\n+  const token = source.slice(start, name.endIndex);\n+  if (!/^(?:\\d|\\.\\d)[A-Za-z0-9_.]*$/.test(token)\n+    || (name.endIndex < source.length && !/[ \\t\\r\\n\\f\\v:;{}]/.test(source[name.endIndex]!))) return qualified;\n+  const component = name.text + '::';\n+  const at = qualified.indexOf(component);\n+  // Do not guess which nested owner (or suffix of another name) it denotes.\n+  if (at !== qualified.lastIndexOf(component) || (at > 0 && qualified.slice(at - 2, at) !== '::')) return qualified;\n+  return at < 0 ? qualified : qualified.slice(0, at) + token + qualified.slice(at + name.text.length);\n+}\n+\n+function semanticQualifiedName(symbol: Node, syntax: SyntaxNode | null, source: string): string {\n   let qualified = symbol.qualifiedName;\n+  // Error recovery can split the same preprocessing number differently in a\n+  // type header and an out-of-line definition. Preserve its full spelling in\n+  // callable identity; existing parameter/qualifier checks still decide pairing.\n+  const callable = symbol.kind === 'method' || symbol.kind === 'function';\n+  if (callable && syntax?.hasError) {\n+    const name = callableDeclarator(syntax)?.childForFieldName('declarator');\n+    qualified = completeNumericOwner(qualified, name?.childForFieldName('scope') ?? null, source);\n+  }\n   for (let owner = syntax?.parent; owner; owner = owner.parent) {\n-    if (!['class_specifier','struct_specifier','union_specifier'].includes(owner.type)\n-      || owner.parent?.type !== 'template_declaration') continue;\n+    if (!['class_specifier','struct_specifier','union_specifier'].includes(owner.type)) continue;\n     const name = owner.childForFieldName('name');\n+    if (callable && owner.hasError) qualified = completeNumericOwner(qualified, name, source);\n+    if (owner.parent?.type !== 'template_declaration') continue;\n     if (name?.type !== 'type_identifier') continue;\n     const parameters = owner.parent.childForFieldName('parameters')?.namedChildren ?? [];\n     const names = parameters.map(cppTemplateParameterName);\n@@ -41,7 +68,7 @@ function semanticQualifiedName(symbol: Node, syntax: SyntaxNode | null): string\n \n export function macroSemanticId(symbol: Node, syntax: SyntaxNode | null, source: string, bindings?: CppTypeBindings): string {\n   if (symbol.kind === 'file' || symbol.kind === 'macro' || symbol.kind === 'import') return symbol.id;\n-  const qualifiedName = semanticQualifiedName(symbol, syntax);\n+  const qualifiedName = semanticQualifiedName(symbol, syntax, source);\n   const {normalize, templates, callableNormalizer} = cppTemplateIdentity(syntax, qualifiedName, source);\n   let callable: unknown = null;\n   let parameterPosition: {row:number; column:number} | undefined;\n"
+}

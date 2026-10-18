@@ -1,0 +1,2794 @@
+{
+  "ts": {
+    "r1-baseline-init": {
+      "wallMs": 111191.26513200172,
+      "lines": [
+        "[worker] macro-detail mode=ts reason=disabled files=1286 readFiles=1286 readErrors=0 bytes=25526167 fallbackFiles=0 readWallMs=173ms namesMs=62ms bodylessMs=59ms definitionsMs=29ms mergeMs=3ms nativeWallMs=0ms nativeReadSumMs=0ms nativeScanSumMs=0ms totalMs=327ms names=1124 bodyless=101 definitions=902",
+        "[worker] Index phases: scan=121ms framework=22ms macroScan=328ms readSum=3117ms parsePipeline=80440ms storeAdmission=4745ms bufferBudgetMB=512 peakBufferedFiles=4 peakEstimatedBufferMB=21",
+        "[worker] Extraction totals: primaryParseMs=23084ms primaryExtractionMs=16564ms declarationMacroExpansionMs=2683ms declarationMacroRecoverySourceMs=1202ms declarationMacroAuxParseMs=31465ms declarationMacroMergeMs=139ms"
+      ],
+      "fields": {
+        "macro-detail": {
+          "readWallMs": 173.0,
+          "namesMs": 62.0,
+          "bodylessMs": 59.0,
+          "definitionsMs": 29.0,
+          "mergeMs": 3.0,
+          "nativeWallMs": 0.0,
+          "nativeReadSumMs": 0.0,
+          "nativeScanSumMs": 0.0,
+          "totalMs": 327.0
+        },
+        "Index": {
+          "scan": 121.0,
+          "framework": 22.0,
+          "macroScan": 328.0,
+          "readSum": 3117.0,
+          "parsePipeline": 80440.0,
+          "storeAdmission": 4745.0
+        },
+        "Extraction": {
+          "primaryParseMs": 23084.0,
+          "primaryExtractionMs": 16564.0,
+          "declarationMacroExpansionMs": 2683.0,
+          "declarationMacroRecoverySourceMs": 1202.0,
+          "declarationMacroAuxParseMs": 31465.0,
+          "declarationMacroMergeMs": 139.0
+        }
+      }
+    },
+    "r1-baseline-noop": {
+      "wallMs": 567.7401940010895,
+      "lines": [
+        "[sync] scan-detail mode=walk fallbackReason=git-path-error failureStage=rev-parse gitCommandMs=9ms ignoreBuildMs=5ms filterCanonicalMs=0ms walkMs=93ms gitCommands=1 gitCandidates=0 sourceFiles=1684 walkDirectories=174 gitDirectories=0 supplementRoots=0 canonicalFromParent=1684 nativeStatus=off nativeReason=none nativeMs=0ms nativeDirectories=0 nativeMetadata=0 gitPathMode=unused gitIgnoreMs=0ms gitCanonicalMs=0ms gitRealpathMs=0ms gitDedupMs=0ms gitIgnoreMode=legacy gitIgnoreReason=none gitIgnoreNativeMs=0ms gitIgnoreKernelMs=0ms gitIgnoreMismatches=0 gitIgnoreNativeKept=0 gitIgnoreDeferred=0 gitIgnored=0 gitCanonicalCalls=0 gitRealpathCalls=0 gitRealpathErrors=0 gitNativeCalls=0 gitNativeFallbacks=0 gitPathMismatches=0 gitCanonicalDuplicates=0",
+        "[sync] reconcile-counts currentFiles=1684 trackedFiles=1684 existsChecks=0 statChecks=1684 statUnchanged=1684 statErrors=0 snapshotPresence=0 snapshotStats=0 hashReadAttempts=0 hashReadFiles=0 hashReadErrors=0 sameHashSkipped=0 sameHashStatUpdated=0 sameHashStatDeferred=0 recoveryRetryFiles=0 added=0 modified=0 removed=0",
+        "[sync] phases reconcile=114ms framework=0ms macroScan=0ms workerSetup=0ms read=0ms parseWall=0ms store=0ms",
+        "[sync] tail-detail macroEvidenceMs=0ms prepareAndWalMs=71ms postExtractMs=0ms changedRefsMs=5ms resurrectedRefsMs=0ms failedRefRetryMs=0ms coImporterMs=0ms orphanAndSynthesisMs=0ms chainedCallsMs=0ms maintenanceMs=0ms finalizeMs=0ms cleanupMs=0ms",
+        "[sync] command phases moduleLoad=112ms databaseOpen=55ms syncPipeline=284ms total=476ms"
+      ],
+      "fields": {
+        "scan-detail": {
+          "gitCommandMs": 9.0,
+          "ignoreBuildMs": 5.0,
+          "filterCanonicalMs": 0.0,
+          "walkMs": 93.0,
+          "nativeMs": 0.0,
+          "gitIgnoreMs": 0.0,
+          "gitCanonicalMs": 0.0,
+          "gitRealpathMs": 0.0,
+          "gitDedupMs": 0.0,
+          "gitIgnoreNativeMs": 0.0,
+          "gitIgnoreKernelMs": 0.0
+        },
+        "reconcile-counts": {},
+        "phases": {
+          "reconcile": 114.0,
+          "framework": 0.0,
+          "macroScan": 0.0,
+          "workerSetup": 0.0,
+          "read": 0.0,
+          "parseWall": 0.0,
+          "store": 0.0
+        },
+        "tail-detail": {
+          "macroEvidenceMs": 0.0,
+          "prepareAndWalMs": 71.0,
+          "postExtractMs": 0.0,
+          "changedRefsMs": 5.0,
+          "resurrectedRefsMs": 0.0,
+          "failedRefRetryMs": 0.0,
+          "coImporterMs": 0.0,
+          "orphanAndSynthesisMs": 0.0,
+          "chainedCallsMs": 0.0,
+          "maintenanceMs": 0.0,
+          "finalizeMs": 0.0,
+          "cleanupMs": 0.0
+        },
+        "command": {
+          "moduleLoad": 112.0,
+          "databaseOpen": 55.0,
+          "syncPipeline": 284.0,
+          "total": 476.0
+        }
+      }
+    },
+    "r1-baseline-edit": {
+      "wallMs": 5103.675223999744,
+      "lines": [
+        "[sync] scan-detail mode=walk fallbackReason=git-path-error failureStage=rev-parse gitCommandMs=4ms ignoreBuildMs=5ms filterCanonicalMs=0ms walkMs=88ms gitCommands=1 gitCandidates=0 sourceFiles=1684 walkDirectories=174 gitDirectories=0 supplementRoots=0 canonicalFromParent=1684 nativeStatus=off nativeReason=none nativeMs=0ms nativeDirectories=0 nativeMetadata=0 gitPathMode=unused gitIgnoreMs=0ms gitCanonicalMs=0ms gitRealpathMs=0ms gitDedupMs=0ms gitIgnoreMode=legacy gitIgnoreReason=none gitIgnoreNativeMs=0ms gitIgnoreKernelMs=0ms gitIgnoreMismatches=0 gitIgnoreNativeKept=0 gitIgnoreDeferred=0 gitIgnored=0 gitCanonicalCalls=0 gitRealpathCalls=0 gitRealpathErrors=0 gitNativeCalls=0 gitNativeFallbacks=0 gitPathMismatches=0 gitCanonicalDuplicates=0",
+        "[sync] reconcile-counts currentFiles=1684 trackedFiles=1684 existsChecks=0 statChecks=1684 statUnchanged=1683 statErrors=0 snapshotPresence=0 snapshotStats=0 hashReadAttempts=1 hashReadFiles=1 hashReadErrors=0 sameHashSkipped=0 sameHashStatUpdated=0 sameHashStatDeferred=0 recoveryRetryFiles=0 added=0 modified=1 removed=0",
+        "[sync] macro-detail mode=ts reason=disabled files=1286 readFiles=1286 readErrors=0 bytes=25526271 fallbackFiles=0 readWallMs=132ms namesMs=53ms bodylessMs=54ms definitionsMs=24ms mergeMs=2ms nativeWallMs=0ms nativeReadSumMs=0ms nativeScanSumMs=0ms totalMs=267ms names=1124 bodyless=101 definitions=902",
+        "[sync] phases reconcile=105ms framework=19ms macroScan=268ms workerSetup=98ms read=1ms parseWall=128ms store=32ms",
+        "[sync] extraction totals primaryParseMs=80ms primaryExtractionMs=28ms declarationMacroExpansionMs=13ms",
+        "[sync] tail-detail macroEvidenceMs=3ms prepareAndWalMs=74ms postExtractMs=0ms changedRefsMs=64ms resurrectedRefsMs=0ms failedRefRetryMs=125ms coImporterMs=0ms orphanAndSynthesisMs=3658ms chainedCallsMs=175ms maintenanceMs=38ms finalizeMs=2ms cleanupMs=0ms",
+        "[sync] command phases moduleLoad=101ms databaseOpen=52ms syncPipeline=4830ms total=5000ms"
+      ],
+      "fields": {
+        "scan-detail": {
+          "gitCommandMs": 4.0,
+          "ignoreBuildMs": 5.0,
+          "filterCanonicalMs": 0.0,
+          "walkMs": 88.0,
+          "nativeMs": 0.0,
+          "gitIgnoreMs": 0.0,
+          "gitCanonicalMs": 0.0,
+          "gitRealpathMs": 0.0,
+          "gitDedupMs": 0.0,
+          "gitIgnoreNativeMs": 0.0,
+          "gitIgnoreKernelMs": 0.0
+        },
+        "reconcile-counts": {},
+        "macro-detail": {
+          "readWallMs": 132.0,
+          "namesMs": 53.0,
+          "bodylessMs": 54.0,
+          "definitionsMs": 24.0,
+          "mergeMs": 2.0,
+          "nativeWallMs": 0.0,
+          "nativeReadSumMs": 0.0,
+          "nativeScanSumMs": 0.0,
+          "totalMs": 267.0
+        },
+        "phases": {
+          "reconcile": 105.0,
+          "framework": 19.0,
+          "macroScan": 268.0,
+          "workerSetup": 98.0,
+          "read": 1.0,
+          "parseWall": 128.0,
+          "store": 32.0
+        },
+        "extraction": {
+          "primaryParseMs": 80.0,
+          "primaryExtractionMs": 28.0,
+          "declarationMacroExpansionMs": 13.0
+        },
+        "tail-detail": {
+          "macroEvidenceMs": 3.0,
+          "prepareAndWalMs": 74.0,
+          "postExtractMs": 0.0,
+          "changedRefsMs": 64.0,
+          "resurrectedRefsMs": 0.0,
+          "failedRefRetryMs": 125.0,
+          "coImporterMs": 0.0,
+          "orphanAndSynthesisMs": 3658.0,
+          "chainedCallsMs": 175.0,
+          "maintenanceMs": 38.0,
+          "finalizeMs": 2.0,
+          "cleanupMs": 0.0
+        },
+        "command": {
+          "moduleLoad": 101.0,
+          "databaseOpen": 52.0,
+          "syncPipeline": 4830.0,
+          "total": 5000.0
+        }
+      }
+    },
+    "r1-fixed-init": {
+      "wallMs": 100653.70041300048,
+      "lines": [
+        "[worker] macro-detail mode=ts reason=disabled files=1286 readFiles=1286 readErrors=0 bytes=25526167 fallbackFiles=0 readWallMs=133ms namesMs=54ms bodylessMs=52ms definitionsMs=26ms mergeMs=2ms nativeWallMs=0ms nativeReadSumMs=0ms nativeScanSumMs=0ms totalMs=269ms names=1124 bodyless=101 definitions=902",
+        "[worker] Index phases: scan=130ms framework=19ms macroScan=270ms readSum=2298ms parsePipeline=75021ms storeAdmission=4491ms bufferBudgetMB=512 peakBufferedFiles=4 peakEstimatedBufferMB=21",
+        "[worker] Extraction totals: primaryParseMs=21281ms primaryExtractionMs=15540ms declarationMacroExpansionMs=2550ms declarationMacroRecoverySourceMs=1186ms declarationMacroAuxParseMs=29738ms declarationMacroMergeMs=159ms"
+      ],
+      "fields": {
+        "macro-detail": {
+          "readWallMs": 133.0,
+          "namesMs": 54.0,
+          "bodylessMs": 52.0,
+          "definitionsMs": 26.0,
+          "mergeMs": 2.0,
+          "nativeWallMs": 0.0,
+          "nativeReadSumMs": 0.0,
+          "nativeScanSumMs": 0.0,
+          "totalMs": 269.0
+        },
+        "Index": {
+          "scan": 130.0,
+          "framework": 19.0,
+          "macroScan": 270.0,
+          "readSum": 2298.0,
+          "parsePipeline": 75021.0,
+          "storeAdmission": 4491.0
+        },
+        "Extraction": {
+          "primaryParseMs": 21281.0,
+          "primaryExtractionMs": 15540.0,
+          "declarationMacroExpansionMs": 2550.0,
+          "declarationMacroRecoverySourceMs": 1186.0,
+          "declarationMacroAuxParseMs": 29738.0,
+          "declarationMacroMergeMs": 159.0
+        }
+      }
+    },
+    "r1-fixed-noop": {
+      "wallMs": 631.8956809991505,
+      "lines": [
+        "[sync] scan-detail mode=walk fallbackReason=git-path-error failureStage=rev-parse gitCommandMs=8ms ignoreBuildMs=4ms filterCanonicalMs=0ms walkMs=113ms gitCommands=1 gitCandidates=0 sourceFiles=1684 walkDirectories=174 gitDirectories=0 supplementRoots=0 canonicalFromParent=1684 nativeStatus=off nativeReason=none nativeMs=0ms nativeDirectories=0 nativeMetadata=0 gitPathMode=unused gitIgnoreMs=0ms gitCanonicalMs=0ms gitRealpathMs=0ms gitDedupMs=0ms gitIgnoreMode=legacy gitIgnoreReason=none gitIgnoreNativeMs=0ms gitIgnoreKernelMs=0ms gitIgnoreMismatches=0 gitIgnoreNativeKept=0 gitIgnoreDeferred=0 gitIgnored=0 gitCanonicalCalls=0 gitRealpathCalls=0 gitRealpathErrors=0 gitNativeCalls=0 gitNativeFallbacks=0 gitPathMismatches=0 gitCanonicalDuplicates=0",
+        "[sync] reconcile-counts currentFiles=1684 trackedFiles=1684 existsChecks=0 statChecks=1684 statUnchanged=1684 statErrors=0 snapshotPresence=0 snapshotStats=0 hashReadAttempts=0 hashReadFiles=0 hashReadErrors=0 sameHashSkipped=0 sameHashStatUpdated=0 sameHashStatDeferred=0 recoveryRetryFiles=0 added=0 modified=0 removed=0",
+        "[sync] phases reconcile=136ms framework=0ms macroScan=0ms workerSetup=0ms read=0ms parseWall=0ms store=0ms",
+        "[sync] tail-detail macroEvidenceMs=0ms prepareAndWalMs=78ms postExtractMs=0ms changedRefsMs=5ms resurrectedRefsMs=0ms failedRefRetryMs=0ms coImporterMs=0ms orphanAndSynthesisMs=0ms chainedCallsMs=0ms maintenanceMs=0ms finalizeMs=0ms cleanupMs=0ms",
+        "[sync] command phases moduleLoad=126ms databaseOpen=57ms syncPipeline=330ms total=533ms"
+      ],
+      "fields": {
+        "scan-detail": {
+          "gitCommandMs": 8.0,
+          "ignoreBuildMs": 4.0,
+          "filterCanonicalMs": 0.0,
+          "walkMs": 113.0,
+          "nativeMs": 0.0,
+          "gitIgnoreMs": 0.0,
+          "gitCanonicalMs": 0.0,
+          "gitRealpathMs": 0.0,
+          "gitDedupMs": 0.0,
+          "gitIgnoreNativeMs": 0.0,
+          "gitIgnoreKernelMs": 0.0
+        },
+        "reconcile-counts": {},
+        "phases": {
+          "reconcile": 136.0,
+          "framework": 0.0,
+          "macroScan": 0.0,
+          "workerSetup": 0.0,
+          "read": 0.0,
+          "parseWall": 0.0,
+          "store": 0.0
+        },
+        "tail-detail": {
+          "macroEvidenceMs": 0.0,
+          "prepareAndWalMs": 78.0,
+          "postExtractMs": 0.0,
+          "changedRefsMs": 5.0,
+          "resurrectedRefsMs": 0.0,
+          "failedRefRetryMs": 0.0,
+          "coImporterMs": 0.0,
+          "orphanAndSynthesisMs": 0.0,
+          "chainedCallsMs": 0.0,
+          "maintenanceMs": 0.0,
+          "finalizeMs": 0.0,
+          "cleanupMs": 0.0
+        },
+        "command": {
+          "moduleLoad": 126.0,
+          "databaseOpen": 57.0,
+          "syncPipeline": 330.0,
+          "total": 533.0
+        }
+      }
+    },
+    "r1-fixed-edit": {
+      "wallMs": 5527.856664997671,
+      "lines": [
+        "[sync] scan-detail mode=walk fallbackReason=git-path-error failureStage=rev-parse gitCommandMs=5ms ignoreBuildMs=4ms filterCanonicalMs=0ms walkMs=123ms gitCommands=1 gitCandidates=0 sourceFiles=1684 walkDirectories=174 gitDirectories=0 supplementRoots=0 canonicalFromParent=1684 nativeStatus=off nativeReason=none nativeMs=0ms nativeDirectories=0 nativeMetadata=0 gitPathMode=unused gitIgnoreMs=0ms gitCanonicalMs=0ms gitRealpathMs=0ms gitDedupMs=0ms gitIgnoreMode=legacy gitIgnoreReason=none gitIgnoreNativeMs=0ms gitIgnoreKernelMs=0ms gitIgnoreMismatches=0 gitIgnoreNativeKept=0 gitIgnoreDeferred=0 gitIgnored=0 gitCanonicalCalls=0 gitRealpathCalls=0 gitRealpathErrors=0 gitNativeCalls=0 gitNativeFallbacks=0 gitPathMismatches=0 gitCanonicalDuplicates=0",
+        "[sync] reconcile-counts currentFiles=1684 trackedFiles=1684 existsChecks=0 statChecks=1684 statUnchanged=1683 statErrors=0 snapshotPresence=0 snapshotStats=0 hashReadAttempts=1 hashReadFiles=1 hashReadErrors=0 sameHashSkipped=0 sameHashStatUpdated=0 sameHashStatDeferred=0 recoveryRetryFiles=0 added=0 modified=1 removed=0",
+        "[sync] macro-detail mode=ts reason=disabled files=1286 readFiles=1286 readErrors=0 bytes=25526271 fallbackFiles=0 readWallMs=132ms namesMs=51ms bodylessMs=50ms definitionsMs=24ms mergeMs=3ms nativeWallMs=0ms nativeReadSumMs=0ms nativeScanSumMs=0ms totalMs=261ms names=1124 bodyless=101 definitions=902",
+        "[sync] phases reconcile=142ms framework=26ms macroScan=262ms workerSetup=114ms read=1ms parseWall=172ms store=40ms",
+        "[sync] extraction totals primaryParseMs=105ms primaryExtractionMs=43ms declarationMacroExpansionMs=15ms",
+        "[sync] tail-detail macroEvidenceMs=4ms prepareAndWalMs=72ms postExtractMs=0ms changedRefsMs=66ms resurrectedRefsMs=0ms failedRefRetryMs=141ms coImporterMs=0ms orphanAndSynthesisMs=3952ms chainedCallsMs=171ms maintenanceMs=36ms finalizeMs=2ms cleanupMs=0ms",
+        "[sync] command phases moduleLoad=104ms databaseOpen=54ms syncPipeline=5244ms total=5419ms"
+      ],
+      "fields": {
+        "scan-detail": {
+          "gitCommandMs": 5.0,
+          "ignoreBuildMs": 4.0,
+          "filterCanonicalMs": 0.0,
+          "walkMs": 123.0,
+          "nativeMs": 0.0,
+          "gitIgnoreMs": 0.0,
+          "gitCanonicalMs": 0.0,
+          "gitRealpathMs": 0.0,
+          "gitDedupMs": 0.0,
+          "gitIgnoreNativeMs": 0.0,
+          "gitIgnoreKernelMs": 0.0
+        },
+        "reconcile-counts": {},
+        "macro-detail": {
+          "readWallMs": 132.0,
+          "namesMs": 51.0,
+          "bodylessMs": 50.0,
+          "definitionsMs": 24.0,
+          "mergeMs": 3.0,
+          "nativeWallMs": 0.0,
+          "nativeReadSumMs": 0.0,
+          "nativeScanSumMs": 0.0,
+          "totalMs": 261.0
+        },
+        "phases": {
+          "reconcile": 142.0,
+          "framework": 26.0,
+          "macroScan": 262.0,
+          "workerSetup": 114.0,
+          "read": 1.0,
+          "parseWall": 172.0,
+          "store": 40.0
+        },
+        "extraction": {
+          "primaryParseMs": 105.0,
+          "primaryExtractionMs": 43.0,
+          "declarationMacroExpansionMs": 15.0
+        },
+        "tail-detail": {
+          "macroEvidenceMs": 4.0,
+          "prepareAndWalMs": 72.0,
+          "postExtractMs": 0.0,
+          "changedRefsMs": 66.0,
+          "resurrectedRefsMs": 0.0,
+          "failedRefRetryMs": 141.0,
+          "coImporterMs": 0.0,
+          "orphanAndSynthesisMs": 3952.0,
+          "chainedCallsMs": 171.0,
+          "maintenanceMs": 36.0,
+          "finalizeMs": 2.0,
+          "cleanupMs": 0.0
+        },
+        "command": {
+          "moduleLoad": 104.0,
+          "databaseOpen": 54.0,
+          "syncPipeline": 5244.0,
+          "total": 5419.0
+        }
+      }
+    },
+    "r2-fixed-init": {
+      "wallMs": 94347.0972139985,
+      "lines": [
+        "[worker] macro-detail mode=ts reason=disabled files=1286 readFiles=1286 readErrors=0 bytes=25526167 fallbackFiles=0 readWallMs=154ms namesMs=53ms bodylessMs=52ms definitionsMs=26ms mergeMs=3ms nativeWallMs=0ms nativeReadSumMs=0ms nativeScanSumMs=0ms totalMs=290ms names=1124 bodyless=101 definitions=902",
+        "[worker] Index phases: scan=123ms framework=19ms macroScan=290ms readSum=1957ms parsePipeline=68101ms storeAdmission=3472ms bufferBudgetMB=512 peakBufferedFiles=4 peakEstimatedBufferMB=21",
+        "[worker] Extraction totals: primaryParseMs=19731ms primaryExtractionMs=14560ms declarationMacroExpansionMs=2296ms declarationMacroRecoverySourceMs=1040ms declarationMacroAuxParseMs=26715ms declarationMacroMergeMs=122ms"
+      ],
+      "fields": {
+        "macro-detail": {
+          "readWallMs": 154.0,
+          "namesMs": 53.0,
+          "bodylessMs": 52.0,
+          "definitionsMs": 26.0,
+          "mergeMs": 3.0,
+          "nativeWallMs": 0.0,
+          "nativeReadSumMs": 0.0,
+          "nativeScanSumMs": 0.0,
+          "totalMs": 290.0
+        },
+        "Index": {
+          "scan": 123.0,
+          "framework": 19.0,
+          "macroScan": 290.0,
+          "readSum": 1957.0,
+          "parsePipeline": 68101.0,
+          "storeAdmission": 3472.0
+        },
+        "Extraction": {
+          "primaryParseMs": 19731.0,
+          "primaryExtractionMs": 14560.0,
+          "declarationMacroExpansionMs": 2296.0,
+          "declarationMacroRecoverySourceMs": 1040.0,
+          "declarationMacroAuxParseMs": 26715.0,
+          "declarationMacroMergeMs": 122.0
+        }
+      }
+    },
+    "r2-fixed-noop": {
+      "wallMs": 533.6410780000733,
+      "lines": [
+        "[sync] scan-detail mode=walk fallbackReason=git-path-error failureStage=rev-parse gitCommandMs=7ms ignoreBuildMs=3ms filterCanonicalMs=0ms walkMs=88ms gitCommands=1 gitCandidates=0 sourceFiles=1684 walkDirectories=174 gitDirectories=0 supplementRoots=0 canonicalFromParent=1684 nativeStatus=off nativeReason=none nativeMs=0ms nativeDirectories=0 nativeMetadata=0 gitPathMode=unused gitIgnoreMs=0ms gitCanonicalMs=0ms gitRealpathMs=0ms gitDedupMs=0ms gitIgnoreMode=legacy gitIgnoreReason=none gitIgnoreNativeMs=0ms gitIgnoreKernelMs=0ms gitIgnoreMismatches=0 gitIgnoreNativeKept=0 gitIgnoreDeferred=0 gitIgnored=0 gitCanonicalCalls=0 gitRealpathCalls=0 gitRealpathErrors=0 gitNativeCalls=0 gitNativeFallbacks=0 gitPathMismatches=0 gitCanonicalDuplicates=0",
+        "[sync] reconcile-counts currentFiles=1684 trackedFiles=1684 existsChecks=0 statChecks=1684 statUnchanged=1684 statErrors=0 snapshotPresence=0 snapshotStats=0 hashReadAttempts=0 hashReadFiles=0 hashReadErrors=0 sameHashSkipped=0 sameHashStatUpdated=0 sameHashStatDeferred=0 recoveryRetryFiles=0 added=0 modified=0 removed=0",
+        "[sync] phases reconcile=108ms framework=0ms macroScan=0ms workerSetup=0ms read=0ms parseWall=0ms store=0ms",
+        "[sync] tail-detail macroEvidenceMs=0ms prepareAndWalMs=68ms postExtractMs=0ms changedRefsMs=4ms resurrectedRefsMs=0ms failedRefRetryMs=0ms coImporterMs=0ms orphanAndSynthesisMs=0ms chainedCallsMs=0ms maintenanceMs=0ms finalizeMs=0ms cleanupMs=0ms",
+        "[sync] command phases moduleLoad=112ms databaseOpen=56ms syncPipeline=250ms total=439ms"
+      ],
+      "fields": {
+        "scan-detail": {
+          "gitCommandMs": 7.0,
+          "ignoreBuildMs": 3.0,
+          "filterCanonicalMs": 0.0,
+          "walkMs": 88.0,
+          "nativeMs": 0.0,
+          "gitIgnoreMs": 0.0,
+          "gitCanonicalMs": 0.0,
+          "gitRealpathMs": 0.0,
+          "gitDedupMs": 0.0,
+          "gitIgnoreNativeMs": 0.0,
+          "gitIgnoreKernelMs": 0.0
+        },
+        "reconcile-counts": {},
+        "phases": {
+          "reconcile": 108.0,
+          "framework": 0.0,
+          "macroScan": 0.0,
+          "workerSetup": 0.0,
+          "read": 0.0,
+          "parseWall": 0.0,
+          "store": 0.0
+        },
+        "tail-detail": {
+          "macroEvidenceMs": 0.0,
+          "prepareAndWalMs": 68.0,
+          "postExtractMs": 0.0,
+          "changedRefsMs": 4.0,
+          "resurrectedRefsMs": 0.0,
+          "failedRefRetryMs": 0.0,
+          "coImporterMs": 0.0,
+          "orphanAndSynthesisMs": 0.0,
+          "chainedCallsMs": 0.0,
+          "maintenanceMs": 0.0,
+          "finalizeMs": 0.0,
+          "cleanupMs": 0.0
+        },
+        "command": {
+          "moduleLoad": 112.0,
+          "databaseOpen": 56.0,
+          "syncPipeline": 250.0,
+          "total": 439.0
+        }
+      }
+    },
+    "r2-fixed-edit": {
+      "wallMs": 5271.157343999221,
+      "lines": [
+        "[sync] scan-detail mode=walk fallbackReason=git-path-error failureStage=rev-parse gitCommandMs=5ms ignoreBuildMs=3ms filterCanonicalMs=0ms walkMs=94ms gitCommands=1 gitCandidates=0 sourceFiles=1684 walkDirectories=174 gitDirectories=0 supplementRoots=0 canonicalFromParent=1684 nativeStatus=off nativeReason=none nativeMs=0ms nativeDirectories=0 nativeMetadata=0 gitPathMode=unused gitIgnoreMs=0ms gitCanonicalMs=0ms gitRealpathMs=0ms gitDedupMs=0ms gitIgnoreMode=legacy gitIgnoreReason=none gitIgnoreNativeMs=0ms gitIgnoreKernelMs=0ms gitIgnoreMismatches=0 gitIgnoreNativeKept=0 gitIgnoreDeferred=0 gitIgnored=0 gitCanonicalCalls=0 gitRealpathCalls=0 gitRealpathErrors=0 gitNativeCalls=0 gitNativeFallbacks=0 gitPathMismatches=0 gitCanonicalDuplicates=0",
+        "[sync] reconcile-counts currentFiles=1684 trackedFiles=1684 existsChecks=0 statChecks=1684 statUnchanged=1683 statErrors=0 snapshotPresence=0 snapshotStats=0 hashReadAttempts=1 hashReadFiles=1 hashReadErrors=0 sameHashSkipped=0 sameHashStatUpdated=0 sameHashStatDeferred=0 recoveryRetryFiles=0 added=0 modified=1 removed=0",
+        "[sync] macro-detail mode=ts reason=disabled files=1286 readFiles=1286 readErrors=0 bytes=25526271 fallbackFiles=0 readWallMs=95ms namesMs=51ms bodylessMs=50ms definitionsMs=24ms mergeMs=2ms nativeWallMs=0ms nativeReadSumMs=0ms nativeScanSumMs=0ms totalMs=224ms names=1124 bodyless=101 definitions=902",
+        "[sync] phases reconcile=113ms framework=20ms macroScan=225ms workerSetup=101ms read=1ms parseWall=134ms store=37ms",
+        "[sync] extraction totals primaryParseMs=83ms primaryExtractionMs=31ms declarationMacroExpansionMs=12ms",
+        "[sync] tail-detail macroEvidenceMs=4ms prepareAndWalMs=73ms postExtractMs=0ms changedRefsMs=58ms resurrectedRefsMs=0ms failedRefRetryMs=124ms coImporterMs=0ms orphanAndSynthesisMs=3798ms chainedCallsMs=227ms maintenanceMs=37ms finalizeMs=2ms cleanupMs=0ms",
+        "[sync] command phases moduleLoad=102ms databaseOpen=53ms syncPipeline=4991ms total=5165ms"
+      ],
+      "fields": {
+        "scan-detail": {
+          "gitCommandMs": 5.0,
+          "ignoreBuildMs": 3.0,
+          "filterCanonicalMs": 0.0,
+          "walkMs": 94.0,
+          "nativeMs": 0.0,
+          "gitIgnoreMs": 0.0,
+          "gitCanonicalMs": 0.0,
+          "gitRealpathMs": 0.0,
+          "gitDedupMs": 0.0,
+          "gitIgnoreNativeMs": 0.0,
+          "gitIgnoreKernelMs": 0.0
+        },
+        "reconcile-counts": {},
+        "macro-detail": {
+          "readWallMs": 95.0,
+          "namesMs": 51.0,
+          "bodylessMs": 50.0,
+          "definitionsMs": 24.0,
+          "mergeMs": 2.0,
+          "nativeWallMs": 0.0,
+          "nativeReadSumMs": 0.0,
+          "nativeScanSumMs": 0.0,
+          "totalMs": 224.0
+        },
+        "phases": {
+          "reconcile": 113.0,
+          "framework": 20.0,
+          "macroScan": 225.0,
+          "workerSetup": 101.0,
+          "read": 1.0,
+          "parseWall": 134.0,
+          "store": 37.0
+        },
+        "extraction": {
+          "primaryParseMs": 83.0,
+          "primaryExtractionMs": 31.0,
+          "declarationMacroExpansionMs": 12.0
+        },
+        "tail-detail": {
+          "macroEvidenceMs": 4.0,
+          "prepareAndWalMs": 73.0,
+          "postExtractMs": 0.0,
+          "changedRefsMs": 58.0,
+          "resurrectedRefsMs": 0.0,
+          "failedRefRetryMs": 124.0,
+          "coImporterMs": 0.0,
+          "orphanAndSynthesisMs": 3798.0,
+          "chainedCallsMs": 227.0,
+          "maintenanceMs": 37.0,
+          "finalizeMs": 2.0,
+          "cleanupMs": 0.0
+        },
+        "command": {
+          "moduleLoad": 102.0,
+          "databaseOpen": 53.0,
+          "syncPipeline": 4991.0,
+          "total": 5165.0
+        }
+      }
+    },
+    "r2-baseline-init": {
+      "wallMs": 98218.31652699984,
+      "lines": [
+        "[worker] macro-detail mode=ts reason=disabled files=1286 readFiles=1286 readErrors=0 bytes=25526167 fallbackFiles=0 readWallMs=149ms namesMs=51ms bodylessMs=50ms definitionsMs=24ms mergeMs=3ms nativeWallMs=0ms nativeReadSumMs=0ms nativeScanSumMs=0ms totalMs=277ms names=1124 bodyless=101 definitions=902",
+        "[worker] Index phases: scan=113ms framework=17ms macroScan=278ms readSum=2321ms parsePipeline=70470ms storeAdmission=3724ms bufferBudgetMB=512 peakBufferedFiles=4 peakEstimatedBufferMB=21",
+        "[worker] Extraction totals: primaryParseMs=20181ms primaryExtractionMs=14885ms declarationMacroExpansionMs=2421ms declarationMacroRecoverySourceMs=1063ms declarationMacroAuxParseMs=27805ms declarationMacroMergeMs=125ms"
+      ],
+      "fields": {
+        "macro-detail": {
+          "readWallMs": 149.0,
+          "namesMs": 51.0,
+          "bodylessMs": 50.0,
+          "definitionsMs": 24.0,
+          "mergeMs": 3.0,
+          "nativeWallMs": 0.0,
+          "nativeReadSumMs": 0.0,
+          "nativeScanSumMs": 0.0,
+          "totalMs": 277.0
+        },
+        "Index": {
+          "scan": 113.0,
+          "framework": 17.0,
+          "macroScan": 278.0,
+          "readSum": 2321.0,
+          "parsePipeline": 70470.0,
+          "storeAdmission": 3724.0
+        },
+        "Extraction": {
+          "primaryParseMs": 20181.0,
+          "primaryExtractionMs": 14885.0,
+          "declarationMacroExpansionMs": 2421.0,
+          "declarationMacroRecoverySourceMs": 1063.0,
+          "declarationMacroAuxParseMs": 27805.0,
+          "declarationMacroMergeMs": 125.0
+        }
+      }
+    },
+    "r2-baseline-noop": {
+      "wallMs": 559.7669109993149,
+      "lines": [
+        "[sync] scan-detail mode=walk fallbackReason=git-path-error failureStage=rev-parse gitCommandMs=8ms ignoreBuildMs=3ms filterCanonicalMs=0ms walkMs=91ms gitCommands=1 gitCandidates=0 sourceFiles=1684 walkDirectories=174 gitDirectories=0 supplementRoots=0 canonicalFromParent=1684 nativeStatus=off nativeReason=none nativeMs=0ms nativeDirectories=0 nativeMetadata=0 gitPathMode=unused gitIgnoreMs=0ms gitCanonicalMs=0ms gitRealpathMs=0ms gitDedupMs=0ms gitIgnoreMode=legacy gitIgnoreReason=none gitIgnoreNativeMs=0ms gitIgnoreKernelMs=0ms gitIgnoreMismatches=0 gitIgnoreNativeKept=0 gitIgnoreDeferred=0 gitIgnored=0 gitCanonicalCalls=0 gitRealpathCalls=0 gitRealpathErrors=0 gitNativeCalls=0 gitNativeFallbacks=0 gitPathMismatches=0 gitCanonicalDuplicates=0",
+        "[sync] reconcile-counts currentFiles=1684 trackedFiles=1684 existsChecks=0 statChecks=1684 statUnchanged=1684 statErrors=0 snapshotPresence=0 snapshotStats=0 hashReadAttempts=0 hashReadFiles=0 hashReadErrors=0 sameHashSkipped=0 sameHashStatUpdated=0 sameHashStatDeferred=0 recoveryRetryFiles=0 added=0 modified=0 removed=0",
+        "[sync] phases reconcile=112ms framework=0ms macroScan=0ms workerSetup=0ms read=0ms parseWall=0ms store=0ms",
+        "[sync] tail-detail macroEvidenceMs=0ms prepareAndWalMs=75ms postExtractMs=0ms changedRefsMs=4ms resurrectedRefsMs=0ms failedRefRetryMs=0ms coImporterMs=0ms orphanAndSynthesisMs=0ms chainedCallsMs=0ms maintenanceMs=0ms finalizeMs=0ms cleanupMs=0ms",
+        "[sync] command phases moduleLoad=111ms databaseOpen=49ms syncPipeline=289ms total=467ms"
+      ],
+      "fields": {
+        "scan-detail": {
+          "gitCommandMs": 8.0,
+          "ignoreBuildMs": 3.0,
+          "filterCanonicalMs": 0.0,
+          "walkMs": 91.0,
+          "nativeMs": 0.0,
+          "gitIgnoreMs": 0.0,
+          "gitCanonicalMs": 0.0,
+          "gitRealpathMs": 0.0,
+          "gitDedupMs": 0.0,
+          "gitIgnoreNativeMs": 0.0,
+          "gitIgnoreKernelMs": 0.0
+        },
+        "reconcile-counts": {},
+        "phases": {
+          "reconcile": 112.0,
+          "framework": 0.0,
+          "macroScan": 0.0,
+          "workerSetup": 0.0,
+          "read": 0.0,
+          "parseWall": 0.0,
+          "store": 0.0
+        },
+        "tail-detail": {
+          "macroEvidenceMs": 0.0,
+          "prepareAndWalMs": 75.0,
+          "postExtractMs": 0.0,
+          "changedRefsMs": 4.0,
+          "resurrectedRefsMs": 0.0,
+          "failedRefRetryMs": 0.0,
+          "coImporterMs": 0.0,
+          "orphanAndSynthesisMs": 0.0,
+          "chainedCallsMs": 0.0,
+          "maintenanceMs": 0.0,
+          "finalizeMs": 0.0,
+          "cleanupMs": 0.0
+        },
+        "command": {
+          "moduleLoad": 111.0,
+          "databaseOpen": 49.0,
+          "syncPipeline": 289.0,
+          "total": 467.0
+        }
+      }
+    },
+    "r2-baseline-edit": {
+      "wallMs": 5434.745632999693,
+      "lines": [
+        "[sync] scan-detail mode=walk fallbackReason=git-path-error failureStage=rev-parse gitCommandMs=5ms ignoreBuildMs=4ms filterCanonicalMs=0ms walkMs=121ms gitCommands=1 gitCandidates=0 sourceFiles=1684 walkDirectories=174 gitDirectories=0 supplementRoots=0 canonicalFromParent=1684 nativeStatus=off nativeReason=none nativeMs=0ms nativeDirectories=0 nativeMetadata=0 gitPathMode=unused gitIgnoreMs=0ms gitCanonicalMs=0ms gitRealpathMs=0ms gitDedupMs=0ms gitIgnoreMode=legacy gitIgnoreReason=none gitIgnoreNativeMs=0ms gitIgnoreKernelMs=0ms gitIgnoreMismatches=0 gitIgnoreNativeKept=0 gitIgnoreDeferred=0 gitIgnored=0 gitCanonicalCalls=0 gitRealpathCalls=0 gitRealpathErrors=0 gitNativeCalls=0 gitNativeFallbacks=0 gitPathMismatches=0 gitCanonicalDuplicates=0",
+        "[sync] reconcile-counts currentFiles=1684 trackedFiles=1684 existsChecks=0 statChecks=1684 statUnchanged=1683 statErrors=0 snapshotPresence=0 snapshotStats=0 hashReadAttempts=1 hashReadFiles=1 hashReadErrors=0 sameHashSkipped=0 sameHashStatUpdated=0 sameHashStatDeferred=0 recoveryRetryFiles=0 added=0 modified=1 removed=0",
+        "[sync] macro-detail mode=ts reason=disabled files=1286 readFiles=1286 readErrors=0 bytes=25526271 fallbackFiles=0 readWallMs=132ms namesMs=51ms bodylessMs=50ms definitionsMs=24ms mergeMs=2ms nativeWallMs=0ms nativeReadSumMs=0ms nativeScanSumMs=0ms totalMs=260ms names=1124 bodyless=101 definitions=902",
+        "[sync] phases reconcile=140ms framework=23ms macroScan=260ms workerSetup=87ms read=1ms parseWall=128ms store=37ms",
+        "[sync] extraction totals primaryParseMs=78ms primaryExtractionMs=32ms declarationMacroExpansionMs=11ms",
+        "[sync] tail-detail macroEvidenceMs=4ms prepareAndWalMs=73ms postExtractMs=0ms changedRefsMs=60ms resurrectedRefsMs=0ms failedRefRetryMs=120ms coImporterMs=0ms orphanAndSynthesisMs=3969ms chainedCallsMs=177ms maintenanceMs=36ms finalizeMs=2ms cleanupMs=0ms",
+        "[sync] command phases moduleLoad=99ms databaseOpen=48ms syncPipeline=5158ms total=5322ms"
+      ],
+      "fields": {
+        "scan-detail": {
+          "gitCommandMs": 5.0,
+          "ignoreBuildMs": 4.0,
+          "filterCanonicalMs": 0.0,
+          "walkMs": 121.0,
+          "nativeMs": 0.0,
+          "gitIgnoreMs": 0.0,
+          "gitCanonicalMs": 0.0,
+          "gitRealpathMs": 0.0,
+          "gitDedupMs": 0.0,
+          "gitIgnoreNativeMs": 0.0,
+          "gitIgnoreKernelMs": 0.0
+        },
+        "reconcile-counts": {},
+        "macro-detail": {
+          "readWallMs": 132.0,
+          "namesMs": 51.0,
+          "bodylessMs": 50.0,
+          "definitionsMs": 24.0,
+          "mergeMs": 2.0,
+          "nativeWallMs": 0.0,
+          "nativeReadSumMs": 0.0,
+          "nativeScanSumMs": 0.0,
+          "totalMs": 260.0
+        },
+        "phases": {
+          "reconcile": 140.0,
+          "framework": 23.0,
+          "macroScan": 260.0,
+          "workerSetup": 87.0,
+          "read": 1.0,
+          "parseWall": 128.0,
+          "store": 37.0
+        },
+        "extraction": {
+          "primaryParseMs": 78.0,
+          "primaryExtractionMs": 32.0,
+          "declarationMacroExpansionMs": 11.0
+        },
+        "tail-detail": {
+          "macroEvidenceMs": 4.0,
+          "prepareAndWalMs": 73.0,
+          "postExtractMs": 0.0,
+          "changedRefsMs": 60.0,
+          "resurrectedRefsMs": 0.0,
+          "failedRefRetryMs": 120.0,
+          "coImporterMs": 0.0,
+          "orphanAndSynthesisMs": 3969.0,
+          "chainedCallsMs": 177.0,
+          "maintenanceMs": 36.0,
+          "finalizeMs": 2.0,
+          "cleanupMs": 0.0
+        },
+        "command": {
+          "moduleLoad": 99.0,
+          "databaseOpen": 48.0,
+          "syncPipeline": 5158.0,
+          "total": 5322.0
+        }
+      }
+    },
+    "r3-baseline-init": {
+      "wallMs": 102550.88200500177,
+      "lines": [
+        "[worker] macro-detail mode=ts reason=disabled files=1286 readFiles=1286 readErrors=0 bytes=25526167 fallbackFiles=0 readWallMs=155ms namesMs=53ms bodylessMs=55ms definitionsMs=25ms mergeMs=3ms nativeWallMs=0ms nativeReadSumMs=0ms nativeScanSumMs=0ms totalMs=292ms names=1124 bodyless=101 definitions=902",
+        "[worker] Index phases: scan=120ms framework=20ms macroScan=293ms readSum=2439ms parsePipeline=76578ms storeAdmission=3870ms bufferBudgetMB=512 peakBufferedFiles=4 peakEstimatedBufferMB=21",
+        "[worker] Extraction totals: primaryParseMs=21680ms primaryExtractionMs=15645ms declarationMacroExpansionMs=2638ms declarationMacroRecoverySourceMs=1227ms declarationMacroAuxParseMs=30946ms declarationMacroMergeMs=145ms"
+      ],
+      "fields": {
+        "macro-detail": {
+          "readWallMs": 155.0,
+          "namesMs": 53.0,
+          "bodylessMs": 55.0,
+          "definitionsMs": 25.0,
+          "mergeMs": 3.0,
+          "nativeWallMs": 0.0,
+          "nativeReadSumMs": 0.0,
+          "nativeScanSumMs": 0.0,
+          "totalMs": 292.0
+        },
+        "Index": {
+          "scan": 120.0,
+          "framework": 20.0,
+          "macroScan": 293.0,
+          "readSum": 2439.0,
+          "parsePipeline": 76578.0,
+          "storeAdmission": 3870.0
+        },
+        "Extraction": {
+          "primaryParseMs": 21680.0,
+          "primaryExtractionMs": 15645.0,
+          "declarationMacroExpansionMs": 2638.0,
+          "declarationMacroRecoverySourceMs": 1227.0,
+          "declarationMacroAuxParseMs": 30946.0,
+          "declarationMacroMergeMs": 145.0
+        }
+      }
+    },
+    "r3-baseline-noop": {
+      "wallMs": 579.8343960013881,
+      "lines": [
+        "[sync] scan-detail mode=walk fallbackReason=git-path-error failureStage=rev-parse gitCommandMs=6ms ignoreBuildMs=4ms filterCanonicalMs=0ms walkMs=98ms gitCommands=1 gitCandidates=0 sourceFiles=1684 walkDirectories=174 gitDirectories=0 supplementRoots=0 canonicalFromParent=1684 nativeStatus=off nativeReason=none nativeMs=0ms nativeDirectories=0 nativeMetadata=0 gitPathMode=unused gitIgnoreMs=0ms gitCanonicalMs=0ms gitRealpathMs=0ms gitDedupMs=0ms gitIgnoreMode=legacy gitIgnoreReason=none gitIgnoreNativeMs=0ms gitIgnoreKernelMs=0ms gitIgnoreMismatches=0 gitIgnoreNativeKept=0 gitIgnoreDeferred=0 gitIgnored=0 gitCanonicalCalls=0 gitRealpathCalls=0 gitRealpathErrors=0 gitNativeCalls=0 gitNativeFallbacks=0 gitPathMismatches=0 gitCanonicalDuplicates=0",
+        "[sync] reconcile-counts currentFiles=1684 trackedFiles=1684 existsChecks=0 statChecks=1684 statUnchanged=1684 statErrors=0 snapshotPresence=0 snapshotStats=0 hashReadAttempts=0 hashReadFiles=0 hashReadErrors=0 sameHashSkipped=0 sameHashStatUpdated=0 sameHashStatDeferred=0 recoveryRetryFiles=0 added=0 modified=0 removed=0",
+        "[sync] phases reconcile=118ms framework=0ms macroScan=0ms workerSetup=0ms read=0ms parseWall=0ms store=0ms",
+        "[sync] tail-detail macroEvidenceMs=0ms prepareAndWalMs=69ms postExtractMs=0ms changedRefsMs=4ms resurrectedRefsMs=0ms failedRefRetryMs=0ms coImporterMs=0ms orphanAndSynthesisMs=0ms chainedCallsMs=0ms maintenanceMs=0ms finalizeMs=0ms cleanupMs=0ms",
+        "[sync] command phases moduleLoad=100ms databaseOpen=49ms syncPipeline=326ms total=494ms"
+      ],
+      "fields": {
+        "scan-detail": {
+          "gitCommandMs": 6.0,
+          "ignoreBuildMs": 4.0,
+          "filterCanonicalMs": 0.0,
+          "walkMs": 98.0,
+          "nativeMs": 0.0,
+          "gitIgnoreMs": 0.0,
+          "gitCanonicalMs": 0.0,
+          "gitRealpathMs": 0.0,
+          "gitDedupMs": 0.0,
+          "gitIgnoreNativeMs": 0.0,
+          "gitIgnoreKernelMs": 0.0
+        },
+        "reconcile-counts": {},
+        "phases": {
+          "reconcile": 118.0,
+          "framework": 0.0,
+          "macroScan": 0.0,
+          "workerSetup": 0.0,
+          "read": 0.0,
+          "parseWall": 0.0,
+          "store": 0.0
+        },
+        "tail-detail": {
+          "macroEvidenceMs": 0.0,
+          "prepareAndWalMs": 69.0,
+          "postExtractMs": 0.0,
+          "changedRefsMs": 4.0,
+          "resurrectedRefsMs": 0.0,
+          "failedRefRetryMs": 0.0,
+          "coImporterMs": 0.0,
+          "orphanAndSynthesisMs": 0.0,
+          "chainedCallsMs": 0.0,
+          "maintenanceMs": 0.0,
+          "finalizeMs": 0.0,
+          "cleanupMs": 0.0
+        },
+        "command": {
+          "moduleLoad": 100.0,
+          "databaseOpen": 49.0,
+          "syncPipeline": 326.0,
+          "total": 494.0
+        }
+      }
+    },
+    "r3-baseline-edit": {
+      "wallMs": 5526.351331001933,
+      "lines": [
+        "[sync] scan-detail mode=walk fallbackReason=git-path-error failureStage=rev-parse gitCommandMs=10ms ignoreBuildMs=4ms filterCanonicalMs=0ms walkMs=95ms gitCommands=1 gitCandidates=0 sourceFiles=1684 walkDirectories=174 gitDirectories=0 supplementRoots=0 canonicalFromParent=1684 nativeStatus=off nativeReason=none nativeMs=0ms nativeDirectories=0 nativeMetadata=0 gitPathMode=unused gitIgnoreMs=0ms gitCanonicalMs=0ms gitRealpathMs=0ms gitDedupMs=0ms gitIgnoreMode=legacy gitIgnoreReason=none gitIgnoreNativeMs=0ms gitIgnoreKernelMs=0ms gitIgnoreMismatches=0 gitIgnoreNativeKept=0 gitIgnoreDeferred=0 gitIgnored=0 gitCanonicalCalls=0 gitRealpathCalls=0 gitRealpathErrors=0 gitNativeCalls=0 gitNativeFallbacks=0 gitPathMismatches=0 gitCanonicalDuplicates=0",
+        "[sync] reconcile-counts currentFiles=1684 trackedFiles=1684 existsChecks=0 statChecks=1684 statUnchanged=1683 statErrors=0 snapshotPresence=0 snapshotStats=0 hashReadAttempts=1 hashReadFiles=1 hashReadErrors=0 sameHashSkipped=0 sameHashStatUpdated=0 sameHashStatDeferred=0 recoveryRetryFiles=0 added=0 modified=1 removed=0",
+        "[sync] macro-detail mode=ts reason=disabled files=1286 readFiles=1286 readErrors=0 bytes=25526271 fallbackFiles=0 readWallMs=180ms namesMs=53ms bodylessMs=51ms definitionsMs=29ms mergeMs=4ms nativeWallMs=0ms nativeReadSumMs=0ms nativeScanSumMs=0ms totalMs=319ms names=1124 bodyless=101 definitions=902",
+        "[sync] phases reconcile=125ms framework=17ms macroScan=320ms workerSetup=97ms read=1ms parseWall=147ms store=42ms",
+        "[sync] extraction totals primaryParseMs=88ms primaryExtractionMs=34ms declarationMacroExpansionMs=16ms",
+        "[sync] tail-detail macroEvidenceMs=4ms prepareAndWalMs=81ms postExtractMs=0ms changedRefsMs=67ms resurrectedRefsMs=0ms failedRefRetryMs=132ms coImporterMs=0ms orphanAndSynthesisMs=3954ms chainedCallsMs=166ms maintenanceMs=35ms finalizeMs=2ms cleanupMs=0ms",
+        "[sync] command phases moduleLoad=111ms databaseOpen=51ms syncPipeline=5220ms total=5399ms"
+      ],
+      "fields": {
+        "scan-detail": {
+          "gitCommandMs": 10.0,
+          "ignoreBuildMs": 4.0,
+          "filterCanonicalMs": 0.0,
+          "walkMs": 95.0,
+          "nativeMs": 0.0,
+          "gitIgnoreMs": 0.0,
+          "gitCanonicalMs": 0.0,
+          "gitRealpathMs": 0.0,
+          "gitDedupMs": 0.0,
+          "gitIgnoreNativeMs": 0.0,
+          "gitIgnoreKernelMs": 0.0
+        },
+        "reconcile-counts": {},
+        "macro-detail": {
+          "readWallMs": 180.0,
+          "namesMs": 53.0,
+          "bodylessMs": 51.0,
+          "definitionsMs": 29.0,
+          "mergeMs": 4.0,
+          "nativeWallMs": 0.0,
+          "nativeReadSumMs": 0.0,
+          "nativeScanSumMs": 0.0,
+          "totalMs": 319.0
+        },
+        "phases": {
+          "reconcile": 125.0,
+          "framework": 17.0,
+          "macroScan": 320.0,
+          "workerSetup": 97.0,
+          "read": 1.0,
+          "parseWall": 147.0,
+          "store": 42.0
+        },
+        "extraction": {
+          "primaryParseMs": 88.0,
+          "primaryExtractionMs": 34.0,
+          "declarationMacroExpansionMs": 16.0
+        },
+        "tail-detail": {
+          "macroEvidenceMs": 4.0,
+          "prepareAndWalMs": 81.0,
+          "postExtractMs": 0.0,
+          "changedRefsMs": 67.0,
+          "resurrectedRefsMs": 0.0,
+          "failedRefRetryMs": 132.0,
+          "coImporterMs": 0.0,
+          "orphanAndSynthesisMs": 3954.0,
+          "chainedCallsMs": 166.0,
+          "maintenanceMs": 35.0,
+          "finalizeMs": 2.0,
+          "cleanupMs": 0.0
+        },
+        "command": {
+          "moduleLoad": 111.0,
+          "databaseOpen": 51.0,
+          "syncPipeline": 5220.0,
+          "total": 5399.0
+        }
+      }
+    },
+    "r3-fixed-init": {
+      "wallMs": 96778.82716100066,
+      "lines": [
+        "[worker] macro-detail mode=ts reason=disabled files=1286 readFiles=1286 readErrors=0 bytes=25526167 fallbackFiles=0 readWallMs=134ms namesMs=55ms bodylessMs=52ms definitionsMs=28ms mergeMs=3ms nativeWallMs=0ms nativeReadSumMs=0ms nativeScanSumMs=0ms totalMs=274ms names=1124 bodyless=101 definitions=902",
+        "[worker] Index phases: scan=123ms framework=19ms macroScan=275ms readSum=2648ms parsePipeline=70207ms storeAdmission=4032ms bufferBudgetMB=512 peakBufferedFiles=4 peakEstimatedBufferMB=21",
+        "[worker] Extraction totals: primaryParseMs=20603ms primaryExtractionMs=14697ms declarationMacroExpansionMs=2281ms declarationMacroRecoverySourceMs=1024ms declarationMacroAuxParseMs=27386ms declarationMacroMergeMs=127ms"
+      ],
+      "fields": {
+        "macro-detail": {
+          "readWallMs": 134.0,
+          "namesMs": 55.0,
+          "bodylessMs": 52.0,
+          "definitionsMs": 28.0,
+          "mergeMs": 3.0,
+          "nativeWallMs": 0.0,
+          "nativeReadSumMs": 0.0,
+          "nativeScanSumMs": 0.0,
+          "totalMs": 274.0
+        },
+        "Index": {
+          "scan": 123.0,
+          "framework": 19.0,
+          "macroScan": 275.0,
+          "readSum": 2648.0,
+          "parsePipeline": 70207.0,
+          "storeAdmission": 4032.0
+        },
+        "Extraction": {
+          "primaryParseMs": 20603.0,
+          "primaryExtractionMs": 14697.0,
+          "declarationMacroExpansionMs": 2281.0,
+          "declarationMacroRecoverySourceMs": 1024.0,
+          "declarationMacroAuxParseMs": 27386.0,
+          "declarationMacroMergeMs": 127.0
+        }
+      }
+    },
+    "r3-fixed-noop": {
+      "wallMs": 532.3826269996061,
+      "lines": [
+        "[sync] scan-detail mode=walk fallbackReason=git-path-error failureStage=rev-parse gitCommandMs=5ms ignoreBuildMs=3ms filterCanonicalMs=0ms walkMs=90ms gitCommands=1 gitCandidates=0 sourceFiles=1684 walkDirectories=174 gitDirectories=0 supplementRoots=0 canonicalFromParent=1684 nativeStatus=off nativeReason=none nativeMs=0ms nativeDirectories=0 nativeMetadata=0 gitPathMode=unused gitIgnoreMs=0ms gitCanonicalMs=0ms gitRealpathMs=0ms gitDedupMs=0ms gitIgnoreMode=legacy gitIgnoreReason=none gitIgnoreNativeMs=0ms gitIgnoreKernelMs=0ms gitIgnoreMismatches=0 gitIgnoreNativeKept=0 gitIgnoreDeferred=0 gitIgnored=0 gitCanonicalCalls=0 gitRealpathCalls=0 gitRealpathErrors=0 gitNativeCalls=0 gitNativeFallbacks=0 gitPathMismatches=0 gitCanonicalDuplicates=0",
+        "[sync] reconcile-counts currentFiles=1684 trackedFiles=1684 existsChecks=0 statChecks=1684 statUnchanged=1684 statErrors=0 snapshotPresence=0 snapshotStats=0 hashReadAttempts=0 hashReadFiles=0 hashReadErrors=0 sameHashSkipped=0 sameHashStatUpdated=0 sameHashStatDeferred=0 recoveryRetryFiles=0 added=0 modified=0 removed=0",
+        "[sync] phases reconcile=108ms framework=0ms macroScan=0ms workerSetup=0ms read=0ms parseWall=0ms store=0ms",
+        "[sync] tail-detail macroEvidenceMs=0ms prepareAndWalMs=71ms postExtractMs=0ms changedRefsMs=4ms resurrectedRefsMs=0ms failedRefRetryMs=0ms coImporterMs=0ms orphanAndSynthesisMs=0ms chainedCallsMs=0ms maintenanceMs=0ms finalizeMs=0ms cleanupMs=0ms",
+        "[sync] command phases moduleLoad=101ms databaseOpen=48ms syncPipeline=271ms total=437ms"
+      ],
+      "fields": {
+        "scan-detail": {
+          "gitCommandMs": 5.0,
+          "ignoreBuildMs": 3.0,
+          "filterCanonicalMs": 0.0,
+          "walkMs": 90.0,
+          "nativeMs": 0.0,
+          "gitIgnoreMs": 0.0,
+          "gitCanonicalMs": 0.0,
+          "gitRealpathMs": 0.0,
+          "gitDedupMs": 0.0,
+          "gitIgnoreNativeMs": 0.0,
+          "gitIgnoreKernelMs": 0.0
+        },
+        "reconcile-counts": {},
+        "phases": {
+          "reconcile": 108.0,
+          "framework": 0.0,
+          "macroScan": 0.0,
+          "workerSetup": 0.0,
+          "read": 0.0,
+          "parseWall": 0.0,
+          "store": 0.0
+        },
+        "tail-detail": {
+          "macroEvidenceMs": 0.0,
+          "prepareAndWalMs": 71.0,
+          "postExtractMs": 0.0,
+          "changedRefsMs": 4.0,
+          "resurrectedRefsMs": 0.0,
+          "failedRefRetryMs": 0.0,
+          "coImporterMs": 0.0,
+          "orphanAndSynthesisMs": 0.0,
+          "chainedCallsMs": 0.0,
+          "maintenanceMs": 0.0,
+          "finalizeMs": 0.0,
+          "cleanupMs": 0.0
+        },
+        "command": {
+          "moduleLoad": 101.0,
+          "databaseOpen": 48.0,
+          "syncPipeline": 271.0,
+          "total": 437.0
+        }
+      }
+    },
+    "r3-fixed-edit": {
+      "wallMs": 5128.913725002349,
+      "lines": [
+        "[sync] scan-detail mode=walk fallbackReason=git-path-error failureStage=rev-parse gitCommandMs=5ms ignoreBuildMs=3ms filterCanonicalMs=0ms walkMs=103ms gitCommands=1 gitCandidates=0 sourceFiles=1684 walkDirectories=174 gitDirectories=0 supplementRoots=0 canonicalFromParent=1684 nativeStatus=off nativeReason=none nativeMs=0ms nativeDirectories=0 nativeMetadata=0 gitPathMode=unused gitIgnoreMs=0ms gitCanonicalMs=0ms gitRealpathMs=0ms gitDedupMs=0ms gitIgnoreMode=legacy gitIgnoreReason=none gitIgnoreNativeMs=0ms gitIgnoreKernelMs=0ms gitIgnoreMismatches=0 gitIgnoreNativeKept=0 gitIgnoreDeferred=0 gitIgnored=0 gitCanonicalCalls=0 gitRealpathCalls=0 gitRealpathErrors=0 gitNativeCalls=0 gitNativeFallbacks=0 gitPathMismatches=0 gitCanonicalDuplicates=0",
+        "[sync] reconcile-counts currentFiles=1684 trackedFiles=1684 existsChecks=0 statChecks=1684 statUnchanged=1683 statErrors=0 snapshotPresence=0 snapshotStats=0 hashReadAttempts=1 hashReadFiles=1 hashReadErrors=0 sameHashSkipped=0 sameHashStatUpdated=0 sameHashStatDeferred=0 recoveryRetryFiles=0 added=0 modified=1 removed=0",
+        "[sync] macro-detail mode=ts reason=disabled files=1286 readFiles=1286 readErrors=0 bytes=25526271 fallbackFiles=0 readWallMs=138ms namesMs=55ms bodylessMs=54ms definitionsMs=27ms mergeMs=3ms nativeWallMs=0ms nativeReadSumMs=0ms nativeScanSumMs=0ms totalMs=278ms names=1124 bodyless=101 definitions=902",
+        "[sync] phases reconcile=121ms framework=22ms macroScan=279ms workerSetup=85ms read=1ms parseWall=165ms store=33ms",
+        "[sync] extraction totals primaryParseMs=103ms primaryExtractionMs=40ms declarationMacroExpansionMs=13ms",
+        "[sync] tail-detail macroEvidenceMs=3ms prepareAndWalMs=73ms postExtractMs=0ms changedRefsMs=62ms resurrectedRefsMs=0ms failedRefRetryMs=122ms coImporterMs=0ms orphanAndSynthesisMs=3626ms chainedCallsMs=182ms maintenanceMs=44ms finalizeMs=2ms cleanupMs=0ms",
+        "[sync] command phases moduleLoad=102ms databaseOpen=50ms syncPipeline=4851ms total=5021ms"
+      ],
+      "fields": {
+        "scan-detail": {
+          "gitCommandMs": 5.0,
+          "ignoreBuildMs": 3.0,
+          "filterCanonicalMs": 0.0,
+          "walkMs": 103.0,
+          "nativeMs": 0.0,
+          "gitIgnoreMs": 0.0,
+          "gitCanonicalMs": 0.0,
+          "gitRealpathMs": 0.0,
+          "gitDedupMs": 0.0,
+          "gitIgnoreNativeMs": 0.0,
+          "gitIgnoreKernelMs": 0.0
+        },
+        "reconcile-counts": {},
+        "macro-detail": {
+          "readWallMs": 138.0,
+          "namesMs": 55.0,
+          "bodylessMs": 54.0,
+          "definitionsMs": 27.0,
+          "mergeMs": 3.0,
+          "nativeWallMs": 0.0,
+          "nativeReadSumMs": 0.0,
+          "nativeScanSumMs": 0.0,
+          "totalMs": 278.0
+        },
+        "phases": {
+          "reconcile": 121.0,
+          "framework": 22.0,
+          "macroScan": 279.0,
+          "workerSetup": 85.0,
+          "read": 1.0,
+          "parseWall": 165.0,
+          "store": 33.0
+        },
+        "extraction": {
+          "primaryParseMs": 103.0,
+          "primaryExtractionMs": 40.0,
+          "declarationMacroExpansionMs": 13.0
+        },
+        "tail-detail": {
+          "macroEvidenceMs": 3.0,
+          "prepareAndWalMs": 73.0,
+          "postExtractMs": 0.0,
+          "changedRefsMs": 62.0,
+          "resurrectedRefsMs": 0.0,
+          "failedRefRetryMs": 122.0,
+          "coImporterMs": 0.0,
+          "orphanAndSynthesisMs": 3626.0,
+          "chainedCallsMs": 182.0,
+          "maintenanceMs": 44.0,
+          "finalizeMs": 2.0,
+          "cleanupMs": 0.0
+        },
+        "command": {
+          "moduleLoad": 102.0,
+          "databaseOpen": 50.0,
+          "syncPipeline": 4851.0,
+          "total": 5021.0
+        }
+      }
+    },
+    "r4-fixed-init": {
+      "wallMs": 101968.49540399853,
+      "lines": [
+        "[worker] macro-detail mode=ts reason=disabled files=1286 readFiles=1286 readErrors=0 bytes=25526167 fallbackFiles=0 readWallMs=153ms namesMs=53ms bodylessMs=52ms definitionsMs=26ms mergeMs=3ms nativeWallMs=0ms nativeReadSumMs=0ms nativeScanSumMs=0ms totalMs=289ms names=1124 bodyless=101 definitions=902",
+        "[worker] Index phases: scan=122ms framework=19ms macroScan=290ms readSum=2668ms parsePipeline=71716ms storeAdmission=4283ms bufferBudgetMB=512 peakBufferedFiles=4 peakEstimatedBufferMB=21",
+        "[worker] Extraction totals: primaryParseMs=20260ms primaryExtractionMs=15317ms declarationMacroExpansionMs=2429ms declarationMacroRecoverySourceMs=1090ms declarationMacroAuxParseMs=28112ms declarationMacroMergeMs=130ms"
+      ],
+      "fields": {
+        "macro-detail": {
+          "readWallMs": 153.0,
+          "namesMs": 53.0,
+          "bodylessMs": 52.0,
+          "definitionsMs": 26.0,
+          "mergeMs": 3.0,
+          "nativeWallMs": 0.0,
+          "nativeReadSumMs": 0.0,
+          "nativeScanSumMs": 0.0,
+          "totalMs": 289.0
+        },
+        "Index": {
+          "scan": 122.0,
+          "framework": 19.0,
+          "macroScan": 290.0,
+          "readSum": 2668.0,
+          "parsePipeline": 71716.0,
+          "storeAdmission": 4283.0
+        },
+        "Extraction": {
+          "primaryParseMs": 20260.0,
+          "primaryExtractionMs": 15317.0,
+          "declarationMacroExpansionMs": 2429.0,
+          "declarationMacroRecoverySourceMs": 1090.0,
+          "declarationMacroAuxParseMs": 28112.0,
+          "declarationMacroMergeMs": 130.0
+        }
+      }
+    },
+    "r4-fixed-noop": {
+      "wallMs": 536.1647790014104,
+      "lines": [
+        "[sync] scan-detail mode=walk fallbackReason=git-path-error failureStage=rev-parse gitCommandMs=5ms ignoreBuildMs=3ms filterCanonicalMs=0ms walkMs=88ms gitCommands=1 gitCandidates=0 sourceFiles=1684 walkDirectories=174 gitDirectories=0 supplementRoots=0 canonicalFromParent=1684 nativeStatus=off nativeReason=none nativeMs=0ms nativeDirectories=0 nativeMetadata=0 gitPathMode=unused gitIgnoreMs=0ms gitCanonicalMs=0ms gitRealpathMs=0ms gitDedupMs=0ms gitIgnoreMode=legacy gitIgnoreReason=none gitIgnoreNativeMs=0ms gitIgnoreKernelMs=0ms gitIgnoreMismatches=0 gitIgnoreNativeKept=0 gitIgnoreDeferred=0 gitIgnored=0 gitCanonicalCalls=0 gitRealpathCalls=0 gitRealpathErrors=0 gitNativeCalls=0 gitNativeFallbacks=0 gitPathMismatches=0 gitCanonicalDuplicates=0",
+        "[sync] reconcile-counts currentFiles=1684 trackedFiles=1684 existsChecks=0 statChecks=1684 statUnchanged=1684 statErrors=0 snapshotPresence=0 snapshotStats=0 hashReadAttempts=0 hashReadFiles=0 hashReadErrors=0 sameHashSkipped=0 sameHashStatUpdated=0 sameHashStatDeferred=0 recoveryRetryFiles=0 added=0 modified=0 removed=0",
+        "[sync] phases reconcile=107ms framework=0ms macroScan=0ms workerSetup=0ms read=0ms parseWall=0ms store=0ms",
+        "[sync] tail-detail macroEvidenceMs=0ms prepareAndWalMs=79ms postExtractMs=0ms changedRefsMs=4ms resurrectedRefsMs=0ms failedRefRetryMs=0ms coImporterMs=0ms orphanAndSynthesisMs=0ms chainedCallsMs=0ms maintenanceMs=0ms finalizeMs=0ms cleanupMs=0ms",
+        "[sync] command phases moduleLoad=104ms databaseOpen=52ms syncPipeline=279ms total=451ms"
+      ],
+      "fields": {
+        "scan-detail": {
+          "gitCommandMs": 5.0,
+          "ignoreBuildMs": 3.0,
+          "filterCanonicalMs": 0.0,
+          "walkMs": 88.0,
+          "nativeMs": 0.0,
+          "gitIgnoreMs": 0.0,
+          "gitCanonicalMs": 0.0,
+          "gitRealpathMs": 0.0,
+          "gitDedupMs": 0.0,
+          "gitIgnoreNativeMs": 0.0,
+          "gitIgnoreKernelMs": 0.0
+        },
+        "reconcile-counts": {},
+        "phases": {
+          "reconcile": 107.0,
+          "framework": 0.0,
+          "macroScan": 0.0,
+          "workerSetup": 0.0,
+          "read": 0.0,
+          "parseWall": 0.0,
+          "store": 0.0
+        },
+        "tail-detail": {
+          "macroEvidenceMs": 0.0,
+          "prepareAndWalMs": 79.0,
+          "postExtractMs": 0.0,
+          "changedRefsMs": 4.0,
+          "resurrectedRefsMs": 0.0,
+          "failedRefRetryMs": 0.0,
+          "coImporterMs": 0.0,
+          "orphanAndSynthesisMs": 0.0,
+          "chainedCallsMs": 0.0,
+          "maintenanceMs": 0.0,
+          "finalizeMs": 0.0,
+          "cleanupMs": 0.0
+        },
+        "command": {
+          "moduleLoad": 104.0,
+          "databaseOpen": 52.0,
+          "syncPipeline": 279.0,
+          "total": 451.0
+        }
+      }
+    },
+    "r4-fixed-edit": {
+      "wallMs": 5752.695473998756,
+      "lines": [
+        "[sync] scan-detail mode=walk fallbackReason=git-path-error failureStage=rev-parse gitCommandMs=5ms ignoreBuildMs=5ms filterCanonicalMs=0ms walkMs=119ms gitCommands=1 gitCandidates=0 sourceFiles=1684 walkDirectories=174 gitDirectories=0 supplementRoots=0 canonicalFromParent=1684 nativeStatus=off nativeReason=none nativeMs=0ms nativeDirectories=0 nativeMetadata=0 gitPathMode=unused gitIgnoreMs=0ms gitCanonicalMs=0ms gitRealpathMs=0ms gitDedupMs=0ms gitIgnoreMode=legacy gitIgnoreReason=none gitIgnoreNativeMs=0ms gitIgnoreKernelMs=0ms gitIgnoreMismatches=0 gitIgnoreNativeKept=0 gitIgnoreDeferred=0 gitIgnored=0 gitCanonicalCalls=0 gitRealpathCalls=0 gitRealpathErrors=0 gitNativeCalls=0 gitNativeFallbacks=0 gitPathMismatches=0 gitCanonicalDuplicates=0",
+        "[sync] reconcile-counts currentFiles=1684 trackedFiles=1684 existsChecks=0 statChecks=1684 statUnchanged=1683 statErrors=0 snapshotPresence=0 snapshotStats=0 hashReadAttempts=1 hashReadFiles=1 hashReadErrors=0 sameHashSkipped=0 sameHashStatUpdated=0 sameHashStatDeferred=0 recoveryRetryFiles=0 added=0 modified=1 removed=0",
+        "[sync] macro-detail mode=ts reason=disabled files=1286 readFiles=1286 readErrors=0 bytes=25526271 fallbackFiles=0 readWallMs=153ms namesMs=55ms bodylessMs=51ms definitionsMs=26ms mergeMs=4ms nativeWallMs=0ms nativeReadSumMs=0ms nativeScanSumMs=0ms totalMs=290ms names=1124 bodyless=101 definitions=902",
+        "[sync] phases reconcile=141ms framework=17ms macroScan=291ms workerSetup=93ms read=1ms parseWall=144ms store=34ms",
+        "[sync] extraction totals primaryParseMs=81ms primaryExtractionMs=39ms declarationMacroExpansionMs=16ms",
+        "[sync] tail-detail macroEvidenceMs=4ms prepareAndWalMs=92ms postExtractMs=0ms changedRefsMs=81ms resurrectedRefsMs=0ms failedRefRetryMs=136ms coImporterMs=0ms orphanAndSynthesisMs=4201ms chainedCallsMs=166ms maintenanceMs=36ms finalizeMs=2ms cleanupMs=0ms",
+        "[sync] command phases moduleLoad=96ms databaseOpen=49ms syncPipeline=5475ms total=5635ms"
+      ],
+      "fields": {
+        "scan-detail": {
+          "gitCommandMs": 5.0,
+          "ignoreBuildMs": 5.0,
+          "filterCanonicalMs": 0.0,
+          "walkMs": 119.0,
+          "nativeMs": 0.0,
+          "gitIgnoreMs": 0.0,
+          "gitCanonicalMs": 0.0,
+          "gitRealpathMs": 0.0,
+          "gitDedupMs": 0.0,
+          "gitIgnoreNativeMs": 0.0,
+          "gitIgnoreKernelMs": 0.0
+        },
+        "reconcile-counts": {},
+        "macro-detail": {
+          "readWallMs": 153.0,
+          "namesMs": 55.0,
+          "bodylessMs": 51.0,
+          "definitionsMs": 26.0,
+          "mergeMs": 4.0,
+          "nativeWallMs": 0.0,
+          "nativeReadSumMs": 0.0,
+          "nativeScanSumMs": 0.0,
+          "totalMs": 290.0
+        },
+        "phases": {
+          "reconcile": 141.0,
+          "framework": 17.0,
+          "macroScan": 291.0,
+          "workerSetup": 93.0,
+          "read": 1.0,
+          "parseWall": 144.0,
+          "store": 34.0
+        },
+        "extraction": {
+          "primaryParseMs": 81.0,
+          "primaryExtractionMs": 39.0,
+          "declarationMacroExpansionMs": 16.0
+        },
+        "tail-detail": {
+          "macroEvidenceMs": 4.0,
+          "prepareAndWalMs": 92.0,
+          "postExtractMs": 0.0,
+          "changedRefsMs": 81.0,
+          "resurrectedRefsMs": 0.0,
+          "failedRefRetryMs": 136.0,
+          "coImporterMs": 0.0,
+          "orphanAndSynthesisMs": 4201.0,
+          "chainedCallsMs": 166.0,
+          "maintenanceMs": 36.0,
+          "finalizeMs": 2.0,
+          "cleanupMs": 0.0
+        },
+        "command": {
+          "moduleLoad": 96.0,
+          "databaseOpen": 49.0,
+          "syncPipeline": 5475.0,
+          "total": 5635.0
+        }
+      }
+    },
+    "r4-baseline-init": {
+      "wallMs": 103580.29298999827,
+      "lines": [
+        "[worker] macro-detail mode=ts reason=disabled files=1286 readFiles=1286 readErrors=0 bytes=25526167 fallbackFiles=0 readWallMs=142ms namesMs=54ms bodylessMs=54ms definitionsMs=24ms mergeMs=2ms nativeWallMs=0ms nativeReadSumMs=0ms nativeScanSumMs=0ms totalMs=277ms names=1124 bodyless=101 definitions=902",
+        "[worker] Index phases: scan=108ms framework=18ms macroScan=278ms readSum=2472ms parsePipeline=73403ms storeAdmission=3922ms bufferBudgetMB=512 peakBufferedFiles=4 peakEstimatedBufferMB=21",
+        "[worker] Extraction totals: primaryParseMs=21187ms primaryExtractionMs=15653ms declarationMacroExpansionMs=2526ms declarationMacroRecoverySourceMs=1090ms declarationMacroAuxParseMs=28613ms declarationMacroMergeMs=138ms"
+      ],
+      "fields": {
+        "macro-detail": {
+          "readWallMs": 142.0,
+          "namesMs": 54.0,
+          "bodylessMs": 54.0,
+          "definitionsMs": 24.0,
+          "mergeMs": 2.0,
+          "nativeWallMs": 0.0,
+          "nativeReadSumMs": 0.0,
+          "nativeScanSumMs": 0.0,
+          "totalMs": 277.0
+        },
+        "Index": {
+          "scan": 108.0,
+          "framework": 18.0,
+          "macroScan": 278.0,
+          "readSum": 2472.0,
+          "parsePipeline": 73403.0,
+          "storeAdmission": 3922.0
+        },
+        "Extraction": {
+          "primaryParseMs": 21187.0,
+          "primaryExtractionMs": 15653.0,
+          "declarationMacroExpansionMs": 2526.0,
+          "declarationMacroRecoverySourceMs": 1090.0,
+          "declarationMacroAuxParseMs": 28613.0,
+          "declarationMacroMergeMs": 138.0
+        }
+      }
+    },
+    "r4-baseline-noop": {
+      "wallMs": 584.5329679978022,
+      "lines": [
+        "[sync] scan-detail mode=walk fallbackReason=git-path-error failureStage=rev-parse gitCommandMs=7ms ignoreBuildMs=5ms filterCanonicalMs=0ms walkMs=99ms gitCommands=1 gitCandidates=0 sourceFiles=1684 walkDirectories=174 gitDirectories=0 supplementRoots=0 canonicalFromParent=1684 nativeStatus=off nativeReason=none nativeMs=0ms nativeDirectories=0 nativeMetadata=0 gitPathMode=unused gitIgnoreMs=0ms gitCanonicalMs=0ms gitRealpathMs=0ms gitDedupMs=0ms gitIgnoreMode=legacy gitIgnoreReason=none gitIgnoreNativeMs=0ms gitIgnoreKernelMs=0ms gitIgnoreMismatches=0 gitIgnoreNativeKept=0 gitIgnoreDeferred=0 gitIgnored=0 gitCanonicalCalls=0 gitRealpathCalls=0 gitRealpathErrors=0 gitNativeCalls=0 gitNativeFallbacks=0 gitPathMismatches=0 gitCanonicalDuplicates=0",
+        "[sync] reconcile-counts currentFiles=1684 trackedFiles=1684 existsChecks=0 statChecks=1684 statUnchanged=1684 statErrors=0 snapshotPresence=0 snapshotStats=0 hashReadAttempts=0 hashReadFiles=0 hashReadErrors=0 sameHashSkipped=0 sameHashStatUpdated=0 sameHashStatDeferred=0 recoveryRetryFiles=0 added=0 modified=0 removed=0",
+        "[sync] phases reconcile=119ms framework=0ms macroScan=0ms workerSetup=0ms read=0ms parseWall=0ms store=0ms",
+        "[sync] tail-detail macroEvidenceMs=0ms prepareAndWalMs=80ms postExtractMs=0ms changedRefsMs=5ms resurrectedRefsMs=0ms failedRefRetryMs=0ms coImporterMs=0ms orphanAndSynthesisMs=0ms chainedCallsMs=0ms maintenanceMs=0ms finalizeMs=0ms cleanupMs=0ms",
+        "[sync] command phases moduleLoad=111ms databaseOpen=49ms syncPipeline=297ms total=474ms"
+      ],
+      "fields": {
+        "scan-detail": {
+          "gitCommandMs": 7.0,
+          "ignoreBuildMs": 5.0,
+          "filterCanonicalMs": 0.0,
+          "walkMs": 99.0,
+          "nativeMs": 0.0,
+          "gitIgnoreMs": 0.0,
+          "gitCanonicalMs": 0.0,
+          "gitRealpathMs": 0.0,
+          "gitDedupMs": 0.0,
+          "gitIgnoreNativeMs": 0.0,
+          "gitIgnoreKernelMs": 0.0
+        },
+        "reconcile-counts": {},
+        "phases": {
+          "reconcile": 119.0,
+          "framework": 0.0,
+          "macroScan": 0.0,
+          "workerSetup": 0.0,
+          "read": 0.0,
+          "parseWall": 0.0,
+          "store": 0.0
+        },
+        "tail-detail": {
+          "macroEvidenceMs": 0.0,
+          "prepareAndWalMs": 80.0,
+          "postExtractMs": 0.0,
+          "changedRefsMs": 5.0,
+          "resurrectedRefsMs": 0.0,
+          "failedRefRetryMs": 0.0,
+          "coImporterMs": 0.0,
+          "orphanAndSynthesisMs": 0.0,
+          "chainedCallsMs": 0.0,
+          "maintenanceMs": 0.0,
+          "finalizeMs": 0.0,
+          "cleanupMs": 0.0
+        },
+        "command": {
+          "moduleLoad": 111.0,
+          "databaseOpen": 49.0,
+          "syncPipeline": 297.0,
+          "total": 474.0
+        }
+      }
+    },
+    "r4-baseline-edit": {
+      "wallMs": 5291.1841300010565,
+      "lines": [
+        "[sync] scan-detail mode=walk fallbackReason=git-path-error failureStage=rev-parse gitCommandMs=4ms ignoreBuildMs=4ms filterCanonicalMs=0ms walkMs=117ms gitCommands=1 gitCandidates=0 sourceFiles=1684 walkDirectories=174 gitDirectories=0 supplementRoots=0 canonicalFromParent=1684 nativeStatus=off nativeReason=none nativeMs=0ms nativeDirectories=0 nativeMetadata=0 gitPathMode=unused gitIgnoreMs=0ms gitCanonicalMs=0ms gitRealpathMs=0ms gitDedupMs=0ms gitIgnoreMode=legacy gitIgnoreReason=none gitIgnoreNativeMs=0ms gitIgnoreKernelMs=0ms gitIgnoreMismatches=0 gitIgnoreNativeKept=0 gitIgnoreDeferred=0 gitIgnored=0 gitCanonicalCalls=0 gitRealpathCalls=0 gitRealpathErrors=0 gitNativeCalls=0 gitNativeFallbacks=0 gitPathMismatches=0 gitCanonicalDuplicates=0",
+        "[sync] reconcile-counts currentFiles=1684 trackedFiles=1684 existsChecks=0 statChecks=1684 statUnchanged=1683 statErrors=0 snapshotPresence=0 snapshotStats=0 hashReadAttempts=1 hashReadFiles=1 hashReadErrors=0 sameHashSkipped=0 sameHashStatUpdated=0 sameHashStatDeferred=0 recoveryRetryFiles=0 added=0 modified=1 removed=0",
+        "[sync] macro-detail mode=ts reason=disabled files=1286 readFiles=1286 readErrors=0 bytes=25526271 fallbackFiles=0 readWallMs=140ms namesMs=51ms bodylessMs=52ms definitionsMs=24ms mergeMs=3ms nativeWallMs=0ms nativeReadSumMs=0ms nativeScanSumMs=0ms totalMs=270ms names=1124 bodyless=101 definitions=902",
+        "[sync] phases reconcile=135ms framework=20ms macroScan=271ms workerSetup=85ms read=1ms parseWall=131ms store=33ms",
+        "[sync] extraction totals primaryParseMs=78ms primaryExtractionMs=31ms declarationMacroExpansionMs=14ms",
+        "[sync] tail-detail macroEvidenceMs=3ms prepareAndWalMs=75ms postExtractMs=0ms changedRefsMs=60ms resurrectedRefsMs=0ms failedRefRetryMs=122ms coImporterMs=0ms orphanAndSynthesisMs=3854ms chainedCallsMs=160ms maintenanceMs=40ms finalizeMs=2ms cleanupMs=0ms",
+        "[sync] command phases moduleLoad=96ms databaseOpen=47ms syncPipeline=5029ms total=5191ms"
+      ],
+      "fields": {
+        "scan-detail": {
+          "gitCommandMs": 4.0,
+          "ignoreBuildMs": 4.0,
+          "filterCanonicalMs": 0.0,
+          "walkMs": 117.0,
+          "nativeMs": 0.0,
+          "gitIgnoreMs": 0.0,
+          "gitCanonicalMs": 0.0,
+          "gitRealpathMs": 0.0,
+          "gitDedupMs": 0.0,
+          "gitIgnoreNativeMs": 0.0,
+          "gitIgnoreKernelMs": 0.0
+        },
+        "reconcile-counts": {},
+        "macro-detail": {
+          "readWallMs": 140.0,
+          "namesMs": 51.0,
+          "bodylessMs": 52.0,
+          "definitionsMs": 24.0,
+          "mergeMs": 3.0,
+          "nativeWallMs": 0.0,
+          "nativeReadSumMs": 0.0,
+          "nativeScanSumMs": 0.0,
+          "totalMs": 270.0
+        },
+        "phases": {
+          "reconcile": 135.0,
+          "framework": 20.0,
+          "macroScan": 271.0,
+          "workerSetup": 85.0,
+          "read": 1.0,
+          "parseWall": 131.0,
+          "store": 33.0
+        },
+        "extraction": {
+          "primaryParseMs": 78.0,
+          "primaryExtractionMs": 31.0,
+          "declarationMacroExpansionMs": 14.0
+        },
+        "tail-detail": {
+          "macroEvidenceMs": 3.0,
+          "prepareAndWalMs": 75.0,
+          "postExtractMs": 0.0,
+          "changedRefsMs": 60.0,
+          "resurrectedRefsMs": 0.0,
+          "failedRefRetryMs": 122.0,
+          "coImporterMs": 0.0,
+          "orphanAndSynthesisMs": 3854.0,
+          "chainedCallsMs": 160.0,
+          "maintenanceMs": 40.0,
+          "finalizeMs": 2.0,
+          "cleanupMs": 0.0
+        },
+        "command": {
+          "moduleLoad": 96.0,
+          "databaseOpen": 47.0,
+          "syncPipeline": 5029.0,
+          "total": 5191.0
+        }
+      }
+    },
+    "fresh-edited-baseline": {
+      "wallMs": 111617.6904189997,
+      "lines": [
+        "[worker] macro-detail mode=ts reason=disabled files=1286 readFiles=1286 readErrors=0 bytes=25526271 fallbackFiles=0 readWallMs=149ms namesMs=55ms bodylessMs=54ms definitionsMs=25ms mergeMs=3ms nativeWallMs=0ms nativeReadSumMs=0ms nativeScanSumMs=0ms totalMs=288ms names=1124 bodyless=101 definitions=902",
+        "[worker] Index phases: scan=120ms framework=20ms macroScan=289ms readSum=3064ms parsePipeline=77857ms storeAdmission=4519ms bufferBudgetMB=512 peakBufferedFiles=4 peakEstimatedBufferMB=21",
+        "[worker] Extraction totals: primaryParseMs=22221ms primaryExtractionMs=16794ms declarationMacroExpansionMs=2613ms declarationMacroRecoverySourceMs=1197ms declarationMacroAuxParseMs=29627ms declarationMacroMergeMs=135ms"
+      ],
+      "fields": {
+        "macro-detail": {
+          "readWallMs": 149.0,
+          "namesMs": 55.0,
+          "bodylessMs": 54.0,
+          "definitionsMs": 25.0,
+          "mergeMs": 3.0,
+          "nativeWallMs": 0.0,
+          "nativeReadSumMs": 0.0,
+          "nativeScanSumMs": 0.0,
+          "totalMs": 288.0
+        },
+        "Index": {
+          "scan": 120.0,
+          "framework": 20.0,
+          "macroScan": 289.0,
+          "readSum": 3064.0,
+          "parsePipeline": 77857.0,
+          "storeAdmission": 4519.0
+        },
+        "Extraction": {
+          "primaryParseMs": 22221.0,
+          "primaryExtractionMs": 16794.0,
+          "declarationMacroExpansionMs": 2613.0,
+          "declarationMacroRecoverySourceMs": 1197.0,
+          "declarationMacroAuxParseMs": 29627.0,
+          "declarationMacroMergeMs": 135.0
+        }
+      }
+    },
+    "fresh-edited-fixed": {
+      "wallMs": 103461.71246599988,
+      "lines": [
+        "[worker] macro-detail mode=ts reason=disabled files=1286 readFiles=1286 readErrors=0 bytes=25526271 fallbackFiles=0 readWallMs=128ms namesMs=55ms bodylessMs=53ms definitionsMs=26ms mergeMs=4ms nativeWallMs=0ms nativeReadSumMs=0ms nativeScanSumMs=0ms totalMs=268ms names=1124 bodyless=101 definitions=902",
+        "[worker] Index phases: scan=134ms framework=19ms macroScan=269ms readSum=2819ms parsePipeline=75089ms storeAdmission=4196ms bufferBudgetMB=512 peakBufferedFiles=4 peakEstimatedBufferMB=21",
+        "[worker] Extraction totals: primaryParseMs=21654ms primaryExtractionMs=16135ms declarationMacroExpansionMs=2546ms declarationMacroRecoverySourceMs=1114ms declarationMacroAuxParseMs=28909ms declarationMacroMergeMs=149ms"
+      ],
+      "fields": {
+        "macro-detail": {
+          "readWallMs": 128.0,
+          "namesMs": 55.0,
+          "bodylessMs": 53.0,
+          "definitionsMs": 26.0,
+          "mergeMs": 4.0,
+          "nativeWallMs": 0.0,
+          "nativeReadSumMs": 0.0,
+          "nativeScanSumMs": 0.0,
+          "totalMs": 268.0
+        },
+        "Index": {
+          "scan": 134.0,
+          "framework": 19.0,
+          "macroScan": 269.0,
+          "readSum": 2819.0,
+          "parsePipeline": 75089.0,
+          "storeAdmission": 4196.0
+        },
+        "Extraction": {
+          "primaryParseMs": 21654.0,
+          "primaryExtractionMs": 16135.0,
+          "declarationMacroExpansionMs": 2546.0,
+          "declarationMacroRecoverySourceMs": 1114.0,
+          "declarationMacroAuxParseMs": 28909.0,
+          "declarationMacroMergeMs": 149.0
+        }
+      }
+    }
+  },
+  "native": {
+    "r1-baseline-init": {
+      "wallMs": 109319.06017700021,
+      "lines": [
+        "[worker] macro-detail mode=rust reason=none files=1286 readFiles=1286 readErrors=0 bytes=25526167 fallbackFiles=0 readWallMs=0ms namesMs=0ms bodylessMs=0ms definitionsMs=0ms mergeMs=3ms nativeWallMs=185ms nativeReadSumMs=227ms nativeScanSumMs=129ms totalMs=187ms names=1124 bodyless=101 definitions=902",
+        "[worker] Index phases: scan=119ms framework=21ms macroScan=188ms readSum=3817ms parsePipeline=80665ms storeAdmission=4921ms bufferBudgetMB=512 peakBufferedFiles=4 peakEstimatedBufferMB=21",
+        "[worker] Extraction totals: primaryParseMs=22355ms primaryExtractionMs=17275ms declarationMacroExpansionMs=2806ms declarationMacroRecoverySourceMs=1149ms declarationMacroAuxParseMs=31726ms declarationMacroMergeMs=251ms"
+      ],
+      "fields": {
+        "macro-detail": {
+          "readWallMs": 0.0,
+          "namesMs": 0.0,
+          "bodylessMs": 0.0,
+          "definitionsMs": 0.0,
+          "mergeMs": 3.0,
+          "nativeWallMs": 185.0,
+          "nativeReadSumMs": 227.0,
+          "nativeScanSumMs": 129.0,
+          "totalMs": 187.0
+        },
+        "Index": {
+          "scan": 119.0,
+          "framework": 21.0,
+          "macroScan": 188.0,
+          "readSum": 3817.0,
+          "parsePipeline": 80665.0,
+          "storeAdmission": 4921.0
+        },
+        "Extraction": {
+          "primaryParseMs": 22355.0,
+          "primaryExtractionMs": 17275.0,
+          "declarationMacroExpansionMs": 2806.0,
+          "declarationMacroRecoverySourceMs": 1149.0,
+          "declarationMacroAuxParseMs": 31726.0,
+          "declarationMacroMergeMs": 251.0
+        }
+      }
+    },
+    "r1-baseline-noop": {
+      "wallMs": 605.8343830009107,
+      "lines": [
+        "[sync] scan-detail mode=walk fallbackReason=git-path-error failureStage=rev-parse gitCommandMs=7ms ignoreBuildMs=4ms filterCanonicalMs=0ms walkMs=113ms gitCommands=1 gitCandidates=0 sourceFiles=1684 walkDirectories=174 gitDirectories=0 supplementRoots=0 canonicalFromParent=1684 nativeStatus=fallback nativeReason=requires-walk-negation nativeMs=0ms nativeDirectories=0 nativeMetadata=0 gitPathMode=unused gitIgnoreMs=0ms gitCanonicalMs=0ms gitRealpathMs=0ms gitDedupMs=0ms gitIgnoreMode=legacy gitIgnoreReason=none gitIgnoreNativeMs=0ms gitIgnoreKernelMs=0ms gitIgnoreMismatches=0 gitIgnoreNativeKept=0 gitIgnoreDeferred=0 gitIgnored=0 gitCanonicalCalls=0 gitRealpathCalls=0 gitRealpathErrors=0 gitNativeCalls=0 gitNativeFallbacks=0 gitPathMismatches=0 gitCanonicalDuplicates=0",
+        "[sync] reconcile-counts currentFiles=1684 trackedFiles=1684 existsChecks=0 statChecks=1684 statUnchanged=1684 statErrors=0 snapshotPresence=0 snapshotStats=0 hashReadAttempts=0 hashReadFiles=0 hashReadErrors=0 sameHashSkipped=0 sameHashStatUpdated=0 sameHashStatDeferred=0 recoveryRetryFiles=0 added=0 modified=0 removed=0",
+        "[sync] phases reconcile=137ms framework=0ms macroScan=0ms workerSetup=0ms read=0ms parseWall=0ms store=0ms",
+        "[sync] tail-detail macroEvidenceMs=0ms prepareAndWalMs=81ms postExtractMs=0ms changedRefsMs=4ms resurrectedRefsMs=0ms failedRefRetryMs=0ms coImporterMs=0ms orphanAndSynthesisMs=0ms chainedCallsMs=0ms maintenanceMs=0ms finalizeMs=0ms cleanupMs=0ms",
+        "[sync] command phases moduleLoad=124ms databaseOpen=58ms syncPipeline=306ms total=506ms"
+      ],
+      "fields": {
+        "scan-detail": {
+          "gitCommandMs": 7.0,
+          "ignoreBuildMs": 4.0,
+          "filterCanonicalMs": 0.0,
+          "walkMs": 113.0,
+          "nativeMs": 0.0,
+          "gitIgnoreMs": 0.0,
+          "gitCanonicalMs": 0.0,
+          "gitRealpathMs": 0.0,
+          "gitDedupMs": 0.0,
+          "gitIgnoreNativeMs": 0.0,
+          "gitIgnoreKernelMs": 0.0
+        },
+        "reconcile-counts": {},
+        "phases": {
+          "reconcile": 137.0,
+          "framework": 0.0,
+          "macroScan": 0.0,
+          "workerSetup": 0.0,
+          "read": 0.0,
+          "parseWall": 0.0,
+          "store": 0.0
+        },
+        "tail-detail": {
+          "macroEvidenceMs": 0.0,
+          "prepareAndWalMs": 81.0,
+          "postExtractMs": 0.0,
+          "changedRefsMs": 4.0,
+          "resurrectedRefsMs": 0.0,
+          "failedRefRetryMs": 0.0,
+          "coImporterMs": 0.0,
+          "orphanAndSynthesisMs": 0.0,
+          "chainedCallsMs": 0.0,
+          "maintenanceMs": 0.0,
+          "finalizeMs": 0.0,
+          "cleanupMs": 0.0
+        },
+        "command": {
+          "moduleLoad": 124.0,
+          "databaseOpen": 58.0,
+          "syncPipeline": 306.0,
+          "total": 506.0
+        }
+      }
+    },
+    "r1-baseline-edit": {
+      "wallMs": 5828.981481001392,
+      "lines": [
+        "[sync] scan-detail mode=walk fallbackReason=git-path-error failureStage=rev-parse gitCommandMs=28ms ignoreBuildMs=12ms filterCanonicalMs=0ms walkMs=173ms gitCommands=1 gitCandidates=0 sourceFiles=1684 walkDirectories=174 gitDirectories=0 supplementRoots=0 canonicalFromParent=1684 nativeStatus=fallback nativeReason=requires-walk-negation nativeMs=0ms nativeDirectories=0 nativeMetadata=0 gitPathMode=unused gitIgnoreMs=0ms gitCanonicalMs=0ms gitRealpathMs=0ms gitDedupMs=0ms gitIgnoreMode=legacy gitIgnoreReason=none gitIgnoreNativeMs=0ms gitIgnoreKernelMs=0ms gitIgnoreMismatches=0 gitIgnoreNativeKept=0 gitIgnoreDeferred=0 gitIgnored=0 gitCanonicalCalls=0 gitRealpathCalls=0 gitRealpathErrors=0 gitNativeCalls=0 gitNativeFallbacks=0 gitPathMismatches=0 gitCanonicalDuplicates=0",
+        "[sync] reconcile-counts currentFiles=1684 trackedFiles=1684 existsChecks=0 statChecks=1684 statUnchanged=1683 statErrors=0 snapshotPresence=0 snapshotStats=0 hashReadAttempts=1 hashReadFiles=1 hashReadErrors=0 sameHashSkipped=0 sameHashStatUpdated=0 sameHashStatDeferred=0 recoveryRetryFiles=0 added=0 modified=1 removed=0",
+        "[sync] macro-detail mode=rust reason=none files=1286 readFiles=1286 readErrors=0 bytes=25526271 fallbackFiles=0 readWallMs=0ms namesMs=0ms bodylessMs=0ms definitionsMs=0ms mergeMs=4ms nativeWallMs=290ms nativeReadSumMs=349ms nativeScanSumMs=164ms totalMs=292ms names=1124 bodyless=101 definitions=902",
+        "[sync] phases reconcile=226ms framework=20ms macroScan=293ms workerSetup=114ms read=1ms parseWall=176ms store=45ms",
+        "[sync] extraction totals primaryParseMs=103ms primaryExtractionMs=47ms declarationMacroExpansionMs=16ms",
+        "[sync] tail-detail macroEvidenceMs=6ms prepareAndWalMs=77ms postExtractMs=0ms changedRefsMs=63ms resurrectedRefsMs=0ms failedRefRetryMs=187ms coImporterMs=0ms orphanAndSynthesisMs=4023ms chainedCallsMs=166ms maintenanceMs=42ms finalizeMs=2ms cleanupMs=0ms",
+        "[sync] command phases moduleLoad=101ms databaseOpen=58ms syncPipeline=5490ms total=5671ms"
+      ],
+      "fields": {
+        "scan-detail": {
+          "gitCommandMs": 28.0,
+          "ignoreBuildMs": 12.0,
+          "filterCanonicalMs": 0.0,
+          "walkMs": 173.0,
+          "nativeMs": 0.0,
+          "gitIgnoreMs": 0.0,
+          "gitCanonicalMs": 0.0,
+          "gitRealpathMs": 0.0,
+          "gitDedupMs": 0.0,
+          "gitIgnoreNativeMs": 0.0,
+          "gitIgnoreKernelMs": 0.0
+        },
+        "reconcile-counts": {},
+        "macro-detail": {
+          "readWallMs": 0.0,
+          "namesMs": 0.0,
+          "bodylessMs": 0.0,
+          "definitionsMs": 0.0,
+          "mergeMs": 4.0,
+          "nativeWallMs": 290.0,
+          "nativeReadSumMs": 349.0,
+          "nativeScanSumMs": 164.0,
+          "totalMs": 292.0
+        },
+        "phases": {
+          "reconcile": 226.0,
+          "framework": 20.0,
+          "macroScan": 293.0,
+          "workerSetup": 114.0,
+          "read": 1.0,
+          "parseWall": 176.0,
+          "store": 45.0
+        },
+        "extraction": {
+          "primaryParseMs": 103.0,
+          "primaryExtractionMs": 47.0,
+          "declarationMacroExpansionMs": 16.0
+        },
+        "tail-detail": {
+          "macroEvidenceMs": 6.0,
+          "prepareAndWalMs": 77.0,
+          "postExtractMs": 0.0,
+          "changedRefsMs": 63.0,
+          "resurrectedRefsMs": 0.0,
+          "failedRefRetryMs": 187.0,
+          "coImporterMs": 0.0,
+          "orphanAndSynthesisMs": 4023.0,
+          "chainedCallsMs": 166.0,
+          "maintenanceMs": 42.0,
+          "finalizeMs": 2.0,
+          "cleanupMs": 0.0
+        },
+        "command": {
+          "moduleLoad": 101.0,
+          "databaseOpen": 58.0,
+          "syncPipeline": 5490.0,
+          "total": 5671.0
+        }
+      }
+    },
+    "r1-fixed-init": {
+      "wallMs": 104982.0991810011,
+      "lines": [
+        "[worker] macro-detail mode=rust reason=none files=1286 readFiles=1286 readErrors=0 bytes=25526167 fallbackFiles=0 readWallMs=0ms namesMs=0ms bodylessMs=0ms definitionsMs=0ms mergeMs=4ms nativeWallMs=232ms nativeReadSumMs=212ms nativeScanSumMs=148ms totalMs=235ms names=1124 bodyless=101 definitions=902",
+        "[worker] Index phases: scan=317ms framework=53ms macroScan=248ms readSum=2823ms parsePipeline=73881ms storeAdmission=3776ms bufferBudgetMB=512 peakBufferedFiles=4 peakEstimatedBufferMB=21",
+        "[worker] Extraction totals: primaryParseMs=20856ms primaryExtractionMs=15679ms declarationMacroExpansionMs=2466ms declarationMacroRecoverySourceMs=1112ms declarationMacroAuxParseMs=29299ms declarationMacroMergeMs=136ms"
+      ],
+      "fields": {
+        "macro-detail": {
+          "readWallMs": 0.0,
+          "namesMs": 0.0,
+          "bodylessMs": 0.0,
+          "definitionsMs": 0.0,
+          "mergeMs": 4.0,
+          "nativeWallMs": 232.0,
+          "nativeReadSumMs": 212.0,
+          "nativeScanSumMs": 148.0,
+          "totalMs": 235.0
+        },
+        "Index": {
+          "scan": 317.0,
+          "framework": 53.0,
+          "macroScan": 248.0,
+          "readSum": 2823.0,
+          "parsePipeline": 73881.0,
+          "storeAdmission": 3776.0
+        },
+        "Extraction": {
+          "primaryParseMs": 20856.0,
+          "primaryExtractionMs": 15679.0,
+          "declarationMacroExpansionMs": 2466.0,
+          "declarationMacroRecoverySourceMs": 1112.0,
+          "declarationMacroAuxParseMs": 29299.0,
+          "declarationMacroMergeMs": 136.0
+        }
+      }
+    },
+    "r1-fixed-noop": {
+      "wallMs": 614.7066590019676,
+      "lines": [
+        "[sync] scan-detail mode=walk fallbackReason=git-path-error failureStage=rev-parse gitCommandMs=7ms ignoreBuildMs=3ms filterCanonicalMs=0ms walkMs=87ms gitCommands=1 gitCandidates=0 sourceFiles=1684 walkDirectories=174 gitDirectories=0 supplementRoots=0 canonicalFromParent=1684 nativeStatus=fallback nativeReason=requires-walk-negation nativeMs=0ms nativeDirectories=0 nativeMetadata=0 gitPathMode=unused gitIgnoreMs=0ms gitCanonicalMs=0ms gitRealpathMs=0ms gitDedupMs=0ms gitIgnoreMode=legacy gitIgnoreReason=none gitIgnoreNativeMs=0ms gitIgnoreKernelMs=0ms gitIgnoreMismatches=0 gitIgnoreNativeKept=0 gitIgnoreDeferred=0 gitIgnored=0 gitCanonicalCalls=0 gitRealpathCalls=0 gitRealpathErrors=0 gitNativeCalls=0 gitNativeFallbacks=0 gitPathMismatches=0 gitCanonicalDuplicates=0",
+        "[sync] reconcile-counts currentFiles=1684 trackedFiles=1684 existsChecks=0 statChecks=1684 statUnchanged=1684 statErrors=0 snapshotPresence=0 snapshotStats=0 hashReadAttempts=0 hashReadFiles=0 hashReadErrors=0 sameHashSkipped=0 sameHashStatUpdated=0 sameHashStatDeferred=0 recoveryRetryFiles=0 added=0 modified=0 removed=0",
+        "[sync] phases reconcile=109ms framework=0ms macroScan=0ms workerSetup=0ms read=0ms parseWall=0ms store=0ms",
+        "[sync] tail-detail macroEvidenceMs=0ms prepareAndWalMs=84ms postExtractMs=0ms changedRefsMs=4ms resurrectedRefsMs=0ms failedRefRetryMs=0ms coImporterMs=0ms orphanAndSynthesisMs=0ms chainedCallsMs=0ms maintenanceMs=0ms finalizeMs=0ms cleanupMs=0ms",
+        "[sync] command phases moduleLoad=122ms databaseOpen=71ms syncPipeline=299ms total=510ms"
+      ],
+      "fields": {
+        "scan-detail": {
+          "gitCommandMs": 7.0,
+          "ignoreBuildMs": 3.0,
+          "filterCanonicalMs": 0.0,
+          "walkMs": 87.0,
+          "nativeMs": 0.0,
+          "gitIgnoreMs": 0.0,
+          "gitCanonicalMs": 0.0,
+          "gitRealpathMs": 0.0,
+          "gitDedupMs": 0.0,
+          "gitIgnoreNativeMs": 0.0,
+          "gitIgnoreKernelMs": 0.0
+        },
+        "reconcile-counts": {},
+        "phases": {
+          "reconcile": 109.0,
+          "framework": 0.0,
+          "macroScan": 0.0,
+          "workerSetup": 0.0,
+          "read": 0.0,
+          "parseWall": 0.0,
+          "store": 0.0
+        },
+        "tail-detail": {
+          "macroEvidenceMs": 0.0,
+          "prepareAndWalMs": 84.0,
+          "postExtractMs": 0.0,
+          "changedRefsMs": 4.0,
+          "resurrectedRefsMs": 0.0,
+          "failedRefRetryMs": 0.0,
+          "coImporterMs": 0.0,
+          "orphanAndSynthesisMs": 0.0,
+          "chainedCallsMs": 0.0,
+          "maintenanceMs": 0.0,
+          "finalizeMs": 0.0,
+          "cleanupMs": 0.0
+        },
+        "command": {
+          "moduleLoad": 122.0,
+          "databaseOpen": 71.0,
+          "syncPipeline": 299.0,
+          "total": 510.0
+        }
+      }
+    },
+    "r1-fixed-edit": {
+      "wallMs": 5730.2256479997595,
+      "lines": [
+        "[sync] scan-detail mode=walk fallbackReason=git-path-error failureStage=rev-parse gitCommandMs=4ms ignoreBuildMs=5ms filterCanonicalMs=0ms walkMs=121ms gitCommands=1 gitCandidates=0 sourceFiles=1684 walkDirectories=174 gitDirectories=0 supplementRoots=0 canonicalFromParent=1684 nativeStatus=fallback nativeReason=requires-walk-negation nativeMs=0ms nativeDirectories=0 nativeMetadata=0 gitPathMode=unused gitIgnoreMs=0ms gitCanonicalMs=0ms gitRealpathMs=0ms gitDedupMs=0ms gitIgnoreMode=legacy gitIgnoreReason=none gitIgnoreNativeMs=0ms gitIgnoreKernelMs=0ms gitIgnoreMismatches=0 gitIgnoreNativeKept=0 gitIgnoreDeferred=0 gitIgnored=0 gitCanonicalCalls=0 gitRealpathCalls=0 gitRealpathErrors=0 gitNativeCalls=0 gitNativeFallbacks=0 gitPathMismatches=0 gitCanonicalDuplicates=0",
+        "[sync] reconcile-counts currentFiles=1684 trackedFiles=1684 existsChecks=0 statChecks=1684 statUnchanged=1683 statErrors=0 snapshotPresence=0 snapshotStats=0 hashReadAttempts=1 hashReadFiles=1 hashReadErrors=0 sameHashSkipped=0 sameHashStatUpdated=0 sameHashStatDeferred=0 recoveryRetryFiles=0 added=0 modified=1 removed=0",
+        "[sync] macro-detail mode=rust reason=none files=1286 readFiles=1286 readErrors=0 bytes=25526271 fallbackFiles=0 readWallMs=0ms namesMs=0ms bodylessMs=0ms definitionsMs=0ms mergeMs=3ms nativeWallMs=170ms nativeReadSumMs=213ms nativeScanSumMs=117ms totalMs=172ms names=1124 bodyless=101 definitions=902",
+        "[sync] phases reconcile=147ms framework=18ms macroScan=173ms workerSetup=96ms read=1ms parseWall=135ms store=46ms",
+        "[sync] extraction totals primaryParseMs=87ms primaryExtractionMs=30ms declarationMacroExpansionMs=12ms",
+        "[sync] tail-detail macroEvidenceMs=4ms prepareAndWalMs=72ms postExtractMs=0ms changedRefsMs=71ms resurrectedRefsMs=0ms failedRefRetryMs=126ms coImporterMs=0ms orphanAndSynthesisMs=4321ms chainedCallsMs=166ms maintenanceMs=38ms finalizeMs=2ms cleanupMs=0ms",
+        "[sync] command phases moduleLoad=98ms databaseOpen=50ms syncPipeline=5456ms total=5620ms"
+      ],
+      "fields": {
+        "scan-detail": {
+          "gitCommandMs": 4.0,
+          "ignoreBuildMs": 5.0,
+          "filterCanonicalMs": 0.0,
+          "walkMs": 121.0,
+          "nativeMs": 0.0,
+          "gitIgnoreMs": 0.0,
+          "gitCanonicalMs": 0.0,
+          "gitRealpathMs": 0.0,
+          "gitDedupMs": 0.0,
+          "gitIgnoreNativeMs": 0.0,
+          "gitIgnoreKernelMs": 0.0
+        },
+        "reconcile-counts": {},
+        "macro-detail": {
+          "readWallMs": 0.0,
+          "namesMs": 0.0,
+          "bodylessMs": 0.0,
+          "definitionsMs": 0.0,
+          "mergeMs": 3.0,
+          "nativeWallMs": 170.0,
+          "nativeReadSumMs": 213.0,
+          "nativeScanSumMs": 117.0,
+          "totalMs": 172.0
+        },
+        "phases": {
+          "reconcile": 147.0,
+          "framework": 18.0,
+          "macroScan": 173.0,
+          "workerSetup": 96.0,
+          "read": 1.0,
+          "parseWall": 135.0,
+          "store": 46.0
+        },
+        "extraction": {
+          "primaryParseMs": 87.0,
+          "primaryExtractionMs": 30.0,
+          "declarationMacroExpansionMs": 12.0
+        },
+        "tail-detail": {
+          "macroEvidenceMs": 4.0,
+          "prepareAndWalMs": 72.0,
+          "postExtractMs": 0.0,
+          "changedRefsMs": 71.0,
+          "resurrectedRefsMs": 0.0,
+          "failedRefRetryMs": 126.0,
+          "coImporterMs": 0.0,
+          "orphanAndSynthesisMs": 4321.0,
+          "chainedCallsMs": 166.0,
+          "maintenanceMs": 38.0,
+          "finalizeMs": 2.0,
+          "cleanupMs": 0.0
+        },
+        "command": {
+          "moduleLoad": 98.0,
+          "databaseOpen": 50.0,
+          "syncPipeline": 5456.0,
+          "total": 5620.0
+        }
+      }
+    },
+    "r2-fixed-init": {
+      "wallMs": 101725.84496999843,
+      "lines": [
+        "[worker] macro-detail mode=rust reason=none files=1286 readFiles=1286 readErrors=0 bytes=25526167 fallbackFiles=0 readWallMs=0ms namesMs=0ms bodylessMs=0ms definitionsMs=0ms mergeMs=3ms nativeWallMs=156ms nativeReadSumMs=189ms nativeScanSumMs=115ms totalMs=158ms names=1124 bodyless=101 definitions=902",
+        "[worker] Index phases: scan=117ms framework=19ms macroScan=159ms readSum=3252ms parsePipeline=75474ms storeAdmission=4270ms bufferBudgetMB=512 peakBufferedFiles=4 peakEstimatedBufferMB=21",
+        "[worker] Extraction totals: primaryParseMs=21992ms primaryExtractionMs=15659ms declarationMacroExpansionMs=2555ms declarationMacroRecoverySourceMs=1113ms declarationMacroAuxParseMs=29408ms declarationMacroMergeMs=145ms"
+      ],
+      "fields": {
+        "macro-detail": {
+          "readWallMs": 0.0,
+          "namesMs": 0.0,
+          "bodylessMs": 0.0,
+          "definitionsMs": 0.0,
+          "mergeMs": 3.0,
+          "nativeWallMs": 156.0,
+          "nativeReadSumMs": 189.0,
+          "nativeScanSumMs": 115.0,
+          "totalMs": 158.0
+        },
+        "Index": {
+          "scan": 117.0,
+          "framework": 19.0,
+          "macroScan": 159.0,
+          "readSum": 3252.0,
+          "parsePipeline": 75474.0,
+          "storeAdmission": 4270.0
+        },
+        "Extraction": {
+          "primaryParseMs": 21992.0,
+          "primaryExtractionMs": 15659.0,
+          "declarationMacroExpansionMs": 2555.0,
+          "declarationMacroRecoverySourceMs": 1113.0,
+          "declarationMacroAuxParseMs": 29408.0,
+          "declarationMacroMergeMs": 145.0
+        }
+      }
+    },
+    "r2-fixed-noop": {
+      "wallMs": 496.56429099923116,
+      "lines": [
+        "[sync] scan-detail mode=walk fallbackReason=git-path-error failureStage=rev-parse gitCommandMs=5ms ignoreBuildMs=3ms filterCanonicalMs=0ms walkMs=91ms gitCommands=1 gitCandidates=0 sourceFiles=1684 walkDirectories=174 gitDirectories=0 supplementRoots=0 canonicalFromParent=1684 nativeStatus=fallback nativeReason=requires-walk-negation nativeMs=0ms nativeDirectories=0 nativeMetadata=0 gitPathMode=unused gitIgnoreMs=0ms gitCanonicalMs=0ms gitRealpathMs=0ms gitDedupMs=0ms gitIgnoreMode=legacy gitIgnoreReason=none gitIgnoreNativeMs=0ms gitIgnoreKernelMs=0ms gitIgnoreMismatches=0 gitIgnoreNativeKept=0 gitIgnoreDeferred=0 gitIgnored=0 gitCanonicalCalls=0 gitRealpathCalls=0 gitRealpathErrors=0 gitNativeCalls=0 gitNativeFallbacks=0 gitPathMismatches=0 gitCanonicalDuplicates=0",
+        "[sync] reconcile-counts currentFiles=1684 trackedFiles=1684 existsChecks=0 statChecks=1684 statUnchanged=1684 statErrors=0 snapshotPresence=0 snapshotStats=0 hashReadAttempts=0 hashReadFiles=0 hashReadErrors=0 sameHashSkipped=0 sameHashStatUpdated=0 sameHashStatDeferred=0 recoveryRetryFiles=0 added=0 modified=0 removed=0",
+        "[sync] phases reconcile=109ms framework=0ms macroScan=0ms workerSetup=0ms read=0ms parseWall=0ms store=0ms",
+        "[sync] tail-detail macroEvidenceMs=0ms prepareAndWalMs=68ms postExtractMs=0ms changedRefsMs=4ms resurrectedRefsMs=0ms failedRefRetryMs=0ms coImporterMs=0ms orphanAndSynthesisMs=0ms chainedCallsMs=0ms maintenanceMs=0ms finalizeMs=0ms cleanupMs=0ms",
+        "[sync] command phases moduleLoad=101ms databaseOpen=49ms syncPipeline=240ms total=411ms"
+      ],
+      "fields": {
+        "scan-detail": {
+          "gitCommandMs": 5.0,
+          "ignoreBuildMs": 3.0,
+          "filterCanonicalMs": 0.0,
+          "walkMs": 91.0,
+          "nativeMs": 0.0,
+          "gitIgnoreMs": 0.0,
+          "gitCanonicalMs": 0.0,
+          "gitRealpathMs": 0.0,
+          "gitDedupMs": 0.0,
+          "gitIgnoreNativeMs": 0.0,
+          "gitIgnoreKernelMs": 0.0
+        },
+        "reconcile-counts": {},
+        "phases": {
+          "reconcile": 109.0,
+          "framework": 0.0,
+          "macroScan": 0.0,
+          "workerSetup": 0.0,
+          "read": 0.0,
+          "parseWall": 0.0,
+          "store": 0.0
+        },
+        "tail-detail": {
+          "macroEvidenceMs": 0.0,
+          "prepareAndWalMs": 68.0,
+          "postExtractMs": 0.0,
+          "changedRefsMs": 4.0,
+          "resurrectedRefsMs": 0.0,
+          "failedRefRetryMs": 0.0,
+          "coImporterMs": 0.0,
+          "orphanAndSynthesisMs": 0.0,
+          "chainedCallsMs": 0.0,
+          "maintenanceMs": 0.0,
+          "finalizeMs": 0.0,
+          "cleanupMs": 0.0
+        },
+        "command": {
+          "moduleLoad": 101.0,
+          "databaseOpen": 49.0,
+          "syncPipeline": 240.0,
+          "total": 411.0
+        }
+      }
+    },
+    "r2-fixed-edit": {
+      "wallMs": 4988.581118002912,
+      "lines": [
+        "[sync] scan-detail mode=walk fallbackReason=git-path-error failureStage=rev-parse gitCommandMs=8ms ignoreBuildMs=4ms filterCanonicalMs=0ms walkMs=116ms gitCommands=1 gitCandidates=0 sourceFiles=1684 walkDirectories=174 gitDirectories=0 supplementRoots=0 canonicalFromParent=1684 nativeStatus=fallback nativeReason=requires-walk-negation nativeMs=0ms nativeDirectories=0 nativeMetadata=0 gitPathMode=unused gitIgnoreMs=0ms gitCanonicalMs=0ms gitRealpathMs=0ms gitDedupMs=0ms gitIgnoreMode=legacy gitIgnoreReason=none gitIgnoreNativeMs=0ms gitIgnoreKernelMs=0ms gitIgnoreMismatches=0 gitIgnoreNativeKept=0 gitIgnoreDeferred=0 gitIgnored=0 gitCanonicalCalls=0 gitRealpathCalls=0 gitRealpathErrors=0 gitNativeCalls=0 gitNativeFallbacks=0 gitPathMismatches=0 gitCanonicalDuplicates=0",
+        "[sync] reconcile-counts currentFiles=1684 trackedFiles=1684 existsChecks=0 statChecks=1684 statUnchanged=1683 statErrors=0 snapshotPresence=0 snapshotStats=0 hashReadAttempts=1 hashReadFiles=1 hashReadErrors=0 sameHashSkipped=0 sameHashStatUpdated=0 sameHashStatDeferred=0 recoveryRetryFiles=0 added=0 modified=1 removed=0",
+        "[sync] macro-detail mode=rust reason=none files=1286 readFiles=1286 readErrors=0 bytes=25526271 fallbackFiles=0 readWallMs=0ms namesMs=0ms bodylessMs=0ms definitionsMs=0ms mergeMs=3ms nativeWallMs=144ms nativeReadSumMs=161ms nativeScanSumMs=107ms totalMs=147ms names=1124 bodyless=101 definitions=902",
+        "[sync] phases reconcile=138ms framework=19ms macroScan=147ms workerSetup=85ms read=1ms parseWall=147ms store=38ms",
+        "[sync] extraction totals primaryParseMs=91ms primaryExtractionMs=33ms declarationMacroExpansionMs=15ms",
+        "[sync] tail-detail macroEvidenceMs=4ms prepareAndWalMs=71ms postExtractMs=0ms changedRefsMs=64ms resurrectedRefsMs=0ms failedRefRetryMs=128ms coImporterMs=0ms orphanAndSynthesisMs=3646ms chainedCallsMs=162ms maintenanceMs=39ms finalizeMs=2ms cleanupMs=0ms",
+        "[sync] command phases moduleLoad=96ms databaseOpen=46ms syncPipeline=4719ms total=4880ms"
+      ],
+      "fields": {
+        "scan-detail": {
+          "gitCommandMs": 8.0,
+          "ignoreBuildMs": 4.0,
+          "filterCanonicalMs": 0.0,
+          "walkMs": 116.0,
+          "nativeMs": 0.0,
+          "gitIgnoreMs": 0.0,
+          "gitCanonicalMs": 0.0,
+          "gitRealpathMs": 0.0,
+          "gitDedupMs": 0.0,
+          "gitIgnoreNativeMs": 0.0,
+          "gitIgnoreKernelMs": 0.0
+        },
+        "reconcile-counts": {},
+        "macro-detail": {
+          "readWallMs": 0.0,
+          "namesMs": 0.0,
+          "bodylessMs": 0.0,
+          "definitionsMs": 0.0,
+          "mergeMs": 3.0,
+          "nativeWallMs": 144.0,
+          "nativeReadSumMs": 161.0,
+          "nativeScanSumMs": 107.0,
+          "totalMs": 147.0
+        },
+        "phases": {
+          "reconcile": 138.0,
+          "framework": 19.0,
+          "macroScan": 147.0,
+          "workerSetup": 85.0,
+          "read": 1.0,
+          "parseWall": 147.0,
+          "store": 38.0
+        },
+        "extraction": {
+          "primaryParseMs": 91.0,
+          "primaryExtractionMs": 33.0,
+          "declarationMacroExpansionMs": 15.0
+        },
+        "tail-detail": {
+          "macroEvidenceMs": 4.0,
+          "prepareAndWalMs": 71.0,
+          "postExtractMs": 0.0,
+          "changedRefsMs": 64.0,
+          "resurrectedRefsMs": 0.0,
+          "failedRefRetryMs": 128.0,
+          "coImporterMs": 0.0,
+          "orphanAndSynthesisMs": 3646.0,
+          "chainedCallsMs": 162.0,
+          "maintenanceMs": 39.0,
+          "finalizeMs": 2.0,
+          "cleanupMs": 0.0
+        },
+        "command": {
+          "moduleLoad": 96.0,
+          "databaseOpen": 46.0,
+          "syncPipeline": 4719.0,
+          "total": 4880.0
+        }
+      }
+    },
+    "r2-baseline-init": {
+      "wallMs": 96278.61610000036,
+      "lines": [
+        "[worker] macro-detail mode=rust reason=none files=1286 readFiles=1286 readErrors=0 bytes=25526167 fallbackFiles=0 readWallMs=0ms namesMs=0ms bodylessMs=0ms definitionsMs=0ms mergeMs=5ms nativeWallMs=168ms nativeReadSumMs=230ms nativeScanSumMs=114ms totalMs=171ms names=1124 bodyless=101 definitions=902",
+        "[worker] Index phases: scan=123ms framework=20ms macroScan=173ms readSum=2365ms parsePipeline=69407ms storeAdmission=3696ms bufferBudgetMB=512 peakBufferedFiles=4 peakEstimatedBufferMB=21",
+        "[worker] Extraction totals: primaryParseMs=20198ms primaryExtractionMs=14701ms declarationMacroExpansionMs=2357ms declarationMacroRecoverySourceMs=1026ms declarationMacroAuxParseMs=27239ms declarationMacroMergeMs=128ms"
+      ],
+      "fields": {
+        "macro-detail": {
+          "readWallMs": 0.0,
+          "namesMs": 0.0,
+          "bodylessMs": 0.0,
+          "definitionsMs": 0.0,
+          "mergeMs": 5.0,
+          "nativeWallMs": 168.0,
+          "nativeReadSumMs": 230.0,
+          "nativeScanSumMs": 114.0,
+          "totalMs": 171.0
+        },
+        "Index": {
+          "scan": 123.0,
+          "framework": 20.0,
+          "macroScan": 173.0,
+          "readSum": 2365.0,
+          "parsePipeline": 69407.0,
+          "storeAdmission": 3696.0
+        },
+        "Extraction": {
+          "primaryParseMs": 20198.0,
+          "primaryExtractionMs": 14701.0,
+          "declarationMacroExpansionMs": 2357.0,
+          "declarationMacroRecoverySourceMs": 1026.0,
+          "declarationMacroAuxParseMs": 27239.0,
+          "declarationMacroMergeMs": 128.0
+        }
+      }
+    },
+    "r2-baseline-noop": {
+      "wallMs": 484.49117700147326,
+      "lines": [
+        "[sync] scan-detail mode=walk fallbackReason=git-path-error failureStage=rev-parse gitCommandMs=4ms ignoreBuildMs=3ms filterCanonicalMs=0ms walkMs=91ms gitCommands=1 gitCandidates=0 sourceFiles=1684 walkDirectories=174 gitDirectories=0 supplementRoots=0 canonicalFromParent=1684 nativeStatus=fallback nativeReason=requires-walk-negation nativeMs=0ms nativeDirectories=0 nativeMetadata=0 gitPathMode=unused gitIgnoreMs=0ms gitCanonicalMs=0ms gitRealpathMs=0ms gitDedupMs=0ms gitIgnoreMode=legacy gitIgnoreReason=none gitIgnoreNativeMs=0ms gitIgnoreKernelMs=0ms gitIgnoreMismatches=0 gitIgnoreNativeKept=0 gitIgnoreDeferred=0 gitIgnored=0 gitCanonicalCalls=0 gitRealpathCalls=0 gitRealpathErrors=0 gitNativeCalls=0 gitNativeFallbacks=0 gitPathMismatches=0 gitCanonicalDuplicates=0",
+        "[sync] reconcile-counts currentFiles=1684 trackedFiles=1684 existsChecks=0 statChecks=1684 statUnchanged=1684 statErrors=0 snapshotPresence=0 snapshotStats=0 hashReadAttempts=0 hashReadFiles=0 hashReadErrors=0 sameHashSkipped=0 sameHashStatUpdated=0 sameHashStatDeferred=0 recoveryRetryFiles=0 added=0 modified=0 removed=0",
+        "[sync] phases reconcile=109ms framework=0ms macroScan=0ms workerSetup=0ms read=0ms parseWall=0ms store=0ms",
+        "[sync] tail-detail macroEvidenceMs=0ms prepareAndWalMs=69ms postExtractMs=0ms changedRefsMs=4ms resurrectedRefsMs=0ms failedRefRetryMs=0ms coImporterMs=0ms orphanAndSynthesisMs=0ms chainedCallsMs=0ms maintenanceMs=0ms finalizeMs=0ms cleanupMs=0ms",
+        "[sync] command phases moduleLoad=100ms databaseOpen=47ms syncPipeline=242ms total=408ms"
+      ],
+      "fields": {
+        "scan-detail": {
+          "gitCommandMs": 4.0,
+          "ignoreBuildMs": 3.0,
+          "filterCanonicalMs": 0.0,
+          "walkMs": 91.0,
+          "nativeMs": 0.0,
+          "gitIgnoreMs": 0.0,
+          "gitCanonicalMs": 0.0,
+          "gitRealpathMs": 0.0,
+          "gitDedupMs": 0.0,
+          "gitIgnoreNativeMs": 0.0,
+          "gitIgnoreKernelMs": 0.0
+        },
+        "reconcile-counts": {},
+        "phases": {
+          "reconcile": 109.0,
+          "framework": 0.0,
+          "macroScan": 0.0,
+          "workerSetup": 0.0,
+          "read": 0.0,
+          "parseWall": 0.0,
+          "store": 0.0
+        },
+        "tail-detail": {
+          "macroEvidenceMs": 0.0,
+          "prepareAndWalMs": 69.0,
+          "postExtractMs": 0.0,
+          "changedRefsMs": 4.0,
+          "resurrectedRefsMs": 0.0,
+          "failedRefRetryMs": 0.0,
+          "coImporterMs": 0.0,
+          "orphanAndSynthesisMs": 0.0,
+          "chainedCallsMs": 0.0,
+          "maintenanceMs": 0.0,
+          "finalizeMs": 0.0,
+          "cleanupMs": 0.0
+        },
+        "command": {
+          "moduleLoad": 100.0,
+          "databaseOpen": 47.0,
+          "syncPipeline": 242.0,
+          "total": 408.0
+        }
+      }
+    },
+    "r2-baseline-edit": {
+      "wallMs": 4808.576935000019,
+      "lines": [
+        "[sync] scan-detail mode=walk fallbackReason=git-path-error failureStage=rev-parse gitCommandMs=4ms ignoreBuildMs=3ms filterCanonicalMs=0ms walkMs=86ms gitCommands=1 gitCandidates=0 sourceFiles=1684 walkDirectories=174 gitDirectories=0 supplementRoots=0 canonicalFromParent=1684 nativeStatus=fallback nativeReason=requires-walk-negation nativeMs=0ms nativeDirectories=0 nativeMetadata=0 gitPathMode=unused gitIgnoreMs=0ms gitCanonicalMs=0ms gitRealpathMs=0ms gitDedupMs=0ms gitIgnoreMode=legacy gitIgnoreReason=none gitIgnoreNativeMs=0ms gitIgnoreKernelMs=0ms gitIgnoreMismatches=0 gitIgnoreNativeKept=0 gitIgnoreDeferred=0 gitIgnored=0 gitCanonicalCalls=0 gitRealpathCalls=0 gitRealpathErrors=0 gitNativeCalls=0 gitNativeFallbacks=0 gitPathMismatches=0 gitCanonicalDuplicates=0",
+        "[sync] reconcile-counts currentFiles=1684 trackedFiles=1684 existsChecks=0 statChecks=1684 statUnchanged=1683 statErrors=0 snapshotPresence=0 snapshotStats=0 hashReadAttempts=1 hashReadFiles=1 hashReadErrors=0 sameHashSkipped=0 sameHashStatUpdated=0 sameHashStatDeferred=0 recoveryRetryFiles=0 added=0 modified=1 removed=0",
+        "[sync] macro-detail mode=rust reason=none files=1286 readFiles=1286 readErrors=0 bytes=25526271 fallbackFiles=0 readWallMs=0ms namesMs=0ms bodylessMs=0ms definitionsMs=0ms mergeMs=3ms nativeWallMs=146ms nativeReadSumMs=168ms nativeScanSumMs=107ms totalMs=147ms names=1124 bodyless=101 definitions=902",
+        "[sync] phases reconcile=104ms framework=17ms macroScan=148ms workerSetup=85ms read=1ms parseWall=165ms store=39ms",
+        "[sync] extraction totals primaryParseMs=104ms primaryExtractionMs=40ms declarationMacroExpansionMs=13ms",
+        "[sync] tail-detail macroEvidenceMs=3ms prepareAndWalMs=68ms postExtractMs=0ms changedRefsMs=65ms resurrectedRefsMs=0ms failedRefRetryMs=120ms coImporterMs=0ms orphanAndSynthesisMs=3512ms chainedCallsMs=157ms maintenanceMs=35ms finalizeMs=2ms cleanupMs=0ms",
+        "[sync] command phases moduleLoad=99ms databaseOpen=51ms syncPipeline=4543ms total=4711ms"
+      ],
+      "fields": {
+        "scan-detail": {
+          "gitCommandMs": 4.0,
+          "ignoreBuildMs": 3.0,
+          "filterCanonicalMs": 0.0,
+          "walkMs": 86.0,
+          "nativeMs": 0.0,
+          "gitIgnoreMs": 0.0,
+          "gitCanonicalMs": 0.0,
+          "gitRealpathMs": 0.0,
+          "gitDedupMs": 0.0,
+          "gitIgnoreNativeMs": 0.0,
+          "gitIgnoreKernelMs": 0.0
+        },
+        "reconcile-counts": {},
+        "macro-detail": {
+          "readWallMs": 0.0,
+          "namesMs": 0.0,
+          "bodylessMs": 0.0,
+          "definitionsMs": 0.0,
+          "mergeMs": 3.0,
+          "nativeWallMs": 146.0,
+          "nativeReadSumMs": 168.0,
+          "nativeScanSumMs": 107.0,
+          "totalMs": 147.0
+        },
+        "phases": {
+          "reconcile": 104.0,
+          "framework": 17.0,
+          "macroScan": 148.0,
+          "workerSetup": 85.0,
+          "read": 1.0,
+          "parseWall": 165.0,
+          "store": 39.0
+        },
+        "extraction": {
+          "primaryParseMs": 104.0,
+          "primaryExtractionMs": 40.0,
+          "declarationMacroExpansionMs": 13.0
+        },
+        "tail-detail": {
+          "macroEvidenceMs": 3.0,
+          "prepareAndWalMs": 68.0,
+          "postExtractMs": 0.0,
+          "changedRefsMs": 65.0,
+          "resurrectedRefsMs": 0.0,
+          "failedRefRetryMs": 120.0,
+          "coImporterMs": 0.0,
+          "orphanAndSynthesisMs": 3512.0,
+          "chainedCallsMs": 157.0,
+          "maintenanceMs": 35.0,
+          "finalizeMs": 2.0,
+          "cleanupMs": 0.0
+        },
+        "command": {
+          "moduleLoad": 99.0,
+          "databaseOpen": 51.0,
+          "syncPipeline": 4543.0,
+          "total": 4711.0
+        }
+      }
+    },
+    "r3-baseline-init": {
+      "wallMs": 103384.95428399983,
+      "lines": [
+        "[worker] macro-detail mode=rust reason=none files=1286 readFiles=1286 readErrors=0 bytes=25526167 fallbackFiles=0 readWallMs=0ms namesMs=0ms bodylessMs=0ms definitionsMs=0ms mergeMs=3ms nativeWallMs=145ms nativeReadSumMs=162ms nativeScanSumMs=109ms totalMs=147ms names=1124 bodyless=101 definitions=902",
+        "[worker] Index phases: scan=126ms framework=19ms macroScan=148ms readSum=2791ms parsePipeline=74178ms storeAdmission=4755ms bufferBudgetMB=512 peakBufferedFiles=4 peakEstimatedBufferMB=21",
+        "[worker] Extraction totals: primaryParseMs=21589ms primaryExtractionMs=15775ms declarationMacroExpansionMs=2490ms declarationMacroRecoverySourceMs=1100ms declarationMacroAuxParseMs=28247ms declarationMacroMergeMs=133ms"
+      ],
+      "fields": {
+        "macro-detail": {
+          "readWallMs": 0.0,
+          "namesMs": 0.0,
+          "bodylessMs": 0.0,
+          "definitionsMs": 0.0,
+          "mergeMs": 3.0,
+          "nativeWallMs": 145.0,
+          "nativeReadSumMs": 162.0,
+          "nativeScanSumMs": 109.0,
+          "totalMs": 147.0
+        },
+        "Index": {
+          "scan": 126.0,
+          "framework": 19.0,
+          "macroScan": 148.0,
+          "readSum": 2791.0,
+          "parsePipeline": 74178.0,
+          "storeAdmission": 4755.0
+        },
+        "Extraction": {
+          "primaryParseMs": 21589.0,
+          "primaryExtractionMs": 15775.0,
+          "declarationMacroExpansionMs": 2490.0,
+          "declarationMacroRecoverySourceMs": 1100.0,
+          "declarationMacroAuxParseMs": 28247.0,
+          "declarationMacroMergeMs": 133.0
+        }
+      }
+    },
+    "r3-baseline-noop": {
+      "wallMs": 811.1085199998342,
+      "lines": [
+        "[sync] scan-detail mode=walk fallbackReason=git-path-error failureStage=rev-parse gitCommandMs=12ms ignoreBuildMs=4ms filterCanonicalMs=0ms walkMs=137ms gitCommands=1 gitCandidates=0 sourceFiles=1684 walkDirectories=174 gitDirectories=0 supplementRoots=0 canonicalFromParent=1684 nativeStatus=fallback nativeReason=requires-walk-negation nativeMs=0ms nativeDirectories=0 nativeMetadata=0 gitPathMode=unused gitIgnoreMs=0ms gitCanonicalMs=0ms gitRealpathMs=0ms gitDedupMs=0ms gitIgnoreMode=legacy gitIgnoreReason=none gitIgnoreNativeMs=0ms gitIgnoreKernelMs=0ms gitIgnoreMismatches=0 gitIgnoreNativeKept=0 gitIgnoreDeferred=0 gitIgnored=0 gitCanonicalCalls=0 gitRealpathCalls=0 gitRealpathErrors=0 gitNativeCalls=0 gitNativeFallbacks=0 gitPathMismatches=0 gitCanonicalDuplicates=0",
+        "[sync] reconcile-counts currentFiles=1684 trackedFiles=1684 existsChecks=0 statChecks=1684 statUnchanged=1684 statErrors=0 snapshotPresence=0 snapshotStats=0 hashReadAttempts=0 hashReadFiles=0 hashReadErrors=0 sameHashSkipped=0 sameHashStatUpdated=0 sameHashStatDeferred=0 recoveryRetryFiles=0 added=0 modified=0 removed=0",
+        "[sync] phases reconcile=168ms framework=0ms macroScan=0ms workerSetup=0ms read=0ms parseWall=0ms store=0ms",
+        "[sync] tail-detail macroEvidenceMs=0ms prepareAndWalMs=123ms postExtractMs=0ms changedRefsMs=4ms resurrectedRefsMs=0ms failedRefRetryMs=0ms coImporterMs=0ms orphanAndSynthesisMs=0ms chainedCallsMs=0ms maintenanceMs=0ms finalizeMs=0ms cleanupMs=0ms",
+        "[sync] command phases moduleLoad=158ms databaseOpen=109ms syncPipeline=427ms total=717ms"
+      ],
+      "fields": {
+        "scan-detail": {
+          "gitCommandMs": 12.0,
+          "ignoreBuildMs": 4.0,
+          "filterCanonicalMs": 0.0,
+          "walkMs": 137.0,
+          "nativeMs": 0.0,
+          "gitIgnoreMs": 0.0,
+          "gitCanonicalMs": 0.0,
+          "gitRealpathMs": 0.0,
+          "gitDedupMs": 0.0,
+          "gitIgnoreNativeMs": 0.0,
+          "gitIgnoreKernelMs": 0.0
+        },
+        "reconcile-counts": {},
+        "phases": {
+          "reconcile": 168.0,
+          "framework": 0.0,
+          "macroScan": 0.0,
+          "workerSetup": 0.0,
+          "read": 0.0,
+          "parseWall": 0.0,
+          "store": 0.0
+        },
+        "tail-detail": {
+          "macroEvidenceMs": 0.0,
+          "prepareAndWalMs": 123.0,
+          "postExtractMs": 0.0,
+          "changedRefsMs": 4.0,
+          "resurrectedRefsMs": 0.0,
+          "failedRefRetryMs": 0.0,
+          "coImporterMs": 0.0,
+          "orphanAndSynthesisMs": 0.0,
+          "chainedCallsMs": 0.0,
+          "maintenanceMs": 0.0,
+          "finalizeMs": 0.0,
+          "cleanupMs": 0.0
+        },
+        "command": {
+          "moduleLoad": 158.0,
+          "databaseOpen": 109.0,
+          "syncPipeline": 427.0,
+          "total": 717.0
+        }
+      }
+    },
+    "r3-baseline-edit": {
+      "wallMs": 5092.779601000075,
+      "lines": [
+        "[sync] scan-detail mode=walk fallbackReason=git-path-error failureStage=rev-parse gitCommandMs=4ms ignoreBuildMs=4ms filterCanonicalMs=0ms walkMs=116ms gitCommands=1 gitCandidates=0 sourceFiles=1684 walkDirectories=174 gitDirectories=0 supplementRoots=0 canonicalFromParent=1684 nativeStatus=fallback nativeReason=requires-walk-negation nativeMs=0ms nativeDirectories=0 nativeMetadata=0 gitPathMode=unused gitIgnoreMs=0ms gitCanonicalMs=0ms gitRealpathMs=0ms gitDedupMs=0ms gitIgnoreMode=legacy gitIgnoreReason=none gitIgnoreNativeMs=0ms gitIgnoreKernelMs=0ms gitIgnoreMismatches=0 gitIgnoreNativeKept=0 gitIgnoreDeferred=0 gitIgnored=0 gitCanonicalCalls=0 gitRealpathCalls=0 gitRealpathErrors=0 gitNativeCalls=0 gitNativeFallbacks=0 gitPathMismatches=0 gitCanonicalDuplicates=0",
+        "[sync] reconcile-counts currentFiles=1684 trackedFiles=1684 existsChecks=0 statChecks=1684 statUnchanged=1683 statErrors=0 snapshotPresence=0 snapshotStats=0 hashReadAttempts=1 hashReadFiles=1 hashReadErrors=0 sameHashSkipped=0 sameHashStatUpdated=0 sameHashStatDeferred=0 recoveryRetryFiles=0 added=0 modified=1 removed=0",
+        "[sync] macro-detail mode=rust reason=none files=1286 readFiles=1286 readErrors=0 bytes=25526271 fallbackFiles=0 readWallMs=0ms namesMs=0ms bodylessMs=0ms definitionsMs=0ms mergeMs=3ms nativeWallMs=155ms nativeReadSumMs=181ms nativeScanSumMs=118ms totalMs=157ms names=1124 bodyless=101 definitions=902",
+        "[sync] phases reconcile=141ms framework=19ms macroScan=158ms workerSetup=91ms read=1ms parseWall=148ms store=37ms",
+        "[sync] extraction totals primaryParseMs=91ms primaryExtractionMs=32ms declarationMacroExpansionMs=16ms",
+        "[sync] tail-detail macroEvidenceMs=4ms prepareAndWalMs=77ms postExtractMs=0ms changedRefsMs=63ms resurrectedRefsMs=0ms failedRefRetryMs=139ms coImporterMs=0ms orphanAndSynthesisMs=3713ms chainedCallsMs=160ms maintenanceMs=37ms finalizeMs=2ms cleanupMs=0ms",
+        "[sync] command phases moduleLoad=105ms databaseOpen=48ms syncPipeline=4823ms total=4991ms"
+      ],
+      "fields": {
+        "scan-detail": {
+          "gitCommandMs": 4.0,
+          "ignoreBuildMs": 4.0,
+          "filterCanonicalMs": 0.0,
+          "walkMs": 116.0,
+          "nativeMs": 0.0,
+          "gitIgnoreMs": 0.0,
+          "gitCanonicalMs": 0.0,
+          "gitRealpathMs": 0.0,
+          "gitDedupMs": 0.0,
+          "gitIgnoreNativeMs": 0.0,
+          "gitIgnoreKernelMs": 0.0
+        },
+        "reconcile-counts": {},
+        "macro-detail": {
+          "readWallMs": 0.0,
+          "namesMs": 0.0,
+          "bodylessMs": 0.0,
+          "definitionsMs": 0.0,
+          "mergeMs": 3.0,
+          "nativeWallMs": 155.0,
+          "nativeReadSumMs": 181.0,
+          "nativeScanSumMs": 118.0,
+          "totalMs": 157.0
+        },
+        "phases": {
+          "reconcile": 141.0,
+          "framework": 19.0,
+          "macroScan": 158.0,
+          "workerSetup": 91.0,
+          "read": 1.0,
+          "parseWall": 148.0,
+          "store": 37.0
+        },
+        "extraction": {
+          "primaryParseMs": 91.0,
+          "primaryExtractionMs": 32.0,
+          "declarationMacroExpansionMs": 16.0
+        },
+        "tail-detail": {
+          "macroEvidenceMs": 4.0,
+          "prepareAndWalMs": 77.0,
+          "postExtractMs": 0.0,
+          "changedRefsMs": 63.0,
+          "resurrectedRefsMs": 0.0,
+          "failedRefRetryMs": 139.0,
+          "coImporterMs": 0.0,
+          "orphanAndSynthesisMs": 3713.0,
+          "chainedCallsMs": 160.0,
+          "maintenanceMs": 37.0,
+          "finalizeMs": 2.0,
+          "cleanupMs": 0.0
+        },
+        "command": {
+          "moduleLoad": 105.0,
+          "databaseOpen": 48.0,
+          "syncPipeline": 4823.0,
+          "total": 4991.0
+        }
+      }
+    },
+    "r3-fixed-init": {
+      "wallMs": 125551.7974760005,
+      "lines": [
+        "[worker] macro-detail mode=rust reason=none files=1286 readFiles=1286 readErrors=0 bytes=25526167 fallbackFiles=0 readWallMs=0ms namesMs=0ms bodylessMs=0ms definitionsMs=0ms mergeMs=2ms nativeWallMs=158ms nativeReadSumMs=181ms nativeScanSumMs=114ms totalMs=160ms names=1124 bodyless=101 definitions=902",
+        "[worker] Index phases: scan=121ms framework=19ms macroScan=161ms readSum=5774ms parsePipeline=88326ms storeAdmission=6151ms bufferBudgetMB=512 peakBufferedFiles=4 peakEstimatedBufferMB=21",
+        "[worker] Extraction totals: primaryParseMs=24692ms primaryExtractionMs=18826ms declarationMacroExpansionMs=3077ms declarationMacroRecoverySourceMs=1275ms declarationMacroAuxParseMs=33131ms declarationMacroMergeMs=145ms"
+      ],
+      "fields": {
+        "macro-detail": {
+          "readWallMs": 0.0,
+          "namesMs": 0.0,
+          "bodylessMs": 0.0,
+          "definitionsMs": 0.0,
+          "mergeMs": 2.0,
+          "nativeWallMs": 158.0,
+          "nativeReadSumMs": 181.0,
+          "nativeScanSumMs": 114.0,
+          "totalMs": 160.0
+        },
+        "Index": {
+          "scan": 121.0,
+          "framework": 19.0,
+          "macroScan": 161.0,
+          "readSum": 5774.0,
+          "parsePipeline": 88326.0,
+          "storeAdmission": 6151.0
+        },
+        "Extraction": {
+          "primaryParseMs": 24692.0,
+          "primaryExtractionMs": 18826.0,
+          "declarationMacroExpansionMs": 3077.0,
+          "declarationMacroRecoverySourceMs": 1275.0,
+          "declarationMacroAuxParseMs": 33131.0,
+          "declarationMacroMergeMs": 145.0
+        }
+      }
+    },
+    "r3-fixed-noop": {
+      "wallMs": 754.0580710010545,
+      "lines": [
+        "[sync] scan-detail mode=walk fallbackReason=git-path-error failureStage=rev-parse gitCommandMs=10ms ignoreBuildMs=9ms filterCanonicalMs=0ms walkMs=129ms gitCommands=1 gitCandidates=0 sourceFiles=1684 walkDirectories=174 gitDirectories=0 supplementRoots=0 canonicalFromParent=1684 nativeStatus=fallback nativeReason=requires-walk-negation nativeMs=0ms nativeDirectories=0 nativeMetadata=0 gitPathMode=unused gitIgnoreMs=0ms gitCanonicalMs=0ms gitRealpathMs=0ms gitDedupMs=0ms gitIgnoreMode=legacy gitIgnoreReason=none gitIgnoreNativeMs=0ms gitIgnoreKernelMs=0ms gitIgnoreMismatches=0 gitIgnoreNativeKept=0 gitIgnoreDeferred=0 gitIgnored=0 gitCanonicalCalls=0 gitRealpathCalls=0 gitRealpathErrors=0 gitNativeCalls=0 gitNativeFallbacks=0 gitPathMismatches=0 gitCanonicalDuplicates=0",
+        "[sync] reconcile-counts currentFiles=1684 trackedFiles=1684 existsChecks=0 statChecks=1684 statUnchanged=1684 statErrors=0 snapshotPresence=0 snapshotStats=0 hashReadAttempts=0 hashReadFiles=0 hashReadErrors=0 sameHashSkipped=0 sameHashStatUpdated=0 sameHashStatDeferred=0 recoveryRetryFiles=0 added=0 modified=0 removed=0",
+        "[sync] phases reconcile=157ms framework=0ms macroScan=0ms workerSetup=0ms read=0ms parseWall=0ms store=0ms",
+        "[sync] tail-detail macroEvidenceMs=0ms prepareAndWalMs=83ms postExtractMs=0ms changedRefsMs=4ms resurrectedRefsMs=0ms failedRefRetryMs=0ms coImporterMs=0ms orphanAndSynthesisMs=0ms chainedCallsMs=0ms maintenanceMs=0ms finalizeMs=0ms cleanupMs=0ms",
+        "[sync] command phases moduleLoad=119ms databaseOpen=59ms syncPipeline=325ms total=521ms"
+      ],
+      "fields": {
+        "scan-detail": {
+          "gitCommandMs": 10.0,
+          "ignoreBuildMs": 9.0,
+          "filterCanonicalMs": 0.0,
+          "walkMs": 129.0,
+          "nativeMs": 0.0,
+          "gitIgnoreMs": 0.0,
+          "gitCanonicalMs": 0.0,
+          "gitRealpathMs": 0.0,
+          "gitDedupMs": 0.0,
+          "gitIgnoreNativeMs": 0.0,
+          "gitIgnoreKernelMs": 0.0
+        },
+        "reconcile-counts": {},
+        "phases": {
+          "reconcile": 157.0,
+          "framework": 0.0,
+          "macroScan": 0.0,
+          "workerSetup": 0.0,
+          "read": 0.0,
+          "parseWall": 0.0,
+          "store": 0.0
+        },
+        "tail-detail": {
+          "macroEvidenceMs": 0.0,
+          "prepareAndWalMs": 83.0,
+          "postExtractMs": 0.0,
+          "changedRefsMs": 4.0,
+          "resurrectedRefsMs": 0.0,
+          "failedRefRetryMs": 0.0,
+          "coImporterMs": 0.0,
+          "orphanAndSynthesisMs": 0.0,
+          "chainedCallsMs": 0.0,
+          "maintenanceMs": 0.0,
+          "finalizeMs": 0.0,
+          "cleanupMs": 0.0
+        },
+        "command": {
+          "moduleLoad": 119.0,
+          "databaseOpen": 59.0,
+          "syncPipeline": 325.0,
+          "total": 521.0
+        }
+      }
+    },
+    "r3-fixed-edit": {
+      "wallMs": 6075.734163001471,
+      "lines": [
+        "[sync] scan-detail mode=walk fallbackReason=git-path-error failureStage=rev-parse gitCommandMs=5ms ignoreBuildMs=3ms filterCanonicalMs=0ms walkMs=102ms gitCommands=1 gitCandidates=0 sourceFiles=1684 walkDirectories=174 gitDirectories=0 supplementRoots=0 canonicalFromParent=1684 nativeStatus=fallback nativeReason=requires-walk-negation nativeMs=0ms nativeDirectories=0 nativeMetadata=0 gitPathMode=unused gitIgnoreMs=0ms gitCanonicalMs=0ms gitRealpathMs=0ms gitDedupMs=0ms gitIgnoreMode=legacy gitIgnoreReason=none gitIgnoreNativeMs=0ms gitIgnoreKernelMs=0ms gitIgnoreMismatches=0 gitIgnoreNativeKept=0 gitIgnoreDeferred=0 gitIgnored=0 gitCanonicalCalls=0 gitRealpathCalls=0 gitRealpathErrors=0 gitNativeCalls=0 gitNativeFallbacks=0 gitPathMismatches=0 gitCanonicalDuplicates=0",
+        "[sync] reconcile-counts currentFiles=1684 trackedFiles=1684 existsChecks=0 statChecks=1684 statUnchanged=1683 statErrors=0 snapshotPresence=0 snapshotStats=0 hashReadAttempts=1 hashReadFiles=1 hashReadErrors=0 sameHashSkipped=0 sameHashStatUpdated=0 sameHashStatDeferred=0 recoveryRetryFiles=0 added=0 modified=1 removed=0",
+        "[sync] macro-detail mode=rust reason=none files=1286 readFiles=1286 readErrors=0 bytes=25526271 fallbackFiles=0 readWallMs=0ms namesMs=0ms bodylessMs=0ms definitionsMs=0ms mergeMs=3ms nativeWallMs=151ms nativeReadSumMs=181ms nativeScanSumMs=112ms totalMs=153ms names=1124 bodyless=101 definitions=902",
+        "[sync] phases reconcile=120ms framework=26ms macroScan=154ms workerSetup=95ms read=1ms parseWall=159ms store=37ms",
+        "[sync] extraction totals primaryParseMs=91ms primaryExtractionMs=45ms declarationMacroExpansionMs=15ms",
+        "[sync] tail-detail macroEvidenceMs=4ms prepareAndWalMs=137ms postExtractMs=0ms changedRefsMs=67ms resurrectedRefsMs=0ms failedRefRetryMs=133ms coImporterMs=0ms orphanAndSynthesisMs=4505ms chainedCallsMs=228ms maintenanceMs=71ms finalizeMs=3ms cleanupMs=0ms",
+        "[sync] command phases moduleLoad=105ms databaseOpen=50ms syncPipeline=5775ms total=5949ms"
+      ],
+      "fields": {
+        "scan-detail": {
+          "gitCommandMs": 5.0,
+          "ignoreBuildMs": 3.0,
+          "filterCanonicalMs": 0.0,
+          "walkMs": 102.0,
+          "nativeMs": 0.0,
+          "gitIgnoreMs": 0.0,
+          "gitCanonicalMs": 0.0,
+          "gitRealpathMs": 0.0,
+          "gitDedupMs": 0.0,
+          "gitIgnoreNativeMs": 0.0,
+          "gitIgnoreKernelMs": 0.0
+        },
+        "reconcile-counts": {},
+        "macro-detail": {
+          "readWallMs": 0.0,
+          "namesMs": 0.0,
+          "bodylessMs": 0.0,
+          "definitionsMs": 0.0,
+          "mergeMs": 3.0,
+          "nativeWallMs": 151.0,
+          "nativeReadSumMs": 181.0,
+          "nativeScanSumMs": 112.0,
+          "totalMs": 153.0
+        },
+        "phases": {
+          "reconcile": 120.0,
+          "framework": 26.0,
+          "macroScan": 154.0,
+          "workerSetup": 95.0,
+          "read": 1.0,
+          "parseWall": 159.0,
+          "store": 37.0
+        },
+        "extraction": {
+          "primaryParseMs": 91.0,
+          "primaryExtractionMs": 45.0,
+          "declarationMacroExpansionMs": 15.0
+        },
+        "tail-detail": {
+          "macroEvidenceMs": 4.0,
+          "prepareAndWalMs": 137.0,
+          "postExtractMs": 0.0,
+          "changedRefsMs": 67.0,
+          "resurrectedRefsMs": 0.0,
+          "failedRefRetryMs": 133.0,
+          "coImporterMs": 0.0,
+          "orphanAndSynthesisMs": 4505.0,
+          "chainedCallsMs": 228.0,
+          "maintenanceMs": 71.0,
+          "finalizeMs": 3.0,
+          "cleanupMs": 0.0
+        },
+        "command": {
+          "moduleLoad": 105.0,
+          "databaseOpen": 50.0,
+          "syncPipeline": 5775.0,
+          "total": 5949.0
+        }
+      }
+    },
+    "r4-fixed-init": {
+      "wallMs": 124566.50318799802,
+      "lines": [
+        "[worker] macro-detail mode=rust reason=none files=1286 readFiles=1286 readErrors=0 bytes=25526167 fallbackFiles=0 readWallMs=0ms namesMs=0ms bodylessMs=0ms definitionsMs=0ms mergeMs=2ms nativeWallMs=156ms nativeReadSumMs=183ms nativeScanSumMs=121ms totalMs=158ms names=1124 bodyless=101 definitions=902",
+        "[worker] Index phases: scan=187ms framework=20ms macroScan=160ms readSum=4131ms parsePipeline=90429ms storeAdmission=5660ms bufferBudgetMB=512 peakBufferedFiles=4 peakEstimatedBufferMB=21",
+        "[worker] Extraction totals: primaryParseMs=25893ms primaryExtractionMs=19785ms declarationMacroExpansionMs=2993ms declarationMacroRecoverySourceMs=1291ms declarationMacroAuxParseMs=33932ms declarationMacroMergeMs=142ms"
+      ],
+      "fields": {
+        "macro-detail": {
+          "readWallMs": 0.0,
+          "namesMs": 0.0,
+          "bodylessMs": 0.0,
+          "definitionsMs": 0.0,
+          "mergeMs": 2.0,
+          "nativeWallMs": 156.0,
+          "nativeReadSumMs": 183.0,
+          "nativeScanSumMs": 121.0,
+          "totalMs": 158.0
+        },
+        "Index": {
+          "scan": 187.0,
+          "framework": 20.0,
+          "macroScan": 160.0,
+          "readSum": 4131.0,
+          "parsePipeline": 90429.0,
+          "storeAdmission": 5660.0
+        },
+        "Extraction": {
+          "primaryParseMs": 25893.0,
+          "primaryExtractionMs": 19785.0,
+          "declarationMacroExpansionMs": 2993.0,
+          "declarationMacroRecoverySourceMs": 1291.0,
+          "declarationMacroAuxParseMs": 33932.0,
+          "declarationMacroMergeMs": 142.0
+        }
+      }
+    },
+    "r4-fixed-noop": {
+      "wallMs": 649.264088999189,
+      "lines": [
+        "[sync] scan-detail mode=walk fallbackReason=git-path-error failureStage=rev-parse gitCommandMs=6ms ignoreBuildMs=6ms filterCanonicalMs=0ms walkMs=108ms gitCommands=1 gitCandidates=0 sourceFiles=1684 walkDirectories=174 gitDirectories=0 supplementRoots=0 canonicalFromParent=1684 nativeStatus=fallback nativeReason=requires-walk-negation nativeMs=0ms nativeDirectories=0 nativeMetadata=0 gitPathMode=unused gitIgnoreMs=0ms gitCanonicalMs=0ms gitRealpathMs=0ms gitDedupMs=0ms gitIgnoreMode=legacy gitIgnoreReason=none gitIgnoreNativeMs=0ms gitIgnoreKernelMs=0ms gitIgnoreMismatches=0 gitIgnoreNativeKept=0 gitIgnoreDeferred=0 gitIgnored=0 gitCanonicalCalls=0 gitRealpathCalls=0 gitRealpathErrors=0 gitNativeCalls=0 gitNativeFallbacks=0 gitPathMismatches=0 gitCanonicalDuplicates=0",
+        "[sync] reconcile-counts currentFiles=1684 trackedFiles=1684 existsChecks=0 statChecks=1684 statUnchanged=1684 statErrors=0 snapshotPresence=0 snapshotStats=0 hashReadAttempts=0 hashReadFiles=0 hashReadErrors=0 sameHashSkipped=0 sameHashStatUpdated=0 sameHashStatDeferred=0 recoveryRetryFiles=0 added=0 modified=0 removed=0",
+        "[sync] phases reconcile=140ms framework=0ms macroScan=0ms workerSetup=0ms read=0ms parseWall=0ms store=0ms",
+        "[sync] tail-detail macroEvidenceMs=0ms prepareAndWalMs=70ms postExtractMs=0ms changedRefsMs=4ms resurrectedRefsMs=0ms failedRefRetryMs=0ms coImporterMs=0ms orphanAndSynthesisMs=0ms chainedCallsMs=0ms maintenanceMs=0ms finalizeMs=0ms cleanupMs=0ms",
+        "[sync] command phases moduleLoad=133ms databaseOpen=76ms syncPipeline=314ms total=546ms"
+      ],
+      "fields": {
+        "scan-detail": {
+          "gitCommandMs": 6.0,
+          "ignoreBuildMs": 6.0,
+          "filterCanonicalMs": 0.0,
+          "walkMs": 108.0,
+          "nativeMs": 0.0,
+          "gitIgnoreMs": 0.0,
+          "gitCanonicalMs": 0.0,
+          "gitRealpathMs": 0.0,
+          "gitDedupMs": 0.0,
+          "gitIgnoreNativeMs": 0.0,
+          "gitIgnoreKernelMs": 0.0
+        },
+        "reconcile-counts": {},
+        "phases": {
+          "reconcile": 140.0,
+          "framework": 0.0,
+          "macroScan": 0.0,
+          "workerSetup": 0.0,
+          "read": 0.0,
+          "parseWall": 0.0,
+          "store": 0.0
+        },
+        "tail-detail": {
+          "macroEvidenceMs": 0.0,
+          "prepareAndWalMs": 70.0,
+          "postExtractMs": 0.0,
+          "changedRefsMs": 4.0,
+          "resurrectedRefsMs": 0.0,
+          "failedRefRetryMs": 0.0,
+          "coImporterMs": 0.0,
+          "orphanAndSynthesisMs": 0.0,
+          "chainedCallsMs": 0.0,
+          "maintenanceMs": 0.0,
+          "finalizeMs": 0.0,
+          "cleanupMs": 0.0
+        },
+        "command": {
+          "moduleLoad": 133.0,
+          "databaseOpen": 76.0,
+          "syncPipeline": 314.0,
+          "total": 546.0
+        }
+      }
+    },
+    "r4-fixed-edit": {
+      "wallMs": 7511.991199000477,
+      "lines": [
+        "[sync] scan-detail mode=walk fallbackReason=git-path-error failureStage=rev-parse gitCommandMs=5ms ignoreBuildMs=3ms filterCanonicalMs=0ms walkMs=192ms gitCommands=1 gitCandidates=0 sourceFiles=1684 walkDirectories=174 gitDirectories=0 supplementRoots=0 canonicalFromParent=1684 nativeStatus=fallback nativeReason=requires-walk-negation nativeMs=0ms nativeDirectories=0 nativeMetadata=0 gitPathMode=unused gitIgnoreMs=0ms gitCanonicalMs=0ms gitRealpathMs=0ms gitDedupMs=0ms gitIgnoreMode=legacy gitIgnoreReason=none gitIgnoreNativeMs=0ms gitIgnoreKernelMs=0ms gitIgnoreMismatches=0 gitIgnoreNativeKept=0 gitIgnoreDeferred=0 gitIgnored=0 gitCanonicalCalls=0 gitRealpathCalls=0 gitRealpathErrors=0 gitNativeCalls=0 gitNativeFallbacks=0 gitPathMismatches=0 gitCanonicalDuplicates=0",
+        "[sync] reconcile-counts currentFiles=1684 trackedFiles=1684 existsChecks=0 statChecks=1684 statUnchanged=1683 statErrors=0 snapshotPresence=0 snapshotStats=0 hashReadAttempts=1 hashReadFiles=1 hashReadErrors=0 sameHashSkipped=0 sameHashStatUpdated=0 sameHashStatDeferred=0 recoveryRetryFiles=0 added=0 modified=1 removed=0",
+        "[sync] macro-detail mode=rust reason=none files=1286 readFiles=1286 readErrors=0 bytes=25526271 fallbackFiles=0 readWallMs=0ms namesMs=0ms bodylessMs=0ms definitionsMs=0ms mergeMs=3ms nativeWallMs=213ms nativeReadSumMs=257ms nativeScanSumMs=126ms totalMs=215ms names=1124 bodyless=101 definitions=902",
+        "[sync] phases reconcile=223ms framework=60ms macroScan=220ms workerSetup=111ms read=1ms parseWall=183ms store=60ms",
+        "[sync] extraction totals primaryParseMs=114ms primaryExtractionMs=37ms declarationMacroExpansionMs=18ms",
+        "[sync] tail-detail macroEvidenceMs=4ms prepareAndWalMs=192ms postExtractMs=0ms changedRefsMs=145ms resurrectedRefsMs=0ms failedRefRetryMs=314ms coImporterMs=0ms orphanAndSynthesisMs=5234ms chainedCallsMs=161ms maintenanceMs=37ms finalizeMs=2ms cleanupMs=0ms",
+        "[sync] command phases moduleLoad=123ms databaseOpen=61ms syncPipeline=7076ms total=7278ms"
+      ],
+      "fields": {
+        "scan-detail": {
+          "gitCommandMs": 5.0,
+          "ignoreBuildMs": 3.0,
+          "filterCanonicalMs": 0.0,
+          "walkMs": 192.0,
+          "nativeMs": 0.0,
+          "gitIgnoreMs": 0.0,
+          "gitCanonicalMs": 0.0,
+          "gitRealpathMs": 0.0,
+          "gitDedupMs": 0.0,
+          "gitIgnoreNativeMs": 0.0,
+          "gitIgnoreKernelMs": 0.0
+        },
+        "reconcile-counts": {},
+        "macro-detail": {
+          "readWallMs": 0.0,
+          "namesMs": 0.0,
+          "bodylessMs": 0.0,
+          "definitionsMs": 0.0,
+          "mergeMs": 3.0,
+          "nativeWallMs": 213.0,
+          "nativeReadSumMs": 257.0,
+          "nativeScanSumMs": 126.0,
+          "totalMs": 215.0
+        },
+        "phases": {
+          "reconcile": 223.0,
+          "framework": 60.0,
+          "macroScan": 220.0,
+          "workerSetup": 111.0,
+          "read": 1.0,
+          "parseWall": 183.0,
+          "store": 60.0
+        },
+        "extraction": {
+          "primaryParseMs": 114.0,
+          "primaryExtractionMs": 37.0,
+          "declarationMacroExpansionMs": 18.0
+        },
+        "tail-detail": {
+          "macroEvidenceMs": 4.0,
+          "prepareAndWalMs": 192.0,
+          "postExtractMs": 0.0,
+          "changedRefsMs": 145.0,
+          "resurrectedRefsMs": 0.0,
+          "failedRefRetryMs": 314.0,
+          "coImporterMs": 0.0,
+          "orphanAndSynthesisMs": 5234.0,
+          "chainedCallsMs": 161.0,
+          "maintenanceMs": 37.0,
+          "finalizeMs": 2.0,
+          "cleanupMs": 0.0
+        },
+        "command": {
+          "moduleLoad": 123.0,
+          "databaseOpen": 61.0,
+          "syncPipeline": 7076.0,
+          "total": 7278.0
+        }
+      }
+    },
+    "r4-baseline-init": {
+      "wallMs": 128681.68635099937,
+      "lines": [
+        "[worker] macro-detail mode=rust reason=none files=1286 readFiles=1286 readErrors=0 bytes=25526167 fallbackFiles=0 readWallMs=0ms namesMs=0ms bodylessMs=0ms definitionsMs=0ms mergeMs=4ms nativeWallMs=205ms nativeReadSumMs=190ms nativeScanSumMs=131ms totalMs=207ms names=1124 bodyless=101 definitions=902",
+        "[worker] Index phases: scan=304ms framework=56ms macroScan=208ms readSum=4427ms parsePipeline=90307ms storeAdmission=6319ms bufferBudgetMB=512 peakBufferedFiles=4 peakEstimatedBufferMB=21",
+        "[worker] Extraction totals: primaryParseMs=25947ms primaryExtractionMs=18905ms declarationMacroExpansionMs=3125ms declarationMacroRecoverySourceMs=1408ms declarationMacroAuxParseMs=33703ms declarationMacroMergeMs=167ms"
+      ],
+      "fields": {
+        "macro-detail": {
+          "readWallMs": 0.0,
+          "namesMs": 0.0,
+          "bodylessMs": 0.0,
+          "definitionsMs": 0.0,
+          "mergeMs": 4.0,
+          "nativeWallMs": 205.0,
+          "nativeReadSumMs": 190.0,
+          "nativeScanSumMs": 131.0,
+          "totalMs": 207.0
+        },
+        "Index": {
+          "scan": 304.0,
+          "framework": 56.0,
+          "macroScan": 208.0,
+          "readSum": 4427.0,
+          "parsePipeline": 90307.0,
+          "storeAdmission": 6319.0
+        },
+        "Extraction": {
+          "primaryParseMs": 25947.0,
+          "primaryExtractionMs": 18905.0,
+          "declarationMacroExpansionMs": 3125.0,
+          "declarationMacroRecoverySourceMs": 1408.0,
+          "declarationMacroAuxParseMs": 33703.0,
+          "declarationMacroMergeMs": 167.0
+        }
+      }
+    },
+    "r4-baseline-noop": {
+      "wallMs": 682.9451490011706,
+      "lines": [
+        "[sync] scan-detail mode=walk fallbackReason=git-path-error failureStage=rev-parse gitCommandMs=8ms ignoreBuildMs=3ms filterCanonicalMs=0ms walkMs=122ms gitCommands=1 gitCandidates=0 sourceFiles=1684 walkDirectories=174 gitDirectories=0 supplementRoots=0 canonicalFromParent=1684 nativeStatus=fallback nativeReason=requires-walk-negation nativeMs=0ms nativeDirectories=0 nativeMetadata=0 gitPathMode=unused gitIgnoreMs=0ms gitCanonicalMs=0ms gitRealpathMs=0ms gitDedupMs=0ms gitIgnoreMode=legacy gitIgnoreReason=none gitIgnoreNativeMs=0ms gitIgnoreKernelMs=0ms gitIgnoreMismatches=0 gitIgnoreNativeKept=0 gitIgnoreDeferred=0 gitIgnored=0 gitCanonicalCalls=0 gitRealpathCalls=0 gitRealpathErrors=0 gitNativeCalls=0 gitNativeFallbacks=0 gitPathMismatches=0 gitCanonicalDuplicates=0",
+        "[sync] reconcile-counts currentFiles=1684 trackedFiles=1684 existsChecks=0 statChecks=1684 statUnchanged=1684 statErrors=0 snapshotPresence=0 snapshotStats=0 hashReadAttempts=0 hashReadFiles=0 hashReadErrors=0 sameHashSkipped=0 sameHashStatUpdated=0 sameHashStatDeferred=0 recoveryRetryFiles=0 added=0 modified=0 removed=0",
+        "[sync] phases reconcile=149ms framework=0ms macroScan=0ms workerSetup=0ms read=0ms parseWall=0ms store=0ms",
+        "[sync] tail-detail macroEvidenceMs=0ms prepareAndWalMs=70ms postExtractMs=0ms changedRefsMs=4ms resurrectedRefsMs=0ms failedRefRetryMs=0ms coImporterMs=0ms orphanAndSynthesisMs=0ms chainedCallsMs=0ms maintenanceMs=0ms finalizeMs=0ms cleanupMs=0ms",
+        "[sync] command phases moduleLoad=141ms databaseOpen=68ms syncPipeline=309ms total=541ms"
+      ],
+      "fields": {
+        "scan-detail": {
+          "gitCommandMs": 8.0,
+          "ignoreBuildMs": 3.0,
+          "filterCanonicalMs": 0.0,
+          "walkMs": 122.0,
+          "nativeMs": 0.0,
+          "gitIgnoreMs": 0.0,
+          "gitCanonicalMs": 0.0,
+          "gitRealpathMs": 0.0,
+          "gitDedupMs": 0.0,
+          "gitIgnoreNativeMs": 0.0,
+          "gitIgnoreKernelMs": 0.0
+        },
+        "reconcile-counts": {},
+        "phases": {
+          "reconcile": 149.0,
+          "framework": 0.0,
+          "macroScan": 0.0,
+          "workerSetup": 0.0,
+          "read": 0.0,
+          "parseWall": 0.0,
+          "store": 0.0
+        },
+        "tail-detail": {
+          "macroEvidenceMs": 0.0,
+          "prepareAndWalMs": 70.0,
+          "postExtractMs": 0.0,
+          "changedRefsMs": 4.0,
+          "resurrectedRefsMs": 0.0,
+          "failedRefRetryMs": 0.0,
+          "coImporterMs": 0.0,
+          "orphanAndSynthesisMs": 0.0,
+          "chainedCallsMs": 0.0,
+          "maintenanceMs": 0.0,
+          "finalizeMs": 0.0,
+          "cleanupMs": 0.0
+        },
+        "command": {
+          "moduleLoad": 141.0,
+          "databaseOpen": 68.0,
+          "syncPipeline": 309.0,
+          "total": 541.0
+        }
+      }
+    },
+    "r4-baseline-edit": {
+      "wallMs": 6580.411628998263,
+      "lines": [
+        "[sync] scan-detail mode=walk fallbackReason=git-path-error failureStage=rev-parse gitCommandMs=4ms ignoreBuildMs=3ms filterCanonicalMs=0ms walkMs=99ms gitCommands=1 gitCandidates=0 sourceFiles=1684 walkDirectories=174 gitDirectories=0 supplementRoots=0 canonicalFromParent=1684 nativeStatus=fallback nativeReason=requires-walk-negation nativeMs=0ms nativeDirectories=0 nativeMetadata=0 gitPathMode=unused gitIgnoreMs=0ms gitCanonicalMs=0ms gitRealpathMs=0ms gitDedupMs=0ms gitIgnoreMode=legacy gitIgnoreReason=none gitIgnoreNativeMs=0ms gitIgnoreKernelMs=0ms gitIgnoreMismatches=0 gitIgnoreNativeKept=0 gitIgnoreDeferred=0 gitIgnored=0 gitCanonicalCalls=0 gitRealpathCalls=0 gitRealpathErrors=0 gitNativeCalls=0 gitNativeFallbacks=0 gitPathMismatches=0 gitCanonicalDuplicates=0",
+        "[sync] reconcile-counts currentFiles=1684 trackedFiles=1684 existsChecks=0 statChecks=1684 statUnchanged=1683 statErrors=0 snapshotPresence=0 snapshotStats=0 hashReadAttempts=1 hashReadFiles=1 hashReadErrors=0 sameHashSkipped=0 sameHashStatUpdated=0 sameHashStatDeferred=0 recoveryRetryFiles=0 added=0 modified=1 removed=0",
+        "[sync] macro-detail mode=rust reason=none files=1286 readFiles=1286 readErrors=0 bytes=25526271 fallbackFiles=0 readWallMs=0ms namesMs=0ms bodylessMs=0ms definitionsMs=0ms mergeMs=3ms nativeWallMs=167ms nativeReadSumMs=214ms nativeScanSumMs=120ms totalMs=169ms names=1124 bodyless=101 definitions=902",
+        "[sync] phases reconcile=119ms framework=26ms macroScan=170ms workerSetup=96ms read=1ms parseWall=177ms store=45ms",
+        "[sync] extraction totals primaryParseMs=103ms primaryExtractionMs=44ms declarationMacroExpansionMs=21ms",
+        "[sync] tail-detail macroEvidenceMs=6ms prepareAndWalMs=78ms postExtractMs=0ms changedRefsMs=61ms resurrectedRefsMs=0ms failedRefRetryMs=149ms coImporterMs=0ms orphanAndSynthesisMs=4962ms chainedCallsMs=220ms maintenanceMs=67ms finalizeMs=2ms cleanupMs=0ms",
+        "[sync] command phases moduleLoad=122ms databaseOpen=57ms syncPipeline=6223ms total=6422ms"
+      ],
+      "fields": {
+        "scan-detail": {
+          "gitCommandMs": 4.0,
+          "ignoreBuildMs": 3.0,
+          "filterCanonicalMs": 0.0,
+          "walkMs": 99.0,
+          "nativeMs": 0.0,
+          "gitIgnoreMs": 0.0,
+          "gitCanonicalMs": 0.0,
+          "gitRealpathMs": 0.0,
+          "gitDedupMs": 0.0,
+          "gitIgnoreNativeMs": 0.0,
+          "gitIgnoreKernelMs": 0.0
+        },
+        "reconcile-counts": {},
+        "macro-detail": {
+          "readWallMs": 0.0,
+          "namesMs": 0.0,
+          "bodylessMs": 0.0,
+          "definitionsMs": 0.0,
+          "mergeMs": 3.0,
+          "nativeWallMs": 167.0,
+          "nativeReadSumMs": 214.0,
+          "nativeScanSumMs": 120.0,
+          "totalMs": 169.0
+        },
+        "phases": {
+          "reconcile": 119.0,
+          "framework": 26.0,
+          "macroScan": 170.0,
+          "workerSetup": 96.0,
+          "read": 1.0,
+          "parseWall": 177.0,
+          "store": 45.0
+        },
+        "extraction": {
+          "primaryParseMs": 103.0,
+          "primaryExtractionMs": 44.0,
+          "declarationMacroExpansionMs": 21.0
+        },
+        "tail-detail": {
+          "macroEvidenceMs": 6.0,
+          "prepareAndWalMs": 78.0,
+          "postExtractMs": 0.0,
+          "changedRefsMs": 61.0,
+          "resurrectedRefsMs": 0.0,
+          "failedRefRetryMs": 149.0,
+          "coImporterMs": 0.0,
+          "orphanAndSynthesisMs": 4962.0,
+          "chainedCallsMs": 220.0,
+          "maintenanceMs": 67.0,
+          "finalizeMs": 2.0,
+          "cleanupMs": 0.0
+        },
+        "command": {
+          "moduleLoad": 122.0,
+          "databaseOpen": 57.0,
+          "syncPipeline": 6223.0,
+          "total": 6422.0
+        }
+      }
+    },
+    "fresh-edited-baseline": {
+      "wallMs": 131277.66858799805,
+      "lines": [
+        "[worker] macro-detail mode=rust reason=none files=1286 readFiles=1286 readErrors=0 bytes=25526271 fallbackFiles=0 readWallMs=0ms namesMs=0ms bodylessMs=0ms definitionsMs=0ms mergeMs=3ms nativeWallMs=155ms nativeReadSumMs=175ms nativeScanSumMs=116ms totalMs=157ms names=1124 bodyless=101 definitions=902",
+        "[worker] Index phases: scan=135ms framework=20ms macroScan=158ms readSum=4969ms parsePipeline=90340ms storeAdmission=5147ms bufferBudgetMB=512 peakBufferedFiles=4 peakEstimatedBufferMB=21",
+        "[worker] Extraction totals: primaryParseMs=26182ms primaryExtractionMs=19277ms declarationMacroExpansionMs=3446ms declarationMacroRecoverySourceMs=1334ms declarationMacroAuxParseMs=34066ms declarationMacroMergeMs=173ms"
+      ],
+      "fields": {
+        "macro-detail": {
+          "readWallMs": 0.0,
+          "namesMs": 0.0,
+          "bodylessMs": 0.0,
+          "definitionsMs": 0.0,
+          "mergeMs": 3.0,
+          "nativeWallMs": 155.0,
+          "nativeReadSumMs": 175.0,
+          "nativeScanSumMs": 116.0,
+          "totalMs": 157.0
+        },
+        "Index": {
+          "scan": 135.0,
+          "framework": 20.0,
+          "macroScan": 158.0,
+          "readSum": 4969.0,
+          "parsePipeline": 90340.0,
+          "storeAdmission": 5147.0
+        },
+        "Extraction": {
+          "primaryParseMs": 26182.0,
+          "primaryExtractionMs": 19277.0,
+          "declarationMacroExpansionMs": 3446.0,
+          "declarationMacroRecoverySourceMs": 1334.0,
+          "declarationMacroAuxParseMs": 34066.0,
+          "declarationMacroMergeMs": 173.0
+        }
+      }
+    },
+    "fresh-edited-fixed": {
+      "wallMs": 118960.52115299972,
+      "lines": [
+        "[worker] macro-detail mode=rust reason=none files=1286 readFiles=1286 readErrors=0 bytes=25526271 fallbackFiles=0 readWallMs=0ms namesMs=0ms bodylessMs=0ms definitionsMs=0ms mergeMs=3ms nativeWallMs=257ms nativeReadSumMs=283ms nativeScanSumMs=153ms totalMs=259ms names=1124 bodyless=101 definitions=902",
+        "[worker] Index phases: scan=164ms framework=23ms macroScan=260ms readSum=4035ms parsePipeline=88234ms storeAdmission=4824ms bufferBudgetMB=512 peakBufferedFiles=4 peakEstimatedBufferMB=21",
+        "[worker] Extraction totals: primaryParseMs=24564ms primaryExtractionMs=17792ms declarationMacroExpansionMs=2984ms declarationMacroRecoverySourceMs=1425ms declarationMacroAuxParseMs=35848ms declarationMacroMergeMs=169ms"
+      ],
+      "fields": {
+        "macro-detail": {
+          "readWallMs": 0.0,
+          "namesMs": 0.0,
+          "bodylessMs": 0.0,
+          "definitionsMs": 0.0,
+          "mergeMs": 3.0,
+          "nativeWallMs": 257.0,
+          "nativeReadSumMs": 283.0,
+          "nativeScanSumMs": 153.0,
+          "totalMs": 259.0
+        },
+        "Index": {
+          "scan": 164.0,
+          "framework": 23.0,
+          "macroScan": 260.0,
+          "readSum": 4035.0,
+          "parsePipeline": 88234.0,
+          "storeAdmission": 4824.0
+        },
+        "Extraction": {
+          "primaryParseMs": 24564.0,
+          "primaryExtractionMs": 17792.0,
+          "declarationMacroExpansionMs": 2984.0,
+          "declarationMacroRecoverySourceMs": 1425.0,
+          "declarationMacroAuxParseMs": 35848.0,
+          "declarationMacroMergeMs": 169.0
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,185 @@
+{
+  "runs": [
+    {
+      "label": "A1",
+      "implementation": "30d for both A and B",
+      "wallSeconds": 5.581801925000036,
+      "inputDatabaseSha256": "d87ae49310897130ed309755ed62cb8657761ea3b4166e2ffca5d4a863d01cbc",
+      "inputSourceSha256": "9b9ad1a09fd3b587d318e47674fba5d35379700f46b91d194dab350b544399b9",
+      "reconcile": "[sync] reconcile-counts currentFiles=1684 trackedFiles=1684 existsChecks=0 statChecks=1684 statUnchanged=1683 statErrors=0 snapshotPresence=0 snapshotStats=0 hashReadAttempts=1 hashReadFiles=1 hashReadErrors=0 sameHashSkipped=0 sameHashStatUpdated=0 sameHashStatDeferred=0 recoveryRetryFiles=0 added=0 modified=1 removed=0",
+      "cpuStatBefore": "usage_usec 22434183844\nuser_usec 19124513765\nsystem_usec 3309670079\nnice_usec 0\nnr_periods 154139\nnr_throttled 3132\nthrottled_usec 170294209\nnr_bursts 0\nburst_usec 0\n",
+      "cpuStatAfter": "usage_usec 22440845432\nuser_usec 19129868022\nsystem_usec 3310977410\nnice_usec 0\nnr_periods 154195\nnr_throttled 3132\nthrottled_usec 170294209\nnr_bursts 0\nburst_usec 0\n",
+      "tail": {
+        "macroEvidenceMs": 3,
+        "prepareAndWalMs": 172,
+        "postExtractMs": 0,
+        "changedRefsMs": 53,
+        "resurrectedRefsMs": 0,
+        "failedRefRetryMs": 132,
+        "coImporterMs": 0,
+        "orphanAndSynthesisMs": 4011,
+        "chainedCallsMs": 166,
+        "maintenanceMs": 34,
+        "finalizeMs": 2,
+        "cleanupMs": 0
+      },
+      "phases": {
+        "reconcile": 151,
+        "framework": 18,
+        "macroScan": 157,
+        "workerSetup": 124,
+        "read": 1,
+        "parseWall": 180,
+        "store": 32
+      },
+      "cgroupDelta": {
+        "usage_usec": 6661588,
+        "user_usec": 5354257,
+        "system_usec": 1307331,
+        "nice_usec": 0,
+        "nr_periods": 56,
+        "nr_throttled": 0,
+        "throttled_usec": 0,
+        "nr_bursts": 0,
+        "burst_usec": 0
+      }
+    },
+    {
+      "label": "B1",
+      "implementation": "30d for both A and B",
+      "wallSeconds": 6.458919347998744,
+      "inputDatabaseSha256": "d87ae49310897130ed309755ed62cb8657761ea3b4166e2ffca5d4a863d01cbc",
+      "inputSourceSha256": "9b9ad1a09fd3b587d318e47674fba5d35379700f46b91d194dab350b544399b9",
+      "reconcile": "[sync] reconcile-counts currentFiles=1684 trackedFiles=1684 existsChecks=0 statChecks=1684 statUnchanged=1683 statErrors=0 snapshotPresence=0 snapshotStats=0 hashReadAttempts=1 hashReadFiles=1 hashReadErrors=0 sameHashSkipped=0 sameHashStatUpdated=0 sameHashStatDeferred=0 recoveryRetryFiles=0 added=0 modified=1 removed=0",
+      "cpuStatBefore": "usage_usec 22441486793\nuser_usec 19130054403\nsystem_usec 3311432389\nnice_usec 0\nnr_periods 154201\nnr_throttled 3132\nthrottled_usec 170294209\nnr_bursts 0\nburst_usec 0\n",
+      "cpuStatAfter": "usage_usec 22449224142\nuser_usec 19136632795\nsystem_usec 3312591347\nnice_usec 0\nnr_periods 154266\nnr_throttled 3132\nthrottled_usec 170294209\nnr_bursts 0\nburst_usec 0\n",
+      "tail": {
+        "macroEvidenceMs": 3,
+        "prepareAndWalMs": 204,
+        "postExtractMs": 0,
+        "changedRefsMs": 72,
+        "resurrectedRefsMs": 0,
+        "failedRefRetryMs": 126,
+        "coImporterMs": 0,
+        "orphanAndSynthesisMs": 4960,
+        "chainedCallsMs": 192,
+        "maintenanceMs": 35,
+        "finalizeMs": 2,
+        "cleanupMs": 0
+      },
+      "phases": {
+        "reconcile": 130,
+        "framework": 18,
+        "macroScan": 153,
+        "workerSetup": 90,
+        "read": 1,
+        "parseWall": 151,
+        "store": 26
+      },
+      "cgroupDelta": {
+        "usage_usec": 7737349,
+        "user_usec": 6578392,
+        "system_usec": 1158958,
+        "nice_usec": 0,
+        "nr_periods": 65,
+        "nr_throttled": 0,
+        "throttled_usec": 0,
+        "nr_bursts": 0,
+        "burst_usec": 0
+      }
+    },
+    {
+      "label": "B2",
+      "implementation": "30d for both A and B",
+      "wallSeconds": 5.537313714001357,
+      "inputDatabaseSha256": "d87ae49310897130ed309755ed62cb8657761ea3b4166e2ffca5d4a863d01cbc",
+      "inputSourceSha256": "9b9ad1a09fd3b587d318e47674fba5d35379700f46b91d194dab350b544399b9",
+      "reconcile": "[sync] reconcile-counts currentFiles=1684 trackedFiles=1684 existsChecks=0 statChecks=1684 statUnchanged=1683 statErrors=0 snapshotPresence=0 snapshotStats=0 hashReadAttempts=1 hashReadFiles=1 hashReadErrors=0 sameHashSkipped=0 sameHashStatUpdated=0 sameHashStatDeferred=0 recoveryRetryFiles=0 added=0 modified=1 removed=0",
+      "cpuStatBefore": "usage_usec 22449715137\nuser_usec 19136834407\nsystem_usec 3312880729\nnice_usec 0\nnr_periods 154271\nnr_throttled 3132\nthrottled_usec 170294209\nnr_bursts 0\nburst_usec 0\n",
+      "cpuStatAfter": "usage_usec 22456313424\nuser_usec 19142558773\nsystem_usec 3313754651\nnice_usec 0\nnr_periods 154326\nnr_throttled 3132\nthrottled_usec 170294209\nnr_bursts 0\nburst_usec 0\n",
+      "tail": {
+        "macroEvidenceMs": 3,
+        "prepareAndWalMs": 172,
+        "postExtractMs": 0,
+        "changedRefsMs": 52,
+        "resurrectedRefsMs": 0,
+        "failedRefRetryMs": 121,
+        "coImporterMs": 0,
+        "orphanAndSynthesisMs": 4124,
+        "chainedCallsMs": 186,
+        "maintenanceMs": 33,
+        "finalizeMs": 2,
+        "cleanupMs": 0
+      },
+      "phases": {
+        "reconcile": 112,
+        "framework": 17,
+        "macroScan": 160,
+        "workerSetup": 84,
+        "read": 1,
+        "parseWall": 140,
+        "store": 29
+      },
+      "cgroupDelta": {
+        "usage_usec": 6598287,
+        "user_usec": 5724366,
+        "system_usec": 873922,
+        "nice_usec": 0,
+        "nr_periods": 55,
+        "nr_throttled": 0,
+        "throttled_usec": 0,
+        "nr_bursts": 0,
+        "burst_usec": 0
+      }
+    },
+    {
+      "label": "A2",
+      "implementation": "30d for both A and B",
+      "wallSeconds": 5.796143090999976,
+      "inputDatabaseSha256": "d87ae49310897130ed309755ed62cb8657761ea3b4166e2ffca5d4a863d01cbc",
+      "inputSourceSha256": "9b9ad1a09fd3b587d318e47674fba5d35379700f46b91d194dab350b544399b9",
+      "reconcile": "[sync] reconcile-counts currentFiles=1684 trackedFiles=1684 existsChecks=0 statChecks=1684 statUnchanged=1683 statErrors=0 snapshotPresence=0 snapshotStats=0 hashReadAttempts=1 hashReadFiles=1 hashReadErrors=0 sameHashSkipped=0 sameHashStatUpdated=0 sameHashStatDeferred=0 recoveryRetryFiles=0 added=0 modified=1 removed=0",
+      "cpuStatBefore": "usage_usec 22456919752\nuser_usec 19142860123\nsystem_usec 3314059629\nnice_usec 0\nnr_periods 154332\nnr_throttled 3132\nthrottled_usec 170294209\nnr_bursts 0\nburst_usec 0\n",
+      "cpuStatAfter": "usage_usec 22463708819\nuser_usec 19148706014\nsystem_usec 3315002805\nnice_usec 0\nnr_periods 154390\nnr_throttled 3132\nthrottled_usec 170294209\nnr_bursts 0\nburst_usec 0\n",
+      "tail": {
+        "macroEvidenceMs": 3,
+        "prepareAndWalMs": 197,
+        "postExtractMs": 0,
+        "changedRefsMs": 89,
+        "resurrectedRefsMs": 0,
+        "failedRefRetryMs": 295,
+        "coImporterMs": 0,
+        "orphanAndSynthesisMs": 3750,
+        "chainedCallsMs": 172,
+        "maintenanceMs": 39,
+        "finalizeMs": 2,
+        "cleanupMs": 0
+      },
+      "phases": {
+        "reconcile": 122,
+        "framework": 17,
+        "macroScan": 306,
+        "workerSetup": 87,
+        "read": 4,
+        "parseWall": 233,
+        "store": 33
+      },
+      "cgroupDelta": {
+        "usage_usec": 6789067,
+        "user_usec": 5845891,
+        "system_usec": 943176,
+        "nice_usec": 0,
+        "nr_periods": 58,
+        "nr_throttled": 0,
+        "throttled_usec": 0,
+        "nr_bursts": 0,
+        "burst_usec": 0
+      }
+    }
+  ],
+  "pseudoABMedianPercent": 5.434092405356439,
+  "pairPercent": [
+    15.713875819746193,
+    -4.465544982844182
+  ]
+}

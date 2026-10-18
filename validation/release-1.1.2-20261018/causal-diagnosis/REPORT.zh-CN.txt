@@ -1,0 +1,50 @@
+有界因果诊断补充：产品仍冻结594c45f
+
+结论与边界
+13项共有失败仅为基线状态，不是本修复新增阻断。前一报告将它们并列为发布阻断不够准确，在此纠正。
+本次小变更util/crc32c.cc修改前后macroSemanticId均零调用，因此新增身份逻辑的直接CPU成本不能解释该sync的+8.10%。仍不能排除两版本初始图/SQLite布局对未改后处理的间接影响。
+原native init差值广泛出现在未改解析、读文件和后处理阶段；函数计时的量级不支持将8秒差值直接归因于31行新增逻辑。不能因此宣称所有场景均无回归。
+没有修改生产代码，没有追加完整性能矩阵，没有选择性丢弃旧样本。本轮做配置/阶段审计、历史父子复现、实际AST微基准、一次全库调用计数和预定4次同30d控制；均已结束。
+
+产品、构建和输入核对
+594c45f相对30d完整产品diff见594c45f-product.diff，仅身份文件31增4删。两版所有dist/**/*.js逐文件SHA比较，只有c-cpp-macro-identity.js不同：
+30d: d3c9a8e7f24bcca15aeae4d0a8b54c08be05ca4436e91419adc82dc893ef9b5d
+594: 74e3a95013e9cc5634f90321ecae821b93d2a348d2716656e8784a586f7d4a4e
+最终隔离包全部运行JS与594构建一致。两版共用/workspace/codegraph-install/node_modules；Node v24.19.0，二进制SHA bc17c508ffeed0ec622934f9b7fa72f8e78da65350e63c3eceb56fa688aa5e12。
+两版native配置指向相同二进制：scanner SHA 06acbcea524825c7ac49bdd7f8d3071f10da09869267c14f2e6f713adcc2afaa；macro SHA a4941a83726331c73ed803dac4ca1e3d37679497dab78ea377e90002668bdf8b。
+模式澄清：native宏扫描实际mode=rust、fallbackFiles=0；文件枚举因忽略规则否定项走walk，nativeStatus=fallback/nativeReason=requires-walk-negation。两版本一致，不能称所有扫描阶段均原生。
+相同ALL_LANGUAGES=1、PARSE_WORKERS=1、NO_STORE_WORKER=1、--liftoff-only、heap4096。16次小变更均parse worker pool=1，modified=1、recoveryRetryFiles=0，单文件461 refs、388 resolved、73 unresolved、388 edges，没有额外全库重建。提取版本仍36；真实289旧库另有stamp24保持的升级验证。
+各轮同一104字节变更，前SHA c1f10602fd9fe9421c2783b556b48c39f217ceb67825d8d5906f15e8df45b352，后bc7ae82cc24891666c1332976a70fa28ebab1feff7ec2124e177e01300c97fc3。
+原矩阵保存全量逻辑图、文件列表/字节及阶段日志，但临时SQLite数据库已按原脚本删除，不能事后声称其页面布局、全部元数据或stat时间字节一致。两版本初始图本来就差8条声明及配对ID/可见性；同源输入不等于同一数据库。
+
+历史父子复现
+3b7b88551db1a4471c14fc1712db1a5eef1d938c：作者时间2026-08-10T23:10:59+08:00，提交时间2026-08-26T09:33:58+08:00；父f2bb864dfd319db18cc570afa73ad71251c0e49d。
+两个隔离worktree实际构建成功。相同最小源、有/无未include的CRC宏：父clean/poison均无TestBody；3b clean为sample::CRC_Probe_Test::TestBody，poison为sample::_Probe_Test::TestBody，均是该版本提取出的声明。父版本尚无该恢复能力，不能说其已正确提取同一实体。3b实际模块展开生成class 0x1edc6f41_Probe_Test，父没有declaration-macros模块。
+289已有8个错误定义、d66新增8声明仍由之前独立真实图对照证明；不能把3b的声明性质偷换成后来289的定义性质。原附件tar不可取得，本例是重建例，另有真实公开RocksDB验证。
+
+原四对阶段分析（ms，阶段存在嵌套/并行，不能机械求和）
+native小变更：
+r1 wall 5828.981→5730.226；parseWall 176→135；orphanAndSynthesis 4023→4321。
+r2 wall 4808.577→4988.581；parseWall 165→147；orphanAndSynthesis 3512→3646。
+r3 wall 5092.780→6075.734；parseWall 148→159；orphanAndSynthesis 3713→4505。
+r4 wall 6580.412→7511.991；parseWall 177→183；orphanAndSynthesis 4962→5234。
+r2总差+180ms中后处理+134ms；r3总差+983ms中后处理+792ms、parseWall仅+11ms。r4还有扫描、框架、写前准备、引用重试等阶段变慢，parseWall仅+6ms。r1后处理+298ms但总wall-99ms。
+native init第三对wall+22.17s、parsePipeline+14.15s，其中未改primaryParse+3.10s，readSum+2.98s（可能与pipeline重叠）。第四对两者约125s，parsePipeline仅差+0.122s，总wall候选反而-4.12s。TS四对init均更快。两模式所有原值和阶段在causal-stage-analysis.json，未用区间重叠宣告无回归。
+
+真实AST微基准
+不改src/dist、不加生产开关。在内存加载两版编译函数及第二份30d控制，共享依赖；对真实extractFromSource每次调用的同一未释放AST、symbol、source、bindings交替执行。各预热2次，8轮，每轮每版20次，交替old/control/fixed与fixed/control/old顺序，测process.cpuUsage与wall。另一个仅计数的内存版本在helper入口计数；返回提取器的始终是594结果。AA身份逐次一致，单版本结果稳定。
+crc32c_test.cc：身份57次，helper40次；折算每次文件提取的候选-30d CPU差中位+0.183300ms，同30d控制差-0.094700ms。
+gtest.h：身份629次，helper10次；候选-30d CPU差中位+0.614600ms，同30d控制差-1.152325ms。
+此计时包含循环/计量开销，GC/JIT仍有噪声；8轮原始数据全部保留，不当普遍性能保证。
+另对全部1286个C/C++/ObjC文件做一次有180秒外部上限的诊断提取：身份34395次，helper194次，整个候选身份函数包容计时1293.557ms，单遍提取80.591s。包含旧主体，不是新增成本，不与原CLI wall直接相减，不作为所有环境硬上界；量级不支持helper独自造成8秒级差值。
+
+同一30d控制组
+从既有30d RocksDB库只读SQLite backup得到一致模板，每次恢复同一模板字节至同一路径，使用完全相同额外探针、相同二进制/native配置，顺序A1/B1/B2/A2；A/B只是标签，均运行30d。输入stamp36、complete，每次仅1文件修改、无恢复重建。此额外探针不同于原104字节，不混入原矩阵。
+A1 5.581802s，orphanAndSynthesis=4011ms；B1 6.458919s，4960ms；B2 5.537314s，4124ms；A2 5.796143s，3750ms。
+伪B/A中位差+5.43%，逐对+15.71%/-4.47%。四次nr_throttled增量均0，只排除控制期间记录到的cgroup配额节流，不排除宿主调度/IO/频率/GC噪声；cgroup CPU也非进程专属CPU。该控制直接证明相同实现及同一DB有此量级波动，不能把原+8.10%全归噪声。
+
+决定与未定项
+不优化代码、不追加整库ABBA。新增函数直接成本已排除为小变更差值来源，init函数成本量级不支持8秒归因，没有证据选择优化点。
+仍未排除8条逻辑图差异/SQLite页面或查询计划对synthesis的间接影响；原矩阵没有进程CPU、宿主频率和完整物理DB快照，无法补造。若必须取得严格端到端保证，下一步应预先固定物理DB，分别隔离代码和图差异，并记录synthesizeIncrementalCCpp CPU/SQL计划，不能盲跑init；该实验本轮未执行。
+当前结论改为：原数据存在不利差值，但尚未证实代码退化；直接身份计算不是小变更差值来源，端到端间接影响未定。13共有失败不是新增阻断；正式跨平台包仍缺Windows产物。无push/merge/release，无产品改动。
+运行连接曾在写报告前断开，恢复后确认无遗留实验进程、HEAD不变、工作树干净；未重复实验，只补写报告。
