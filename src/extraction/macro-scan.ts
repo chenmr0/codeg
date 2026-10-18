@@ -1,10 +1,9 @@
 /** Stateless project macro context. The TS scanner remains the parity oracle. */
 import * as fsp from 'fs/promises';
-import { scanLiteralIncludes, type MacroProjectEvidence } from './macro-visibility';
 import { performance } from 'perf_hooks';
 import { validatePathWithinRoot } from '../utils';
 import { scanCppMacroDefinitions, selectUnambiguousCppMacroDefinitions, type CppMacroDefinition } from './declaration-macros';
-import { automaticRustMacroStatus, rustMacroMode, streamRustMacros, type NativeMacroRow } from './rust-macros';
+import { automaticRustMacroStatus, rustMacroMode, streamRustMacros } from './rust-macros';
 
 export interface MacroContribution {
   names: string[];
@@ -13,14 +12,13 @@ export interface MacroContribution {
 }
 export interface MacroScanMetrics {
   mode: string; reason: string; files: number; readFiles: number; readErrors: number;
-  bytes: number; provenanceReadFiles: number; provenanceBytes: number; fallbackFiles: number; readWallMs: number; namesMs: number;
+  bytes: number; fallbackFiles: number; readWallMs: number; namesMs: number;
   bodylessMs: number; definitionsMs: number; mergeMs: number;
   nativeWallMs: number; nativeReadSumMs: number; nativeScanSumMs: number; totalMs: number;
 }
 export interface MacroContext {
   names: Set<string>; bodyless: Set<string>; definitions: CppMacroDefinition[];
   metrics: MacroScanMetrics;
-  project: MacroProjectEvidence;
 }
 
 /**
@@ -57,7 +55,7 @@ export function scanMacroContribution(source: string, metrics?: MacroScanMetrics
 
 function emptyMetrics(files: number): MacroScanMetrics {
   return { mode: 'ts', reason: 'disabled', files, readFiles: 0, readErrors: 0,
-    bytes: 0, provenanceReadFiles: 0, provenanceBytes: 0, fallbackFiles: 0, readWallMs: 0, namesMs: 0, bodylessMs: 0,
+    bytes: 0, fallbackFiles: 0, readWallMs: 0, namesMs: 0, bodylessMs: 0,
     definitionsMs: 0, mergeMs: 0, nativeWallMs: 0, nativeReadSumMs: 0, nativeScanSumMs: 0, totalMs: 0 };
 }
 
@@ -67,9 +65,7 @@ export async function buildMacroContext(root: string, files: string[]): Promise<
   let metrics = emptyMetrics(files.length);
   let names = new Set<string>(), bodyless = new Set<string>();
   let definitions: CppMacroDefinition[] = [];
-  let project: MacroProjectEvidence = Object.create(null);
-  const add = (part: MacroContribution, file: string, source: string): void => {
-    project[file] = { definitions: part.definitions, includes: scanLiteralIncludes(source).map(item => detachMacroString(item.name)) };
+  const add = (part: MacroContribution): void => {
     const t = performance.now();
     for (const name of part.names) names.add(name);
     for (const name of part.bodyless) bodyless.add(name);
@@ -77,25 +73,21 @@ export async function buildMacroContext(root: string, files: string[]): Promise<
     for (const definition of part.definitions) definitions.push(definition);
     metrics.mergeMs += performance.now() - t;
   };
-  const read = async (file: string, provenance = false): Promise<string | null> => {
+  const read = async (file: string): Promise<string | null> => {
     const full = validatePathWithinRoot(root, file);
     try {
       if (!full) throw new Error('outside-root');
       const bytes = await fsp.readFile(full);
       metrics.readFiles++; metrics.bytes += bytes.length;
-      if (provenance) { metrics.provenanceReadFiles++; metrics.provenanceBytes += bytes.length; }
       return bytes.toString('utf8');
     } catch { metrics.readErrors++; return null; }
   };
   const baseline = async (): Promise<void> => {
     for (let i = 0; i < files.length; i += 50) {
       const t = performance.now();
-      const contents = await Promise.all(files.slice(i, i + 50).map(file => read(file)));
+      const contents = await Promise.all(files.slice(i, i + 50).map(read));
       metrics.readWallMs += performance.now() - t;
-      for (let j = 0; j < contents.length; j++) {
-        const source = contents[j];
-        if (source !== null) add(scanMacroContribution(source!, metrics), files[i + j]!, source!);
-      }
+      for (const source of contents) if (source) add(scanMacroContribution(source, metrics));
     }
   };
   const requestedMode = rustMacroMode(files.length);
@@ -107,26 +99,20 @@ export async function buildMacroContext(root: string, files: string[]): Promise<
   if (mode !== 'off' && files.length) {
     const t = performance.now();
     try {
-      const rows: NativeMacroRow[] = [];
-      for await (const row of streamRustMacros(root, files)) rows.push(row);
-      // Bound provenance I/O like the TS scanner. Waiting for each file inside
-      // the native stream serializes otherwise independent filesystem reads.
-      for (let i = 0; i < rows.length; i += 50) {
-        const batch = rows.slice(i, i + 50);
-        const readStarted = performance.now();
-        const sources = await Promise.all(batch.map(row => read(row.path, row.status === 'ok' && mode !== 'verify')));
-        metrics.readWallMs += performance.now() - readStarted;
-        for (let j = 0; j < batch.length; j++) {
-          const row = batch[j]!, source = sources[j]!;
-          metrics.nativeReadSumMs += row.readMs;
-          metrics.nativeScanSumMs += row.scanMs;
-          if (row.status === 'ok' || row.bytes > 0) { metrics.readFiles++; metrics.bytes += row.bytes; }
-          if (row.status === 'fallback' || mode === 'verify') {
-            const oracle = scanMacroContribution(source ?? '', metrics);
-            if (row.status === 'fallback') metrics.fallbackFiles++;
-            else if (JSON.stringify(row.contribution) !== JSON.stringify(oracle)) throw new Error('parity-mismatch');
-            add(oracle, row.path, source ?? '');
-          } else if (source !== null) add(row.contribution!, row.path, source);
+      for await (const row of streamRustMacros(root, files)) {
+        metrics.nativeReadSumMs += row.readMs;
+        metrics.nativeScanSumMs += row.scanMs;
+        if (row.status === 'fallback' || mode === 'verify') {
+          const readStarted = performance.now();
+          const source = await read(row.path);
+          metrics.readWallMs += performance.now() - readStarted;
+          const oracle = scanMacroContribution(source ?? '', metrics);
+          if (row.status === 'fallback') metrics.fallbackFiles++;
+          else if (JSON.stringify(row.contribution) !== JSON.stringify(oracle)) throw new Error('parity-mismatch');
+          add(oracle);
+        } else {
+          metrics.readFiles++; metrics.bytes += row.bytes;
+          add(row.contribution!);
         }
       }
       metrics.mode = mode === 'verify' ? 'verify' : 'rust'; metrics.reason = 'none';
@@ -136,7 +122,7 @@ export async function buildMacroContext(root: string, files: string[]): Promise<
       const reason = error instanceof Error && /^[a-z-]+$/.test(error.message) ? error.message : 'native-error';
       // Never retain a partial native context after a crash or malformed stream.
       metrics = { ...emptyMetrics(files.length), mode: 'fallback', reason, nativeWallMs };
-      names = new Set(); bodyless = new Set(); definitions = []; project = Object.create(null);
+      names = new Set(); bodyless = new Set(); definitions = [];
       await baseline();
     }
   } else await baseline();
@@ -144,7 +130,7 @@ export async function buildMacroContext(root: string, files: string[]): Promise<
   const selected = selectUnambiguousCppMacroDefinitions(definitions);
   metrics.mergeMs += performance.now() - mergeStarted;
   metrics.totalMs = performance.now() - started;
-  return { names, bodyless, definitions: selected, metrics, project };
+  return { names, bodyless, definitions: selected, metrics };
 }
 
 export function formatMacroScanMetrics(m: MacroScanMetrics): string {

@@ -7,7 +7,7 @@
  * an auxiliary parse source for those invocations.  It is deliberately not a
  * conditional-compilation evaluator:
  *
- * - recursive argument expansion uses visible definitions, not project-wide candidates;
+ * - only unambiguous project-wide definitions are shared across files;
  * - a same-file definition overrides the project definition only after its
  *   `#define` line;
  * - expansion is bounded by depth, output size, and invocation count;
@@ -25,16 +25,6 @@ export interface CppMacroDefinition {
   /** Source offset for same-file ordering. Omitted for project-wide entries. */
   start?: number;
   end?: number;
-  /** Local #undef event; never exported by scanCppMacroDefinitions. */
-  undef?: boolean;
-  /** Import position in the consuming file, distinct from definition offsets. */
-  visibleAfter?: number;
-  /** Repeated unguarded includes are separate definition events. */
-  includeOffsets?: number[];
-  /** Compatibility candidate at a declaration entry, never argument visibility. */
-  recoveryOnly?: boolean;
-  recoveryOrigins?: string[];
-  recoveryScope?: Record<string, CppMacroDefinition>;
 }
 
 /** Original UTF-16 range and recursively expanded replacement of one invocation. */
@@ -240,15 +230,11 @@ function parseDefinition(source: string, hash: number, end: number): CppMacroDef
 
 /** Scan all ordinary `#define` directives in one C/C++ source file. */
 export function scanCppMacroDefinitions(source: string): CppMacroDefinition[] {
-  return scanCppMacroDirectives(source).filter(definition => !definition.undef);
-}
-
-function scanCppMacroDirectives(source: string): CppMacroDefinition[] {
   // Most translation units consume macros but do not define any. Let the
   // native regexp engine reject those files before the JS line-by-line scan.
   // This accepts the same whitespace between `#` and `define` as the parser
   // below; false positives in comments merely fall through to the exact scan.
-  if (!/#\s*(?:define|undef)\b/.test(source)) return [];
+  if (!/#\s*define\b/.test(source)) return [];
 
   const definitions: CppMacroDefinition[] = [];
   let offset = 0;
@@ -263,9 +249,6 @@ function scanCppMacroDirectives(source: string): CppMacroDefinition[] {
       if (/^#\s*define\b/.test(header)) {
         const parsed = parseDefinition(source, first, end);
         if (parsed) definitions.push(parsed);
-      } else {
-        const undef = /^#\s*undef\s+([A-Za-z_]\w*)/.exec(header);
-        if (undef) definitions.push({ name: undef[1]!, parameters: null, replacement: '', start: first, end, undef: true });
       }
       offset = end < source.length ? end + 1 : end;
       continue;
@@ -642,26 +625,16 @@ function definitionForOffset(
   globalDefinitions: Map<string, CppMacroDefinition>,
   localDefinitions: Map<string, CppMacroDefinition[]>,
 ): CppMacroDefinition | undefined {
-  const global = globalDefinitions.get(name);
-  let selected: CppMacroDefinition | undefined;
-  let latest = -Infinity;
-  for (const position of global?.includeOffsets ?? [global?.visibleAfter ?? -Infinity]) {
-    if (position < offset && position >= latest) { selected = global; latest = position; }
+  const locals = localDefinitions.get(name);
+  if (locals) {
+    let selected: CppMacroDefinition | undefined;
+    for (const candidate of locals) {
+      if ((candidate.start ?? Number.MAX_SAFE_INTEGER) >= offset) break;
+      selected = candidate;
+    }
+    if (selected) return selected;
   }
-  for (const candidate of localDefinitions.get(name) ?? []) {
-    const position = candidate.start ?? Number.MAX_SAFE_INTEGER;
-    if (position >= offset) break;
-    if (position >= latest) { selected = candidate; latest = position; }
-  }
-  return selected?.undef ? undefined : selected;
-}
-
-function recursiveDefinition(name: string, offset: number, globals: Map<string, CppMacroDefinition>,
-  locals: Map<string, CppMacroDefinition[]>, root?: CppMacroDefinition): CppMacroDefinition | undefined {
-  const selected = definitionForOffset(name, offset, globals, locals);
-  if (selected && !selected.recoveryOnly) return selected;
-  if (locals.get(name)?.some(event => (event.start ?? Infinity) < offset)) return undefined;
-  return root?.recoveryScope?.[name];
+  return globalDefinitions.get(name);
 }
 
 /** Resolve only a macro at the head of a possible type body. This is used by
@@ -671,7 +644,7 @@ function recursiveDefinition(name: string, offset: number, globals: Map<string, 
 export function createMacroTypeHeaderResolver(source: string, definitions: readonly CppMacroDefinition[]): (header: string, offset: number) => string | undefined {
   const globals = definitionIndex(definitions).definitions;
   const locals = new Map<string, CppMacroDefinition[]>();
-  for (const definition of scanCppMacroDirectives(source)) {
+  for (const definition of scanCppMacroDefinitions(source)) {
     const values = locals.get(definition.name) ?? [];
     values.push(definition); locals.set(definition.name, values);
   }
@@ -684,8 +657,7 @@ export function createMacroTypeHeaderResolver(source: string, definitions: reado
     const name = /^([A-Za-z_]\w*)\s*(?:\(|$)/.exec(header)?.[1];
     if (!/^(?:class|struct|union)\b/.test(header)
       && (!name || !definitionForOffset(name, offset, globals, locals))) return undefined;
-    const root = name ? definitionForOffset(name, offset, globals, locals) : undefined;
-    const lookup: MacroLookup = { get: key => key === name ? root : recursiveDefinition(key, offset, globals, locals, root) };
+    const lookup: MacroLookup = { get: key => definitionForOffset(key, offset, globals, locals) };
     const expanded = expandText(header, lookup, 0, new Set()).trim();
     // Only a type header, not a complete declaration or a macro that closes
     // another scope, can prove ownership of the following source brace.
@@ -710,7 +682,7 @@ export function expandDeclarationMacros(
   const globalIndex = definitionIndex(projectDefinitions);
   const globalDefinitions = globalIndex.definitions;
   const localDefinitions = new Map<string, CppMacroDefinition[]>();
-  for (const definition of scanCppMacroDirectives(source)) {
+  for (const definition of scanCppMacroDefinitions(source)) {
     let values = localDefinitions.get(definition.name);
     if (!values) {
       values = [];
@@ -730,6 +702,17 @@ export function expandDeclarationMacros(
   const candidateInitialCharacters = globalIndex.initialCharacters.slice();
   for (const name of localDefinitions.keys()) candidateInitialCharacters[name.charCodeAt(0)] = 1;
 
+  // Recursive helper expansion needs a single lookup table. A same-file
+  // definition is safe for helpers only when its spelling is unique in this
+  // file; position-sensitive root lookup is still handled separately below.
+  const localExpansionDefinitions = new Map<string, CppMacroDefinition>();
+  for (const [name, values] of localDefinitions) {
+    const variants = new Map(values.map(value => [definitionKey(value), value]));
+    if (variants.size === 1) localExpansionDefinitions.set(name, values[0]!);
+  }
+  const expansionDefinitions: MacroLookup = {
+    get: name => localExpansionDefinitions.get(name) ?? globalDefinitions.get(name),
+  };
 
   const replacements: Array<{ start: number; end: number; text: string; line: number; name: string }> = [];
   const invocationLines = new Set<number>();
@@ -822,11 +805,6 @@ export function expandDeclarationMacros(
       continue;
     }
 
-    // Every recursive lookup uses the invocation position, including undef
-    // barriers and redefinitions; future local helpers are not visible yet.
-    const expansionDefinitions: MacroLookup = {
-      get: key => recursiveDefinition(key, start, globalDefinitions, localDefinitions, definition),
-    };
     const expandedArgs = args.map(arg => expandText(arg, expansionDefinitions, 1, new Set([name])));
     const applied = applyArguments(definition, args, expandedArgs);
     if (applied === null) continue;
