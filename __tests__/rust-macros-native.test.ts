@@ -26,6 +26,12 @@ describe.skipIf(!available)('native macro scanner differential', () => {
     expect(native.metrics.mode, native.metrics.reason).toBe('rust');
     expect([...native.names]).toEqual([...ts.names]); expect([...native.bodyless]).toEqual([...ts.bodyless]);
     expect(native.definitions).toEqual(ts.definitions);
+    if (requireNative) {
+      expect(native.metrics.readFiles).toBe(files.length * 2);
+      expect(native.metrics.bytes).toBe(ts.metrics.bytes * 2);
+      expect(native.metrics.provenanceReadFiles).toBe(files.length);
+      expect(native.metrics.provenanceBytes).toBe(ts.metrics.bytes);
+    }
     vi.stubEnv('CODEGRAPH_RUST_MACROS', 'verify'); const verified = await buildMacroContext(root, files);
     expect(verified.metrics.mode, verified.metrics.reason).toBe('verify');
   };

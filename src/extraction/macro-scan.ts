@@ -4,7 +4,7 @@ import { scanLiteralIncludes, type MacroProjectEvidence } from './macro-visibili
 import { performance } from 'perf_hooks';
 import { validatePathWithinRoot } from '../utils';
 import { scanCppMacroDefinitions, selectUnambiguousCppMacroDefinitions, type CppMacroDefinition } from './declaration-macros';
-import { automaticRustMacroStatus, rustMacroMode, streamRustMacros } from './rust-macros';
+import { automaticRustMacroStatus, rustMacroMode, streamRustMacros, type NativeMacroRow } from './rust-macros';
 
 export interface MacroContribution {
   names: string[];
@@ -13,7 +13,7 @@ export interface MacroContribution {
 }
 export interface MacroScanMetrics {
   mode: string; reason: string; files: number; readFiles: number; readErrors: number;
-  bytes: number; fallbackFiles: number; readWallMs: number; namesMs: number;
+  bytes: number; provenanceReadFiles: number; provenanceBytes: number; fallbackFiles: number; readWallMs: number; namesMs: number;
   bodylessMs: number; definitionsMs: number; mergeMs: number;
   nativeWallMs: number; nativeReadSumMs: number; nativeScanSumMs: number; totalMs: number;
 }
@@ -57,7 +57,7 @@ export function scanMacroContribution(source: string, metrics?: MacroScanMetrics
 
 function emptyMetrics(files: number): MacroScanMetrics {
   return { mode: 'ts', reason: 'disabled', files, readFiles: 0, readErrors: 0,
-    bytes: 0, fallbackFiles: 0, readWallMs: 0, namesMs: 0, bodylessMs: 0,
+    bytes: 0, provenanceReadFiles: 0, provenanceBytes: 0, fallbackFiles: 0, readWallMs: 0, namesMs: 0, bodylessMs: 0,
     definitionsMs: 0, mergeMs: 0, nativeWallMs: 0, nativeReadSumMs: 0, nativeScanSumMs: 0, totalMs: 0 };
 }
 
@@ -77,12 +77,13 @@ export async function buildMacroContext(root: string, files: string[]): Promise<
     for (const definition of part.definitions) definitions.push(definition);
     metrics.mergeMs += performance.now() - t;
   };
-  const read = async (file: string, account = true): Promise<string | null> => {
+  const read = async (file: string, provenance = false): Promise<string | null> => {
     const full = validatePathWithinRoot(root, file);
     try {
       if (!full) throw new Error('outside-root');
       const bytes = await fsp.readFile(full);
-      if (account) { metrics.readFiles++; metrics.bytes += bytes.length; }
+      metrics.readFiles++; metrics.bytes += bytes.length;
+      if (provenance) { metrics.provenanceReadFiles++; metrics.provenanceBytes += bytes.length; }
       return bytes.toString('utf8');
     } catch { metrics.readErrors++; return null; }
   };
@@ -106,25 +107,26 @@ export async function buildMacroContext(root: string, files: string[]): Promise<
   if (mode !== 'off' && files.length) {
     const t = performance.now();
     try {
-      for await (const row of streamRustMacros(root, files)) {
-        metrics.nativeReadSumMs += row.readMs;
-        metrics.nativeScanSumMs += row.scanMs;
-        if (row.status === 'fallback' || mode === 'verify') {
-          const readStarted = performance.now();
-          const source = await read(row.path);
-          metrics.readWallMs += performance.now() - readStarted;
-          const oracle = scanMacroContribution(source ?? '', metrics);
-          if (row.status === 'fallback') metrics.fallbackFiles++;
-          else if (JSON.stringify(row.contribution) !== JSON.stringify(oracle)) throw new Error('parity-mismatch');
-          add(oracle, row.path, source ?? '');
-        } else {
-          metrics.readFiles++; metrics.bytes += row.bytes;
-          // Native protocol supplies definitions, but not include provenance.
-          // Read source only for the bounded literal-include scan.
-          const readStarted = performance.now();
-          const source = await read(row.path, false);
-          metrics.readWallMs += performance.now() - readStarted;
-          if (source !== null) add(row.contribution!, row.path, source);
+      const rows: NativeMacroRow[] = [];
+      for await (const row of streamRustMacros(root, files)) rows.push(row);
+      // Bound provenance I/O like the TS scanner. Waiting for each file inside
+      // the native stream serializes otherwise independent filesystem reads.
+      for (let i = 0; i < rows.length; i += 50) {
+        const batch = rows.slice(i, i + 50);
+        const readStarted = performance.now();
+        const sources = await Promise.all(batch.map(row => read(row.path, row.status === 'ok' && mode !== 'verify')));
+        metrics.readWallMs += performance.now() - readStarted;
+        for (let j = 0; j < batch.length; j++) {
+          const row = batch[j]!, source = sources[j]!;
+          metrics.nativeReadSumMs += row.readMs;
+          metrics.nativeScanSumMs += row.scanMs;
+          if (row.status === 'ok' || row.bytes > 0) { metrics.readFiles++; metrics.bytes += row.bytes; }
+          if (row.status === 'fallback' || mode === 'verify') {
+            const oracle = scanMacroContribution(source ?? '', metrics);
+            if (row.status === 'fallback') metrics.fallbackFiles++;
+            else if (JSON.stringify(row.contribution) !== JSON.stringify(oracle)) throw new Error('parity-mismatch');
+            add(oracle, row.path, source ?? '');
+          } else if (source !== null) add(row.contribution!, row.path, source);
         }
       }
       metrics.mode = mode === 'verify' ? 'verify' : 'rust'; metrics.reason = 'none';
