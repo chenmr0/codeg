@@ -1,0 +1,12 @@
+{
+  "pid": 178473,
+  "threadId": 5,
+  "sql": [],
+  "phases": {},
+  "backends": [],
+  "total": {
+    "wallMs": 92.32152399999995,
+    "cpuUserMs": 10.472,
+    "cpuSystemMs": 38.088
+  }
+}

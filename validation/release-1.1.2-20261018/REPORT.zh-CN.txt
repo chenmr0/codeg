@@ -1,3 +1,5 @@
+最新补充：shared-snapshot/REPORT.zh-CN.txt记录共同物理起点三对隔离结果；产品仍594c45f，未发现稳定复现的约8%直接代码退化，不承诺零成本或所有场景等价。
+
 后续诊断勘误：请先阅读causal-diagnosis/REPORT.zh-CN.txt。13项共有失败不是新增阻断；native不利数据保留，但不能归因为身份函数开销。产品代码未变。
 
 CodeGraph 发布回归：收回广泛方案后的窄修复最终记录

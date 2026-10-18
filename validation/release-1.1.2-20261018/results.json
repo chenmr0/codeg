@@ -2322,5 +2322,51 @@
     ],
     "report": "causal-diagnosis/REPORT.zh-CN.txt",
     "remainingUncertainty": "logical graph and SQLite layout / query-plan effects on synthesis not isolated"
+  },
+  "sharedSnapshotIsolation": {
+    "pairs": [
+      {
+        "pair": 1,
+        "wallChangePercent": 10.127549969559624,
+        "cpuChangePercent": 11.797101184550595
+      },
+      {
+        "pair": 2,
+        "wallChangePercent": 1.2881178820810746,
+        "cpuChangePercent": 3.203904023100712
+      },
+      {
+        "pair": 3,
+        "wallChangePercent": -4.3000181991687425,
+        "cpuChangePercent": -4.856472795497069
+      }
+    ],
+    "medians": {
+      "wallSeconds": {
+        "baseline": 5.780409855000471,
+        "fixed": 5.854868348000309,
+        "changePercent": 1.2881178820810746
+      },
+      "cpuSeconds": {
+        "baseline": 6.782132000000001,
+        "fixed": 6.999425000000001,
+        "changePercent": 3.203904023100712
+      },
+      "sqlWallMs": {
+        "baseline": 2747.4458779997244,
+        "fixed": 2855.125073000047,
+        "changePercent": 3.919247176534668
+      },
+      "sqlCpuMs": {
+        "baseline": 2868.6289999993155,
+        "fixed": 3075.6800000005373,
+        "changePercent": 7.217768488057241
+      }
+    },
+    "snapshotSha256": "f9e04764baf624af7a009ba98a6c80380bd8b0a55c6ea74489b2d37b7a676b72",
+    "graphEqual": true,
+    "sqlWorkloadEqual": true,
+    "report": "shared-snapshot/REPORT.zh-CN.txt",
+    "scope": "same 30d physical graph; repaired-eight-declaration graph not isolated"
   }
 }

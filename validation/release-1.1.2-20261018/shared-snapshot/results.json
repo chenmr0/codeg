@@ -1,0 +1,464 @@
+[
+  {
+    "label": "r1-baseline",
+    "version": "baseline",
+    "wallSeconds": 5.738729946999229,
+    "cpuUserSeconds": 5.630008,
+    "cpuSystemSeconds": 1.0490649999999997,
+    "inputDatabaseSha256": "f9e04764baf624af7a009ba98a6c80380bd8b0a55c6ea74489b2d37b7a676b72",
+    "inputSourceSha256": "bc7ae82cc24891666c1332976a70fa28ebab1feff7ec2124e177e01300c97fc3",
+    "graph": {
+      "nodes": {
+        "rows": 107726,
+        "sha256": "bdf1f6e0899c04cbd53837ddb31e551314b3440c6b00ce6f6652f6ba4d346821"
+      },
+      "edges": {
+        "rows": 407791,
+        "sha256": "3bc54aa361823f4afb91f0f06ec03ba7985181b8643268969c6f3931db2c8410"
+      },
+      "metadata": [
+        [
+          "index_completeness",
+          "complete",
+          1792319072879
+        ],
+        [
+          "index_diagnostics",
+          "[]",
+          1792319072879
+        ],
+        [
+          "index_synthesis_completed_version",
+          "1",
+          1792319072879
+        ],
+        [
+          "index_synthesis_verification_started",
+          "1",
+          1792319068566
+        ],
+        [
+          "indexed_language_scope",
+          "all",
+          1792294030691
+        ],
+        [
+          "indexed_with_extraction_version",
+          "36",
+          1792294030691
+        ],
+        [
+          "indexed_with_version",
+          "1.1.2",
+          1792294030691
+        ],
+        [
+          "repair:cpp-include-targets-v1",
+          "done",
+          1792294038620
+        ],
+        [
+          "resolution:cpp-macro-evidence-clean-v1",
+          "db8b9efc7c6e3ef624e1f4020e3b8eefb517a39c5b717e2836e926e482059078",
+          1792319068206
+        ],
+        [
+          "resolution:cpp-macro-evidence-v1",
+          "db8b9efc7c6e3ef624e1f4020e3b8eefb517a39c5b717e2836e926e482059078",
+          1792294007071
+        ],
+        [
+          "sync-retry:done:util/crc32c.cc",
+          "{\"version\":\"1:36\",\"contentHash\":\"bc7ae82cc24891666c1332976a70fa28ebab1feff7ec2124e177e01300c97fc3\",\"fingerprint\":\"7dea88f8523659e51f19837f0c216a2381334f03911f120e1b2d4872e610c9ba\"}",
+          1792319073104
+        ]
+      ]
+    },
+    "reconcile": "[sync] reconcile-counts currentFiles=1684 trackedFiles=1684 existsChecks=0 statChecks=1684 statUnchanged=1683 statErrors=0 snapshotPresence=0 snapshotStats=0 hashReadAttempts=1 hashReadFiles=1 hashReadErrors=0 sameHashSkipped=0 sameHashStatUpdated=0 sameHashStatDeferred=0 recoveryRetryFiles=0 added=0 modified=1 removed=0"
+  },
+  {
+    "label": "r1-fixed",
+    "version": "fixed",
+    "wallSeconds": 6.3199226899996575,
+    "cpuUserSeconds": 6.226861999999999,
+    "cpuSystemSeconds": 1.2401480000000005,
+    "inputDatabaseSha256": "f9e04764baf624af7a009ba98a6c80380bd8b0a55c6ea74489b2d37b7a676b72",
+    "inputSourceSha256": "bc7ae82cc24891666c1332976a70fa28ebab1feff7ec2124e177e01300c97fc3",
+    "graph": {
+      "nodes": {
+        "rows": 107726,
+        "sha256": "bdf1f6e0899c04cbd53837ddb31e551314b3440c6b00ce6f6652f6ba4d346821"
+      },
+      "edges": {
+        "rows": 407791,
+        "sha256": "3bc54aa361823f4afb91f0f06ec03ba7985181b8643268969c6f3931db2c8410"
+      },
+      "metadata": [
+        [
+          "index_completeness",
+          "complete",
+          1792319085089
+        ],
+        [
+          "index_diagnostics",
+          "[]",
+          1792319085089
+        ],
+        [
+          "index_synthesis_completed_version",
+          "1",
+          1792319085089
+        ],
+        [
+          "index_synthesis_verification_started",
+          "1",
+          1792319080385
+        ],
+        [
+          "indexed_language_scope",
+          "all",
+          1792294030691
+        ],
+        [
+          "indexed_with_extraction_version",
+          "36",
+          1792294030691
+        ],
+        [
+          "indexed_with_version",
+          "1.1.2",
+          1792294030691
+        ],
+        [
+          "repair:cpp-include-targets-v1",
+          "done",
+          1792294038620
+        ],
+        [
+          "resolution:cpp-macro-evidence-clean-v1",
+          "db8b9efc7c6e3ef624e1f4020e3b8eefb517a39c5b717e2836e926e482059078",
+          1792319079963
+        ],
+        [
+          "resolution:cpp-macro-evidence-v1",
+          "db8b9efc7c6e3ef624e1f4020e3b8eefb517a39c5b717e2836e926e482059078",
+          1792294007071
+        ],
+        [
+          "sync-retry:done:util/crc32c.cc",
+          "{\"version\":\"1:36\",\"contentHash\":\"bc7ae82cc24891666c1332976a70fa28ebab1feff7ec2124e177e01300c97fc3\",\"fingerprint\":\"7dea88f8523659e51f19837f0c216a2381334f03911f120e1b2d4872e610c9ba\"}",
+          1792319085297
+        ]
+      ]
+    },
+    "reconcile": "[sync] reconcile-counts currentFiles=1684 trackedFiles=1684 existsChecks=0 statChecks=1684 statUnchanged=1683 statErrors=0 snapshotPresence=0 snapshotStats=0 hashReadAttempts=1 hashReadFiles=1 hashReadErrors=0 sameHashSkipped=0 sameHashStatUpdated=0 sameHashStatDeferred=0 recoveryRetryFiles=0 added=0 modified=1 removed=0"
+  },
+  {
+    "label": "r2-fixed",
+    "version": "fixed",
+    "wallSeconds": 5.854868348000309,
+    "cpuUserSeconds": 5.962313000000002,
+    "cpuSystemSeconds": 1.0371119999999996,
+    "inputDatabaseSha256": "f9e04764baf624af7a009ba98a6c80380bd8b0a55c6ea74489b2d37b7a676b72",
+    "inputSourceSha256": "bc7ae82cc24891666c1332976a70fa28ebab1feff7ec2124e177e01300c97fc3",
+    "graph": {
+      "nodes": {
+        "rows": 107726,
+        "sha256": "bdf1f6e0899c04cbd53837ddb31e551314b3440c6b00ce6f6652f6ba4d346821"
+      },
+      "edges": {
+        "rows": 407791,
+        "sha256": "3bc54aa361823f4afb91f0f06ec03ba7985181b8643268969c6f3931db2c8410"
+      },
+      "metadata": [
+        [
+          "index_completeness",
+          "complete",
+          1792319096257
+        ],
+        [
+          "index_diagnostics",
+          "[]",
+          1792319096257
+        ],
+        [
+          "index_synthesis_completed_version",
+          "1",
+          1792319096257
+        ],
+        [
+          "index_synthesis_verification_started",
+          "1",
+          1792319091967
+        ],
+        [
+          "indexed_language_scope",
+          "all",
+          1792294030691
+        ],
+        [
+          "indexed_with_extraction_version",
+          "36",
+          1792294030691
+        ],
+        [
+          "indexed_with_version",
+          "1.1.2",
+          1792294030691
+        ],
+        [
+          "repair:cpp-include-targets-v1",
+          "done",
+          1792294038620
+        ],
+        [
+          "resolution:cpp-macro-evidence-clean-v1",
+          "db8b9efc7c6e3ef624e1f4020e3b8eefb517a39c5b717e2836e926e482059078",
+          1792319091574
+        ],
+        [
+          "resolution:cpp-macro-evidence-v1",
+          "db8b9efc7c6e3ef624e1f4020e3b8eefb517a39c5b717e2836e926e482059078",
+          1792294007071
+        ],
+        [
+          "sync-retry:done:util/crc32c.cc",
+          "{\"version\":\"1:36\",\"contentHash\":\"bc7ae82cc24891666c1332976a70fa28ebab1feff7ec2124e177e01300c97fc3\",\"fingerprint\":\"7dea88f8523659e51f19837f0c216a2381334f03911f120e1b2d4872e610c9ba\"}",
+          1792319096471
+        ]
+      ]
+    },
+    "reconcile": "[sync] reconcile-counts currentFiles=1684 trackedFiles=1684 existsChecks=0 statChecks=1684 statUnchanged=1683 statErrors=0 snapshotPresence=0 snapshotStats=0 hashReadAttempts=1 hashReadFiles=1 hashReadErrors=0 sameHashSkipped=0 sameHashStatUpdated=0 sameHashStatDeferred=0 recoveryRetryFiles=0 added=0 modified=1 removed=0"
+  },
+  {
+    "label": "r2-baseline",
+    "version": "baseline",
+    "wallSeconds": 5.780409855000471,
+    "cpuUserSeconds": 5.6407810000000005,
+    "cpuSystemSeconds": 1.1413510000000002,
+    "inputDatabaseSha256": "f9e04764baf624af7a009ba98a6c80380bd8b0a55c6ea74489b2d37b7a676b72",
+    "inputSourceSha256": "bc7ae82cc24891666c1332976a70fa28ebab1feff7ec2124e177e01300c97fc3",
+    "graph": {
+      "nodes": {
+        "rows": 107726,
+        "sha256": "bdf1f6e0899c04cbd53837ddb31e551314b3440c6b00ce6f6652f6ba4d346821"
+      },
+      "edges": {
+        "rows": 407791,
+        "sha256": "3bc54aa361823f4afb91f0f06ec03ba7985181b8643268969c6f3931db2c8410"
+      },
+      "metadata": [
+        [
+          "index_completeness",
+          "complete",
+          1792319107418
+        ],
+        [
+          "index_diagnostics",
+          "[]",
+          1792319107418
+        ],
+        [
+          "index_synthesis_completed_version",
+          "1",
+          1792319107418
+        ],
+        [
+          "index_synthesis_verification_started",
+          "1",
+          1792319103151
+        ],
+        [
+          "indexed_language_scope",
+          "all",
+          1792294030691
+        ],
+        [
+          "indexed_with_extraction_version",
+          "36",
+          1792294030691
+        ],
+        [
+          "indexed_with_version",
+          "1.1.2",
+          1792294030691
+        ],
+        [
+          "repair:cpp-include-targets-v1",
+          "done",
+          1792294038620
+        ],
+        [
+          "resolution:cpp-macro-evidence-clean-v1",
+          "db8b9efc7c6e3ef624e1f4020e3b8eefb517a39c5b717e2836e926e482059078",
+          1792319102765
+        ],
+        [
+          "resolution:cpp-macro-evidence-v1",
+          "db8b9efc7c6e3ef624e1f4020e3b8eefb517a39c5b717e2836e926e482059078",
+          1792294007071
+        ],
+        [
+          "sync-retry:done:util/crc32c.cc",
+          "{\"version\":\"1:36\",\"contentHash\":\"bc7ae82cc24891666c1332976a70fa28ebab1feff7ec2124e177e01300c97fc3\",\"fingerprint\":\"7dea88f8523659e51f19837f0c216a2381334f03911f120e1b2d4872e610c9ba\"}",
+          1792319107636
+        ]
+      ]
+    },
+    "reconcile": "[sync] reconcile-counts currentFiles=1684 trackedFiles=1684 existsChecks=0 statChecks=1684 statUnchanged=1683 statErrors=0 snapshotPresence=0 snapshotStats=0 hashReadAttempts=1 hashReadFiles=1 hashReadErrors=0 sameHashSkipped=0 sameHashStatUpdated=0 sameHashStatDeferred=0 recoveryRetryFiles=0 added=0 modified=1 removed=0"
+  },
+  {
+    "label": "r3-baseline",
+    "version": "baseline",
+    "wallSeconds": 6.044737555999745,
+    "cpuUserSeconds": 5.907828999999996,
+    "cpuSystemSeconds": 1.2343710000000003,
+    "inputDatabaseSha256": "f9e04764baf624af7a009ba98a6c80380bd8b0a55c6ea74489b2d37b7a676b72",
+    "inputSourceSha256": "bc7ae82cc24891666c1332976a70fa28ebab1feff7ec2124e177e01300c97fc3",
+    "graph": {
+      "nodes": {
+        "rows": 107726,
+        "sha256": "bdf1f6e0899c04cbd53837ddb31e551314b3440c6b00ce6f6652f6ba4d346821"
+      },
+      "edges": {
+        "rows": 407791,
+        "sha256": "3bc54aa361823f4afb91f0f06ec03ba7985181b8643268969c6f3931db2c8410"
+      },
+      "metadata": [
+        [
+          "index_completeness",
+          "complete",
+          1792319118849
+        ],
+        [
+          "index_diagnostics",
+          "[]",
+          1792319118849
+        ],
+        [
+          "index_synthesis_completed_version",
+          "1",
+          1792319118849
+        ],
+        [
+          "index_synthesis_verification_started",
+          "1",
+          1792319114322
+        ],
+        [
+          "indexed_language_scope",
+          "all",
+          1792294030691
+        ],
+        [
+          "indexed_with_extraction_version",
+          "36",
+          1792294030691
+        ],
+        [
+          "indexed_with_version",
+          "1.1.2",
+          1792294030691
+        ],
+        [
+          "repair:cpp-include-targets-v1",
+          "done",
+          1792294038620
+        ],
+        [
+          "resolution:cpp-macro-evidence-clean-v1",
+          "db8b9efc7c6e3ef624e1f4020e3b8eefb517a39c5b717e2836e926e482059078",
+          1792319113945
+        ],
+        [
+          "resolution:cpp-macro-evidence-v1",
+          "db8b9efc7c6e3ef624e1f4020e3b8eefb517a39c5b717e2836e926e482059078",
+          1792294007071
+        ],
+        [
+          "sync-retry:done:util/crc32c.cc",
+          "{\"version\":\"1:36\",\"contentHash\":\"bc7ae82cc24891666c1332976a70fa28ebab1feff7ec2124e177e01300c97fc3\",\"fingerprint\":\"7dea88f8523659e51f19837f0c216a2381334f03911f120e1b2d4872e610c9ba\"}",
+          1792319119079
+        ]
+      ]
+    },
+    "reconcile": "[sync] reconcile-counts currentFiles=1684 trackedFiles=1684 existsChecks=0 statChecks=1684 statUnchanged=1683 statErrors=0 snapshotPresence=0 snapshotStats=0 hashReadAttempts=1 hashReadFiles=1 hashReadErrors=0 sameHashSkipped=0 sameHashStatUpdated=0 sameHashStatDeferred=0 recoveryRetryFiles=0 added=0 modified=1 removed=0"
+  },
+  {
+    "label": "r3-fixed",
+    "version": "fixed",
+    "wallSeconds": 5.784812740999769,
+    "cpuUserSeconds": 5.615739000000005,
+    "cpuSystemSeconds": 1.179602,
+    "inputDatabaseSha256": "f9e04764baf624af7a009ba98a6c80380bd8b0a55c6ea74489b2d37b7a676b72",
+    "inputSourceSha256": "bc7ae82cc24891666c1332976a70fa28ebab1feff7ec2124e177e01300c97fc3",
+    "graph": {
+      "nodes": {
+        "rows": 107726,
+        "sha256": "bdf1f6e0899c04cbd53837ddb31e551314b3440c6b00ce6f6652f6ba4d346821"
+      },
+      "edges": {
+        "rows": 407791,
+        "sha256": "3bc54aa361823f4afb91f0f06ec03ba7985181b8643268969c6f3931db2c8410"
+      },
+      "metadata": [
+        [
+          "index_completeness",
+          "complete",
+          1792319130773
+        ],
+        [
+          "index_diagnostics",
+          "[]",
+          1792319130773
+        ],
+        [
+          "index_synthesis_completed_version",
+          "1",
+          1792319130773
+        ],
+        [
+          "index_synthesis_verification_started",
+          "1",
+          1792319126473
+        ],
+        [
+          "indexed_language_scope",
+          "all",
+          1792294030691
+        ],
+        [
+          "indexed_with_extraction_version",
+          "36",
+          1792294030691
+        ],
+        [
+          "indexed_with_version",
+          "1.1.2",
+          1792294030691
+        ],
+        [
+          "repair:cpp-include-targets-v1",
+          "done",
+          1792294038620
+        ],
+        [
+          "resolution:cpp-macro-evidence-clean-v1",
+          "db8b9efc7c6e3ef624e1f4020e3b8eefb517a39c5b717e2836e926e482059078",
+          1792319126100
+        ],
+        [
+          "resolution:cpp-macro-evidence-v1",
+          "db8b9efc7c6e3ef624e1f4020e3b8eefb517a39c5b717e2836e926e482059078",
+          1792294007071
+        ],
+        [
+          "sync-retry:done:util/crc32c.cc",
+          "{\"version\":\"1:36\",\"contentHash\":\"bc7ae82cc24891666c1332976a70fa28ebab1feff7ec2124e177e01300c97fc3\",\"fingerprint\":\"7dea88f8523659e51f19837f0c216a2381334f03911f120e1b2d4872e610c9ba\"}",
+          1792319130984
+        ]
+      ]
+    },
+    "reconcile": "[sync] reconcile-counts currentFiles=1684 trackedFiles=1684 existsChecks=0 statChecks=1684 statUnchanged=1683 statErrors=0 snapshotPresence=0 snapshotStats=0 hashReadAttempts=1 hashReadFiles=1 hashReadErrors=0 sameHashSkipped=0 sameHashStatUpdated=0 sameHashStatDeferred=0 recoveryRetryFiles=0 added=0 modified=1 removed=0"
+  }
+]

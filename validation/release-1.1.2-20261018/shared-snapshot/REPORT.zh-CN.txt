@@ -1,0 +1,42 @@
+共同物理快照三对隔离实验（产品冻结594c45f）
+
+设计和范围
+使用合法持有RocksDB源码及既有30d数据库；源库只读SQLite backup到隔离项目，将crc32c.cc恢复原始字节后，通过正常30d sync撤销之前104字节探针。未手改任何图行、未新建init。检查107724节点、无probe、stamp36、complete、integrity_check=ok，CLI退出后再SQLite backup保存template.db。
+三对顺序AB/BA/AB，A=30d，B=594。每次恢复同一模板字节到同一路径，再写入原实验完全相同104字节变更；固定Node、依赖、helpers、workers、堆和native配置。恢复/哈希/结果图读取均在计时外。无热身剔除，无追加样本。所有6次正常退出。
+快照SHA256：f9e04764baf624af7a009ba98a6c80380bd8b0a55c6ea74489b2d37b7a676b72
+快照字节数：333512704
+物理快照保存在/workspace/codegraph-evidence/shared-snapshot/template.db，不装入Git或小型证据包。
+
+计量方法
+通过相同外部--require诊断脚本记录SQLite adapter prepare/run/get/all/iterate.next/exec/pragma耗时与调用区间process.cpuUsage；不改src/dist、不新增生产功能或开关。CPU总量使用Python RUSAGE_CHILDREN每次命令前后差，包含已等待的CLI及其子进程CPU；Node worker线程包含在进程CPU中。CPU可能大于wall。
+SQL CPU是调用区间整个Node进程的CPU，不是SQLite专属CPU；并发线程也可能计入。逐操作计时本身有开销，六次使用相同脚本且操作数量一致；本组绝对值不能与未插桩旧矩阵直接混算。
+orphanAndSynthesisMs引用生产日志细分计时；预留的synthesizeIncrementalCCpp方法hook本组没有记录调用，不能把空记录当作该尾阶段耗时为0，也不能声称测到了其专属CPU。SQL列为全命令adapter区间汇总，包含准备和迭代步，不与尾阶段相加。
+
+全部原值（wall/CPU秒；尾阶段与SQL毫秒）
+r1-baseline: wall=5.738730; CPU user=5.630008, system=1.049065, total=6.679073; orphanAndSynthesis=4313; SQL wall=2747.446, SQL区间进程CPU=2832.419
+r1-fixed: wall=6.319923; CPU user=6.226862, system=1.240148, total=7.467010; orphanAndSynthesis=4705; SQL wall=3115.581, SQL区间进程CPU=3320.656
+r2-fixed: wall=5.854868; CPU user=5.962313, system=1.037112, total=6.999425; orphanAndSynthesis=4291; SQL wall=2855.125, SQL区间进程CPU=3075.680
+r2-baseline: wall=5.780410; CPU user=5.640781, system=1.141351, total=6.782132; orphanAndSynthesis=4268; SQL wall=2728.949, SQL区间进程CPU=2868.629
+r3-baseline: wall=6.044738; CPU user=5.907829, system=1.234371, total=7.142200; orphanAndSynthesis=4528; SQL wall=2804.066, SQL区间进程CPU=2902.229
+r3-fixed: wall=5.784813; CPU user=5.615739, system=1.179602, total=6.795341; orphanAndSynthesis=4301; SQL wall=2806.536, SQL区间进程CPU=2941.971
+
+逐对变化：
+r1: wall +10.128%, CPU +11.797%
+r2: wall +1.288%, CPU +3.204%
+r3: wall -4.300%, CPU -4.856%
+中位wallSeconds: 5.780410→5.854868 (+1.288%)
+中位cpuSeconds: 6.782132→6.999425 (+3.204%)
+中位sqlWallMs: 2747.445878→2855.125073 (+3.919%)
+中位sqlCpuMs: 2868.629000→3075.680000 (+7.218%)
+
+SQL工作量与图
+六次SQL文本/操作类型/阶段分组及次数完全相同，共416006个adapter操作（包含iterate.next，绝不是416006条独立SQL）。最大的操作包括：按kind迭代nodes的231517个next、按id查nodes的125371次get、按source/kind查edges的23388次all。逐SQL原文/次数/wall/CPU在每次profile中保留。
+六次最终nodes/edges完整排序逻辑哈希完全相同，节点去updated_at，边去自增id。每次只改1文件、无recoveryRetryFiles、SQLite完整性正常；核心代码不变。输出107726节点、407791边，与原30d修改后图相符。
+nodes SHA256：bdf1f6e0899c04cbd53837ddb31e551314b3440c6b00ce6f6652f6ba4d346821
+edges SHA256：3bc54aa361823f4afb91f0f06ec03ba7985181b8643268969c6f3931db2c8410
+
+结论
+在共同物理起点上，原+8.10%没有作为稳定方向复现：wall三对+10.13%、+1.29%、-4.30%，中位+1.29%；CPU三对+11.80%、+3.20%、-4.86%，中位+3.20%。第一对的不利wall和CPU完整保留，SQL区间进程CPU中位也仍为+7.22%，不淡化这些数字。
+结合先前目标文件身份函数零调用、构建只差身份模块、此次共同DB和一致SQL工作量，未发现稳定的、由新增身份代码直接导致的端到端约8%退化。三对不是等价性检验，不能承诺绝对零成本或所有环境无回归，也不能声称全部剩余差值已归因于某一种噪声。
+共同起点是30d图，未变的crc32c_test.cc不会重索引，因此八条额外声明在两版都保留。本组隔离代码版本，不能排除新修复图/不同布局的间接影响。没有手改DB构造八条逻辑差异控制组，也没有将另一历史候选库冒充594图。本轮不追加实验，不重构或优化产品。
+13项共有失败仍仅列基线，非新增阻断。正式全平台包缺Windows产物的边界不变。仅本地证据提交，无push/merge/release。

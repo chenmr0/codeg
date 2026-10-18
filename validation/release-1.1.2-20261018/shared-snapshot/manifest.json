@@ -1,0 +1,80 @@
+{
+  "templateSha256": "f9e04764baf624af7a009ba98a6c80380bd8b0a55c6ea74489b2d37b7a676b72",
+  "templateBytes": 333512704,
+  "metadata": [
+    [
+      "index_completeness",
+      "complete",
+      1792319060472
+    ],
+    [
+      "index_diagnostics",
+      "[]",
+      1792319060472
+    ],
+    [
+      "index_synthesis_completed_version",
+      "1",
+      1792319060472
+    ],
+    [
+      "index_synthesis_verification_started",
+      "1",
+      1792319056089
+    ],
+    [
+      "indexed_language_scope",
+      "all",
+      1792294030691
+    ],
+    [
+      "indexed_with_extraction_version",
+      "36",
+      1792294030691
+    ],
+    [
+      "indexed_with_version",
+      "1.1.2",
+      1792294030691
+    ],
+    [
+      "repair:cpp-include-targets-v1",
+      "done",
+      1792294038620
+    ],
+    [
+      "resolution:cpp-macro-evidence-clean-v1",
+      "db8b9efc7c6e3ef624e1f4020e3b8eefb517a39c5b717e2836e926e482059078",
+      1792319055812
+    ],
+    [
+      "resolution:cpp-macro-evidence-v1",
+      "db8b9efc7c6e3ef624e1f4020e3b8eefb517a39c5b717e2836e926e482059078",
+      1792294007071
+    ],
+    [
+      "sync-retry:done:util/crc32c.cc",
+      "{\"version\":\"1:36\",\"contentHash\":\"c1f10602fd9fe9421c2783b556b48c39f217ceb67825d8d5906f15e8df45b352\",\"fingerprint\":\"8a5cea683033dff1ccd9fabfafc8582c9b7aec2aac6b201daa936d6362f344a0\"}",
+      1792319060685
+    ]
+  ],
+  "sourceBeforeSha256": "c1f10602fd9fe9421c2783b556b48c39f217ceb67825d8d5906f15e8df45b352",
+  "sourceOrigin": "/workspace/codegraph-evidence/rocksdb-full/r1-baseline",
+  "preparation": "read-only backup of existing 30d edited DB, restore original source then normal baseline sync, SQLite backup after CLI closed",
+  "order": [
+    "AB",
+    "BA",
+    "AB"
+  ],
+  "environment": {
+    "CODEGRAPH_RUST_SCAN": "1",
+    "CODEGRAPH_RUST_MACROS": "1",
+    "CODEGRAPH_RUST_SCAN_PATH": "/workspace/codegraph-regression-fixes/dist/native-scan/linux-x64/codegraph-scan",
+    "CODEGRAPH_RUST_MACROS_PATH": "/workspace/codegraph-regression-fixes/dist/native-macros/linux-x64/codegraph-macros",
+    "CODEGRAPH_ALL_LANGUAGES": "1",
+    "CODEGRAPH_PARSE_WORKERS": "1",
+    "CODEGRAPH_NO_STORE_WORKER": "1",
+    "NODE_OPTIONS": "--max-old-space-size=4096"
+  },
+  "instrumentationSha256": "0368871387354fa464168f15db5372411f6b66524b5c1d5029fd290bae85a06e"
+}
