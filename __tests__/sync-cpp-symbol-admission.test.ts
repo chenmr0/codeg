@@ -248,24 +248,24 @@ struct ${phase ? 'alignas(16) ' : ''}Derived : decltype(makeBase()) {
     const defs = path.join(root, 'defs.hpp');
     const consumer = path.join(root, 'consumer.cpp');
     fs.writeFileSync(defs, '#define FIELD(name) int name;\n');
-    fs.writeFileSync(consumer, '#include "defs.hpp"\nFIELD(first)\n');
+    fs.writeFileSync(consumer, 'FIELD(first)\n');
     const graph = CodeGraph.initSync(root); graphs.push(graph);
     await graph.indexAll();
     expect(graph.getNodesByName('first')).toContainEqual(expect.objectContaining({kind:'variable'}));
 
     fs.writeFileSync(defs, '// no definitions remain\n');
-    fs.writeFileSync(consumer, '#include "defs.hpp"\nFIELD(second)\n');
+    fs.writeFileSync(consumer, 'FIELD(second)\n');
     await graph.sync({paths:['defs.hpp','consumer.cpp']});
     expect(graph.getNodesByName('second').some(n => n.kind === 'variable')).toBe(false);
 
     fs.writeFileSync(defs, '#define FIELD(name) long name;\n');
-    fs.writeFileSync(consumer, '#include "defs.hpp"\nFIELD(third)\n');
+    fs.writeFileSync(consumer, 'FIELD(third)\n');
     await graph.sync({paths:['defs.hpp','consumer.cpp']});
     expect(graph.getNodesByName('third')).toContainEqual(expect.objectContaining({kind:'variable'}));
 
     fs.unlinkSync(defs);
     await graph.sync({paths:['defs.hpp']});
-    fs.writeFileSync(consumer, '#include "defs.hpp"\nFIELD(fourth)\n');
+    fs.writeFileSync(consumer, 'FIELD(fourth)\n');
     await graph.sync({paths:['consumer.cpp']});
     expect(graph.getNodesByName('fourth').some(n => n.kind === 'variable')).toBe(false);
   }, 30_000);

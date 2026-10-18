@@ -1692,6 +1692,12 @@ export class TreeSitterExtractor {
       // Only suppress auxiliary declarations if the FULL replacement cannot
       // close any surrounding delimiter or emit declaration/body separators.
       // BRIDGE-style macros that close the array and declare symbols must pass.
+      // A balanced attribute/name wrapper inside a parameter cannot create a
+      // namespace declaration. Sparse recovery would drop the preceding lines
+      // of a template signature and promote its parameters to variables.
+      if (current.type === 'parameter_declaration'
+        && candidate.start >= current.startIndex && candidate.end <= current.endIndex
+        && preservesInitializerBoundary(candidate.expansion)) return false;
       if (current.type === 'initializer_list' && !current.hasError &&
           current.lastChild?.type === '}' && !current.lastChild.isMissing &&
           candidate.start > current.startIndex && candidate.end < current.endIndex &&

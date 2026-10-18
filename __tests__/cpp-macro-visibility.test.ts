@@ -143,3 +143,49 @@ it('pre-expands object-like arguments from real includes through nested wrappers
     expect(expanded.source).toContain('struct Included_Type {};');
   });
 });
+
+it.each(['#include"api.h"', '#include/**/"api.h"', '#/**/include /* comment */ "api.h"'])(
+  'accepts legal preprocessing whitespace: %s', async directive => {
+    await withProject({ 'main.cpp': `${directive}\nBUILD(Widget)\n`, 'api.h': '#define BUILD(x) struct x {};\n' }, (source, context) => {
+      expect(expandDeclarationMacros(source, visibleMacroDefinitions(context.project, 'main.cpp', source)).source)
+        .toContain('struct Widget {};');
+    });
+  },
+);
+
+it.each([
+  ['undef then include', '#undef BUILD\n#include "api.h"\nBUILD(Widget)\n'],
+  ['include undef include', '#include "api.h"\n#undef BUILD\nBUILD(Hidden)\n#include "api.h"\nBUILD(Widget)\n'],
+])('replays include definitions in source order: %s', async (_name, source) => {
+  await withProject({ 'main.cpp': source, 'api.h': '#define BUILD(x) struct x {};\n' }, (source, context) => {
+    const expanded = expandDeclarationMacros(source, visibleMacroDefinitions(context.project, 'main.cpp', source)).source;
+    expect(expanded).toContain('struct Widget {};');
+    if (source.includes('BUILD(Hidden)')) expect(expanded).toContain('BUILD(Hidden)');
+  });
+});
+
+it.each(['#include HEADER\n', '', '#include <external-bridge.h>\n'])(
+  'keeps declaration-entry compatibility with unresolved compiler configuration: %j', async directive => {
+    await withProject({
+      'main.cpp': `${directive}DECLARE(Record)\n`,
+      'defs.h': '#define HELPER(x) struct x {};\n#define DECLARE(x) HELPER(x)\n',
+      'unrelated.h': '#define Record Poison\n',
+    }, (source, context) => {
+      const result = extractFromSource('main.cpp', source, 'cpp', undefined, context.names, context.bodyless,
+        context.definitions, undefined, context.project);
+      expect(result.nodes.filter(n => n.kind === 'struct').map(n => n.name)).toEqual(['Record']);
+    });
+  },
+);
+
+it('does not promote attribute-wrapped function parameters into namespace variables', async () => {
+  await withProject({
+    'main.cpp': '#include "attrs.h"\nnamespace demo {\ntemplate<class T> struct Store { void f(const T &arg, const bool flag); };\ntemplate<class T> void Store<T>::f(\n const T &arg, const bool UU(flag)) {}\n}\n',
+    'attrs.h': '#define UU(x) x __attribute__((__unused__))\n',
+    'unrelated.h': '#define __attribute__(x)\n',
+  }, (source, context) => {
+    const result = extractFromSource('main.cpp', source, 'cpp', undefined, context.names, context.bodyless,
+      context.definitions, undefined, context.project);
+    expect(result.nodes.filter(n => ['variable', 'constant', 'field'].includes(n.kind) && ['arg', 'flag'].includes(n.name))).toEqual([]);
+  });
+});
