@@ -485,6 +485,12 @@ function formatCatchUpNotice(
  * MCP Tool definition
  */
 export interface ToolDefinition {
+  /** Behavioral hints for MCP hosts; these do not override host permissions. */
+  annotations?: {
+    readOnlyHint?: boolean;
+    destructiveHint?: boolean;
+    openWorldHint?: boolean;
+  };
   name: string;
   description: string;
   inputSchema: {
@@ -638,6 +644,7 @@ const SEARCHABLE_KINDS = NODE_KINDS.filter(
 export const tools: ToolDefinition[] = [
   {
     name: 'search',
+    annotations: { readOnlyHint: true },
     description:
       'Search 1–8 symbol names, qualified names, or callable signatures. Defaults to strict case-sensitive lookup; Batch 2–8 already-known independent names in ONE call with `queries`; true misses share one exact raw-source scan. `path` is a soft disambiguation hint: matching candidates are narrowed and ranked, while a miss keeps all exact candidates with a warning. Use line/signature for stronger assertions. Set the separate JSON field `"includeCode": "if_unique"` to return one implementation body plus compact declaration pointers; never append options to `query`. Oversized source is safely truncated. Natural-language questions and literal values are rejected.',
     inputSchema: {
@@ -704,6 +711,7 @@ export const tools: ToolDefinition[] = [
   },
   {
     name: 'context',
+    annotations: { readOnlyHint: true },
     description: 'Bounded 1–8 target manifest. Supports container members, exact offset/limit windows, text assertions, and grouped `{file, symbols, texts}` anchors. Decl/def partners and ranges are deduplicated; `expectedMissing` verifies new names. A bare file returns a compact symbol outline with name-only filters. A JSON-stringified targets array is parsed automatically. Preflight stops over-budget plain windows before partial source.',
     inputSchema: {
       type: 'object',
@@ -832,6 +840,7 @@ export const tools: ToolDefinition[] = [
   },
   {
     name: 'text_search',
+    annotations: { readOnlyHint: true },
     description: 'Batch literal-text search over indexed source files for strings the AST graph does not model (macros, registration strings, table names, generated-code markers). Requires a narrow directory/file `path`; searches 1–8 literals in one call and returns small line snippets. Zero-match identifier-like queries automatically include exact global symbol results, avoiding a correction call. Generated files are skipped by default, except when `path` resolves to one exact generated file and includeGenerated was not explicitly disabled.',
     inputSchema: {
       type: 'object',
@@ -881,6 +890,7 @@ export const tools: ToolDefinition[] = [
   },
   {
     name: 'callers',
+    annotations: { readOnlyHint: true },
     description: 'List functions that call one exact symbol/overload. Optional `file`, `line`, and `signature` hints disambiguate overloaded or same-named symbols. If more than one logical overload remains, no graph traversal is run; exact candidates are returned instead of aggregating unrelated callers. For one exact C++/interface override, callers attached to its base virtual declaration are aggregated across the explicit dispatch family.',
     inputSchema: {
       type: 'object',
@@ -916,6 +926,7 @@ export const tools: ToolDefinition[] = [
   },
   {
     name: 'callees',
+    annotations: { readOnlyHint: true },
     description: 'List functions called by one exact symbol/overload. Optional `file`, `line`, and `signature` hints disambiguate overloaded or same-named symbols. If more than one logical overload remains, no graph traversal is run; exact candidates are returned instead of aggregating unrelated callees.',
     inputSchema: {
       type: 'object',
@@ -951,6 +962,7 @@ export const tools: ToolDefinition[] = [
   },
   {
     name: 'impact',
+    annotations: { readOnlyHint: true },
     description: 'List symbols affected by changing one exact symbol/overload. Optional `file`, `line`, and `signature` hints disambiguate overloaded or same-named symbols. If more than one logical overload remains, no impact traversal is run; exact candidates are returned instead of merging unrelated impact graphs.',
     inputSchema: {
       type: 'object',
@@ -986,6 +998,7 @@ export const tools: ToolDefinition[] = [
   },
   {
     name: 'node',
+    annotations: { readOnlyHint: true },
     description: 'Read minimal indexed context. Prefer SYMBOL MODE for one named implementation; source is safely truncated and relations are omitted by default. Native BATCH MODE accepts 1–8 symbol/member/text/file-region targets and deduplicates ranges and decl/def partners. FILE MODE supports a name-filtered outline or exact offset+limit boundary. Bare-file/full-file reads are rejected.',
     inputSchema: {
       type: 'object',
@@ -1138,6 +1151,7 @@ export const tools: ToolDefinition[] = [
   },
   {
     name: 'explore',
+    annotations: { readOnlyHint: true },
     description: 'PRIMARY TOOL — call FIRST for almost any question OR before an edit: how does X work, architecture, a bug, where/what is X, surveying an area, or the symbols you are about to change. Returns the verbatim source of the relevant symbols grouped by file in ONE capped call (Read-equivalent — treat the shown source as already Read; do NOT re-open those files), plus the call path among them. 传入一组符号名/文件名（例如 "AuthService"、"GraphTraverser BFS impact traversal.ts"）。为获得最佳结果请使用符号名，不要传自然语言问题。Usually the ONLY call you need — more accurate context, in far fewer tokens and round-trips than a search/Read/Grep loop.',
     inputSchema: {
       type: 'object',
@@ -1158,6 +1172,7 @@ export const tools: ToolDefinition[] = [
   },
   {
     name: 'status',
+    annotations: { readOnlyHint: true },
     description: 'Index health check (files / nodes / edges). Skip unless debugging.',
     inputSchema: {
       type: 'object',
@@ -1168,6 +1183,7 @@ export const tools: ToolDefinition[] = [
   },
   {
     name: 'files',
+    annotations: { readOnlyHint: true },
     description: 'Indexed file tree with language + symbol counts. Faster than Glob for project layout.',
     inputSchema: {
       type: 'object',
