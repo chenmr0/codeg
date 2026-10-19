@@ -1,2 +1,0 @@
-scripts/install-self-contained.sh text eol=lf
-scripts/smoke-single-file-linux.sh text eol=lf
