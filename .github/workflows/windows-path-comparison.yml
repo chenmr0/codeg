@@ -25,7 +25,6 @@ jobs:
       RUSTUP_TOOLCHAIN: stable
       CODEGRAPH_RUST_SCAN_EXPECT: '1'
       CODEGRAPH_RUST_MACROS_EXPECT: '1'
-      DIAG_DIR: ${{ runner.temp }}/windows-path-diagnostics
       EXPECTED_REF: ${{ matrix.ref }}
     steps:
       - uses: actions/checkout@v6
@@ -33,7 +32,10 @@ jobs:
           ref: ${{ matrix.ref }}
           persist-credentials: false
       - name: Initialize diagnostic output
-        run: New-Item -ItemType Directory -Force $env:DIAG_DIR | Out-Null
+        run: |
+          $diagDir = Join-Path $env:RUNNER_TEMP "windows-path-diagnostics"
+          New-Item -ItemType Directory -Force $diagDir | Out-Null
+          "DIAG_DIR=$diagDir" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
       - uses: actions/setup-node@v6
         with:
           node-version: 22
