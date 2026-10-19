@@ -1,0 +1,148 @@
+name: Windows path comparison (manual diagnostic)
+
+# Diagnostic only: changing TEMP does not constitute a product fix.
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  compare:
+    name: Windows paths / ${{ matrix.ref }}
+    runs-on: windows-2022
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        ref:
+          - 875f0c30237491603e0005e355ad316504c62fdc
+          - e1c038a59fd0194c87e935b262ba764d81e45668
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      RUSTUP_TOOLCHAIN: stable
+      CODEGRAPH_RUST_SCAN_EXPECT: '1'
+      CODEGRAPH_RUST_MACROS_EXPECT: '1'
+      DIAG_DIR: ${{ runner.temp }}/windows-path-diagnostics
+      EXPECTED_REF: ${{ matrix.ref }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ matrix.ref }}
+          persist-credentials: false
+      - name: Initialize diagnostic output
+        run: New-Item -ItemType Directory -Force $env:DIAG_DIR | Out-Null
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - name: Build and validate both native helpers
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $false
+          function Invoke-Checked([string]$label, [string]$program, [string[]]$arguments) {
+            & $program @arguments 2>&1 | Tee-Object -FilePath "$env:DIAG_DIR/$label.log"
+            $code = $LASTEXITCODE
+            @{ step = $label; exitCode = $code } | ConvertTo-Json -Compress | Add-Content "$env:DIAG_DIR/build-status.jsonl"
+            if ($code -ne 0) { throw "$label failed with exit code $code" }
+          }
+          $actual = & git rev-parse HEAD
+          if ($LASTEXITCODE -ne 0 -or $actual.Trim() -ne $env:EXPECTED_REF) { throw 'Unexpected checkout ref' }
+          $actual | Set-Content "$env:DIAG_DIR/commit.txt"
+          Invoke-Checked 'toolchain' 'rustup' @('toolchain', 'install', 'stable', '--profile', 'minimal', '--target', 'x86_64-pc-windows-msvc')
+          Invoke-Checked 'npm-ci' 'npm.cmd' @('ci')
+          Invoke-Checked 'typescript-build' 'npm.cmd' @('run', 'build')
+          Invoke-Checked 'scan-build' 'npm.cmd' @('run', 'build:rust-scan', '--', '--target', 'x86_64-pc-windows-msvc')
+          Invoke-Checked 'macros-build' 'npm.cmd' @('run', 'build:rust-macros', '--', '--target', 'x86_64-pc-windows-msvc')
+          Invoke-Checked 'scan-validate' 'npm.cmd' @('run', 'validate:rust-scan')
+          Invoke-Checked 'macros-validate' 'npm.cmd' @('run', 'validate:rust-macros')
+          Invoke-Checked 'artifacts-check' 'node' @('scripts/check-rust-scan-artifacts.mjs', '--require', 'win32-x64')
+          Copy-Item 'dist/native-scan/win32-x64/manifest.json' "$env:DIAG_DIR/scan-manifest.json"
+          Copy-Item 'dist/native-macros/win32-x64/manifest.json' "$env:DIAG_DIR/macros-manifest.json"
+          exit 0
+      - name: Compare default TEMP then explicit long-form TEMP
+        run: |
+          # Never let a nonzero native exit prevent the second group running.
+          $PSNativeCommandUseErrorActionPreference = $false
+          $originalTemp = $env:TEMP
+          $originalTmp = $env:TMP
+          $results = @()
+          @'
+          const fs = require('node:fs');
+          const os = require('node:os');
+          const path = require('node:path');
+          const { spawnSync } = require('node:child_process');
+          const describe = p => ({ input: p, realpath: fs.realpathSync(p), native: fs.realpathSync.native(p) });
+          const fixture = fs.mkdtempSync(path.join(os.tmpdir(), 'cg-path-probe-'));
+          const git = args => {
+            const r = spawnSync('git', args, { cwd: fixture, encoding: 'utf8', windowsHide: true });
+            return { args, status: r.status, stdout: r.stdout, stderr: r.stderr, error: r.error?.message };
+          };
+          try {
+            fs.writeFileSync(path.join(fixture, 'sample.c'), 'int value;\n');
+            const init = git(['init', '-q']);
+            const revParse = git(['rev-parse', '--show-toplevel']);
+            console.log(JSON.stringify({ node: process.version, platform: process.platform,
+              TEMP: process.env.TEMP, TMP: process.env.TMP, tmpdir: os.tmpdir(),
+              tempPaths: describe(os.tmpdir()), cwd: describe(process.cwd()),
+              fixture: describe(fixture), file: describe(path.join(fixture, 'sample.c')),
+              gitInit: init, gitRevParse: revParse }, null, 2));
+            if (init.status !== 0 || revParse.status !== 0) process.exitCode = 1;
+          } finally { fs.rmSync(fixture, { recursive: true, force: true }); }
+          '@ | Set-Content "$env:DIAG_DIR/path-probe.cjs"
+          $files = @(
+            '__tests__/git-paths.test.ts',
+            '__tests__/scan-optimizations.test.ts',
+            '__tests__/sync-diagnostics.test.ts',
+            '__tests__/sync-file-list-reuse.test.ts'
+          )
+          try {
+            foreach ($group in @('default', 'long-form')) {
+              $result = [ordered]@{ group = $group; ref = $env:EXPECTED_REF; probeExitCode = $null; testExitCode = $null; error = $null }
+              try {
+                if ($group -eq 'default') {
+                  $env:TEMP = $originalTemp
+                  $env:TMP = $originalTmp
+                } else {
+                  New-Item -ItemType Directory -Force 'D:\codegraph-ci-temp' | Out-Null
+                  $env:TEMP = 'D:\codegraph-ci-temp'
+                  $env:TMP = 'D:\codegraph-ci-temp'
+                }
+                & node "$env:DIAG_DIR/path-probe.cjs" 2>&1 | Tee-Object -FilePath "$env:DIAG_DIR/$group-paths.log"
+                $result.probeExitCode = $LASTEXITCODE
+                & node --liftoff-only node_modules/vitest/vitest.mjs run @files --config vitest.rust-macros.config.mts --testTimeout=20000 --reporter=default --reporter=json "--outputFile.json=$env:DIAG_DIR/$group-vitest.json" 2>&1 | Tee-Object -FilePath "$env:DIAG_DIR/$group-tests.log"
+                $result.testExitCode = $LASTEXITCODE
+              } catch {
+                $result.error = $_.ToString()
+                Write-Host "Diagnostic group $group encountered an error: $_"
+              } finally {
+                $results += [pscustomobject]$result
+                ConvertTo-Json -InputObject @($results) -Depth 5 | Set-Content "$env:DIAG_DIR/comparison-status.json"
+              }
+            }
+          } finally {
+            $env:TEMP = $originalTemp
+            $env:TMP = $originalTmp
+          }
+          # The explicit gate below fails the job, after both groups have run.
+          exit 0
+      - name: Gate diagnostic results
+        if: always()
+        run: |
+          $statusFile = "$env:DIAG_DIR/comparison-status.json"
+          if (!(Test-Path $statusFile)) { throw 'Diagnostic incomplete: build/validation or comparison did not finish. Inspect logs.' }
+          $results = @(Get-Content $statusFile -Raw | ConvertFrom-Json)
+          $results | Format-Table -AutoSize
+          $failed = @($results | Where-Object { $null -eq $_.probeExitCode -or $_.probeExitCode -ne 0 -or $null -eq $_.testExitCode -or $_.testExitCode -ne 0 -or $_.error })
+          if ($results.Count -ne 2 -or $failed.Count -gt 0) {
+            throw 'Diagnostic failed or incomplete. A passing long-form TEMP group is evidence only, not a product fix.'
+          }
+      - name: Upload all diagnostic evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-path-comparison-${{ matrix.ref }}
+          path: ${{ runner.temp }}/windows-path-diagnostics/
+          if-no-files-found: error
+          retention-days: 7
+
