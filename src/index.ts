@@ -173,6 +173,8 @@ export interface IndexOptions {
 
 /** Options for incremental synchronization. */
 export interface SyncOptions extends IndexOptions {
+  /** Optional native fallback notice sink. Library/MCP/watch callers stay silent by default. */
+  onScanFallback?: (message: string) => void;
   /**
    * Exact project-relative source paths reported by the file watcher.
    * @internal Callers without a complete event set must leave this undefined.
@@ -910,6 +912,7 @@ export class CodeGraph {
           replaceFileStore,
           afterWrite,
           beforeNodeWrite,
+          options.onScanFallback,
         );
         // Publish extraction failures before any resolution work can finish
         // (or throw), including a recovery run with an older complete baseline.

@@ -1,3 +1,4 @@
+import { diagnosticPath, type RustScanDiagnostic } from './rust-scan';
 /** Verbose-only, per-invocation diagnostics. No source paths or contents. */
 export class ScanDiagnostics {
   mode: 'unknown' | 'git' | 'hybrid' | 'rust' | 'walk' | 'scoped' = 'unknown';
@@ -38,6 +39,7 @@ export class ScanDiagnostics {
   canonicalFromParent = 0;
   nativeStatus: 'off' | 'used' | 'verified' | 'mismatch' | 'fallback' = 'off';
   nativeReason = 'none';
+  nativeDiagnostic?: RustScanDiagnostic;
   nativeMs = 0;
   nativeDirectories = 0;
   nativeMetadata = 0;
@@ -53,6 +55,10 @@ export class ScanDiagnostics {
       ` nativeStatus=${this.nativeStatus} nativeReason=${this.nativeReason} nativeMs=${Math.round(this.nativeMs)}ms` +
       ` nativeDirectories=${this.nativeDirectories} nativeMetadata=${this.nativeMetadata}` +
       ` gitPathMode=${this.gitPathMode} ` +
+      (this.nativeDiagnostic ? 'nativeDiagnosticReason=' + this.nativeDiagnostic.reason +
+        ' nativeExcludedAsFile=' + this.nativeDiagnostic.excludedAsFile +
+        ' nativeExcludedAsDirectory=' + this.nativeDiagnostic.excludedAsDirectory +
+        ' nativeTargetType=' + this.nativeDiagnostic.targetType + diagnosticPath(this.nativeDiagnostic) + ' ' : '') +
       formatMs({ gitIgnoreMs: this.gitIgnoreMs, gitCanonicalMs: this.gitCanonicalMs,
         gitRealpathMs: this.gitRealpathMs, gitDedupMs: this.gitDedupMs }) +
       ` gitIgnoreMode=${this.gitIgnoreMode} gitIgnoreReason=${this.gitIgnoreReason}` +

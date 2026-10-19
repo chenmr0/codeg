@@ -24,7 +24,66 @@ export interface RustScanSnapshot {
   metadata: number;
   kernelMs: number;
 }
-export interface RustScanCapture { snapshot?: RustScanSnapshot }
+const SAFE_SCAN_REASONS = new Set([
+  'case-collision', 'depth-limit', 'entry-limit', 'file-changed', 'file-limit', 'file-metadata', 'file-type',
+  'ignore-build', 'input', 'mtime', 'mtime-before-epoch', 'non-ascii-path', 'non-utf8-path', 'number-range',
+  'operation', 'protocol', 'read-directory', 'read-ignore', 'request-json', 'request-limit', 'root-path',
+  'symlink', 'unsupported-candidate', 'unsupported-root', 'unsupported-rule', 'binary-checksum',
+  'binary-missing', 'binary-type', 'binary-unverified', 'manifest-invalid', 'manifest-mismatch',
+  'unsupported-platform', 'invalid-counters', 'invalid-diagnostic', 'invalid-file', 'invalid-files',
+  'invalid-filter', 'invalid-response', 'process-failed', 'response-json', 'root-alias',
+  'requires-walk-negation', 'parity-mismatch', 'artifact-error', 'native-rejected', 'scan-error', 'none',
+]);
+export function safeScanReason(reason: unknown): string {
+  return typeof reason === 'string' && SAFE_SCAN_REASONS.has(reason) ? reason : 'scan-error';
+}
+export interface RustScanDiagnostic {
+  reason: 'symlink';
+  excludedAsFile: 'yes' | 'no' | 'unknown';
+  excludedAsDirectory: 'yes' | 'no' | 'unknown';
+  targetType: 'file' | 'directory' | 'other' | 'missing' | 'unknown';
+  path?: string;
+}
+export class RustScanFallback extends Error {
+  constructor(reason: string, readonly diagnostic?: RustScanDiagnostic) { super(reason); }
+}
+export interface RustScanCapture {
+  snapshot?: RustScanSnapshot;
+  fallback?: { reason: string; diagnostic?: RustScanDiagnostic };
+}
+
+function decodeDiagnostic(value: unknown): RustScanDiagnostic {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('invalid-diagnostic');
+  const raw = value as Record<string, unknown>;
+  if (Object.keys(raw).some(key => !['reason', 'excludedAsFile', 'excludedAsDirectory', 'targetType', 'path'].includes(key)) ||
+      raw.reason !== 'symlink' ||
+      !['yes', 'no', 'unknown'].includes(raw.excludedAsFile as string) ||
+      !['yes', 'no', 'unknown'].includes(raw.excludedAsDirectory as string) ||
+      !['file', 'directory', 'other', 'missing', 'unknown'].includes(raw.targetType as string) ||
+      (raw.path !== undefined && (typeof raw.path !== 'string' || raw.path.length > 16 * 1024 ||
+        !raw.path || raw.path.startsWith('/') || raw.path.includes('\\') || raw.path.includes(':') ||
+        raw.path.split('/').some(part => !part || part === '.' || part === '..')))) throw new Error('invalid-diagnostic');
+  // An older/misconfigured helper cannot expose a path without opt-in.
+  return { reason: 'symlink', excludedAsFile: raw.excludedAsFile as RustScanDiagnostic['excludedAsFile'],
+    excludedAsDirectory: raw.excludedAsDirectory as RustScanDiagnostic['excludedAsDirectory'],
+    targetType: raw.targetType as RustScanDiagnostic['targetType'],
+    ...(process.env.CODEGRAPH_SCAN_DIAGNOSTIC_PATHS === '1' && typeof raw.path === 'string' ? { path: raw.path } : {}) };
+}
+
+/** JSON quoting plus escaping all non-ASCII prevents terminal/bidi injection. */
+export function diagnosticPath(diagnostic?: RustScanDiagnostic): string {
+  if (process.env.CODEGRAPH_SCAN_DIAGNOSTIC_PATHS !== '1' || diagnostic?.path === undefined) return '';
+  return ' path=' + JSON.stringify(diagnostic.path).replace(/[^\x20-\x7e]/g,
+    char => '\\u' + char.charCodeAt(0).toString(16).padStart(4, '0'));
+}
+
+export function formatScanFallback(fallback: NonNullable<RustScanCapture['fallback']>): string {
+  const detail = fallback.diagnostic;
+  const reason = safeScanReason(fallback.reason);
+  if (!detail) return '[sync] 原生扫描已回退：' + reason + '（helper 未提供详细诊断）。';
+  return '[sync] 原生扫描已回退：遇到符号链接；按文件排除=' + detail.excludedAsFile +
+    '，按目录排除=' + detail.excludedAsDirectory + '，目标类型=' + detail.targetType + '。' + diagnosticPath(detail);
+}
 export interface RustGitFilterResult { included: number[]; deferred: number[]; kernelMs: number }
 
 export function rustScanMode(): 'off' | 'verify' | 'on' | 'auto' {
@@ -42,7 +101,7 @@ export function automaticRustScanStatus(): { ready: boolean; reason: string } {
   try { checkRustScanArtifact(rustScanBinaryPath()); return { ready: true, reason: 'none' }; }
   catch (error) {
     const reason = error instanceof Error ? error.message : '';
-    return { ready: false, reason: /^[a-z-]+$/.test(reason) ? reason : 'artifact-error' };
+    return { ready: false, reason: safeScanReason(reason) };
   }
 }
 
@@ -51,8 +110,13 @@ export function decodeRustSnapshot(value: unknown): RustScanSnapshot {
   if (!value || typeof value !== 'object') throw new Error('invalid-response');
   const raw = value as Record<string, unknown>;
   if (raw.protocol !== RUST_SCAN_PROTOCOL) throw new Error('protocol');
-  if (raw.ok !== true) throw new Error(typeof raw.reason === 'string' && /^[a-z-]+$/.test(raw.reason)
-    ? raw.reason : 'native-rejected');
+  if (raw.ok !== true) {
+    const reason = safeScanReason(raw.reason);
+    const diagnostic = raw.diagnostic === undefined ? undefined : decodeDiagnostic(raw.diagnostic);
+    if (diagnostic && (raw.ok !== false || reason !== diagnostic.reason)) throw new Error('invalid-diagnostic');
+    throw new RustScanFallback(reason, diagnostic);
+  }
+  if (raw.diagnostic !== undefined) throw new Error('invalid-diagnostic');
   if (!Array.isArray(raw.files) || raw.files.length > 250_000) throw new Error('invalid-files');
   const paths: string[] = [];
   const stats = new Map<string, RustFileStat>();

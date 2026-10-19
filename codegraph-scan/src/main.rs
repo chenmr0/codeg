@@ -60,6 +60,46 @@ struct Response {
     deferred: Vec<usize>,
     counters: Counters,
     elapsed_ms: u128,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    diagnostic: Option<ScanDiagnostic>,
+}
+
+// Evidence collected only at the exact native fallback point. No second walk.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ScanDiagnostic {
+    reason: &'static str,
+    excluded_as_file: &'static str,
+    excluded_as_directory: &'static str,
+    target_type: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    path: Option<String>,
+}
+
+fn symlink_diagnostic(full: &Path, relative: &str, matchers: &[Gitignore]) -> ScanDiagnostic {
+    let excluded = |is_dir| {
+        if !relative.is_ascii() { return "unknown"; }
+        if matchers.iter().any(|ig| ig.matched_path_or_any_parents(full, is_dir).is_ignore()) {
+            "yes"
+        } else { "no" }
+    };
+    // stat follows the link for metadata only; never enumerate its target or
+    // read source contents. Permission errors and cycles are NOT missing.
+    let target_type = match fs::metadata(full) {
+        Ok(meta) if meta.is_dir() => "directory",
+        Ok(meta) if meta.is_file() => "file",
+        Ok(_) => "other",
+        Err(error) if error.kind() == io::ErrorKind::NotFound => "missing",
+        Err(_) => "unknown",
+    };
+    ScanDiagnostic {
+        reason: "symlink",
+        excluded_as_file: excluded(false),
+        excluded_as_directory: excluded(true),
+        target_type,
+        path: if std::env::var("CODEGRAPH_SCAN_DIAGNOSTIC_PATHS").as_deref() == Ok("1")
+            && relative.len() <= 16 * 1024 { Some(relative.to_string()) } else { None },
+    }
 }
 
 type ScanResult<T> = Result<T, &'static str>;
@@ -171,6 +211,7 @@ struct Scanner<'a> {
     files: Vec<FileSnapshot>,
     seen_files: HashSet<String>,
     counters: Counters,
+    diagnostic: &'a mut Option<ScanDiagnostic>,
 }
 
 impl Scanner<'_> {
@@ -224,14 +265,27 @@ impl Scanner<'_> {
                 continue;
             }
             let kind = entry.file_type().map_err(|_| "file-type")?;
-            if kind.is_symlink() {
-                return Err("symlink");
-            }
             let rel = if relative.is_empty() {
                 name.clone()
             } else {
                 format!("{relative}/{name}")
             };
+            if kind.is_symlink() {
+                // Validated ASCII rules can exclude the logical path without
+                // resolving the link. Require both interpretations: directory-
+                // only rules must not hide a link to a source file. All other
+                // links keep the conservative JS fallback and diagnostics.
+                if rel.is_ascii() && [false, true].iter().all(|is_dir| {
+                    matchers.iter().any(|ig| ig
+                        .matched_path_or_any_parents(entry.path(), *is_dir).is_ignore())
+                }) {
+                    continue;
+                }
+                // Diagnostic failure must not change the existing fallback.
+                *self.diagnostic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(||
+                    symlink_diagnostic(&entry.path(), &rel, matchers))).ok();
+                return Err("symlink");
+            }
             // An ordinary non-source file cannot affect traversal or symbols.
             // Only skip when the suffix is ASCII: JS Unicode case folding can
             // turn e.g. .Kt into the supported .kt extension. Directories, links
@@ -299,7 +353,7 @@ impl Scanner<'_> {
     }
 }
 
-fn scan(request: &Request) -> ScanResult<(Vec<FileSnapshot>, Counters)> {
+fn scan(request: &Request, diagnostic: &mut Option<ScanDiagnostic>) -> ScanResult<(Vec<FileSnapshot>, Counters)> {
     if request.protocol != PROTOCOL {
         return Err("protocol");
     }
@@ -315,6 +369,7 @@ fn scan(request: &Request) -> ScanResult<(Vec<FileSnapshot>, Counters)> {
         files: Vec::new(),
         seen_files: HashSet::new(),
         counters: Counters::default(),
+        diagnostic,
     };
     let root = scanner.root.clone();
     scanner.walk(&root, "", &mut vec![initial], 0)?;
@@ -384,6 +439,7 @@ fn filter_candidates(request: &Request) -> ScanResult<(Vec<usize>, Vec<usize>)> 
 
 fn main() {
     let start = Instant::now();
+    let mut diagnostic = None;
     let result = (|| {
         let mut input = String::new();
         io::stdin()
@@ -396,7 +452,7 @@ fn main() {
         let request: Request = serde_json::from_str(&input).map_err(|_| "request-json")?;
         let operation = request.operation.as_deref().unwrap_or("scan");
         match operation {
-            "scan" => scan(&request).map(|(files, counters)| {
+            "scan" => scan(&request, &mut diagnostic).map(|(files, counters)| {
                 (
                     operation.to_string(),
                     files,
@@ -447,6 +503,7 @@ fn main() {
         deferred,
         counters,
         elapsed_ms: start.elapsed().as_millis(),
+        diagnostic,
     };
     let mut stdout = io::BufWriter::new(io::stdout().lock());
     if serde_json::to_writer(&mut stdout, &response).is_err() || stdout.flush().is_err() {

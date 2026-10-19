@@ -179,4 +179,45 @@ describe('Rust scan protocol and fail-closed integration', () => {
     expect(await cg.sync({ paths: ['src/a.c'] })).toMatchObject({ filesChecked: 1, filesModified: 1, filesAdded: 0 });
     expect(cg.getFile('src/b.c')).toBeNull();
   });
+  it.each([false, true])('reports fallback once in ordinary sync (verbose=%s), preserving no-op records', async verbose => {
+    cg = CodeGraph.initSync(dir); await cg.indexAll();
+    const before = cg.getFile('src/a.c');
+    vi.stubEnv('CODEGRAPH_RUST_SCAN', '1');
+    vi.mocked(runRustScan).mockImplementation(() => decodeRustSnapshot({ protocol: 1, ok: false, reason: 'symlink',
+      diagnostic: { reason: 'symlink', excludedAsFile: 'yes', excludedAsDirectory: 'no', targetType: 'directory', path: 'secret/link' } }));
+    const logs = vi.spyOn(console, 'log').mockImplementation(() => {});
+    expect(await cg.sync({ verbose, onScanFallback: message => console.log(message) })).toMatchObject({ filesAdded: 0, filesModified: 0, filesRemoved: 0 });
+    expect(cg.getFile('src/a.c')).toEqual(before);
+    const lines = logs.mock.calls.map(args => String(args[0]));
+    expect(lines.filter(line => line.includes('原生扫描已回退'))).toHaveLength(1);
+    expect(lines.join('\n')).not.toContain('secret');
+    if (verbose) expect(lines.join('\n')).toContain('nativeExcludedAsDirectory=no');
+  });
+
+  it('does not notify an ineligible normal route even if helper is missing', () => {
+    vi.stubEnv('CODEGRAPH_RUST_SCAN', 'auto');
+    vi.mocked(automaticRustScanStatus).mockReturnValue({ ready: false, reason: 'binary-missing' });
+    write('.codegraphignore', 'generated/\n');
+    const capture: RustScanCapture = {};
+    scanDirectory(dir, undefined, undefined, capture);
+    expect(capture.fallback).toBeUndefined();
+  });
+
+  it('does not fail nonverbose sync if diagnostic output fails', async () => {
+    cg = CodeGraph.initSync(dir); await cg.indexAll();
+    vi.stubEnv('CODEGRAPH_RUST_SCAN', '1');
+    vi.mocked(runRustScan).mockImplementation(() => { throw new Error('symlink'); });
+    vi.spyOn(console, 'log').mockImplementation(() => { throw new Error('log-sink-failed'); });
+    expect(await cg.sync({ onScanFallback: message => console.log(message) })).toMatchObject({ filesAdded: 0, filesModified: 0, filesRemoved: 0 });
+  });
+
+  it('preserves default library sync silence on fallback', async () => {
+    cg = CodeGraph.initSync(dir); await cg.indexAll();
+    vi.stubEnv('CODEGRAPH_RUST_SCAN', '1');
+    vi.mocked(runRustScan).mockImplementation(() => { throw new Error('symlink'); });
+    const logs = vi.spyOn(console, 'log').mockImplementation(() => {});
+    expect(await cg.sync()).toMatchObject({ filesAdded: 0, filesModified: 0, filesRemoved: 0 });
+    expect(logs.mock.calls.flat().join('')).not.toContain('原生扫描已回退');
+  });
+
 });

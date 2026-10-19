@@ -107,6 +107,77 @@ describe.skipIf(!available)('real Rust scanner differential gate', () => {
     compare('fallback');
   });
 
+  it.each(['file', 'directory', 'missing', 'cycle'])('preserves JS paths and metadata for doubly excluded %s links', kind => {
+    write('.codegraphignore', '/*\n!/src/\n');
+    write('src/a.c'); write('src/z.c');
+    const target = { file: 'src/a.c', directory: 'src', missing: 'absent', cycle: 'alias' }[kind]!;
+    fs.symlinkSync(target, path.join(dir, 'alias'));
+    compare();
+  });
+
+  it.each(['alias/\n', 'alias\n!alias/\n'])('keeps fallback for one-sided exclusions: %s', rules => {
+    write('.gitignore', rules); write('real/a.c');
+    fs.symlinkSync('real', path.join(dir, 'alias'));
+    compare('fallback');
+  });
+
+  it('preserves anchored child re-inclusion through a directory link', () => {
+    write('.codegraphignore', '/*\n!/alias/keep.c\n'); write('real/keep.c'); write('real/drop.c');
+    fs.symlinkSync('real', path.join(dir, 'alias'));
+    compare('fallback');
+    vi.stubEnv('CODEGRAPH_RUST_SCAN', '0'); clearCanonicalCache();
+    expect(scanDirectory(dir)).toEqual(['real/keep.c']);
+  });
+
+  it('uses nested ignore rules and preserves parent exclusion over child negation', () => {
+    write('src/a.c'); write('src/z.c'); write('src/.gitignore', 'alias\n');
+    fs.symlinkSync('a.c', path.join(dir, 'src/alias')); compare();
+    write('.gitignore', 'alias\n'); write('src/.gitignore', '!alias\n'); compare();
+  });
+
+  it('combines file and directory exclusion across independent matcher layers', () => {
+    write('.gitignore', 'alias\n!alias/\n');
+    write('src/.gitignore', 'alias/\n');
+    write('src/a.c'); write('src/z.c');
+    fs.symlinkSync('a.c', path.join(dir, 'src/alias'));
+    // Root excludes only the file interpretation; the child excludes only the
+    // directory interpretation. The two independent any() results must be ANDed.
+    compare();
+  });
+
+  it('does not re-include a child below a still-excluded link parent', () => {
+    write('.gitignore', 'alias\n!alias/keep.c\n');
+    write('real/keep.c'); write('real/drop.c');
+    fs.symlinkSync('real', path.join(dir, 'alias'));
+    compare();
+    expect(scanDirectory(dir)).toEqual(['real/drop.c', 'real/keep.c']);
+  });
+
+  it('preserves complete ordered files around a skipped link', () => {
+    write('.gitignore', 'm-alias\n');
+    write('a.c'); write('z.c'); write('src/inner.c');
+    fs.symlinkSync('src', path.join(dir, 'm-alias'));
+    compare();
+    expect(scanDirectory(dir)).toEqual(['a.c', 'src/inner.c', 'z.c']);
+  });
+
+  it('preserves canonical deduplication for an included directory link', () => {
+    write('real/keep.c');
+    fs.symlinkSync('real', path.join(dir, 'alias'));
+    compare('fallback');
+    const files = scanDirectory(dir);
+    expect(files).toHaveLength(1);
+    expect(fs.realpathSync(path.join(dir, files[0]))).toBe(path.join(dir, 'real/keep.c'));
+  });
+
+  it('keeps non-ASCII excluded links and unsupported rules conservative', () => {
+    write('src/a.c'); write('.gitignore', '*-link\n');
+    fs.symlinkSync('src', path.join(dir, '中文-link')); compare('fallback');
+    fs.unlinkSync(path.join(dir, '中文-link'));
+    fs.symlinkSync('src', path.join(dir, 'alias'));
+    write('.gitignore', '[!a]*\nalias\n'); compare('fallback');
+  });
+
   it('supports verify mode and always returns the JS result without snapshot reuse', async () => {
     write('src/a.c');
     vi.stubEnv('CODEGRAPH_RUST_SCAN', 'verify');

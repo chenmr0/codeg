@@ -57,7 +57,7 @@ import type { SyncRetryState } from './sync-retry-state';
 import { AppendDeltaState } from './append-delta';
 import { EXTRACTION_VERSION } from './extraction-version';
 import { collectHybridFiles, HybridScanFallback, planSupplementRoots } from './hybrid-scan';
-import { RUST_SCAN_PROTOCOL, runRustScan, rustScanMode, automaticRustScanStatus, verifyRustSnapshot, type RustScanCapture } from './rust-scan';
+import { RUST_SCAN_PROTOCOL, RustScanFallback, formatScanFallback, safeScanReason, runRustScan, rustScanMode, automaticRustScanStatus, verifyRustSnapshot, type RustScanCapture } from './rust-scan';
 
 /**
  * Number of files to read in parallel during indexing.
@@ -799,7 +799,7 @@ function scanDirectoryInScope(
   diagnostics?: ScanDiagnostics,
   capture?: RustScanCapture,
 ): string[] {
-  if (capture) capture.snapshot = undefined;
+  if (capture) { capture.snapshot = undefined; capture.fallback = undefined; }
   const native = tryRustDirectoryScan(rootDir, diagnostics, capture);
   if (native) {
     native.forEach((file, i) => onProgress?.(i + 1, file));
@@ -845,7 +845,7 @@ async function scanDirectoryAsyncInScope(
   diagnostics?: ScanDiagnostics,
   capture?: RustScanCapture,
 ): Promise<string[]> {
-  if (capture) capture.snapshot = undefined;
+  if (capture) { capture.snapshot = undefined; capture.fallback = undefined; }
   const native = tryRustDirectoryScan(rootDir, diagnostics, capture);
   if (native) {
     for (let i = 0; i < native.length; i++) {
@@ -882,14 +882,16 @@ function tryRustDirectoryScan(rootDir: string, diagnostics?: ScanDiagnostics,
   const mode = rustScanMode();
   if (mode === 'off') return undefined;
   const started = performance.now();
+  let eligible = false;
   try {
     if (mode === 'auto') {
       const status = automaticRustScanStatus();
       if (!status.ready) throw new Error(status.reason);
     }
+    eligible = hasCodegraphIgnoreNegation(rootDir) && process.env.CODEGRAPH_HYBRID_SCAN !== '1';
     // Initial scope is the established filesystem-walk route. Do not silently
     // replace Git/global-exclude or hybrid semantics with a Rust filesystem walk.
-    if (!hasCodegraphIgnoreNegation(rootDir) || process.env.CODEGRAPH_HYBRID_SCAN === '1') {
+    if (!eligible) {
       throw new Error('requires-walk-negation');
     }
     const snapshot = runRustScan({ protocol: RUST_SCAN_PROTOCOL, root: path.resolve(rootDir),
@@ -916,11 +918,15 @@ function tryRustDirectoryScan(rootDir: string, diagnostics?: ScanDiagnostics,
     }
     return snapshot.paths;
   } catch (error) {
-    if (capture) capture.snapshot = undefined;
+    if (capture) { capture.snapshot = undefined; capture.fallback = undefined; }
+    const rawReason = error instanceof Error ? error.message : '';
+    const reason = safeScanReason(rawReason);
+    const detail = error instanceof RustScanFallback ? error.diagnostic : undefined;
+    if (capture && eligible) capture.fallback = { reason, diagnostic: detail };
     if (diagnostics) {
+      diagnostics.nativeDiagnostic = detail;
       diagnostics.nativeStatus = 'fallback';
-      const reason = error instanceof Error ? error.message : '';
-      diagnostics.nativeReason = /^[a-z-]+$/.test(reason) ? reason : 'scan-error';
+      diagnostics.nativeReason = reason;
     }
     return undefined;
   } finally {
@@ -2585,8 +2591,9 @@ export class ExtractionOrchestrator {
     afterWrite?: () => Promise<void> | null,
     /** Capture legacy macro evidence before the first node mutation. */
     beforeNodeWrite?: () => Promise<void>,
+    onScanFallback?: (message: string) => void,
   ): Promise<SyncResult> {
-    return withLanguageScope(() => this.syncInScope(onProgress, scopedPaths, verbose, replaceFileStore, afterWrite, beforeNodeWrite));
+    return withLanguageScope(() => this.syncInScope(onProgress, scopedPaths, verbose, replaceFileStore, afterWrite, beforeNodeWrite, onScanFallback));
   }
 
   private async syncInScope(
@@ -2597,6 +2604,7 @@ export class ExtractionOrchestrator {
     afterWrite?: () => Promise<void> | null,
     /** Capture legacy macro evidence before the first node mutation. */
     beforeNodeWrite?: () => Promise<void>,
+    onScanFallback?: (message: string) => void,
   ): Promise<SyncResult> {
     await initGrammars(); // Initialize WASM runtime (grammars loaded lazily below)
     // Sync rescans; clear the canonical-path cache so repointed symlinks are seen.
@@ -2709,6 +2717,9 @@ export class ExtractionOrchestrator {
       }
       trackedFiles = this.queries.getAllFiles();
       filesChecked = currentFiles.length;
+    }
+    if (nativeCapture.fallback && onScanFallback) {
+      try { onScanFallback(formatScanFallback(nativeCapture.fallback)); } catch { /* Diagnostics never fail sync. */ }
     }
     if (diagnostics) {
       diagnostics.phases.loadTrackedMs = performance.now() - phaseStarted;

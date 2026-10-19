@@ -845,6 +845,7 @@ program
 
       const syncPipelineStarted = performance.now();
       const result = await cg.sync({
+        onScanFallback: message => console.log(message),
         onProgress: progress.onProgress,
         verbose: options.verbose,
       });
