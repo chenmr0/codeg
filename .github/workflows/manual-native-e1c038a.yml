@@ -1,0 +1,102 @@
+name: Build native helpers for e1c038a (manual only)
+
+# Like the community kernel matrix: compile on target runners, gate packaging
+# on real parity, then collect prebuilds. This workflow DOES NOT publish or push.
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  native:
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: windows-2022
+            target: x86_64-pc-windows-msvc
+            platform: win32-x64
+          - runner: ubuntu-22.04
+            target: x86_64-unknown-linux-musl
+            platform: linux-x64
+    runs-on: ${{ matrix.runner }}
+    env:
+      RUSTUP_TOOLCHAIN: stable
+      CODEGRAPH_RUST_SCAN_EXPECT: '1'
+      CODEGRAPH_RUST_MACROS_EXPECT: '1'
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: e1c038a59fd0194c87e935b262ba764d81e45668
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - name: Prepare build-only Rust toolchain
+        run: rustup toolchain install stable --profile minimal --target ${{ matrix.target }}
+      - run: npm ci
+      - run: npm run build
+      - run: cargo test --locked --manifest-path codegraph-scan/Cargo.toml
+      - run: cargo test --locked --manifest-path codegraph-macros/Cargo.toml
+      - run: npm run build:rust-scan -- --target ${{ matrix.target }}
+      - run: npm run build:rust-macros -- --target ${{ matrix.target }}
+      # Automatic-mode integration tests require stamps for these exact builds.
+      - run: npm run validate:rust-scan
+      - run: npm run validate:rust-macros
+      - run: npm run test:rust-scan -- --testTimeout=20000
+      - run: npm run test:rust-macros -- --testTimeout=20000
+      - run: node scripts/check-rust-scan-artifacts.mjs --require ${{ matrix.platform }}
+      - name: Archive prebuild with executable permissions
+        run: tar -cf rust-scan-${{ matrix.platform }}.tar -C dist native-scan/${{ matrix.platform }} native-macros/${{ matrix.platform }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rust-scan-prebuilt-${{ matrix.platform }}
+          path: rust-scan-${{ matrix.platform }}.tar
+          if-no-files-found: error
+
+  package:
+    timeout-minutes: 30
+    needs: native
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: e1c038a59fd0194c87e935b262ba764d81e45668
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - run: npm ci
+      - run: npm run build
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: rust-scan-prebuilt-*
+          merge-multiple: true
+          path: native-artifacts
+      - name: Collect, verify and pack both supported platforms
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist/native-scan dist/native-macros release/native-npm
+          for archive in native-artifacts/*.tar; do tar -xf "$archive" -C dist; done
+          npm run check:native-artifacts
+          npm pack --pack-destination release/native-npm
+      - name: Install package with compiler paths removed and exercise default auto mode
+        shell: bash
+        run: npm run smoke:native-package -- release/native-npm/*.tgz --macros
+      - uses: actions/upload-artifact@v4
+        with:
+          name: codegraph-prebuilt-npm
+          path: release/native-npm/*.tgz
+          if-no-files-found: error
+      - name: Bundle native directories for local npm packaging
+        shell: bash
+        run: zip -r release/codegraph-native-e1c038a-win-linux-x64.zip dist/native-scan dist/native-macros
+      - uses: actions/upload-artifact@v4
+        with:
+          name: codegraph-native-e1c038a-win-linux-x64
+          path: release/codegraph-native-e1c038a-win-linux-x64.zip
+          if-no-files-found: error
+          retention-days: 7
