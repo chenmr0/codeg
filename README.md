@@ -10,6 +10,12 @@ CodeGraph-CPP 基于开源 [CodeGraph](https://github.com/colbymchenry/codegraph
 
 ---
 
+## Windows 一键打包（无需 Rust）
+
+在 Windows x64 上运行 `powershell -File scripts/build-self-contained.ps1`，从已提交源码复用预编译组件，分别生成内置 Node 和全部生产依赖的 Windows EXE / Linux .run 单文件离线安装器，并保留 ZIP/tar.gz 便携包。现有 `npm pack` 流程保持不变。
+
+准备条件、离线缓存、安装和目标平台验收见[Windows 自包含打包说明](docs/windows-self-contained.md)。Linux 包在 Windows 上生成后仍须在目标 Linux 上验证；旧 glibc 方案见下一节。
+
 ## 自包含安装包（Linux x64）
 
 新增包含私有 Node 24、全部生产依赖和原生 helper 的离线安装方案，不要求目标机预装 Node/npm。老 glibc 候选采用固定 glibc2.17 构建并做整包 ELF 检查；SLES12 SP5 仍需真实目标机验收。安装、构建及兼容边界见[便携安装说明](docs/portable-install.md)。当前尚未发布下载制品。
