@@ -27,6 +27,13 @@ jobs:
       CODEGRAPH_RUST_SCAN_EXPECT: '1'
       CODEGRAPH_RUST_MACROS_EXPECT: '1'
     steps:
+      - name: Use explicit long-form Windows temporary directory
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force 'D:\codegraph-ci-temp' | Out-Null
+          'TEMP=D:\codegraph-ci-temp' | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          'TMP=D:\codegraph-ci-temp' | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
       - uses: actions/checkout@v6
         with:
           ref: e1c038a59fd0194c87e935b262ba764d81e45668
