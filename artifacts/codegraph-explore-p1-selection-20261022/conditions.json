@@ -1,0 +1,24 @@
+{
+  "base_commit": "00e6536b9ded8fd8712464a8edd6341283dc6bf5",
+  "community_commit": "f6d8f19b29e5f571ffbc557e160aabc5d8d0373a",
+  "community_version": "1.6.2",
+  "maxFiles": 12,
+  "maxOutputChars": 24000,
+  "maxCharsPerFile": 7000,
+  "hardCeiling": 25000,
+  "changed_files": [
+    "src/mcp/tools.ts",
+    "src/mcp/explore-retrieval.ts",
+    "src/mcp/explore-selection.ts",
+    "__tests__/explore-selection-p1.test.ts"
+  ],
+  "model_calls": 0,
+  "prior_control": "Previous P0 final results copied byte-for-byte, not regenerated",
+  "budget_semantics": "7000 stays the ordinary file allowance, not a hard cap (P0 already allowed oversize clusters). Only anchored/member files receive first-unit reservations; ordinary neighbors wait until named targets have been funded. Compact member groups receive ordinary allowance before reclaimed capacity is spent. Total output including all metadata and notes stays <=24000.",
+  "community_reference": "Local frozen implementation: allocateExploreBudget, fundedHeadroom, real section cost, member/window selection; no session dedup or quota hints ported.",
+  "source_freeze": "candidate-runtime-fourth.json",
+  "iteration_1": "All eight initial candidate outputs and source/runtime snapshots retained, including broad-query and type-query failures.",
+  "iteration_2": "All eight outputs retained. Definition protection exposed a gate transition dropping caller context and a compact-member starvation regression; both addressed generically with regression tests.",
+  "diagnostic_calls": "One additional read-only retrieveExploreContext call saved task-member-diagnostic.json; not a ToolHandler benchmark call and not a model call.",
+  "iteration_3": "All eight results retained; individual target checks caught execute_ttl_delete omitted despite total coverage reaching 3/8. Restrict first-unit reservations to anchor/member files, with compact units within the best tier."
+}

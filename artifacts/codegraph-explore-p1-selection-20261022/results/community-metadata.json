@@ -1,0 +1,90 @@
+{
+  "arm": "community",
+  "pkg": "D:\\python_code\\codegraph\\artifacts\\evaluation-baseline-20261021\\packages-committed\\community",
+  "node": "v24.11.1",
+  "stats": {
+    "nodeCount": 388727,
+    "edgeCount": 2510241,
+    "fileCount": 14247,
+    "nodesByKind": {
+      "class": 17674,
+      "constant": 553,
+      "enum": 2903,
+      "enum_member": 22814,
+      "file": 14206,
+      "function": 32098,
+      "import": 62339,
+      "method": 214649,
+      "struct": 9681,
+      "type_alias": 6793,
+      "union": 586,
+      "variable": 4431
+    },
+    "edgesByKind": {
+      "calls": 2012879,
+      "contains": 383020,
+      "extends": 23910,
+      "imports": 61133,
+      "instantiates": 24434,
+      "references": 4865
+    },
+    "filesByLanguage": {
+      "c": 617,
+      "cpp": 13455,
+      "lua": 1,
+      "php": 40,
+      "python": 116,
+      "yaml": 18
+    },
+    "dbSizeBytes": 1841860608,
+    "walSizeBytes": 0,
+    "lastUpdated": 1792621603765
+  },
+  "budget": {
+    "maxOutputChars": 24000,
+    "defaultMaxFiles": 8,
+    "maxCharsPerFile": 7000,
+    "gapThreshold": 15,
+    "maxSymbolsInFileHeader": 15,
+    "maxEdgesPerRelationshipKind": 15,
+    "includeRelationships": true,
+    "includeAdditionalFiles": true,
+    "includeCompletenessSignal": true,
+    "includeBudgetNote": true
+  },
+  "hardCeiling": 25000,
+  "tools": [
+    {
+      "name": "codegraph_explore",
+      "description": "按符号、文件名或简短代码术语收集相关源码与关系，输出受预算限制。只将实际返回的源码视为已读；摘要、声明、截断部分不等于完整实现。后续按缺口使用 explore 或原生 Grep/Read。",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "从需求或已知源码提取的符号、文件名或简短代码术语。"
+          },
+          "maxFiles": {
+            "type": "number",
+            "description": "Maximum number of files to include source code from (default: 12)",
+            "default": 12
+          },
+          "projectPath": {
+            "type": "string",
+            "description": "Absolute path to the project to query (or any directory inside it) — codegraph uses the nearest .codegraph/ index at or above that path. Omit to use this session's default project. Pass it to query a second codebase, or when the server root has no index of its own (e.g. a monorepo where only sub-projects are indexed, so there is no default project)."
+          }
+        },
+        "required": [
+          "query"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    }
+  ],
+  "model_calls": 0
+}

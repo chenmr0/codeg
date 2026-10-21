@@ -1,0 +1,238 @@
+## Exploration: ObTTLDeleteRateThrottler
+
+Found 200 symbols across 158 files.
+
+
+Exact symbol/path anchors and identifier text evidence; weak word matches are disabled.
+### Relationships
+
+**calls:**
+- record_trans_start_time → current_time
+- process_one → record_trans_start_time
+- ~ObTTLDeleteRateThrottler → reset
+- reset → reset
+- init → current_time
+- init → is_valid
+- process → init
+- init → K
+- init → K
+- init → K
+- init → TENANT_CONF
+- init → LOG_WARN
+- init → LOG_WARN
+- check_and_try_throttle → current_time
+- check_and_try_throttle → ob_usleep
+- ... and 1963 more
+
+### Source Code
+
+> Source excerpts below are read from current files. Only shown source ranges are covered; signatures, outlines and omitted regions are not complete function bodies or complete files.
+
+#### src/share/table/ob_ttl_util.h — record_trans_start_time, to_string, reset, DEFAULT_SMOOTH_FACTOR, DEFAULT_TRANS_TIMEOUT_RATIO, is_inited_, max_rows_per_second_, smooth_factor_, trans_start_time_, prev_delete_time_, cur_del_row_count_, expected_interval_us_, throttle_info_, ObTTLDeleteRateThrottler, ThrottleInfo · focused (complete selected bodies and source ranges; types are outlines)
+
+```cpp
+626	class ObTTLDeleteRateThrottler
+
+... (gap) ...
+
+629	  struct ThrottleInfo {
+
+... (gap) ...
+
+641	    void reset() {
+642	      ttl_del_max_ops_ = 0;
+643	      ttl_thread_num_ = 0;
+644	      max_rows_per_second_ = 0;
+645	      expected_interval_us_ = 0;
+646	      table_id_ = 0;
+647	      tablet_id_.reset();
+648	      start_time_ = 0;
+649	      cur_time_ = 0;
+650	      total_del_row_count_ = 0;
+651	    }
+
+... (gap) ...
+
+672	  OB_INLINE void record_trans_start_time() { trans_start_time_ = ObTimeUtility::current_time(); }
+673	  TO_STRING_KV(K_(is_inited),
+
+... (gap) ...
+
+684	  static const double DEFAULT_SMOOTH_FACTOR;
+685	  static const double DEFAULT_TRANS_TIMEOUT_RATIO;
+
+... (gap) ...
+
+687	  bool is_inited_;
+688	  int64_t max_rows_per_second_;
+689	  double smooth_factor_;
+690	  int64_t trans_start_time_;
+691	  int64_t prev_delete_time_;
+692	  int64_t cur_del_row_count_;
+693	  int64_t expected_interval_us_;
+694	  ThrottleInfo throttle_info_;
+```
+
+#### src/share/table/ob_ttl_util.cpp — check_and_try_throttle, ~ObTTLDeleteRateThrottler, reset, calculate_wait_time, need_commit_trans_early, ObTTLDeleteRateThrottler, init, print_throttle_info · focused (complete selected bodies and source ranges; types are outlines)
+
+```cpp
+2579	ObTTLDeleteRateThrottler::ObTTLDeleteRateThrottler()
+2580	  : is_inited_(false),
+2581	    max_rows_per_second_(0),
+2582	    smooth_factor_(0.0),
+2583	    trans_start_time_(0),
+2584	    prev_delete_time_(0),
+2585	    cur_del_row_count_(0),
+2586	    expected_interval_us_(0),
+2587	    throttle_info_()
+2588	{}
+
+... (gap) ...
+
+2590	ObTTLDeleteRateThrottler::~ObTTLDeleteRateThrottler()
+2591	{
+2592	  reset();
+2593	}
+
+... (gap) ...
+
+2595	void ObTTLDeleteRateThrottler::reset()
+2596	{
+2597	  is_inited_ = false;
+2598	  max_rows_per_second_ = 0;
+2599	  smooth_factor_ = 0.0;
+2600	  trans_start_time_ = 0;
+2601	  prev_delete_time_ = 0;
+2602	  cur_del_row_count_ = 0;
+2603	  expected_interval_us_ = 0;
+2604	  throttle_info_.reset();
+2605	}
+
+... (gap) ...
+
+2607	int ObTTLDeleteRateThrottler::init(const table::ObTTLTaskInfo &info)
+2608	{
+2609	  int ret = OB_SUCCESS;
+2610	  if (is_inited_) {
+2611	    ret = OB_INIT_TWICE;
+2612	    LOG_WARN("delete rate limiter is already initialized", K(ret));
+2613	  } else {
+2614	    omt::ObTenantConfigGuard tenant_config(TENANT_CONF(info.tenant_id_));
+2615	    if (!tenant_config.is_valid()) {
+2616	      ret = OB_ERR_UNEXPECTED;
+2617	      LOG_WARN("invalid tenant config", K(ret), K(info.tenant_id_));
+2618	    } else {
+2619	      int64_t cur_time = ObTimeUtility::current_time();
+2620	      int64_t ttl_thread_num = tenant_config->ttl_thread_score == 0 ?
+2621	              OB_DAG_PRIOS[ObDagPrio::DAG_PRIO_TTL].score_ : tenant_config->ttl_thread_score;
+2622	      int64_t ttl_del_rate_limit = tenant_config->kv_ttl_delete_max_ops;
+2623	      max_rows_per_second_ = ttl_del_rate_limit == 0 ? 0 : ttl_del_rate_limit / ttl_thread_num;
+2624	      expected_interval_us_ = max_rows_per_second_ == 0 ? 0 : 1000000 / max_rows_per_second_;
+2625	      smooth_factor_ = DEFAULT_SMOOTH_FACTOR;
+2626	      // init throttle info
+2627	      throttle_info_.table_id_ = info.table_id_;
+2628	      throttle_info_.tablet_id_ = info.tablet_id_;
+2629	      throttle_info_.ttl_del_max_ops_ = ttl_del_rate_limit;
+2630	      throttle_info_.ttl_thread_num_ = ttl_thread_num;
+2631	      throttle_info_.max_rows_per_second_ = max_rows_per_second_;
+2632	      throttle_info_.expected_interval_us_ = expected_interval_us_;
+2633	      throttle_info_.total_del_row_count_ = 0;
+2634	      throttle_info_.start_time_ = cur_time;
+2635	      throttle_info_.cur_time_ = cur_time;
+2636	      is_inited_ = true;
+2637	    }
+2638	  }
+2639	  return ret;
+2640	}
+
+... (gap) ...
+
+2642	int ObTTLDeleteRateThrottler::check_and_try_throttle(int64_t trans_timeout_ts)
+2643	{
+2644	  int ret = OB_SUCCESS;
+2645	  if (!is_inited_) {
+2646	    ret = OB_NOT_INIT;
+2647	    LOG_WARN("delete rate throttler is not initialized", K(ret));
+2648	  } else if (max_rows_per_second_ == 0) {
+2649	    // do nothing
+2650	  } else if (need_commit_trans_early(trans_timeout_ts)) {
+2651	    ret = OB_ITER_END;
+2652	  } else {
+2653	    int64_t wait_time = calculate_wait_time();
+2654	    if (wait_time > 0) {
+2655	      ob_usleep(wait_time);
+2656	    }
+2657	  }
+2658	  cur_del_row_count_++;
+2659	  prev_delete_time_ = ObTimeUtility::current_time();
+2660	  throttle_info_.cur_time_ = prev_delete_time_;
+2661	  throttle_info_.total_del_row_count_++;
+2662	  return ret;
+2663	}
+
+... (gap) ...
+
+2665	int ObTTLDeleteRateThrottler::check_and_try_throttle()
+2666	{
+2667	  int ret = OB_SUCCESS;
+2668	  if (!is_inited_) {
+2669	    ret = OB_NOT_INIT;
+2670	    LOG_WARN("delete rate throttler is not initialized", K(ret));
+2671	  } else if (max_rows_per_second_ == 0) {
+2672	    // do nothing
+2673	  } else {
+2674	    int64_t cur_time = ObTimeUtility::current_time();
+2675	    int64_t wait_time = expected_interval_us_ * cur_del_row_count_ - (cur_time - trans_start_time_);
+2676	    if (wait_time > 0) {
+2677	      ob_usleep(wait_time);
+2678	    }
+2679	  }
+2680	  cur_del_row_count_ = 0;
+2681	  trans_start_time_ = 0;
+2682	  throttle_info_.cur_time_ = ObTimeUtility::current_time();
+2683	  return ret;
+2684	}
+
+... (gap) ...
+
+2686	int64_t ObTTLDeleteRateThrottler::calculate_wait_time()
+2687	{
+2688	  int64_t wait_time = 0;
+2689	  if (prev_delete_time_ == 0) {
+2690	    wait_time = 0;
+2691	  } else {
+2692	    int64_t cur_time = ObTimeUtility::current_time();
+2693	    int64_t elapsed = cur_time - prev_delete_time_;
+2694	    if (elapsed >= expected_interval_us_) {
+2695	      wait_time = 0;
+2696	    } else {
+2697	      wait_time = (expected_interval_us_ - elapsed) * smooth_factor_;
+2698	    }
+2699	  }
+2700	  return wait_time;
+2701	}
+
+... (gap) ...
+
+2703	bool ObTTLDeleteRateThrottler::need_commit_trans_early(int64_t trans_timeout_ts)
+2704	{
+2705	  bool bret = false;
+2706	  int64_t cur_time = ObTimeUtility::current_time();
+2707	  if ((cur_time - trans_start_time_) > (trans_timeout_ts - trans_start_time_) * DEFAULT_TRANS_TIMEOUT_RATIO) {
+2708	    bret = true;
+2709	  }
+2710	  return bret;
+2711	}
+
+... (gap) ...
+
+2713	void ObTTLDeleteRateThrottler::print_throttle_info()
+2714	{
+2715	  int64_t avg_delete_ops = 0;
+2716	  if (throttle_info_.cur_time_ - throttle_info_.start_time_ > 0) {
+2717	    avg_delete_ops = throttle_info_.total_del_row_count_ * 1000000L / (throttle_info_.cur_time_ - throttle_info_.start_time_);
+2718	  }
+2719	  LOG_INFO("[TTL TASK DELETE RATE] print ttl delete rate throttle info", K(throttle_info_), "avg delete ops", avg_delete_ops);
+2720	}
+```
+

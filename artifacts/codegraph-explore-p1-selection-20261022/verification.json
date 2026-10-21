@@ -1,0 +1,433 @@
+{
+  "protected_files_verified": 1421,
+  "changed_historical_or_main_source_files": [],
+  "source_files_verified": 16317,
+  "same_queries_and_budgets": true,
+  "runtime_freeze_verified": true,
+  "tests_passed": 88,
+  "final_new_tool_calls": 16,
+  "diagnostic_iteration_tool_calls": 24,
+  "historical_control_results": 8,
+  "community_byte_identical_to_previous": [
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true
+  ],
+  "index_counts_unchanged": {
+    "fixed": {
+      "nodeCount": 890562,
+      "edgeCount": 5676237,
+      "fileCount": 14258
+    },
+    "community": {
+      "nodeCount": 388727,
+      "edgeCount": 2510241,
+      "fileCount": 14247
+    }
+  },
+  "complete_body_regressions_vs_p0": [],
+  "model_calls": 0,
+  "selection_details": [
+    {
+      "id": "ttl-seed-bag",
+      "sections": [
+        {
+          "file": "src/share/table/ob_ttl_util.cpp",
+          "section_chars": 5610,
+          "numbered_lines": 134,
+          "duplicate_numbered_lines": 0
+        },
+        {
+          "file": "src/share/scheduler/ob_tenant_dag_scheduler.cpp",
+          "section_chars": 4597,
+          "numbered_lines": 98,
+          "duplicate_numbered_lines": 0
+        },
+        {
+          "file": "src/observer/table/ttl/ob_table_ttl_task.h",
+          "section_chars": 747,
+          "numbered_lines": 10,
+          "duplicate_numbered_lines": 0
+        },
+        {
+          "file": "src/observer/table/ttl/ob_table_ttl_task.cpp",
+          "section_chars": 9993,
+          "numbered_lines": 213,
+          "duplicate_numbered_lines": 0
+        },
+        {
+          "file": "src/observer/omt/ob_tenant_config_mgr.h",
+          "section_chars": 1021,
+          "numbered_lines": 1,
+          "duplicate_numbered_lines": 0
+        }
+      ],
+      "budget_truncated": false
+    },
+    {
+      "id": "ttl-mixed-bag",
+      "sections": [
+        {
+          "file": "src/share/table/ob_ttl_util.cpp",
+          "section_chars": 5610,
+          "numbered_lines": 134,
+          "duplicate_numbered_lines": 0
+        },
+        {
+          "file": "unittest/sql/optimizer/cost_model_utils/preprocess.py",
+          "section_chars": 240,
+          "numbered_lines": 3,
+          "duplicate_numbered_lines": 0
+        },
+        {
+          "file": "unittest/sql/optimizer/cost_model_utils/process_nestloop.py",
+          "section_chars": 246,
+          "numbered_lines": 3,
+          "duplicate_numbered_lines": 0
+        },
+        {
+          "file": "unittest/sql/optimizer/storage_perf/preprocess.py",
+          "section_chars": 236,
+          "numbered_lines": 3,
+          "duplicate_numbered_lines": 0
+        },
+        {
+          "file": "src/share/scheduler/ob_tenant_dag_scheduler.cpp",
+          "section_chars": 3324,
+          "numbered_lines": 61,
+          "duplicate_numbered_lines": 0
+        },
+        {
+          "file": "deps/oblib/src/lib/utility/ob_rate_limiter.h",
+          "section_chars": 220,
+          "numbered_lines": 4,
+          "duplicate_numbered_lines": 0
+        },
+        {
+          "file": "src/observer/table/ttl/ob_table_ttl_task.h",
+          "section_chars": 696,
+          "numbered_lines": 9,
+          "duplicate_numbered_lines": 0
+        },
+        {
+          "file": "src/observer/table/ttl/ob_table_ttl_task.cpp",
+          "section_chars": 8696,
+          "numbered_lines": 195,
+          "duplicate_numbered_lines": 0
+        },
+        {
+          "file": "src/share/table/ob_ttl_util.h",
+          "section_chars": 384,
+          "numbered_lines": 3,
+          "duplicate_numbered_lines": 0
+        },
+        {
+          "file": "src/observer/omt/ob_th_worker.cpp",
+          "section_chars": 546,
+          "numbered_lines": 13,
+          "duplicate_numbered_lines": 0
+        },
+        {
+          "file": "src/observer/omt/ob_tenant_config_mgr.h",
+          "section_chars": 1030,
+          "numbered_lines": 1,
+          "duplicate_numbered_lines": 0
+        }
+      ],
+      "budget_truncated": false
+    },
+    {
+      "id": "ttl-task-single",
+      "sections": [
+        {
+          "file": "src/observer/table/ttl/ob_table_ttl_task.h",
+          "section_chars": 776,
+          "numbered_lines": 10,
+          "duplicate_numbered_lines": 0
+        },
+        {
+          "file": "src/observer/table/ttl/ob_table_ttl_task.cpp",
+          "section_chars": 22046,
+          "numbered_lines": 441,
+          "duplicate_numbered_lines": 0
+        }
+      ],
+      "budget_truncated": false
+    },
+    {
+      "id": "ttl-throttler-single",
+      "sections": [
+        {
+          "file": "src/share/table/ob_ttl_util.h",
+          "section_chars": 1361,
+          "numbered_lines": 25,
+          "duplicate_numbered_lines": 0
+        },
+        {
+          "file": "src/share/table/ob_ttl_util.cpp",
+          "section_chars": 5610,
+          "numbered_lines": 134,
+          "duplicate_numbered_lines": 0
+        },
+        {
+          "file": "deps/oblib/src/lib/time/ob_time_utility.cpp",
+          "section_chars": 965,
+          "numbered_lines": 24,
+          "duplicate_numbered_lines": 0
+        },
+        {
+          "file": "src/observer/table/ttl/ob_table_ttl_task.cpp",
+          "section_chars": 10273,
+          "numbered_lines": 214,
+          "duplicate_numbered_lines": 0
+        },
+        {
+          "file": "src/observer/omt/ob_tenant_config_mgr.h",
+          "section_chars": 403,
+          "numbered_lines": 4,
+          "duplicate_numbered_lines": 0
+        },
+        {
+          "file": "deps/oblib/src/lib/thread/ob_tenant_hook.cpp",
+          "section_chars": 578,
+          "numbered_lines": 6,
+          "duplicate_numbered_lines": 0
+        }
+      ],
+      "budget_truncated": false
+    },
+    {
+      "id": "ttl-throttler-methods",
+      "sections": [
+        {
+          "file": "src/share/table/ob_ttl_util.cpp",
+          "section_chars": 4308,
+          "numbered_lines": 101,
+          "duplicate_numbered_lines": 0
+        },
+        {
+          "file": "deps/oblib/src/lib/time/ob_time_utility.cpp",
+          "section_chars": 554,
+          "numbered_lines": 12,
+          "duplicate_numbered_lines": 0
+        },
+        {
+          "file": "src/observer/table/ttl/ob_table_ttl_task.cpp",
+          "section_chars": 15156,
+          "numbered_lines": 309,
+          "duplicate_numbered_lines": 0
+        },
+        {
+          "file": "deps/oblib/src/lib/thread/ob_tenant_hook.cpp",
+          "section_chars": 400,
+          "numbered_lines": 6,
+          "duplicate_numbered_lines": 0
+        },
+        {
+          "file": "src/observer/omt/ob_tenant_config_mgr.h",
+          "section_chars": 403,
+          "numbered_lines": 4,
+          "duplicate_numbered_lines": 0
+        },
+        {
+          "file": "deps/oblib/src/lib/oblog/ob_log_module.h",
+          "section_chars": 323,
+          "numbered_lines": 2,
+          "duplicate_numbered_lines": 0
+        },
+        {
+          "file": "src/share/table/ob_ttl_util.h",
+          "section_chars": 185,
+          "numbered_lines": 1,
+          "duplicate_numbered_lines": 0
+        }
+      ],
+      "budget_truncated": false
+    },
+    {
+      "id": "ttl-task-methods",
+      "sections": [
+        {
+          "file": "src/observer/table/ttl/ob_table_ttl_task.cpp",
+          "section_chars": 15330,
+          "numbered_lines": 315,
+          "duplicate_numbered_lines": 0
+        },
+        {
+          "file": "deps/oblib/src/common/rowkey/ob_rowkey.h",
+          "section_chars": 651,
+          "numbered_lines": 10,
+          "duplicate_numbered_lines": 0
+        },
+        {
+          "file": "deps/oblib/src/lib/time/ob_time_utility.cpp",
+          "section_chars": 554,
+          "numbered_lines": 12,
+          "duplicate_numbered_lines": 0
+        },
+        {
+          "file": "src/share/table/ob_table.h",
+          "section_chars": 606,
+          "numbered_lines": 6,
+          "duplicate_numbered_lines": 0
+        },
+        {
+          "file": "src/share/table/ob_ttl_util.cpp",
+          "section_chars": 1158,
+          "numbered_lines": 26,
+          "duplicate_numbered_lines": 0
+        },
+        {
+          "file": "deps/oblib/src/lib/rc/context.h",
+          "section_chars": 424,
+          "numbered_lines": 10,
+          "duplicate_numbered_lines": 0
+        },
+        {
+          "file": "deps/oblib/src/lib/allocator/page_arena.h",
+          "section_chars": 297,
+          "numbered_lines": 2,
+          "duplicate_numbered_lines": 0
+        },
+        {
+          "file": "src/observer/table/ob_table_context.cpp",
+          "section_chars": 1000,
+          "numbered_lines": 24,
+          "duplicate_numbered_lines": 0
+        },
+        {
+          "file": "deps/oblib/src/common/rowkey/ob_rowkey.cpp",
+          "section_chars": 2040,
+          "numbered_lines": 26,
+          "duplicate_numbered_lines": 0
+        }
+      ],
+      "budget_truncated": false
+    },
+    {
+      "id": "dtl-seed-bag",
+      "sections": [
+        {
+          "file": "src/sql/dtl/ob_dtl_flow_control.h",
+          "section_chars": 5474,
+          "numbered_lines": 97,
+          "duplicate_numbered_lines": 0
+        },
+        {
+          "file": "src/sql/dtl/ob_dtl_basic_channel.h",
+          "section_chars": 2747,
+          "numbered_lines": 44,
+          "duplicate_numbered_lines": 0
+        },
+        {
+          "file": "src/sql/engine/px/exchange/ob_px_transmit_op.h",
+          "section_chars": 5869,
+          "numbered_lines": 120,
+          "duplicate_numbered_lines": 0
+        },
+        {
+          "file": "src/sql/engine/px/exchange/ob_px_transmit_op.cpp",
+          "section_chars": 269,
+          "numbered_lines": 4,
+          "duplicate_numbered_lines": 0
+        },
+        {
+          "file": "src/sql/dtl/ob_dtl_basic_channel.cpp",
+          "section_chars": 1290,
+          "numbered_lines": 39,
+          "duplicate_numbered_lines": 0
+        },
+        {
+          "file": "src/sql/dtl/ob_dtl_flow_control.cpp",
+          "section_chars": 7233,
+          "numbered_lines": 179,
+          "duplicate_numbered_lines": 0
+        }
+      ],
+      "budget_truncated": false
+    },
+    {
+      "id": "dtl-methods",
+      "sections": [
+        {
+          "file": "src/sql/dtl/ob_dtl_flow_control.h",
+          "section_chars": 1564,
+          "numbered_lines": 31,
+          "duplicate_numbered_lines": 0
+        },
+        {
+          "file": "src/sql/dtl/ob_dtl_basic_channel.cpp",
+          "section_chars": 5763,
+          "numbered_lines": 123,
+          "duplicate_numbered_lines": 0
+        },
+        {
+          "file": "src/sql/dtl/ob_dtl_basic_channel.h",
+          "section_chars": 490,
+          "numbered_lines": 7,
+          "duplicate_numbered_lines": 0
+        },
+        {
+          "file": "src/sql/dtl/ob_dtl_fc_server.h",
+          "section_chars": 3132,
+          "numbered_lines": 58,
+          "duplicate_numbered_lines": 0
+        },
+        {
+          "file": "src/sql/dtl/ob_dtl_channel.h",
+          "section_chars": 302,
+          "numbered_lines": 2,
+          "duplicate_numbered_lines": 0
+        },
+        {
+          "file": "deps/oblib/src/lib/time/ob_time_utility.cpp",
+          "section_chars": 554,
+          "numbered_lines": 12,
+          "duplicate_numbered_lines": 0
+        },
+        {
+          "file": "src/sql/dtl/ob_dtl_fc_server.cpp",
+          "section_chars": 654,
+          "numbered_lines": 12,
+          "duplicate_numbered_lines": 0
+        },
+        {
+          "file": "src/sql/dtl/ob_dtl_channel_loop.h",
+          "section_chars": 228,
+          "numbered_lines": 1,
+          "duplicate_numbered_lines": 0
+        },
+        {
+          "file": "unittest/sql/engine/px/test_merge_sort_receive.cpp",
+          "section_chars": 543,
+          "numbered_lines": 10,
+          "duplicate_numbered_lines": 0
+        },
+        {
+          "file": "src/sql/dtl/ob_dtl_channel_loop.cpp",
+          "section_chars": 613,
+          "numbered_lines": 15,
+          "duplicate_numbered_lines": 0
+        },
+        {
+          "file": "src/sql/engine/px/ob_px_worker.cpp",
+          "section_chars": 605,
+          "numbered_lines": 18,
+          "duplicate_numbered_lines": 0
+        },
+        {
+          "file": "src/sql/engine/px/ob_px_util.cpp",
+          "section_chars": 835,
+          "numbered_lines": 16,
+          "duplicate_numbered_lines": 0
+        }
+      ],
+      "budget_truncated": false
+    }
+  ]
+}

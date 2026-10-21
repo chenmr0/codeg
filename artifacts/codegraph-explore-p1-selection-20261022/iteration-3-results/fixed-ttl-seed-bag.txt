@@ -1,0 +1,627 @@
+## Exploration: ObTableTTLDeleteTask kv_ttl_delete_max_ops ttl_thread_score
+
+Found 197 symbols across 56 files.
+
+
+Exact symbol/path anchors and identifier text evidence; weak word matches are disabled.
+Literal fallback (ripgrep): 2 identifier(s), 6 matching line(s).
+Literal locations (not complete bodies): kv_ttl_delete_max_ops: src/share/table/ob_ttl_util.cpp:2622; kv_ttl_delete_max_ops: src/share/parameter/ob_parameter_seed.ipp:2362; ttl_thread_score: src/share/table/ob_ttl_util.cpp:2620; ttl_thread_score: src/share/table/ob_ttl_util.cpp:2621; ttl_thread_score: src/share/parameter/ob_parameter_seed.ipp:2359; ttl_thread_score: src/share/scheduler/ob_tenant_dag_scheduler.cpp:4455
+### Blast radius — what depends on these (update/verify before editing)
+
+- `init` (src/share/table/ob_ttl_util.cpp:2607) — 1 caller in `src/observer/table/ttl/ob_table_ttl_task.cpp`; ⚠️ no covering tests found
+- `inner_reload_config` (src/share/scheduler/ob_tenant_dag_scheduler.cpp:4441) — 1 caller in `src/share/scheduler/ob_tenant_dag_scheduler.cpp`; ⚠️ no covering tests found
+
+### Relationships
+
+**extends:**
+- ObTableTTLDeleteTask → ObITask
+- ObTableHRowKeyTTLDelTask → ObTableTTLDeleteTask
+
+**calls:**
+- ObTableTTLDeleteTask → MEMSET
+- get_timeout_ts → current_time
+- process_one → get_timeout_ts
+- init_scan_tb_ctx → get_timeout_ts
+- init_scan_tb_ctx → get_timeout_ts
+- init_tb_ctx → get_timeout_ts
+- init_tb_ctx → get_timeout_ts
+- execute_ttl_delete → get_timeout_ts
+- init → reset
+- init → is_valid
+- init → init_scan_index
+- init → init_sess_info
+- init → is_valid
+- init → init_schema_info
+- init → reset_cnt
+- ... and 812 more
+
+### Source Code
+
+> Source excerpts below are read from current files. Only shown source ranges are covered; signatures, outlines and omitted regions are not complete function bodies or complete files.
+
+#### src/share/table/ob_ttl_util.cpp — init, check_and_try_throttle, ~ObTTLDeleteRateThrottler, reset, calculate_wait_time, need_commit_trans_early, ObTTLDeleteRateThrottler, print_throttle_info · focused (complete selected bodies and source ranges; types are outlines)
+
+```cpp
+2579	ObTTLDeleteRateThrottler::ObTTLDeleteRateThrottler()
+2580	  : is_inited_(false),
+2581	    max_rows_per_second_(0),
+2582	    smooth_factor_(0.0),
+2583	    trans_start_time_(0),
+2584	    prev_delete_time_(0),
+2585	    cur_del_row_count_(0),
+2586	    expected_interval_us_(0),
+2587	    throttle_info_()
+2588	{}
+
+... (gap) ...
+
+2590	ObTTLDeleteRateThrottler::~ObTTLDeleteRateThrottler()
+2591	{
+2592	  reset();
+2593	}
+
+... (gap) ...
+
+2595	void ObTTLDeleteRateThrottler::reset()
+2596	{
+2597	  is_inited_ = false;
+2598	  max_rows_per_second_ = 0;
+2599	  smooth_factor_ = 0.0;
+2600	  trans_start_time_ = 0;
+2601	  prev_delete_time_ = 0;
+2602	  cur_del_row_count_ = 0;
+2603	  expected_interval_us_ = 0;
+2604	  throttle_info_.reset();
+2605	}
+
+... (gap) ...
+
+2607	int ObTTLDeleteRateThrottler::init(const table::ObTTLTaskInfo &info)
+2608	{
+2609	  int ret = OB_SUCCESS;
+2610	  if (is_inited_) {
+2611	    ret = OB_INIT_TWICE;
+2612	    LOG_WARN("delete rate limiter is already initialized", K(ret));
+2613	  } else {
+2614	    omt::ObTenantConfigGuard tenant_config(TENANT_CONF(info.tenant_id_));
+2615	    if (!tenant_config.is_valid()) {
+2616	      ret = OB_ERR_UNEXPECTED;
+2617	      LOG_WARN("invalid tenant config", K(ret), K(info.tenant_id_));
+2618	    } else {
+2619	      int64_t cur_time = ObTimeUtility::current_time();
+2620	      int64_t ttl_thread_num = tenant_config->ttl_thread_score == 0 ?
+2621	              OB_DAG_PRIOS[ObDagPrio::DAG_PRIO_TTL].score_ : tenant_config->ttl_thread_score;
+2622	      int64_t ttl_del_rate_limit = tenant_config->kv_ttl_delete_max_ops;
+2623	      max_rows_per_second_ = ttl_del_rate_limit == 0 ? 0 : ttl_del_rate_limit / ttl_thread_num;
+2624	      expected_interval_us_ = max_rows_per_second_ == 0 ? 0 : 1000000 / max_rows_per_second_;
+2625	      smooth_factor_ = DEFAULT_SMOOTH_FACTOR;
+2626	      // init throttle info
+2627	      throttle_info_.table_id_ = info.table_id_;
+2628	      throttle_info_.tablet_id_ = info.tablet_id_;
+2629	      throttle_info_.ttl_del_max_ops_ = ttl_del_rate_limit;
+2630	      throttle_info_.ttl_thread_num_ = ttl_thread_num;
+2631	      throttle_info_.max_rows_per_second_ = max_rows_per_second_;
+2632	      throttle_info_.expected_interval_us_ = expected_interval_us_;
+2633	      throttle_info_.total_del_row_count_ = 0;
+2634	      throttle_info_.start_time_ = cur_time;
+2635	      throttle_info_.cur_time_ = cur_time;
+2636	      is_inited_ = true;
+2637	    }
+2638	  }
+2639	  return ret;
+2640	}
+
+... (gap) ...
+
+2642	int ObTTLDeleteRateThrottler::check_and_try_throttle(int64_t trans_timeout_ts)
+2643	{
+2644	  int ret = OB_SUCCESS;
+2645	  if (!is_inited_) {
+2646	    ret = OB_NOT_INIT;
+2647	    LOG_WARN("delete rate throttler is not initialized", K(ret));
+2648	  } else if (max_rows_per_second_ == 0) {
+2649	    // do nothing
+2650	  } else if (need_commit_trans_early(trans_timeout_ts)) {
+2651	    ret = OB_ITER_END;
+2652	  } else {
+2653	    int64_t wait_time = calculate_wait_time();
+2654	    if (wait_time > 0) {
+2655	      ob_usleep(wait_time);
+2656	    }
+2657	  }
+2658	  cur_del_row_count_++;
+2659	  prev_delete_time_ = ObTimeUtility::current_time();
+2660	  throttle_info_.cur_time_ = prev_delete_time_;
+2661	  throttle_info_.total_del_row_count_++;
+2662	  return ret;
+2663	}
+
+... (gap) ...
+
+2665	int ObTTLDeleteRateThrottler::check_and_try_throttle()
+2666	{
+2667	  int ret = OB_SUCCESS;
+2668	  if (!is_inited_) {
+2669	    ret = OB_NOT_INIT;
+2670	    LOG_WARN("delete rate throttler is not initialized", K(ret));
+2671	  } else if (max_rows_per_second_ == 0) {
+2672	    // do nothing
+2673	  } else {
+2674	    int64_t cur_time = ObTimeUtility::current_time();
+2675	    int64_t wait_time = expected_interval_us_ * cur_del_row_count_ - (cur_time - trans_start_time_);
+2676	    if (wait_time > 0) {
+2677	      ob_usleep(wait_time);
+2678	    }
+2679	  }
+2680	  cur_del_row_count_ = 0;
+2681	  trans_start_time_ = 0;
+2682	  throttle_info_.cur_time_ = ObTimeUtility::current_time();
+2683	  return ret;
+2684	}
+
+... (gap) ...
+
+2686	int64_t ObTTLDeleteRateThrottler::calculate_wait_time()
+2687	{
+2688	  int64_t wait_time = 0;
+2689	  if (prev_delete_time_ == 0) {
+2690	    wait_time = 0;
+2691	  } else {
+2692	    int64_t cur_time = ObTimeUtility::current_time();
+2693	    int64_t elapsed = cur_time - prev_delete_time_;
+2694	    if (elapsed >= expected_interval_us_) {
+2695	      wait_time = 0;
+2696	    } else {
+2697	      wait_time = (expected_interval_us_ - elapsed) * smooth_factor_;
+2698	    }
+2699	  }
+2700	  return wait_time;
+2701	}
+
+... (gap) ...
+
+2703	bool ObTTLDeleteRateThrottler::need_commit_trans_early(int64_t trans_timeout_ts)
+2704	{
+2705	  bool bret = false;
+2706	  int64_t cur_time = ObTimeUtility::current_time();
+2707	  if ((cur_time - trans_start_time_) > (trans_timeout_ts - trans_start_time_) * DEFAULT_TRANS_TIMEOUT_RATIO) {
+2708	    bret = true;
+2709	  }
+2710	  return bret;
+2711	}
+
+... (gap) ...
+
+2713	void ObTTLDeleteRateThrottler::print_throttle_info()
+2714	{
+2715	  int64_t avg_delete_ops = 0;
+2716	  if (throttle_info_.cur_time_ - throttle_info_.start_time_ > 0) {
+2717	    avg_delete_ops = throttle_info_.total_del_row_count_ * 1000000L / (throttle_info_.cur_time_ - throttle_info_.start_time_);
+2718	  }
+2719	  LOG_INFO("[TTL TASK DELETE RATE] print ttl delete rate throttle info", K(throttle_info_), "avg delete ops", avg_delete_ops);
+2720	}
+```
+
+#### src/share/scheduler/ob_tenant_dag_scheduler.cpp — inner_reload_config, reload_config, set_compaction_dag_limit, mtl_init, ObTenantDagScheduler, ~ObTenantDagScheduler, stop, get_limit · focused (complete selected bodies and source ranges; types are outlines)
+
+```cpp
+3681	int64_t ObDagPrioScheduler::get_limit()
+3682	{
+3683	  return limits_;
+3684	}
+
+... (gap) ...
+
+4395	int ObTenantDagScheduler::mtl_init(ObTenantDagScheduler* &scheduler)
+4396	{
+4397	  int ret = OB_SUCCESS;
+4398	  if (OB_FAIL(scheduler->init(MTL_ID()))) {
+4399	    COMMON_LOG(WARN, "failed to init ObTenantDagScheduler for tenant", K(ret), K(MTL_ID()));
+4400	  } else {
+4401	    FLOG_INFO("success to init ObTenantDagScheduler for tenant", K(ret), K(MTL_ID()), KP(scheduler));
+4402	  }
+4403	  return ret;
+4404	}
+
+... (gap) ...
+
+4406	ObTenantDagScheduler::ObTenantDagScheduler()
+4407	  : is_inited_(false),
+4408	    fast_schedule_dag_net_(false),
+4409	    tg_id_(-1),
+4410	    dag_cnt_(0),
+4411	    dag_limit_(0),
+4412	    compaction_dag_limit_(0),
+4413	    check_period_(0),
+4414	    loop_waiting_dag_list_period_(0),
+4415	    total_worker_cnt_(0),
+4416	    work_thread_num_(0),
+4417	    total_running_task_cnt_(0),
+4418	    scheduled_task_cnt_(0),
+4419	    scheduler_sync_(),
+4420	    mem_context_(nullptr),
+4421	    ha_mem_context_(nullptr),
+4422	    independent_mem_context_(nullptr)
+4423	{
+4424	}
+
+... (gap) ...
+
+4426	ObTenantDagScheduler::~ObTenantDagScheduler()
+4427	{
+4428	  destroy();
+4429	}
+
+... (gap) ...
+
+4431	void ObTenantDagScheduler::stop()
+4432	{
+4433	  TG_STOP(tg_id_);
+4434	}
+
+... (gap) ...
+
+4441	void ObTenantDagScheduler::inner_reload_config()
+4442	{
+4443	  omt::ObTenantConfigGuard tenant_config(TENANT_CONF(MTL_ID()));
+4444	  if (tenant_config.is_valid()) {
+4445	    set_thread_score(ObDagPrio::DAG_PRIO_COMPACTION_HIGH, tenant_config->compaction_high_thread_score);
+4446	    set_thread_score(ObDagPrio::DAG_PRIO_MDS_COMPACTION_HIGH, tenant_config->mds_compaction_high_thread_score);
+4447	    set_thread_score(ObDagPrio::DAG_PRIO_COMPACTION_MID, tenant_config->compaction_mid_thread_score);
+4448	    set_thread_score(ObDagPrio::DAG_PRIO_MDS_COMPACTION_MID, tenant_config->mds_compaction_mid_thread_score);
+4449	    set_thread_score(ObDagPrio::DAG_PRIO_COMPACTION_LOW, tenant_config->compaction_low_thread_score);
+4450	    set_thread_score(ObDagPrio::DAG_PRIO_HA_HIGH, tenant_config->ha_high_thread_score);
+4451	    set_thread_score(ObDagPrio::DAG_PRIO_HA_MID, tenant_config->ha_mid_thread_score);
+4452	    set_thread_score(ObDagPrio::DAG_PRIO_HA_LOW, tenant_config->ha_low_thread_score);
+4453	    set_thread_score(ObDagPrio::DAG_PRIO_DDL, tenant_config->ddl_thread_score);
+4454	    set_thread_score(ObDagPrio::DAG_PRIO_DDL_HIGH, tenant_config->ddl_high_thread_score);
+4455	    set_thread_score(ObDagPrio::DAG_PRIO_TTL, tenant_config->ttl_thread_score);
+4456	#ifdef OB_BUILD_SHARED_STORAGE
+4457	    // use compaction_high_thread_score as default upload thread count
+4458	    if (0 == tenant_config->inc_sstable_upload_thread_score) {
+4459	      set_thread_score(ObDagPrio::DAG_PRIO_INC_SSTABLE_UPLOAD, tenant_config->compaction_high_thread_score);
+4460	    } else {
+4461	      set_thread_score(ObDagPrio::DAG_PRIO_INC_SSTABLE_UPLOAD, tenant_config->inc_sstable_upload_thread_score);
+4462	    }
+4463	    set_thread_score(ObDagPrio::DAG_PRIO_ATTACH_SHARED_SSTABLE, tenant_config->attach_shared_sstable_thread_score);
+4464	#endif
+4465	    set_compaction_dag_limit(tenant_config->compaction_dag_cnt_limit);
+4466	  }
+4467	}
+
+... (gap) ...
+
+4469	void ObTenantDagScheduler::reload_config()
+4470	{
+4471	#ifdef OB_BUILD_SHARED_STORAGE
+4472	  if (GCTX.is_shared_storage_mode()) {
+4473	    ss_reload_config();
+4474	  } else
+4475	#endif
+4476	  {
+4477	    inner_reload_config();
+4478	  }
+4479	}
+
+... (gap) ...
+
+5455	int ObTenantDagScheduler::set_compaction_dag_limit(const int64_t new_val)
+5456	{
+5457	  int ret = OB_SUCCESS;
+5458	  const int64_t old_val = compaction_dag_limit_;
+5459	  if (IS_NOT_INIT) {
+5460	    ret = OB_NOT_INIT;
+5461	    COMMON_LOG(WARN, "ObTenantDagScheduler is not inited", K(ret));
+5462	  } else if (new_val < 0) {
+5463	    ret = OB_INVALID_ARGUMENT;
+5464	    COMMON_LOG(WARN, "invalid argument", K(ret), K(new_val));
+5465	  } else if (old_val != new_val) {
+5466	    ObThreadCondGuard guard(scheduler_sync_);
+5467	    if (OB_SUCC(ret)) {
+5468	      compaction_dag_limit_ = new_val;
+5469	      if (OB_FAIL(scheduler_sync_.signal())) {
+5470	        STORAGE_LOG(WARN, "Failed to signal", K(ret), K(compaction_dag_limit_));
+5471	      } else {
+5472	        COMMON_LOG(INFO, "set compaction dag limit successfully", K(compaction_dag_limit_));
+5473	      }
+5474	    }
+5475	  }
+5476	  return ret;
+5477	}
+```
+
+#### src/observer/table/ttl/ob_table_ttl_task.h — is_rowkey_ttl_task, get_allocator, reset_timeout_ts, get_tablet_id, get_table_id, get_start_rowkey · focused (complete selected bodies and source ranges; types are outlines)
+
+```cpp
+123	  virtual bool is_rowkey_ttl_task() const { return false; }
+
+... (gap) ...
+
+142	  common::ObIAllocator &get_allocator() { return allocator_; }
+
+... (gap) ...
+
+154	  void reset_timeout_ts() { timeout_ts_ = 0; }
+
+... (gap) ...
+
+156	  common::ObTabletID get_tablet_id() const
+157	  {
+158	    return info_.get_tablet_id();
+159	  }
+160	  uint64_t get_table_id() const { return param_.table_id_; }
+161	  common::ObRowkey &get_start_rowkey() { return rowkey_; }
+```
+
+#### src/observer/table/ttl/ob_table_ttl_task.cpp — process, init, get_timeout_ts, init_scan_index, init_sess_info, ~ObTableTTLDeleteTask · focused (complete selected bodies and source ranges; types are outlines)
+
+```cpp
+105	ObTableTTLDeleteTask::~ObTableTTLDeleteTask()
+106	{
+107	}
+
+... (gap) ...
+
+109	int64_t ObTableTTLDeleteTask::get_timeout_ts()
+110	{
+111	  if (timeout_ts_ == 0) {
+112	    timeout_ts_ = ONE_TASK_TIMEOUT + ObTimeUtility::current_time();
+113	  }
+114	  return timeout_ts_;
+115	}
+
+... (gap) ...
+
+117	int ObTableTTLDeleteTask::init(ObTabletTTLScheduler *ttl_tablet_scheduler,
+118	                               const ObTTLTaskParam &ttl_para,
+119	                               ObTTLTaskInfo &ttl_info)
+120	{
+121	  int ret = OB_SUCCESS;
+122	  if (IS_INIT) {
+123	    ret = OB_INIT_TWICE;
+124	    LOG_WARN("init twice", KR(ret));
+125	  } else if (OB_ISNULL(ttl_tablet_scheduler) || ttl_info.table_id_ == OB_INVALID_ID ||
+126	            !ttl_info.ls_id_.is_valid() || !ttl_info.is_valid() || ttl_para.tenant_id_ == OB_INVALID_ID) {
+127	    ret = OB_INVALID_ARGUMENT;
+128	    LOG_WARN("invalid argument", KR(ret), K(ttl_tablet_scheduler), K(ttl_info), K(ttl_para));
+129	  } else {
+130	    if (ttl_info.row_key_.empty()) {
+131	      rowkey_.reset();
+132	    } else {
+133	      int64_t pos = 0;
+134	      if (OB_FAIL(rowkey_.deserialize(rowkey_allocator_, ttl_info.row_key_.ptr(), ttl_info.row_key_.length(), pos))) {
+135	        LOG_WARN("fail to deserialize rowkey",  KR(ret), K(ttl_info.row_key_));
+136	      }
+137	    }
+138	  }
+139	  if (OB_SUCC(ret)) {
+140	    if (OB_FAIL(init_credential(ttl_para))) {
+141	      LOG_WARN("fail to init credential", KR(ret));
+142	    } else if (OB_FAIL(init_sess_info())) {
+143	      LOG_WARN("fail to init sess info guard", K(ret));
+144	    } else if (OB_FAIL(init_schema_info(ttl_info.tenant_id_, ttl_info.table_id_))) {
+145	      LOG_WARN("fail to init schema info", K(ttl_info), K(ttl_para));
+146	    } else if (OB_FAIL(init_scan_index(ttl_info.scan_index_))) {
+147	      LOG_WARN("fail to init scan index", K(ttl_info), K(ttl_para));
+148	    } else {
+149	      param_ = ttl_para;
+150	      info_ = ttl_info;
+151	      info_.scan_index_ = scan_index_; // record the scan index in current task to task info
+152	      info_.reset_cnt();
+153	      info_.err_code_ = OB_SUCCESS;
+154	      ttl_tablet_scheduler_ = ttl_tablet_scheduler;
+155	      is_inited_ = true;
+156	    }
+157	  }
+158	  return ret;
+159	}
+
+... (gap) ...
+
+161	int ObTableTTLDeleteTask::init_scan_index(const ObString &scan_index)
+162	{
+163	  int ret = OB_SUCCESS;
+164	  if (scan_index.length() < 0 || scan_index.length() > OB_MAX_OBJECT_NAME_LENGTH) {
+165	    ret = OB_ERR_UNEXPECTED;
+166	    LOG_WARN("scan index length is unexpected", KR(ret), K(scan_index.length()), K(scan_index));
+167	  } else {
+168	    MEMCPY(scan_index_buf_, scan_index.ptr(), scan_index.length());
+169	    scan_index_.assign_ptr(scan_index_buf_, scan_index.length());
+170	  }
+171	  return ret;
+172	}
+
+... (gap) ...
+
+174	int ObTableTTLDeleteTask::init_sess_info()
+175	{
+176	  int ret = OB_SUCCESS;
+177	  // try get session from session pool
+178	  if (OB_FAIL(TABLEAPI_OBJECT_POOL_MGR->get_sess_info(credential_, sess_guard_))) {
+179	    LOG_WARN("fail to get session info", K(ret), K(credential_));
+180	  } else if (OB_ISNULL(sess_guard_.get_sess_node_val())) {
+181	    ret = OB_ERR_UNEXPECTED;
+182	    LOG_WARN("session info is null", K(ret), K(credential_));
+183	  }
+184	  return ret;
+185	}
+
+... (gap) ...
+
+250	int ObTableTTLDeleteTask::process()
+251	{
+252	  int ret = OB_SUCCESS;
+253	  info_.start_time_ = ObTimeUtility::current_time();
+254	  if (IS_NOT_INIT) {
+255	    ret = OB_NOT_INIT;
+256	    LOG_WARN("not init", K(ret));
+257	  } else if (OB_FAIL(delete_rate_throttler_.init(info_))) {
+258	    LOG_WARN("fail to init delete rate throttler", KR(ret), K(delete_rate_throttler_));
+259	  } else {
+260	    bool need_stop = false;
+261	    // pre-check to quick cancel/suspend current task in case of tenant ttl state changed
+262	    // since it maybe wait in dag queue for too long
+263	    if (OB_FAIL(ttl_tablet_scheduler_->report_task_status(info_, param_, need_stop, false))) {
+264	      LOG_WARN("fail to report ttl task status", KR(ret));
+265	    }
+266	    // explicit cover retcode
+267	    while(!need_stop) {
+268	      lib::ContextParam param;
+269	      param.set_mem_attr(MTL_ID(), "TTLDeleteMemCtx", ObCtxIds::DEFAULT_CTX_ID)
+270	        .set_properties(lib::USE_TL_PAGE_OPTIONAL);
+271	      CREATE_WITH_TEMP_CONTEXT(param) {
+272	        if (OB_FAIL(process_one())) {
+273	          if (OB_ITER_END != ret) {
+274	            LOG_WARN("fail to process one", KR(ret));
+275	          }
+276	        }
+277	        // explicit cover retcode
+278	        if (OB_FAIL(ttl_tablet_scheduler_->report_task_status(info_, param_, need_stop))) {
+279	          LOG_WARN("fail to report ttl task status", KR(ret));
+280	        }
+281	        allocator_.reuse();
+282	      }
+283	    }
+284	  }
+285	  ttl_tablet_scheduler_->dec_dag_ref();
+286	  return ret;
+287	}
+```
+
+#### src/observer/omt/ob_tenant_config_mgr.h — is_valid · focused (complete selected bodies and source ranges; types are outlines)
+
+```cpp
+46	  bool is_valid() { return nullptr != config_; }
+```
+
+#### deps/oblib/src/lib/time/ob_time_utility.cpp — current_time · focused (complete selected bodies and source ranges; types are outlines)
+
+```cpp
+23	int64_t ObTimeUtility::current_time()
+24	{
+25	  int err_ret = 0;
+26	  struct timeval t;
+27	  if (OB_UNLIKELY((err_ret = gettimeofday(&t, nullptr)) < 0)) {
+28	    LIB_LOG_RET(ERROR, err_ret, "gettimeofday error", K(err_ret), K(errno));
+29	    systime_error = true;
+30	    ob_abort();
+31	  }
+32	  return (static_cast<int64_t>(t.tv_sec) * 1000000L +
+33	          static_cast<int64_t>(t.tv_usec));
+34	}
+```
+
+#### src/share/table/ob_table_ttl_common.h — is_valid · focused (complete selected bodies and source ranges; types are outlines)
+
+```cpp
+182	  bool is_valid() const
+183	  {
+184	    return common::OB_INVALID_ID != task_id_;
+185	  }
+```
+
+#### deps/oblib/src/common/rowkey/ob_rowkey.h — reset · focused (complete selected bodies and source ranges; types are outlines)
+
+```cpp
+39	  void reset() {obj_ptr_ = NULL; obj_cnt_ = 0; }
+```
+
+#### src/observer/table_load/ob_table_load_struct.h — is_valid · focused (complete selected bodies and source ranges; types are outlines)
+
+```cpp
+147	  bool is_valid() const
+148	  {
+149	    return common::OB_INVALID_ID != tenant_id_ &&
+150	           common::OB_INVALID_ID != table_id_ &&
+151	           parallel_ > 0 &&
+152	           session_count_ > 0 &&
+153	           batch_size_ > 0 && batch_size_ <= MAX_BATCH_SIZE &&
+154	           column_count_ > 0 &&
+155	           sql::ObLoadDupActionType::LOAD_INVALID_MODE != dup_action_ &&
+156	           storage::ObDirectLoadMethod::is_type_valid(method_) &&
+157	           storage::ObDirectLoadInsertMode::is_type_valid(insert_mode_) &&
+158	           storage::ObDirectLoadMode::is_type_valid(load_mode_) &&
+159	           (storage::ObDirectLoadMethod::is_full(method_)
+160	              ? storage::ObDirectLoadInsertMode::is_valid_for_full_method(insert_mode_)
+161	              : true) &&
+162	           (storage::ObDirectLoadMethod::is_incremental(method_)
+163	              ? storage::ObDirectLoadInsertMode::is_valid_for_incremental_method(insert_mode_)
+164	              : true) &&
+165	           (storage::ObDirectLoadInsertMode::INC_REPLACE == insert_mode_
+166	              ? sql::ObLoadDupActionType::LOAD_REPLACE == dup_action_
+167	              : true) &&
+168	           ObCompressorType::INVALID_COMPRESSOR != compressor_type_ &&
+169	           storage::ObDirectLoadLevel::is_type_valid(load_level_);
+170	  }
+```
+
+#### src/storage/compaction/ob_window_compaction_utils.h — empty · focused (complete selected bodies and source ranges; types are outlines)
+
+```cpp
+309	  OB_INLINE bool empty() const { return score_prio_queue_.empty(); }
+```
+
+#### deps/oblib/src/common/ob_buffer.h — length · focused (complete selected bodies and source ranges; types are outlines)
+
+```cpp
+319	      length() = 0;
+```
+
+#### deps/oblib/src/common/rowkey/ob_rowkey.cpp — deserialize · focused (complete selected bodies and source ranges; types are outlines)
+
+```cpp
+335	int ObRowkey::deserialize(const char *buf, const int64_t buf_len, int64_t &pos, bool check_zero  /*= false*/)
+336	{
+337	  int ret = OB_SUCCESS;
+338	  int64_t obj_cnt = 0;
+339	  if (NULL == buf || buf_len <= 0) {
+340	    ret = OB_INVALID_ARGUMENT;
+341	    COMMON_LOG(WARN, "invalid arguments.",
+342	               KP(buf), K(buf_len), K(ret));
+343	  } else if (OB_FAIL(serialization::decode_vi64(buf, buf_len, pos, &obj_cnt))) {
+344	    COMMON_LOG(WARN, "decode object count failed.",
+345	               KP(buf), K(buf_len), K(pos), K(obj_cnt), K(ret));
+346	  } else if (obj_cnt > 0) {
+347	    // If there is no assign external ptr, then dynamically assign
+348	    if (NULL == obj_ptr_) {
+349	      if (OB_ISNULL(obj_ptr_ = static_cast<ObObj *>
+350	          (this_worker().get_sql_arena_allocator().alloc(sizeof(ObObj) * obj_cnt)))) {
+351	        ret = OB_ALLOCATE_MEMORY_FAILED;
+352	        COMMON_LOG(WARN,
+353	            "failed to allocate memory for decode ObRowKey",
+354	            K(ret),
+355	            K(obj_cnt),
+356	            K(sizeof(ObObj)));
+357	      }
+358	    }
+359	    // Otherwise, check whether the number of reserved primary keys meets the requirements
+360	    else if (obj_cnt_ < obj_cnt) {
+361	      COMMON_LOG(ERROR, "preserved obj count is not enough", K(obj_cnt_), K(obj_cnt), K(obj_ptr_));
+362	      ret = OB_BUF_NOT_ENOUGH;
+363	    } else {
+364	      // Use the reserved obj array
+365	    }
+366	    if (OB_SUCC(ret)) {
+367	      obj_cnt_ = obj_cnt;
+368	      if (OB_FAIL(deserialize_objs(buf, buf_len, pos))) {
+369	        COMMON_LOG(WARN, "decode objects failed.",
+370	                   KP(buf), K(buf_len), K(pos), K(obj_cnt), K(ret));
+371	      }
+372	    }
+373	  } else if (check_zero && obj_cnt == 0) {
+374	    // Prevent the reserved obj array not aware the obj is empty when obj_cnt = 0
+375	    obj_cnt_ = obj_cnt;
+376	  }
+377	  return ret;
+378	}
+```
+
+> 73 candidate function bodies not fully shown; outlines and Flow are not body coverage.
+- Omitted body: src/share/scheduler/ob_tenant_dag_scheduler.cpp:2847-5668 finish_dag_
+- Omitted body: src/share/scheduler/ob_tenant_dag_scheduler.cpp:3704-3718 set_thread_score
+- Omitted body: src/share/scheduler/ob_tenant_dag_scheduler.cpp:2938-2963 try_move_child_to_ready_list_
+- Omitted body: src/share/scheduler/ob_tenant_dag_scheduler.cpp:2965-2982 erase_dag_
+- Omitted body: src/share/scheduler/ob_tenant_dag_scheduler.cpp:2984-3004 deal_with_fail_dag_
+- Omitted body: src/share/scheduler/ob_tenant_dag_scheduler.cpp:3006-3039 finish_task_in_dag_
+- Omitted body: src/share/scheduler/ob_tenant_dag_scheduler.cpp:3041-3056 pause_worker_
+- Omitted body: src/share/scheduler/ob_tenant_dag_scheduler.cpp:3058-3080 loop_ready_dag_list

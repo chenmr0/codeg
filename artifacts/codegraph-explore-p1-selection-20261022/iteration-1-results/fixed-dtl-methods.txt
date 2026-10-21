@@ -1,0 +1,352 @@
+## Exploration: ObDtlBasicChannel wait_unblocking ObDtlFlowControl need_block can_unblock
+
+Found 84 symbols across 62 files.
+
+
+Exact symbol/path anchors and identifier text evidence; weak word matches are disabled.
+### Blast radius — what depends on these (update/verify before editing)
+
+- `wait_unblocking` (src/sql/dtl/ob_dtl_basic_channel.cpp:801) — 1 caller in `src/sql/dtl/ob_dtl_basic_channel.cpp`; ⚠️ no covering tests found
+- `need_block` (src/sql/dtl/ob_dtl_flow_control.h:106) — 1 caller in `src/sql/dtl/ob_dtl_fc_server.h`; ⚠️ no covering tests found
+- `can_unblock` (src/sql/dtl/ob_dtl_flow_control.h:119) — 1 caller in `src/sql/dtl/ob_dtl_fc_server.h`; ⚠️ no covering tests found
+
+### Relationships
+
+**extends:**
+- ObDtlLocalChannel → ObDtlBasicChannel
+- ObDtlRpcChannel → ObDtlBasicChannel
+- ObDtlBasicChannel → ObDtlChannel
+
+**calls:**
+- wait_unblocking → current_time
+- wait_unblocking → current_time
+- wait_unblocking → get_process_query_time
+- wait_unblocking → process_one_if
+- wait_unblocking → find
+- wait_unblocking → is_drain
+- wait_unblocking → unblock_channel
+- wait_unblocking → unblock_channel
+- wait_unblocking → check_status
+- wait_unblocking → set_ch_idx_var
+- wait_unblocking_if_blocked → wait_unblocking
+- wait_unblocking → belong_to_transmit_data
+- wait_unblocking → is_in_blacklist
+- wait_unblocking → KP
+- wait_unblocking → KP
+- ... and 306 more
+
+### Source Code
+
+> Source excerpts below are read from current files. Only shown source ranges are covered; signatures, outlines and omitted regions are not complete function bodies or complete files.
+
+#### src/sql/dtl/ob_dtl_flow_control.h — need_block, can_unblock, get_used, get_channel_count, ObDtlFlowControl · focused (complete selected bodies; other symbols are outlines)
+
+```cpp
+82	class ObDtlFlowControl
+
+... (gap) ...
+
+104	  OB_INLINE int64_t get_used() { return (ATOMIC_LOAD(&total_memory_size_)); }
+
+... (gap) ...
+
+106	  OB_INLINE bool need_block()
+107	  {
+108	    bool need_block = (ATOMIC_LOAD(&total_memory_size_)) >= THRESHOLD_SIZE
+109	      || MAX_BUFFER_CNT <= (ATOMIC_LOAD(&total_buffer_cnt_));
+110	  #ifdef ERRSIM
+111	    int ret = common::OB_SUCCESS;
+112	    ret = OB_E(EventTable::EN_FORCE_DFC_BLOCK) ret;
+113	    need_block = (common::OB_SUCCESS != ret) ? true : need_block;
+114	    SQL_DTL_LOG(TRACE, "trace block", K(need_block), K(total_buffer_cnt_), K(ret));
+115	    ret = common::OB_SUCCESS;
+116	  #endif
+117	    return need_block;
+118	  }
+119	  OB_INLINE bool can_unblock()
+120	  {
+121	    bool can_unblock = (ATOMIC_LOAD(&total_memory_size_)) <= THRESHOLD_SIZE / 2
+122	        || MAX_BUFFER_CNT / 2 >= (ATOMIC_LOAD(&total_buffer_cnt_));
+123	#ifdef ERRSIM
+124	  int ret = common::OB_SUCCESS;
+125	  ret = OB_E(EventTable::EN_DTL_ONE_ROW_ONE_BUFFER) ret;
+126	  can_unblock = (common::OB_SUCCESS != ret) ? 0 == (ATOMIC_LOAD(&total_buffer_cnt_)) : can_unblock;
+127	  SQL_DTL_LOG(TRACE, "trace unblock", K(can_unblock), K(total_buffer_cnt_), K(ret));
+128	  ret = common::OB_SUCCESS;
+129	#endif
+130	    return can_unblock;
+131	  }
+
+... (gap) ...
+
+188	  int64_t get_channel_count() const {
+189	    return chans_.count();
+190	  }
+```
+
+#### src/sql/dtl/ob_dtl_basic_channel.cpp — wait_unblocking, wait_unblocking_if_blocked · focused (complete selected bodies; other symbols are outlines)
+
+```cpp
+768	int ObDtlBasicChannel::wait_unblocking_if_blocked()
+769	{
+770	  int ret = OB_SUCCESS;
+771	  if (belong_to_transmit_data()) {
+772	    if (!msg_response_.is_init()) {
+773	      ret = OB_NOT_INIT;
+774	      LOG_WARN("not init", K(ret));
+775	    } else if (msg_response_.is_block()) {
+776	      // receive response, then set block info for dfc
+777	      msg_response_.reset_block();
+778	      if (OB_ISNULL(dfc_)) {
+779	        ret = OB_ERR_UNEXPECTED;
+780	        LOG_WARN("channel loop is null", K(ret));
+781	      } else if (OB_FAIL(dfc_->block_channel(this))) {
+782	        LOG_WARN("failed to set block", K(ret));
+783	      } else {
+784	        // only block this channel, for other channels, it will also set block, or other channel can't be blocked
+785	        LOG_TRACE("set block dfc", K(ret), KP(id_), K(peer_));
+786	      }
+787	    }
+788	    if (OB_SUCC(ret)) {
+789	      LOG_TRACE("wait unblocking if blocked", K(msg_response_.is_block()), K(dfc_->is_block(this)), K(ret), KP(id_), KP(peer_id_),
+790	        K(peer_), K(ret));
+791	      if (dfc_->is_block(this)) {
+792	        if (OB_FAIL(wait_unblocking())) {
+793	          LOG_WARN("failed to block", K(ret));
+794	        }
+795	      }
+796	    }
+797	  }
+798	  return ret;
+799	}
+
+... (gap) ...
+
+801	int ObDtlBasicChannel::wait_unblocking()
+802	{
+803	  int ret = OB_SUCCESS;
+804	  if (belong_to_transmit_data()) {
+805	    int64_t idx = OB_INVALID_ID;
+806	    LOG_TRACE("blocking:", K(ret), K(dfc_->is_block()), K(dfc_));
+807	    int64_t timeout_ts = 0;
+808	    if (OB_ISNULL(channel_loop_) || OB_ISNULL(dfc_)) {
+809	      ret = OB_ERR_UNEXPECTED;
+810	      LOG_WARN("channel loop is null", K(ret));
+811	    } else if (FALSE_IT(timeout_ts = dfc_->get_timeout_ts())) {
+812	    } else if (0 == timeout_ts) {
+813	      ret = OB_ERR_UNEXPECTED;
+814	      LOG_WARN("timeout is not set", K(ret));
+815	    } else if (OB_FAIL(channel_loop_->find(this, idx))) {
+816	      LOG_WARN("channel not exists in channel loop", K(ret));
+817	    } else {
+818	      int64_t start_t = ObTimeUtility::current_time();
+819	      int64_t interval_t = 1 * 60 * 1000000; // 1min
+820	      int64_t last_t = 0;
+821	      int64_t print_log_t = 10 * 60 * 1000000;
+822	      block_proc_.set_ch_idx_var(&idx);
+823	      LOG_TRACE("wait unblocking", K(ret), K(dfc_->is_block()), KP(id_), K(peer_));
+824	      oceanbase::lib::Thread::WaitGuard guard(oceanbase::lib::Thread::WAIT_FOR_PX_MSG);
+825	      do {
+826	        int64_t got_channel_idx = idx;
+827	        if (is_drain()) {
+828	          // if drain,then ignore blocking
+829	          if (OB_FAIL(dfc_->unblock_channel(this))) {
+830	            LOG_WARN("fail to unblock channel", K(ret), K(dfc_->is_block()), KP(id_), K(peer_));
+831	          }
+832	          break;
+833	        } else if (OB_FAIL(channel_loop_->process_one_if(
+834	            &block_proc_,
+835	            got_channel_idx))) {
+836	          // no msg, then don't process
+837	          if (OB_DTL_WAIT_EAGAIN == ret) {
+838	            // 这里需要检查是否超时以及worker是否已经处于异常状态(退出等)，否则当worker退出时，一直陷入在while中
+839	            int64_t end_t = ObTimeUtility::current_time();
+840	            if (end_t > timeout_ts) {
+841	              ret = OB_TIMEOUT;
+842	              LOG_WARN("get row from channel timeout", K(ret), K(timeout_ts));
+843	            } else {
+844	              int tmp_ret = THIS_WORKER.check_status();
+845	              if (OB_SUCCESS != tmp_ret) {
+846	                ret = tmp_ret;
+847	                LOG_WARN("worker interrupt", K(tmp_ret), K(ret));
+848	                break;
+849	              }
+850	              if (OB_UNLIKELY(ObPxCheckAlive::is_in_blacklist(peer_,
+851	                              channel_loop_->get_process_query_time()))) {
+852	                ret = OB_RPC_CONNECT_ERROR;
+853	                LOG_WARN("peer no in communication, maybe crashed", K(ret), K(peer_),
+854	                         K(static_cast<int64_t>(GCONF.cluster_id)));
+855	                break;
+856	              }
+857	              if (end_t - start_t > print_log_t) {
+858	                bool print_log = false;
+859	                if (0 == last_t || end_t - last_t > interval_t) {
+860	                  print_log = true;
+861	                  last_t = end_t;
+862	                }
+863	                if (print_log) {
+864	                  LOG_INFO("wait unblocking", K(id_), K(peer_id_), K(peer_id_),
+865	                    K(recv_buffer_cnt_), K(processed_buffer_cnt_), K(send_buffer_cnt_),
+866	                    K(idx), K(got_channel_idx));
+867	                }
+868	              }
+869	              ret = OB_SUCCESS;
+870	            }
+871	          } else {
+872	            LOG_WARN("fail to process unblocking msg", K(ret), K(dfc_->is_block()), KP(id_), K(peer_));
+873	          }
+874	        } else {
+875	          // receive unblocking msg:
+876	          // channel is unblock, then skip
+877	          // channel is blocked, then unblock the channel
+878	          if (idx != got_channel_idx) {
+879	            ret = OB_ERR_UNEXPECTED;
+880	            LOG_WARN("no channel is processed", K(ret), K(got_channel_idx), K(idx));
+881	          } else if (OB_FAIL(dfc_->unblock_channel(this))) {
+882	            LOG_WARN("fail to unblock channel", K(ret), K(dfc_->is_block()), KP(id_), K(peer_));
+883	          }
+884	        }
+885	      } while (dfc_->is_block(this) && OB_SUCC(ret));
+886	      LOG_TRACE("unblocking successfully", K(ret), K(dfc_->is_block()), KP(id_), K(peer_));
+887	    }
+888	    LOG_TRACE("unblocking:", K(ret), K(dfc_->is_block()), K(dfc_->is_block(this)), KP(id_), K(peer_));
+889	  }
+890	  return ret;
+891	}
+```
+
+#### src/sql/dtl/ob_dtl_basic_channel.h — set_ch_idx_var, belong_to_transmit_data, ObDtlBasicChannel · focused (complete selected bodies; other symbols are outlines)
+
+```cpp
+655	class ObDtlBasicChannel
+
+... (gap) ...
+
+669	    void set_ch_idx_var(int64_t *chan_idx) { chan_idx_ = chan_idx; }
+
+... (gap) ...
+
+829	OB_INLINE bool ObDtlBasicChannel::belong_to_transmit_data()
+830	{
+831	  return nullptr != dfc_ && dfc_->is_transmit();
+832	}
+```
+
+#### src/sql/dtl/ob_dtl_fc_server.h — need_block, can_unblock, get_max_size_per_channel, ObTenantDfc · focused (complete selected bodies; other symbols are outlines)
+
+```cpp
+33	class ObTenantDfc
+
+... (gap) ...
+
+146	OB_INLINE int64_t ObTenantDfc::get_max_size_per_channel()
+147	{
+148	  //这里不原子拿，因为仅仅估算，感觉没有必要保证原子性
+149	  int64_t tmp_total_cnt = channel_total_cnt_;
+150	  int64_t tmp_blocked_dfc_cnt = blocked_dfc_cnt_;
+151	  //并发不一致可能导致小于0
+152	  tmp_blocked_dfc_cnt = tmp_total_cnt <= tmp_blocked_dfc_cnt ? tmp_total_cnt : tmp_blocked_dfc_cnt;
+153	  int64_t tmp_unblock_dfc_cnt = tmp_total_cnt - tmp_blocked_dfc_cnt;
+154	  tmp_total_cnt = 0 == tmp_total_cnt ? 1 : tmp_total_cnt;
+155	  int64_t max_parallel_cnt = (0 == max_parallel_cnt_) ? 1 : max_parallel_cnt_;
+156	  // 这里是为了限制一个channel使用了太多buffer
+157	  int64_t tmp_max_size_per_channel = max_blocked_buffer_size_ / max_parallel_cnt * 2;
+158	  int64_t max_size_per_channel = max_blocked_buffer_size_ / tmp_total_cnt * 8 / 10;
+159	  if (0 != tmp_total_cnt && 0 != tmp_blocked_dfc_cnt) {
+160	    max_size_per_channel = max_blocked_buffer_size_ * (1 + tmp_unblock_dfc_cnt * 8 / 10 / tmp_blocked_dfc_cnt) / tmp_total_cnt;
+161	  }
+162	  if (max_size_per_channel > tmp_max_size_per_channel) {
+163	    max_size_per_channel = tmp_max_size_per_channel;
+164	  }
+165	  return max_size_per_channel;
+166	}
+
+... (gap) ...
+
+170	OB_INLINE bool ObTenantDfc::need_block(ObDtlFlowControl *dfc)
+171	{
+172	  // first judge whether current dfc need block, reduce concurrent effects
+173	  // then judge whether global server need block
+174	  bool need_block = false;
+175	  if (nullptr != dfc && dfc->need_block()) {
+176	    int64_t max_size_per_dfc = get_max_size_per_channel() * dfc->get_channel_count();
+177	    need_block = dfc->get_used() >= max_size_per_dfc || tenant_dfc_.get_used() >= max_buffer_size_;
+178	  #ifdef ERRSIM
+179	    int ret = common::OB_SUCCESS;
+180	    ret = OB_E(EventTable::EN_FORCE_DFC_BLOCK) ret;
+181	    need_block = (common::OB_SUCCESS != ret) ? true : need_block;
+182	    SQL_DTL_LOG(TRACE, "trace block", K(need_block), K(ret));
+183	    ret = common::OB_SUCCESS;
+184	  #endif
+185	  }
+186	  return need_block;
+187	}
+
+... (gap) ...
+
+189	OB_INLINE bool ObTenantDfc::can_unblock(ObDtlFlowControl *dfc)
+190	{
+191	  bool can_unblock = false;
+192	  // 如果有一个channel，一直接收比较大的msg，如block等，会不会导致全部block住，只有等待该sql运行完，其他session才会继续
+193	  if (nullptr != dfc && dfc->is_block()) {
+194	    // 这里有几种策略进行unblocking操作
+195	    // 1 直接根据当前dfc的状态发送unblocking msg
+196	    // 2 如果超卖，则根据全局使用情况发送unblock msg
+197	    // 需要注意的是，如果既需要看当前dfc满足条件，又需要满足全局使用情况，则dfc_server当满足时，对所有dfc发送unblocking状况
+198	    // 否则会导致某个channel由于之前达到了自身可以unblock条件，由于没有发送unblocking msg，后面可能没有该channel的任何msg处理，这样就永远再发送unblocking，deadlock
+199	    // 所以必须dfc server在达到unblocking条件时，对当前所有的dfc通知unblocking，感觉这样有点重
+200	    // 现仅仅满足其中之一就通知unblocking
+201	    int64_t max_size_per_dfc = get_max_size_per_channel() * dfc->get_channel_count();
+202	    can_unblock = dfc->can_unblock() ||
+203	      (dfc->get_used() <= max_size_per_dfc / 2 && tenant_dfc_.get_used() < max_buffer_size_);
+204	  }
+205	  return can_unblock;
+206	}
+```
+
+#### src/sql/dtl/ob_dtl_channel.h — is_drain, ObDtlChannel · focused (complete selected bodies; other symbols are outlines)
+
+```cpp
+93	class ObDtlChannel : public common::ObDLinkBase<ObDtlChannel>
+
+... (gap) ...
+
+188	  bool is_drain() { return (ATOMIC_LOAD(&state_) & DTL_CHAN_DARIN); }
+```
+
+#### deps/oblib/src/lib/atomic/ob_atomic.h — ATOMIC_LOAD · focused (complete selected bodies; other symbols are outlines)
+
+```cpp
+37	#define ATOMIC_LOAD(x) __atomic_load_n((x), __ATOMIC_SEQ_CST)
+```
+
+#### deps/oblib/src/lib/oblog/ob_log_module.h — SQL_DTL_LOG, LOG_WARN, LOG_INFO, LOG_TRACE · focused (complete selected bodies; other symbols are outlines)
+
+```cpp
+821	#define SQL_DTL_LOG(level, info_string, args...) OB_SUB_MOD_LOG(SQL, DTL, level,                 \
+
+... (gap) ...
+
+1394	#define LOG_WARN(args...) LOG_MACRO_JOIN(USING_LOG_PREFIX, _LOG) (WARN, ##args)
+
+... (gap) ...
+
+1398	#define LOG_INFO(args...) LOG_MACRO_JOIN(USING_LOG_PREFIX, _LOG) (INFO, ##args)
+
+... (gap) ...
+
+1400	#define LOG_TRACE(args...) LOG_MACRO_JOIN(USING_LOG_PREFIX, _LOG) (TRACE, ##args)
+```
+
+#### src/sql/dtl/ob_dtl_local_channel.h — ObDtlLocalChannel · focused (complete selected bodies; other symbols are outlines)
+
+```cpp
+35	class ObDtlLocalChannel : public ObDtlBasicChannel
+```
+
+#### src/sql/dtl/ob_dtl_rpc_channel.h — ObDtlRpcChannel · focused (complete selected bodies; other symbols are outlines)
+
+```cpp
+44	class ObDtlRpcChannel
+```
+

@@ -1,0 +1,574 @@
+**Exploration: ObTTLDeleteRateThrottler init check_and_try_throttle calculate_wait_time need_commit_trans_early**
+
+Found 35 symbols across 5 files.
+
+**Blast radius — what depends on these (update/verify before editing)**
+
+- `check_and_try_throttle` (src/share/table/ob_ttl_util.cpp:2642) — 7 callers in `src/observer/table/ttl/ob_table_ttl_task.cpp`; tests: `unittest/observer/table/test_ttl_del_rate_limit.cpp`
+- `need_commit_trans_early` (src/share/table/ob_ttl_util.cpp:2703) — 3 callers in `src/share/table/ob_ttl_util.cpp`; tests: `unittest/observer/table/test_ttl_del_rate_limit.cpp`
+- `calculate_wait_time` (src/share/table/ob_ttl_util.cpp:2686) — 5 callers in `src/share/table/ob_ttl_util.cpp`; tests: `unittest/observer/table/test_ttl_del_rate_limit.cpp`
+
+**Relationships**
+
+**calls:**
+- check_and_try_throttle → need_commit_trans_early
+- check_and_try_throttle → calculate_wait_time
+- check_and_try_throttle → ob_usleep
+- check_and_try_throttle → current_time
+- process_one → check_and_try_throttle
+- execute_ttl_delete → check_and_try_throttle
+- TEST_F → check_and_try_throttle
+- TEST_F → check_and_try_throttle
+- TEST_F → check_and_try_throttle
+- TEST_F → check_and_try_throttle
+- TEST_F → check_and_try_throttle
+- need_commit_trans_early → current_time
+- TEST_F → need_commit_trans_early
+- TEST_F → need_commit_trans_early
+- calculate_wait_time → current_time
+- ... and 110 more
+
+**extends:**
+- ObISyslogRateLimiter → ObRateLimiter
+- ObSimpleRateLimiter → ObRateLimiter
+- ObQueryRateLimiter → ObRateLimiter
+
+**Source Code**
+
+> The code below is the **verbatim, current on-disk source** of these files — re-read from disk on this call and line-numbered, byte-for-byte identical to what the Read tool returns. It is NOT a summary, outline, or stale cache. Treat each block as a Read you have already performed: do not Read a file shown here.
+
+**`src/share/table/ob_ttl_util.cpp`** — current_time(calls), calls(calls), check_and_try_throttle(method), ob_usleep(calls), ObTTLDeleteRateThrottler(method), reset(method), reset(calls), init(method), instantiates(instantiates), need_commit_trans_early(calls), calculate_wait_time(calls), calculate_wait_time(method), need_commit_trans_early(method)
+
+```cpp
+2576	const double ObTTLDeleteRateThrottler::DEFAULT_SMOOTH_FACTOR = 0.6;
+2577	const double ObTTLDeleteRateThrottler::DEFAULT_TRANS_TIMEOUT_RATIO = 0.8;
+2578	
+2579	ObTTLDeleteRateThrottler::ObTTLDeleteRateThrottler()
+2580	  : is_inited_(false),
+2581	    max_rows_per_second_(0),
+2582	    smooth_factor_(0.0),
+2583	    trans_start_time_(0),
+2584	    prev_delete_time_(0),
+2585	    cur_del_row_count_(0),
+2586	    expected_interval_us_(0),
+2587	    throttle_info_()
+2588	{}
+2589	
+2590	ObTTLDeleteRateThrottler::~ObTTLDeleteRateThrottler()
+2591	{
+2592	  reset();
+2593	}
+2594	
+2595	void ObTTLDeleteRateThrottler::reset()
+2596	{
+2597	  is_inited_ = false;
+2598	  max_rows_per_second_ = 0;
+2599	  smooth_factor_ = 0.0;
+2600	  trans_start_time_ = 0;
+2601	  prev_delete_time_ = 0;
+2602	  cur_del_row_count_ = 0;
+2603	  expected_interval_us_ = 0;
+2604	  throttle_info_.reset();
+2605	}
+2606	
+2607	int ObTTLDeleteRateThrottler::init(const table::ObTTLTaskInfo &info)
+2608	{
+2609	  int ret = OB_SUCCESS;
+2610	  if (is_inited_) {
+2611	    ret = OB_INIT_TWICE;
+2612	    LOG_WARN("delete rate limiter is already initialized", K(ret));
+2613	  } else {
+2614	    omt::ObTenantConfigGuard tenant_config(TENANT_CONF(info.tenant_id_));
+2615	    if (!tenant_config.is_valid()) {
+2616	      ret = OB_ERR_UNEXPECTED;
+2617	      LOG_WARN("invalid tenant config", K(ret), K(info.tenant_id_));
+2618	    } else {
+2619	      int64_t cur_time = ObTimeUtility::current_time();
+2620	      int64_t ttl_thread_num = tenant_config->ttl_thread_score == 0 ?
+2621	              OB_DAG_PRIOS[ObDagPrio::DAG_PRIO_TTL].score_ : tenant_config->ttl_thread_score;
+2622	      int64_t ttl_del_rate_limit = tenant_config->kv_ttl_delete_max_ops;
+2623	      max_rows_per_second_ = ttl_del_rate_limit == 0 ? 0 : ttl_del_rate_limit / ttl_thread_num;
+2624	      expected_interval_us_ = max_rows_per_second_ == 0 ? 0 : 1000000 / max_rows_per_second_;
+2625	      smooth_factor_ = DEFAULT_SMOOTH_FACTOR;
+2626	      // init throttle info
+2627	      throttle_info_.table_id_ = info.table_id_;
+2628	      throttle_info_.tablet_id_ = info.tablet_id_;
+2629	      throttle_info_.ttl_del_max_ops_ = ttl_del_rate_limit;
+2630	      throttle_info_.ttl_thread_num_ = ttl_thread_num;
+2631	      throttle_info_.max_rows_per_second_ = max_rows_per_second_;
+2632	      throttle_info_.expected_interval_us_ = expected_interval_us_;
+2633	      throttle_info_.total_del_row_count_ = 0;
+2634	      throttle_info_.start_time_ = cur_time;
+2635	      throttle_info_.cur_time_ = cur_time;
+2636	      is_inited_ = true;
+2637	    }
+2638	  }
+2639	  return ret;
+2640	}
+2641	
+2642	int ObTTLDeleteRateThrottler::check_and_try_throttle(int64_t trans_timeout_ts)
+2643	{
+2644	  int ret = OB_SUCCESS;
+2645	  if (!is_inited_) {
+2646	    ret = OB_NOT_INIT;
+2647	    LOG_WARN("delete rate throttler is not initialized", K(ret));
+2648	  } else if (max_rows_per_second_ == 0) {
+2649	    // do nothing
+2650	  } else if (need_commit_trans_early(trans_timeout_ts)) {
+2651	    ret = OB_ITER_END;
+2652	  } else {
+2653	    int64_t wait_time = calculate_wait_time();
+2654	    if (wait_time > 0) {
+2655	      ob_usleep(wait_time);
+2656	    }
+2657	  }
+2658	  cur_del_row_count_++;
+2659	  prev_delete_time_ = ObTimeUtility::current_time();
+2660	  throttle_info_.cur_time_ = prev_delete_time_;
+2661	  throttle_info_.total_del_row_count_++;
+2662	  return ret;
+2663	}
+2664	
+2665	int ObTTLDeleteRateThrottler::check_and_try_throttle()
+2666	{
+2667	  int ret = OB_SUCCESS;
+2668	  if (!is_inited_) {
+2669	    ret = OB_NOT_INIT;
+2670	    LOG_WARN("delete rate throttler is not initialized", K(ret));
+2671	  } else if (max_rows_per_second_ == 0) {
+2672	    // do nothing
+2673	  } else {
+2674	    int64_t cur_time = ObTimeUtility::current_time();
+2675	    int64_t wait_time = expected_interval_us_ * cur_del_row_count_ - (cur_time - trans_start_time_);
+2676	    if (wait_time > 0) {
+2677	      ob_usleep(wait_time);
+2678	    }
+2679	  }
+2680	  cur_del_row_count_ = 0;
+2681	  trans_start_time_ = 0;
+2682	  throttle_info_.cur_time_ = ObTimeUtility::current_time();
+2683	  return ret;
+2684	}
+2685	
+2686	int64_t ObTTLDeleteRateThrottler::calculate_wait_time()
+2687	{
+2688	  int64_t wait_time = 0;
+2689	  if (prev_delete_time_ == 0) {
+2690	    wait_time = 0;
+2691	  } else {
+2692	    int64_t cur_time = ObTimeUtility::current_time();
+2693	    int64_t elapsed = cur_time - prev_delete_time_;
+2694	    if (elapsed >= expected_interval_us_) {
+2695	      wait_time = 0;
+2696	    } else {
+2697	      wait_time = (expected_interval_us_ - elapsed) * smooth_factor_;
+2698	    }
+2699	  }
+2700	  return wait_time;
+2701	}
+2702	
+2703	bool ObTTLDeleteRateThrottler::need_commit_trans_early(int64_t trans_timeout_ts)
+2704	{
+2705	  bool bret = false;
+2706	  int64_t cur_time = ObTimeUtility::current_time();
+2707	  if ((cur_time - trans_start_time_) > (trans_timeout_ts - trans_start_time_) * DEFAULT_TRANS_TIMEOUT_RATIO) {
+2708	    bret = true;
+2709	  }
+2710	  return bret;
+2711	}
+2712	
+2713	void ObTTLDeleteRateThrottler::print_throttle_info()
+2714	{
+```
+
+**`src/share/table/ob_ttl_util.h`** — ObTTLDeleteRateThrottler(class), ThrottleInfo(struct), ThrottleInfo(method), reset(method), record_trans_start_time(method), current_time(calls)
+
+```cpp
+623	  ObTimeZoneInfoWrap tz_info_wrap_;
+624	};
+625	
+626	class ObTTLDeleteRateThrottler
+627	{
+628	public:
+629	  struct ThrottleInfo {
+630	    ThrottleInfo()
+631	      : ttl_del_max_ops_(0),
+632	        ttl_thread_num_(0),
+633	        max_rows_per_second_(0),
+634	        expected_interval_us_(0),
+635	        table_id_(0),
+636	        tablet_id_(),
+637	        start_time_(0),
+638	        cur_time_(0),
+639	        total_del_row_count_(0)
+640	    {}
+641	    void reset() {
+642	      ttl_del_max_ops_ = 0;
+643	      ttl_thread_num_ = 0;
+644	      max_rows_per_second_ = 0;
+645	      expected_interval_us_ = 0;
+646	      table_id_ = 0;
+647	      tablet_id_.reset();
+648	      start_time_ = 0;
+649	      cur_time_ = 0;
+650	      total_del_row_count_ = 0;
+651	    }
+652	    TO_STRING_KV(K_(ttl_del_max_ops), K_(ttl_thread_num), K_(max_rows_per_second), K_(expected_interval_us),
+653	        K_(table_id), K_(tablet_id), K_(start_time), K_(cur_time), K_(total_del_row_count));
+654	    int64_t ttl_del_max_ops_;
+655	    int64_t ttl_thread_num_;
+656	    int64_t max_rows_per_second_;
+657	    int64_t expected_interval_us_;
+658	    uint64_t table_id_;
+659	    common::ObTabletID tablet_id_;
+660	    int64_t start_time_;
+661	    int64_t cur_time_;
+662	    int64_t total_del_row_count_;
+663	  };
+664	public:
+665	  ObTTLDeleteRateThrottler();
+666	  ~ObTTLDeleteRateThrottler();
+667	  int init(const table::ObTTLTaskInfo &info);
+668	  int check_and_try_throttle(int64_t trans_timeout_ts);
+669	  int check_and_try_throttle();
+670	  void print_throttle_info();
+671	  void reset();
+672	  OB_INLINE void record_trans_start_time() { trans_start_time_ = ObTimeUtility::current_time(); }
+673	  TO_STRING_KV(K_(is_inited),
+674	               K_(max_rows_per_second),
+675	               K_(smooth_factor),
+676	               K_(trans_start_time),
+677	               K_(prev_delete_time),
+678	               K_(cur_del_row_count),
+679	               K_(expected_interval_us));
+680	private:
+681	  int64_t calculate_wait_time();
+682	  bool need_commit_trans_early(int64_t trans_timeout_ts);
+683	private:
+684	  static const double DEFAULT_SMOOTH_FACTOR;
+685	  static const double DEFAULT_TRANS_TIMEOUT_RATIO;
+686	private:
+687	  bool is_inited_;
+688	  int64_t max_rows_per_second_;
+689	  double smooth_factor_;
+690	  int64_t trans_start_time_;
+691	  int64_t prev_delete_time_;
+692	  int64_t cur_del_row_count_;
+693	  int64_t expected_interval_us_;
+694	  ThrottleInfo throttle_info_;
+695	};
+696	
+697	} // end namespace rootserver
+698	} // end namespace oceanbase
+```
+
+**`unittest/observer/table/test_ttl_del_rate_limit.cpp`** — current_time(calls), TEST_F(function), check_and_try_throttle(calls), calculate_wait_time(calls), need_commit_trans_early(calls)
+
+```cpp
+82	}
+83	
+84	// 测试 calculate_wait_time 方法 - 不需要等待的情况
+85	TEST_F(TestTTLDeleteRateThrottler, test_calculate_wait_time_no_wait)
+86	{
+87	  ObTTLDeleteRateThrottler throttler;
+88	  int64_t cur_time = ObTimeUtility::current_time();
+89	  throttler.prev_delete_time_ = cur_time - 2000; // 2ms 前
+90	  throttler.expected_interval_us_ = 1000; // 期望间隔 1ms
+91	
+92	  int64_t wait_time = throttler.calculate_wait_time();
+93	  ASSERT_EQ(0, wait_time); // 已经超过期望间隔，不需要等待
+94	}
+95	
+96	// 测试 calculate_wait_time 方法 - 需要等待的情况
+97	TEST_F(TestTTLDeleteRateThrottler, test_calculate_wait_time_need_wait)
+98	{
+99	  ObTTLDeleteRateThrottler throttler;
+100	  int64_t cur_time = ObTimeUtility::current_time();
+101	  throttler.prev_delete_time_ = cur_time - 500; // 0.5ms 前
+102	  throttler.expected_interval_us_ = 1000; // 期望间隔 1ms
+103	  throttler.smooth_factor_ = 0.8;
+104	
+105	  int64_t wait_time = throttler.calculate_wait_time();
+106	  // 期望等待时间 = (1000 - 500) * 0.8 = 400 微秒
+107	  // 由于时间可能有微小误差，允许一定范围
+108	  ASSERT_GE(wait_time, 350);
+109	  ASSERT_LE(wait_time, 450);
+110	}
+111	
+112	// 测试 need_commit_trans_early 方法 - 不需要提前提交
+113	TEST_F(TestTTLDeleteRateThrottler, test_need_commit_trans_early_false)
+114	{
+115	  ObTTLDeleteRateThrottler throttler;
+116	  int64_t cur_time = ObTimeUtility::current_time();
+117	  throttler.trans_start_time_ = cur_time - 1000000; // 1秒前开始
+118	  int64_t trans_timeout_ts = cur_time + 9000000; // 还有9秒超时，总共10秒超时
+119	
+120	  bool need_early = throttler.need_commit_trans_early(trans_timeout_ts);
+121	  ASSERT_FALSE(need_early); // 使用时间 < 总超时时间 * 0.8，不需要提前提交
+122	}
+123	
+124	// 测试 need_commit_trans_early 方法 - 需要提前提交
+125	TEST_F(TestTTLDeleteRateThrottler, test_need_commit_trans_early_true)
+126	{
+127	  ObTTLDeleteRateThrottler throttler;
+128	  int64_t cur_time = ObTimeUtility::current_time();
+129	  throttler.trans_start_time_ = cur_time - 9000000; // 9秒前开始
+130	  int64_t trans_timeout_ts = cur_time + 1000000; // 还有1秒超时，总共10秒超时
+131	
+132	  bool need_early = throttler.need_commit_trans_early(trans_timeout_ts);
+133	  ASSERT_TRUE(need_early); // 使用时间 > 总超时时间 * 0.8，需要提前提交
+134	}
+135	
+136	// 测试 check_and_try_throttle - 未初始化的情况
+137	TEST_F(TestTTLDeleteRateThrottler, test_check_and_try_throttle_not_inited)
+138	{
+139	  ObTTLDeleteRateThrottler throttler;
+140	  throttler.is_inited_ = false;
+141	  int ret = throttler.check_and_try_throttle(ObTimeUtility::current_time() + 10000000);
+142	  // 未初始化时应该返回 OB_NOT_INIT
+143	  ASSERT_EQ(OB_NOT_INIT, ret);
+144	}
+145	
+146	// 测试 check_and_try_throttle - max_rows_per_second 为 0 的情况
+147	TEST_F(TestTTLDeleteRateThrottler, test_check_and_try_throttle_zero_rate)
+148	{
+149	  ObTTLDeleteRateThrottler throttler;
+150	  throttler.is_inited_ = true;
+151	  throttler.max_rows_per_second_ = 0;
+152	
+153	  int ret = throttler.check_and_try_throttle(ObTimeUtility::current_time() + 10000000);
+154	  ASSERT_EQ(OB_SUCCESS, ret); // 速率为0时，不进行限速，直接返回成功
+155	}
+156	
+157	// 测试 check_and_try_throttle - 正常限速情况
+158	TEST_F(TestTTLDeleteRateThrottler, test_check_and_try_throttle_normal)
+159	{
+160	  ObTTLDeleteRateThrottler throttler;
+161	  // 手动设置成员变量来模拟初始化后的状态
+162	  throttler.is_inited_ = true;
+163	  throttler.max_rows_per_second_ = 1000; // 每秒1000行
+164	  throttler.expected_interval_us_ = 1000; // 期望间隔1ms
+165	  throttler.smooth_factor_ = 0.8;
+166	  throttler.trans_start_time_ = ObTimeUtility::current_time();
+167	  throttler.prev_delete_time_ = ObTimeUtility::current_time() - 500; // 0.5ms前
+168	
+169	  int64_t trans_timeout_ts = ObTimeUtility::current_time() + 10000000; // 10秒后超时
+170	  int ret = throttler.check_and_try_throttle(trans_timeout_ts);
+171	  ASSERT_EQ(OB_SUCCESS, ret);
+172	  // 验证 prev_delete_time_ 已更新
+173	  ASSERT_GT(throttler.prev_delete_time_, throttler.trans_start_time_);
+174	}
+175	
+176	// 测试 check_and_try_throttle - 需要提前提交事务的情况
+177	TEST_F(TestTTLDeleteRateThrottler, test_check_and_try_throttle_early_commit)
+178	{
+179	  ObTTLDeleteRateThrottler throttler;
+180	  throttler.is_inited_ = true;
+181	  throttler.max_rows_per_second_ = 1000;
+182	  throttler.trans_start_time_ = ObTimeUtility::current_time() - 9000000; // 9秒前开始
+183	  throttler.prev_delete_time_ = throttler.trans_start_time_;
+184	
+185	  int64_t trans_timeout_ts = ObTimeUtility::current_time() + 1000000; // 还有1秒超时
+186	  int ret = throttler.check_and_try_throttle(trans_timeout_ts);
+187	  ASSERT_EQ(OB_ITER_END, ret); // 需要提前提交，返回 OB_ITER_END
+188	}
+189	
+190	// 测试完整的限速流程 - 连续多次调用
+191	TEST_F(TestTTLDeleteRateThrottler, test_rate_limiting_flow)
+192	{
+193	  ObTTLDeleteRateThrottler throttler;
+194	  // 手动初始化状态，模拟 init 后的状态
+195	  throttler.is_inited_ = true;
+196	  throttler.max_rows_per_second_ = 10000; // 每秒10000行
+197	  throttler.expected_interval_us_ = 100; // 期望间隔100微秒
+198	  throttler.smooth_factor_ = 0.8;
+199	  throttler.trans_start_time_ = ObTimeUtility::current_time();
+200	  throttler.prev_delete_time_ = throttler.trans_start_time_;
+201	
+202	  int64_t trans_timeout_ts = ObTimeUtility::current_time() + 10000000; // 10秒后超时
+203	
+204	  // 第一次调用，应该不需要等待（或等待时间很短）
+205	  int ret1 = throttler.check_and_try_throttle(trans_timeout_ts);
+206	  ASSERT_EQ(OB_SUCCESS, ret1);
+207	  int64_t first_delete_time = throttler.prev_delete_time_;
+208	
+209	  // 立即第二次调用，应该需要等待
+210	  int ret2 = throttler.check_and_try_throttle(trans_timeout_ts);
+211	  ASSERT_EQ(OB_SUCCESS, ret2);
+212	  int64_t second_delete_time = throttler.prev_delete_time_;
+213	
+214	  // 验证两次删除时间之间有间隔
+215	  ASSERT_GE(second_delete_time - first_delete_time, 0);
+216	}
+217	
+218	// 测试边界情况 - expected_interval_us_ 为 0
+219	TEST_F(TestTTLDeleteRateThrottler, test_edge_case_zero_interval)
+220	{
+221	  ObTTLDeleteRateThrottler throttler;
+222	  throttler.max_rows_per_second_ = 1000;
+223	  throttler.expected_interval_us_ = 0; // 边界情况
+224	  throttler.smooth_factor_ = 0.8;
+225	  throttler.trans_start_time_ = ObTimeUtility::current_time();
+226	  throttler.prev_delete_time_ = ObTimeUtility::current_time();
+227	
+228	  int64_t wait_time = throttler.calculate_wait_time();
+229	  // 如果 expected_interval_us_ 为 0，elapsed 总是 >= 0，所以返回 0
+230	  ASSERT_EQ(0, wait_time);
+231	}
+232	
+233	// 测试边界情况 - 时间刚好等于期望间隔
+234	TEST_F(TestTTLDeleteRateThrottler, test_edge_case_exact_interval)
+235	{
+236	  ObTTLDeleteRateThrottler throttler;
+237	  int64_t cur_time = ObTimeUtility::current_time();
+238	  throttler.prev_delete_time_ = cur_time - 1000; // 刚好1ms前
+239	  throttler.expected_interval_us_ = 1000; // 期望间隔1ms
+240	  throttler.smooth_factor_ = 0.8;
+241	
+242	  int64_t wait_time = throttler.calculate_wait_time();
+243	  // elapsed >= expected_interval_us_，应该返回 0
+244	  ASSERT_EQ(0, wait_time);
+245	}
+246	
+247	int main(int argc, char **argv)
+248	{
+```
+
+**`deps/oblib/src/lib/utility/ob_rate_limiter.h`** — rate(method), ObRateLimiter(class), ObRateLimiter(method), ~ObRateLimiter(method), set_name(method), name(method), set_rate(method)
+
+```cpp
+1	/**
+2	 * Copyright (c) 2021 OceanBase
+3	 * OceanBase CE is licensed under Mulan PubL v2.
+4	 * You can use this software according to the terms and conditions of the Mulan PubL v2.
+5	 * You may obtain a copy of Mulan PubL v2 at:
+6	 *          http://license.coscl.org.cn/MulanPubL-2.0
+7	 * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND,
+8	 * EITHER EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT,
+9	 * MERCHANTABILITY OR FIT FOR A PARTICULAR PURPOSE.
+10	 * See the Mulan PubL v2 for more details.
+11	 */
+12	
+13	#ifndef OB_RATE_LIMITER_H
+14	#define OB_RATE_LIMITER_H
+15	
+16	#include <stdint.h>
+17	
+18	namespace oceanbase {
+19	namespace lib {
+20	
+21	class ObRateLimiter
+22	{
+23	public:
+24	  ObRateLimiter(const int64_t rate = 0, const char *name = nullptr);
+25	  virtual ~ObRateLimiter();
+26	
+27	  void set_name(const char *name);
+28	  const char *name() const;
+29	
+30	  void set_rate(int64_t rate);
+31	  int64_t rate() const;
+32	
+33	  virtual bool is_force_allows() const = 0;
+34	  virtual void reset_force_allows() = 0;
+35	  // return OB_SUCCESS for acquire success and OB_EAGAIN for not acquired
+36	  virtual int try_acquire(const int64_t permits = 1,
+37	                          const int64_t arg0 = 0,
+38	                          const int64_t arg1 = 0) = 0;
+39	  virtual int acquire(const int64_t permits = 1,
+40	                      const int64_t arg0 = 0,
+41	                      const int64_t arg1 = 0) = 0;
+42	
+43	protected:
+44	  int64_t rate_;
+45	  const char *name_;
+46	};
+47	
+48	inline ObRateLimiter::ObRateLimiter(const int64_t rate, const char *name)
+49	    : rate_(rate), name_(name)
+50	{}
+51	
+52	inline ObRateLimiter::~ObRateLimiter()
+53	{}
+54	
+55	inline void ObRateLimiter::set_name(const char *name)
+56	{
+57	  name_ = name;
+58	}
+59	
+60	inline const char *ObRateLimiter::name() const
+61	{
+62	  return name_;
+63	}
+64	
+65	inline void ObRateLimiter::set_rate(int64_t rate)
+66	{
+67	  rate_ = rate;
+68	}
+69	
+70	inline int64_t ObRateLimiter::rate() const
+71	{
+72	  return rate_;
+73	}
+74	
+75	}  // lib
+76	}  // oceanbase
+77	
+78	#endif /* OB_RATE_LIMITER_H */
+```
+
+**`deps/oblib/src/lib/tc/deps/single_waiter_cond.h`** — wait(method), SingleWaiterCond(class), SingleWaiterCond(method), ~SingleWaiterCond(method), signal(method)
+
+```cpp
+1	/**
+2	 * Copyright (c) 2021 OceanBase
+3	 * OceanBase CE is licensed under Mulan PubL v2.
+4	 * You can use this software according to the terms and conditions of the Mulan PubL v2.
+5	 * You may obtain a copy of Mulan PubL v2 at:
+6	 *          http://license.coscl.org.cn/MulanPubL-2.0
+7	 * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND,
+8	 * EITHER EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT,
+9	 * MERCHANTABILITY OR FIT FOR A PARTICULAR PURPOSE.
+10	 * See the Mulan PubL v2 for more details.
+11	 */
+12	
+13	class SingleWaiterCond
+14	{
+15	public:
+16	  SingleWaiterCond(): stock_(0) {}
+17	  ~SingleWaiterCond() {}
+18	  void wait(int64_t timeout_us) {
+19	    if (0 == ATOMIC_LOAD(&stock_)) {
+20	      tc_futex_wait(&stock_, 0, timeout_us);
+21	    } else {
+22	      ATOMIC_STORE(&stock_, 0);
+23	    }
+24	  }
+25	  void signal() {
+26	    if (0 == ATOMIC_LOAD(&stock_) && ATOMIC_BCAS(&stock_, 0, 1)) {
+27	      tc_futex_wake(&stock_, 1);
+28	    }
+29	  }
+30	private:
+31	  int stock_;
+32	};
+```
+
+**Not shown above — explore these names for their source**
+
+- src/observer/table/ttl/ob_table_ttl_task.cpp: process_one:289, execute_ttl_delete:1075, SMART_VAR:307
+- deps/oblib/src/lib/tc/deps/futex.h: tc_futex_wait:31, tc_futex:16, tc_make_timespec:24
+- unittest/sql/optimizer/storage_perf/ob_storage_perf_config.h: get_perf_root_dir:61, get_slog_dir:64, get_sstable_meta_dir:65, get_sstable_data_dir:63, get_perf_log_dir:62
+- deps/oblib/src/lib/lock/ob_bucket_lock.h: ObBucketWLockAllGuard:160, ~ObBucketWLockAllGuard:171, ObBucketTryWLockAllGuard:199, ~ObBucketTryWLockAllGuard:216
+- deps/oblib/src/lib/lock/ob_latch.cpp: lock:85, wait:155, wait:234, low_lock:752
+- deps/oblib/src/lib/allocator/ob_mem_leak_checker.h: set_rate:165, ObMemLeakChecker:24
+- deps/oblib/src/lib/oblog/ob_syslog_rate_limiter.h: ObISyslogRateLimiter:30, ObSimpleRateLimiter:81, ObISyslogRateLimiter:33, acquire:38
+- deps/oblib/src/lib/file/ob_file.h: alloc_obj:457, ObWaitablePool:399
+- deps/oblib/src/lib/thread/ob_tenant_hook.cpp: ob_usleep:191
+- deps/oblib/src/lib/time/ob_time_utility.cpp: current_time:23
+- ... and 32 more files
+
+---
+> **Complete source for 5 files is included above — do NOT re-read them.** If your question also needs files/symbols listed under "Not shown above" (or any area this call didn't cover), make ANOTHER codegraph_explore targeting those names — it returns the same source with line numbers and is cheaper and more complete than reading. Reserve Read for a single specific line range explore can't surface.
+
+> **Explore budget: 3 calls for this project (14,247 files indexed).** Each call covers ~6 files; if your question spans more, spend your remaining calls on the uncovered area BEFORE falling back to Read — another explore is cheaper and more complete than reading those files. Synthesize once you've used 3.

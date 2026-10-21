@@ -1,0 +1,580 @@
+## Exploration: ObDtlBasicChannel ObDtlFlowControl ObPxTransmitOp DTL_BLOCKING_TIME
+
+Found 153 symbols across 7 files.
+
+
+Exact symbol/path anchors and identifier text evidence; weak word matches are disabled.
+### Relationships
+
+**calls:**
+- ~ObDtlBasicChannel → destroy
+- clear_response_block → wait_response
+- flush → wait_response
+- wait_response → belong_to_transmit_data
+- wait_response → belong_to_transmit_data
+- destroy → reset_px_row_iterator
+- destroy → free_buf
+- destroy → free_buf
+- destroy → free_buf
+- destroy → free_buf
+- send → flush
+- send → belong_to_transmit_data
+- mock_eof_buffer → attach
+- mock_eof_buffer → alloc_buf
+- attach → block_on_increase_size
+- ... and 105 more
+
+### Source Code
+
+> Source excerpts below are read from current files. Only shown source ranges are covered; signatures, outlines and omitted regions are not complete function bodies or complete files.
+
+#### src/sql/dtl/ob_dtl_flow_control.h — ~ObDtlFlowControl, destroy · focused (complete selected bodies and source ranges; types are outlines)
+
+```cpp
+93	  virtual ~ObDtlFlowControl() { destroy(); }
+
+... (gap) ...
+
+171	  virtual void destroy() {
+172	    chans_.reset();
+173	    blocks_.reset();
+174	    ch_info_ = nullptr;
+175	    is_init_ = false;
+176	  }
+```
+
+#### src/sql/dtl/ob_dtl_basic_channel.h — belong_to_transmit_data, belong_to_receive_data, get_recv_buffer_cnt, get_processed_buffer_cnt, inc_send_buffer_cnt · focused (complete selected bodies and source ranges; types are outlines)
+
+```cpp
+712	  void inc_send_buffer_cnt() { ++send_buffer_cnt_; }
+
+... (gap) ...
+
+716	  int64_t get_recv_buffer_cnt() { return recv_buffer_cnt_; }
+717	  int64_t get_processed_buffer_cnt() { return processed_buffer_cnt_; }
+
+... (gap) ...
+
+829	OB_INLINE bool ObDtlBasicChannel::belong_to_transmit_data()
+830	{
+831	  return nullptr != dfc_ && dfc_->is_transmit();
+832	}
+
+... (gap) ...
+
+834	OB_INLINE bool ObDtlBasicChannel::belong_to_receive_data()
+835	{
+836	  return nullptr != dfc_ && dfc_->is_receive();
+837	}
+```
+
+#### src/sql/engine/px/exchange/ob_px_transmit_op.h — send_rows_one_by_one, broadcast_rows · focused (complete selected bodies and source ranges; types are outlines)
+
+```cpp
+572	int ObPxTransmitOp::send_rows_one_by_one(ObSliceIdxCalc &slice_calc)
+573	{
+574	  int ret = OB_SUCCESS;
+575	  int64_t send_row_time_recorder = 0;
+576	  int64_t row_count = 0;
+577	  ObObj tablet_id;
+578	
+579	  ObSliceIdxCalc::SliceIdxArray slice_idx_array;
+580	  ObPhysicalPlanCtx *phy_plan_ctx = GET_PHY_PLAN_CTX(ctx_);
+581	  if (OB_ISNULL(phy_plan_ctx)) {
+582	    ret = OB_ERR_UNEXPECTED;
+583	    LOG_WARN("physical plan ctx is null", K(ret));
+584	  }
+585	  while (OB_SUCC(ret)) {
+586	    clear_evaluated_flag();
+587	    const ObPxTransmitSpec &spec = static_cast<const ObPxTransmitSpec &>(get_spec());
+588	    ret = next_row();
+589	    if (OB_FAIL(ret)) {
+590	      if (OB_UNLIKELY(OB_ITER_END != ret)) {
+591	        LOG_WARN("fail to get next row from child op",
+592	                 K(ret), K(child_->get_spec().get_type()));
+593	      } else {
+594	        // iter end
+595	        const ObPxTransmitSpec &spec = static_cast<const ObPxTransmitSpec &>(get_spec());
+596	        if (OB_FAIL(try_wait_channel())) {
+597	          LOG_WARN("failed to wait channel init", K(ret));
+598	        } else if (batch_param_remain_) {
+599	          ret = OB_SUCCESS;
+600	          ObPxNewRow px_eof_row;
+601	          px_eof_row.set_eof_row();
+602	          px_eof_row.set_data_type(data_msg_type_);
+603	          for (int i = 0; i < task_channels_.count() && OB_SUCC(ret); i++) {
+604	            dtl::ObDtlChannel *ch = task_channels_.at(i);
+605	            if (OB_FAIL(ch->send(px_eof_row, phy_plan_ctx->get_timeout_timestamp(), &eval_ctx_, false))) {
+606	              LOG_WARN("fail send eof row to slice channel", K(px_eof_row), K(ret));
+607	            } else if (OB_FAIL(ch->push_buffer_batch_info())) {
+608	              LOG_WARN("channel push back batch failed", K(ret));
+609	            }
+610	          }
+611	        } else if (OB_FAIL(send_eof_row())) { // overwrite err code
+612	          LOG_WARN("fail send eof rows to channels", K(ret));
+613	        }
+614	        break;
+615	      }
+616	    }
+617	    row_count++;
+618	    metric_.count();
+619	    if (OB_FAIL(ret)) {
+620	      LOG_WARN("fail to get next row", K(ret));
+621	    } else if (OB_FAIL(set_rollup_hybrid_keys(slice_calc))) {
+622	      LOG_WARN("failed to set rollup hybrid keys", K(ret));
+623	    } else if (OB_FAIL(set_wf_hybrid_slice_id_calc_type(slice_calc))) {
+624	      LOG_WARN("failed to set rollup hybrid keys", K(ret));
+625	    } else if (OB_FAIL((slice_calc.get_slice_indexes<CALC_TYPE, false>(
+626	                       get_spec().output_, eval_ctx_, slice_idx_array)))) {
+627	      LOG_WARN("fail get slice idx", K(ret));
+628	    } else if (dfc_.all_ch_drained()) {
+629	      int tmp_ret = child_->drain_exch();
+630	      if (OB_SUCCESS != tmp_ret) {
+631	        LOG_WARN("drain exchange data failed", K(tmp_ret));
+632	      }
+633	      ret = OB_ITER_END;
+634	      LOG_DEBUG("all channel has been drained");
+635	    } else if (NULL != spec.tablet_id_expr_
+636	               && OB_FAIL(slice_calc.get_previous_row_tablet_id(tablet_id))) {
+637	      LOG_WARN("failed to get previous row tablet_id", K(ret));
+638	    }
+639	    FOREACH_CNT_X(slice_idx, slice_idx_array, OB_SUCC(ret)) {
+640	      if (OB_FAIL(send_row(*slice_idx, send_row_time_recorder, tablet_id.get_int()))) {
+641	        if (OB_ITER_END != ret) {
+642	          LOG_WARN("fail emit row to interm result", K(ret), K(slice_idx_array));
+643	        }
+644	      }
+645	    }
+646	  }
+647	  if (OB_ITER_END == ret) {
+648	    ret = OB_SUCCESS;
+649	    LOG_TRACE("transmit meet a iter end");
+650	  }
+651	  LOG_TRACE("Transmit time record", K(row_count), K(ret));
+652	  return ret;
+653	}
+
+... (gap) ...
+
+773	int ObPxTransmitOp::broadcast_rows(ObSliceIdxCalc &slice_calc)
+774	{
+775	  int ret = OB_SUCCESS;
+776	  UNUSED(slice_calc);
+777	  int64_t row_count = 0;
+778	
+779	  ObSliceIdxCalc::SliceIdxArray slice_idx_array;
+780	  while (OB_SUCC(ret)) {
+781	    int64_t rows = 0;
+782	    bool reach_end = false;
+783	    if (OB_FAIL(next_row())) {
+784	      if (OB_ITER_END == ret) {
+785	        reach_end = true;
+786	        ret = OB_SUCCESS;
+787	      } else {
+788	        LOG_WARN("fail to get next row from child op",
+789	                 K(ret), K(child_->get_spec().get_type()));
+790	      }
+791	    } else {
+792	      if (is_vectorized()) {
+793	        rows = brs_.size_;
+794	        reach_end = brs_.end_;
+795	      } else {
+796	        rows = 1;
+797	      }
+798	    }
+799	    row_count++;
+800	    metric_.count();
+801	    if (OB_FAIL(ret)) {
+802	      LOG_WARN("fail to get next row", K(ret));
+803	    } else if (dfc_.all_ch_drained()) {
+804	      int tmp_ret = child_->drain_exch();
+805	      if (OB_SUCCESS != tmp_ret) {
+806	        LOG_WARN("drain exchange data failed", K(tmp_ret));
+807	      }
+808	      LOG_TRACE("all channel has been drained");
+809	      break;
+810	    } else if (OB_FAIL(try_wait_channel())) {
+811	      LOG_WARN("failed to wait channel", K(ret));
+812	    } else if (USE_VEC) {
+813	      const ObIArray<ObExpr *> &trans_exprs =
+814	        static_cast<const ObPxTransmitSpec &>(get_spec()).real_trans_exprs_.count() > 0 ?
+815	          static_cast<const ObPxTransmitSpec &>(get_spec()).real_trans_exprs_ :
+816	          static_cast<const ObPxTransmitSpec &>(get_spec()).output_;
+817	      ObPxNewRow px_row(trans_exprs, OB_INVALID_ID, data_msg_type_);
+818	      ObEvalCtx::BatchInfoScopeGuard batch_info_guard(eval_ctx_);
+819	      batch_info_guard.set_batch_size(rows);
+820	      for (int64_t i = 0; OB_SUCC(ret) && i < rows; i++) {
+821	        if (brs_.skip_->at(i)) {
+822	          continue;
+823	        }
+824	        row_count++;
+825	        metric_.count();
+826	        batch_info_guard.set_batch_idx(i);
+827	        px_row.set_vector_row_idx(i);
+828	        ret = chs_agent_.broadcast_row(px_row, &eval_ctx_);
+829	      }
+830	    } else {
+831	      ObPxNewRow px_row(get_spec().output_, OB_INVALID_ID, data_msg_type_);
+832	      ObEvalCtx::BatchInfoScopeGuard batch_info_guard(eval_ctx_);
+833	      batch_info_guard.set_batch_size(rows);
+834	      for (int64_t i = 0; OB_SUCC(ret) && i < rows; i++) {
+835	        if (is_vectorized() && brs_.skip_->at(i)) {
+836	          continue;
+837	        }
+838	        row_count++;
+839	        metric_.count();
+840	        batch_info_guard.set_batch_idx(i);
+841	        ret = chs_agent_.broadcast_row(px_row, &eval_ctx_);
+842	      }
+843	    }
+844	
+845	    if (OB_SUCC(ret) && reach_end) {
+846	      if (OB_FAIL(try_wait_channel())) {
+847	        LOG_WARN("failed to wait channel", K(ret));
+848	      } else if (OB_FAIL(broadcast_eof_row())) {
+849	        LOG_WARN("fail send eof rows to channels", K(ret));
+850	      }
+851	      break;
+852	    }
+853	  }
+854	  LOG_TRACE("Transmit time record", K(row_count), K(ret));
+855	  return ret;
+856	}
+```
+
+#### src/sql/engine/px/exchange/ob_px_transmit_op.cpp — init_channel, inner_get_next_batch, next_row · focused (complete selected bodies and source ranges; types are outlines)
+
+```cpp
+360	int ObPxTransmitOp::init_channel(ObPxTransmitOpInput &trans_input)
+361	{
+362	  int ret = OB_SUCCESS;
+363	  LOG_TRACE("TIMERECORD ", "reserve:=1 name:=TASK dfoid:", trans_input.get_dfo_id(),
+364	      "sqcid:", trans_input.get_sqc_id(),
+365	      "taskid:", trans_input.get_task_id(),
+366	      "start:", ObTimeUtility::current_time());
+367	  ObPhysicalPlanCtx *phy_plan_ctx = GET_PHY_PLAN_CTX(ctx_);
+368	  ObDtlDfoKey parent_key;
+369	  ObDtlSqcInfo self_info;
+370	  LOG_TRACE("Try to get channel information from SQC", K(lbt()));
+371	  CK (OB_NOT_NULL(ctx_.get_physical_plan_ctx()) && OB_NOT_NULL(ctx_.get_physical_plan_ctx()->get_phy_plan()));
+372	  if (OB_FAIL(ret)) {
+373	  } else if (OB_FAIL(trans_input.get_data_ch(
+374	              task_ch_set_, phy_plan_ctx->get_timeout_timestamp(), ch_info_))) {
+375	    LOG_WARN("Fail to get data dtl channel", K(ret));
+376	  } else if (OB_FAIL(trans_input.get_parent_dfo_key(parent_key))) {
+377	    LOG_WARN("Failed to get parent dfo key", K(ret));
+378	  } else if (OB_FAIL(trans_input.get_self_sqc_info(self_info))) {
+379	    LOG_WARN("Failed to get parent dfo key", K(ret));
+380	  } else if (OB_FAIL(init_dfc(parent_key, self_info))) {
+381	    LOG_WARN("Failed to init dfc", K(ret));
+382	  } else if (OB_FAIL(ObPxTransmitOp::link_ch_sets(task_ch_set_, task_channels_, &dfc_))) {
+383	    LOG_WARN("Fail to link data channel", K(ret));
+384	  } else if (is_vectorized() && OB_FAIL(init_channels_cur_block(task_channels_))) {
+385	    LOG_WARN("fail to init channels block info", K(ret));
+386	  } else {
+387	    uint64_t min_cluster_version = ctx_.get_physical_plan_ctx()->get_phy_plan()->get_min_cluster_version();
+388	    bool enable_audit = GCONF.enable_sql_audit && ctx_.get_my_session()->get_local_ob_enable_sql_audit();
+389	    metric_.init(enable_audit);
+390	    common::ObIArray<dtl::ObDtlChannel*> &channels = task_channels_;
+391	    loop_.set_tenant_id(ctx_.get_my_session()->get_effective_tenant_id());
+392	    loop_.register_processor(dfc_unblock_msg_proc_)
+393	        .register_interrupt_processor(interrupt_proc_);
+394	    loop_.set_process_query_time(ctx_.get_my_session()->get_process_query_time());
+395	    loop_.set_query_timeout_ts(ctx_.get_physical_plan_ctx()->get_timeout_timestamp());
+396	    bool use_interm_result = false;
+397	    int64_t px_batch_id = ctx_.get_px_batch_id();
+398	    ObPxSQCProxy *sqc_proxy = NULL;
+399	    if (OB_ISNULL(sqc_proxy = reinterpret_cast<ObPxSQCProxy *>(
+400	        trans_input.get_ch_provider_ptr()))) {
+401	      ret = OB_ERR_UNEXPECTED;
+402	      LOG_WARN("fail to get ch provider ptr", K(ret));
+403	    } else {
+404	      use_interm_result = sqc_proxy->get_transmit_use_interm_result();
+405	      if (!need_wait_sync_msg(*sqc_proxy)) {
+406	        receive_channel_ready_ = true;
+407	      }
+408	    }
+409	    loop_.set_interm_result(use_interm_result);
+410	    int64_t thread_id = GETTID();
+411	
+412	    ObPxSqcHandler *handler = ctx_.get_sqc_handler();
+413	    bool should_reg_dm = use_interm_result && OB_NOT_NULL(handler) && handler->get_phy_plan().is_enable_px_fast_reclaim();
+414	    common::ObRegisterDmInfo register_dm_info;
+415	    if (should_reg_dm) {
+416	      ObDetectManagerUtils::prepare_register_dm_info(register_dm_info, handler);
+417	    }
+418	
+419	    ARRAY_FOREACH_X(channels, idx, cnt, OB_SUCC(ret)) {
+420	      dtl::ObDtlBasicChannel *ch = static_cast<dtl::ObDtlBasicChannel *> (channels.at(idx));
+421	      if (OB_ISNULL(ch)) {
+422	        ret = OB_ERR_UNEXPECTED;
+423	        LOG_WARN("NULL unexpected", K(ch), K(ret));
+424	      } else {
+425	        ch->set_audit(enable_audit);
+426	        ch->set_interm_result(use_interm_result);
+427	        // if use_interm_result, set register_dm_info in dtl channel
+428	        // so that the peer rpc processor can use this information to register check item into dm
+429	        if (should_reg_dm) {
+430	          ch->set_register_dm_info(register_dm_info);
+431	        }
+432	        ch->set_enable_channel_sync(true);
+433	        ch->set_send_by_tenant(min_cluster_version >= CLUSTER_VERSION_4_3_5_0);
+434	        ch->set_batch_id(px_batch_id);
+435	        ch->set_compression_type(dfc_.get_compressor_type());
+436	        ch->set_operator_owner();
+437	        ch->set_thread_id(thread_id);
+438	        ch->set_row_meta(params_.meta_);
+439	        ch->plan_min_cluster_version_ = min_cluster_version;
+440	      }
+441	      LOG_TRACE("Transmit channel", K(ch), KP(ch->get_id()), K(ch->get_peer()));
+442	    }
+443	    LOG_TRACE("Get transmit channel ok",
+444	              "task_id", trans_input.get_task_id(),
+445	              "ch_cnt", channels.count(),
+446	              K(ret));
+447	    LOG_TRACE("TIMERECORD ", "reserve:=1 name:=TASK dfoid:", trans_input.get_dfo_id(),
+448	      "sqcid:", trans_input.get_sqc_id(),
+449	      "taskid:", trans_input.get_task_id(),
+450	      "end:", ObTimeUtility::current_time());
+451	  }
+452	  return ret;
+453	}
+
+... (gap) ...
+
+491	int ObPxTransmitOp::inner_get_next_batch(const int64_t max_row_cnt)
+492	{
+493	  return get_spec().use_rich_format_ ? next_vector(max_row_cnt) : next_batch(max_row_cnt);
+494	}
+
+... (gap) ...
+
+1554	int ObPxTransmitOp::next_row()
+1555	{
+1556	  int ret = OB_SUCCESS;
+1557	  if (iter_end_) {
+1558	    if (is_vectorized()) {
+1559	      brs_.end_ = true;
+1560	      brs_.size_ = 0;
+1561	    } else {
+1562	      ret = OB_ITER_END;
+1563	    }
+1564	    consume_first_row_ = true;
+1565	    LOG_TRACE("transmit iter end", K(ret), K(iter_end_));
+1566	  } else if (!consume_first_row_ && !sample_done_) {
+1567	    consume_first_row_ = true;
+1568	  } else {
+1569	    if (is_vectorized()) {
+1570	      const ObBatchRows *brs = NULL;
+1571	      ret = ObOperator::get_next_batch(spec_.max_batch_size_, brs);
+1572	    } else {
+1573	      ret = ObOperator::get_next_row();
+1574	    }
+1575	  }
+1576	  return ret;
+1577	}
+```
+
+#### src/sql/dtl/ob_dtl_basic_channel.cpp — process1, free_buf · focused (complete selected bodies and source ranges; types are outlines)
+
+```cpp
+568	int ObDtlBasicChannel::process1(
+569	    ObIDtlChannelProc *proc,
+570	    int64_t timeout,
+571	    bool &last_row_in_buffer)
+572	{
+573	  int ret = OB_SUCCESS;
+574	  last_row_in_buffer = false;
+575	  if (timeout < 0) {
+576	    ret = OB_INVALID_ARGUMENT;
+577	    LOG_ERROR("timeout is invalid", K(ret));
+578	  } else {
+579	    if (!use_interm_result()) {
+580	      do {
+581	        if (nullptr == process_buffer_ && OB_FAIL(get_processed_buffer(timeout))) {
+582	          if (OB_DTL_WAIT_EAGAIN == ret) {
+583	          } else {
+584	            LOG_WARN("failed to get buffer", K(ret));
+585	          }
+586	        } else if (nullptr != process_buffer_) {
+587	          auto &buffer = process_buffer_;
+588	          bool transferred = false;
+589	          ret = proc->process(*buffer, transferred);
+590	          LOG_DEBUG("process buffer", K(ret), KP(buffer), K(transferred));
+591	          if (buffer->is_data_msg()) {
+592	            metric_.set_last_out_ts(::oceanbase::common::ObTimeUtility::current_time());
+593	          }
+594	          if (OB_ITER_END == ret || transferred) {
+595	            inc_processed_buffer_cnt();
+596	            if (buffer->is_eof()) {
+597	              if (buffer->is_data_msg()) {
+598	                metric_.mark_eof();
+599	              }
+600	              if (!is_eof()) {
+601	                if (NULL != channel_loop_) {
+602	                  channel_loop_->inc_eof_cnt();
+603	                }
+604	                set_eof();
+605	                ret = OB_SUCCESS;
+606	                if (nullptr != msg_watcher_) {
+607	                  msg_watcher_->remove_data_list(this);
+608	                }
+609	              } else {
+610	                ret = OB_DTL_WAIT_EAGAIN;
+611	              }
+612	            }
+613	            LOG_TRACE("process one piece", KP(id_), K_(peer), K(ret),
+614	                      K(get_processed_buffer_cnt()), K(get_recv_buffer_cnt()),
+615	                      K(buffer->is_data_msg()), K(buffer->is_eof()),
+616	                      K(transferred));
+617	            int tmp_ret = ret;
+618	            if (OB_SUCCESS != (tmp_ret = unblock_on_decrease_size(buffer->size()))) {
+619	              ret = tmp_ret;
+620	              LOG_WARN("failed to decrease buffer size for dfc",
+621	                       KP(id_), K_(peer), K(ret), K(get_processed_buffer_cnt()),
+622	                       K(get_recv_buffer_cnt()));
+623	            }
+624	            if (transferred) {
+625	              // only increase the statist
+626	              free_buffer_count();
+627	            } else {
+628	              free_buf(buffer);
+629	            }
+630	            buffer = nullptr;
+631	            // 测试发现每次一个channel读数据，性能更好，将之前由读一个buffer改为读一个channel所有buffer
+632	            // last_row_in_buffer = true;
+633	          }
+634	        }
+635	      } while (OB_ITER_END == ret);
+636	    } else {
+637	      ObDTLIntermResultInfo *result_info = NULL;
+638	      ObDTLIntermResultKey key;
+639	      key.channel_id_ = id_;
+640	      key.batch_id_ = batch_id_;
+641	      MTL_SWITCH(tenant_id_) {
+642	        if (channel_is_eof_) {
+643	          ret = OB_DTL_WAIT_EAGAIN;
+644	        } else if (OB_FAIL(MTL(ObDTLIntermResultManager*)->atomic_get_interm_result_info(
+645	              key, result_info_guard_))) {
+646	          if (is_px_channel()) {
+647	            ret = OB_DTL_WAIT_EAGAIN;
+648	          // This will result in ret = OB_SUCCESS and result_info being null.
+649	          } else if (ignore_error()) {
+650	            ret = OB_SUCCESS;
+651	          } else {
+652	            LOG_WARN("fail to get row store", K(ret));
+653	          }
+654	          LOG_TRACE("fail to get row store", K(ret), K(key.batch_id_), K(key.channel_id_));
+655	        } else if (FALSE_IT(result_info = result_info_guard_.result_info_)) {
+656	        } else if (OB_SUCCESS != result_info->ret_) {
+657	          ret = result_info->ret_;
+658	          LOG_WARN("the interm result info meet a error", K(ret));
+659	        } else if (!result_info->is_store_valid()) {
+660	          ret = OB_ERR_UNEXPECTED;
+661	          LOG_WARN("there is no row store in internal result", K(ret));
+662	        } else if (OB_FAIL(DTL_IR_STORE_DO(*result_info, finish_add_row, true))) {
+663	          LOG_WARN("failed to finish add row", K(ret));
+664	        } else if (!result_info->is_rich_format()) {
+665	          if (OB_FAIL(result_info->datum_store_->begin(datum_iter_))) {
+666	            LOG_WARN("begin iterator failed", K(ret));
+667	          }
+668	        } else {
+669	          if (OB_FAIL(result_info->get_row_store()->begin(row_iter_))) {
+670	            LOG_WARN("failed to begin chunk row store.", K(ret));
+671	          }
+672	        }
+673	      }
+674	      if (OB_SUCC(ret) && !channel_is_eof()) {
+675	        ObDtlLinkedBuffer mock_buffer;
+676	        mock_buffer.set_data_msg(true);
+677	        ObDtlMsgType type = ObDtlMsgType::PX_DATUM_ROW;
+678	        if (OB_ISNULL(result_info) || !result_info->is_rich_format()) {
+679	          mock_buffer.set_buf(reinterpret_cast<char *>(&datum_iter_), sizeof(datum_iter_));
+680	        } else {
+681	          mock_buffer.set_buf(reinterpret_cast<char *>(&row_iter_), sizeof(row_iter_));
+682	          mock_buffer.set_row_meta(result_info->get_row_store()->get_row_meta());
+683	          type = ObDtlMsgType::PX_VECTOR_ROW;
+684	        }
+685	        type = static_cast<ObDtlMsgType>(-type);
+686	        // set type to negative value for interm result mock buffer.
+687	        mock_buffer.set_msg_type(type);
+688	        bool transferred = false;
+689	        ret = proc->process(mock_buffer, transferred);
+690	        // EOF after send iterator to processor.
+691	        if (NULL != channel_loop_) {
+692	          channel_loop_->inc_eof_cnt();
+693	        }
+694	        set_eof();
+695	        channel_is_eof_ = true;
+696	      }
+697	    }
+698	  }
+
+... (gap) ...
+
+922	void ObDtlBasicChannel::free_buf(ObDtlLinkedBuffer *buf)
+923	{
+924	  int ret = OB_SUCCESS;
+925	  ObDtlTenantMemManager *tenant_mem_mgr = DTL.get_dfc_server().get_tenant_mem_manager(tenant_id_);
+926	
+927	  if (OB_NOT_NULL(buf)
+928	      && buf->is_bcast()
+929	      && belong_to_transmit_data()
+930	      && OB_NOT_NULL(bc_service_)) {
+931	    // do nothing, this buffer is allocated by bcast channel agent.
+932	    // bcast channel agent will release this buffer.
+933	  } else {
+934	    if (nullptr == tenant_mem_mgr) {
+935	      ret = OB_ERR_UNEXPECTED;
+936	      LOG_ERROR("tenant_mem_mgr is null", K(lbt()), K(tenant_id_), K(ret));
+937	    } else if (OB_FAIL(tenant_mem_mgr->free(buf))) {
+938	      LOG_WARN("failed to free buffer", K(ret), K(lbt()), K(tenant_id_));
+939	    }
+940	    if (nullptr != buf) {
+941	      free_buffer_count();
+942	    }
+943	  }
+944	}
+```
+
+#### src/sql/dtl/ob_dtl_flow_control.cpp — block_channel · focused (complete selected bodies and source ranges; types are outlines)
+
+```cpp
+212	int ObDtlFlowControl::block_channel(ObDtlChannel* ch)
+213	{
+214	  int ret = OB_SUCCESS;
+215	  if (OB_ISNULL(ch)) {
+216	    ret = OB_ERR_UNEXPECTED;
+217	    LOG_WARN("channel is null", K(ret));
+218	  } else {
+219	    int64_t idx = OB_INVALID_ID;
+220	    if (OB_FAIL(find(ch, idx))) {
+221	      LOG_WARN("channel not exists in channel loop", K(ret));
+222	    } else if (is_block(idx)) {
+223	      ret = OB_ERR_UNEXPECTED;
+224	      LOG_WARN("channel is blocked", K(ret), K(idx));
+225	    } else {
+226	      set_block(idx);
+227	      ch->set_blocked();
+228	      LOG_TRACE("transmit set channel block trace", K(ch), KP(ch->get_id()), K(ch->get_peer()), K(idx));
+229	    }
+230	  }
+231	  return ret;
+232	}
+```
+
+#### src/share/diagnosis/ob_sql_monitor_statname.h — DTL_BLOCKING_TIME · focused (complete selected bodies and source ranges; types are outlines)
+
+```cpp
+182	SQL_MONITOR_STATNAME_DEF(DTL_BLOCKING_TIME, metric::Unit::TIME_NS, "dtl blocking time", "receive block dtl channel time", M_AVG | E_MIN | E_MAX, metric::Level::STANDARD)
+```
+
+> 132 candidate function bodies not fully shown; outlines and Flow are not body coverage.
+- Omitted body: src/sql/dtl/ob_dtl_flow_control.h:85-91 ObDtlFlowControl
+- Omitted body: src/sql/dtl/ob_dtl_flow_control.h:96-96 is_init
+- Omitted body: src/sql/dtl/ob_dtl_flow_control.h:98-98 get_tenant_id
+- Omitted body: src/sql/dtl/ob_dtl_flow_control.h:99-99 get_timeout_ts
+- Omitted body: src/sql/dtl/ob_dtl_flow_control.h:100-100 set_timeout_ts
+- Omitted body: src/sql/dtl/ob_dtl_flow_control.h:102-102 increase
+- Omitted body: src/sql/dtl/ob_dtl_flow_control.h:103-103 decrease
+- Omitted body: src/sql/dtl/ob_dtl_flow_control.h:104-104 get_used

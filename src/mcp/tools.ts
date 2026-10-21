@@ -1,3 +1,4 @@
+import { renderExploreSources, type ExploreSourceFile } from './explore-selection';
 /**
  * MCP Tool Definitions
  *
@@ -3658,7 +3659,6 @@ export class ToolHandler {
         Math.min(Math.round(budget.maxOutputChars * 1.5), 25000),
       ));
     }
-    const glueNodeIds = new Set<string>();
     const namedSeedIds = new Set(subgraph.roots);
 
     // Step 2: Group nodes by file, score by relevance
@@ -3701,8 +3701,22 @@ export class ToolHandler {
       fileGroups.set(node.filePath, group);
     }
 
+    // Type anchors concentrate random-walk mass in headers. Preserve direct
+    // callable neighbors of their proven members as well as definition files;
+    // otherwise admitting the definition makes the gate activate and silently
+    // removes the caller/callee context that previously survived the two-file guard.
+    const memberNeighborFiles = new Set<string>();
+    for (const edge of subgraph.edges) {
+      if (edge.kind !== 'calls') continue;
+      for (const [anchor, other] of [[edge.source, edge.target], [edge.target, edge.source]]) {
+        if (!retrieval.memberNodeIds.has(anchor!)) continue;
+        const n = subgraph.nodes.get(other!);
+        if (n && !n.isDeclaration && ['function', 'method', 'component'].includes(n.kind)) memberNeighborFiles.add(n.filePath);
+      }
+    }
     // Only include files that have entry points or nodes directly connected to entry points
-    let relevantFiles = [...fileGroups.entries()].filter(([, group]) => group.score >= 3);
+    let relevantFiles = [...fileGroups.entries()].filter(([fp, group]) => group.score >= 3
+      || retrieval.definitionFiles.has(fp) || memberNeighborFiles.has(fp));
 
     // Extract query terms for relevance checking
     const queryTerms = query.toLowerCase().split(/\s+/).filter(t => t.length >= 3);
@@ -3819,6 +3833,8 @@ export class ToolHandler {
         (fileGraphScore.get(fp) ?? 0) >= maxGraph * 0.06
         || centralFiles.has(fp)
         || entryFiles.has(fp)
+        || retrieval.definitionFiles.has(fp)
+        || memberNeighborFiles.has(fp)
         || (fileTermHits.get(fp) ?? 0) >= 2,
       );
       if (gated.length >= 2) relevantFiles = gated;
@@ -3995,465 +4011,63 @@ export class ToolHandler {
     lines.push('> Source excerpts below are read from current files. Only shown source ranges are covered; signatures, outlines and omitted regions are not complete function bodies or complete files.');
     lines.push('');
 
-    let totalChars = lines.join('\n').length;
-    let filesIncluded = 0;
-    let anyFileTrimmed = false;
-
+    const memberConnectivity = new Map<string, number>();
+    const memberPairs = new Set<string>();
+    for (const e of subgraph.edges) {
+      if (e.kind !== 'calls' || !retrieval.memberNodeIds.has(e.source) || !retrieval.memberNodeIds.has(e.target)) continue;
+      const pair = JSON.stringify([e.source, e.target]);
+      if (memberPairs.has(pair)) continue;
+      memberPairs.add(pair);
+      memberConnectivity.set(e.source, (memberConnectivity.get(e.source) ?? 0) + 2);
+      memberConnectivity.set(e.target, (memberConnectivity.get(e.target) ?? 0) + 1);
+    }
+    const sources: ExploreSourceFile[] = [];
     for (const [filePath, group] of sortedFiles) {
-      if (filesIncluded >= maxFiles) break;
-      // A file DEFINES a named/spine symbol (the answer) vs merely references the
-      // flow. Past 90% budget, stop pulling INCIDENTAL files — but keep scanning
-      // for necessary ones, which render even past the cap (bounded by maxFiles).
-      // Without this `continue` (was an unconditional `break`), the loop stopped
-      // after the build + validators-exec files and never reached the ranked-in
-      // validate-logic file (Alamofire's Validation.swift).
-      const fileNecessary = group.nodes.some(n =>
-        entryNodeIds.has(n.id) || flow.pathNodeIds.has(n.id) || flow.uniqueNamedNodeIds.has(n.id));
-      if (!fileNecessary && totalChars > budget.maxOutputChars * 0.9) continue;
-
       const absPath = validatePathWithinRoot(projectRoot, filePath);
       if (!absPath || !existsSync(absPath)) continue;
-
-      let fileContent: string;
-      try {
-        fileContent = readFileSync(absPath, 'utf-8');
-      } catch {
-        continue;
-      }
-
-      const fileLines = fileContent.split('\n');
-      const lang = group.nodes[0]?.language || '';
-
-      // Adaptive sizing (CODEGRAPH_ADAPTIVE_EXPLORE, default on): collapse a file
-      // to a per-symbol view when it's a redundant member of a polymorphic family.
-      // Engages iff ALL hold:
-      //   1. a flow spine exists,
-      //   2. no symbol in the file is on that spine (it's not the mechanism path),
-      //   3. it IS a polymorphic sibling (≥ MIN_SIBLINGS impls of a shared supertype),
-      //   4. it is NOT SPARED, where a file is spared iff the agent named a
-      //      (near-)UNIQUE callable in it (`getResponseWithInterceptorChain`, 1 def →
-      //      keep RealCall.kt full) UNLESS the file DEFINES the family supertype (a
-      //      base+subclasses "family" file like Django's compiler.py — collapse it).
-      //      Uniqueness matters: `as_sql` has 110 defs across every Compiler/Expression
-      //      subclass; naming it must NOT keep every backend variant + test file full
-      //      and flood the budget. That's why the spare reads uniqueNamedNodeIds.
-      // Within a collapsed file the render is PER-SYMBOL (condition B): a method the
-      // agent NAMED or that's on the spine is shown with its FULL body (so the agent
-      // doesn't Read the file back for it — Django's SQLCompiler.execute_sql/as_sql);
-      // every other symbol is just its signature. So the base mechanism survives while
-      // the file's other ~80 symbols + the redundant subclasses collapse to one line each.
-      const spareNamed = group.nodes.some(n => flow.uniqueNamedNodeIds.has(n.id));
-      const fileDefinesSuper = definesPolymorphicSupertype(group.nodes);
-      const spared = spareNamed && !fileDefinesSuper;
-      const CALLABLE_BODY = new Set(['method', 'function', 'constructor', 'component']);
-      const hasSpineNode = group.nodes.some(n => flow.pathNodeIds.has(n.id));
-      // On-spine god-file: the flow path runs THROUGH this file, but it also holds
-      // many OTHER named methods, and rendering all of them in full blows the
-      // per-file budget and starves the other flow files (Alamofire: the agent
-      // names ~7 Session.swift methods — the build spine PLUS off-path
-      // task/didCompleteTask — far past the whole response budget). Engage the
-      // per-symbol view to keep the SPINE full and collapse the off-path named
-      // methods to signatures. Only when there IS off-path content to shed —
-      // otherwise the spine is irreducible (a sequential flow has no redundancy),
-      // so leave it to the normal full render.
-      const namedBodyChars = group.nodes
-        .filter(n => CALLABLE_BODY.has(n.kind) && (flow.pathNodeIds.has(n.id) || flow.uniqueNamedNodeIds.has(n.id)))
-        .reduce((s, n) => s + fileLines.slice(n.startLine - 1, n.endLine).join('\n').length, 0);
-      const onSpineGodFile = hasSpineNode
-        && namedBodyChars > budget.maxCharsPerFile
-        && group.nodes.some(n => CALLABLE_BODY.has(n.kind) && flow.uniqueNamedNodeIds.has(n.id) && !flow.pathNodeIds.has(n.id));
-      if (adaptiveExploreEnabled() && flow.pathNodeIds.size > 0
-          && (onSpineGodFile || (!hasSpineNode && isPolymorphicSibling(group.nodes) && !spared))) {
-        const syms = group.nodes
-          .filter(n => n.kind !== 'import' && n.kind !== 'export' && n.startLine > 0)
-          .sort((a, b) => a.startLine - b.startLine);
-        // Pass 1: choose which symbols get a FULL body, by priority, greedily within
-        // a per-file body cap — so one huge family file can't body every named method
-        // and crowd out the other flow files (Django's query.py). A symbol earns a
-        // body if it's on-spine, or UNIQUELY named (`SQLCompiler.execute_sql`), or a
-        // co-named method WHEN this file DEFINES the family supertype (so the base
-        // `SQLCompiler.as_sql` body shows, but the 110 leaf `as_sql` overrides — and
-        // OkHttp's 5 `intercept`s if the agent names `intercept` — stay signatures).
-        const prio = (n: Node) => !CALLABLE_BODY.has(n.kind) ? 99
-          : flow.pathNodeIds.has(n.id) ? 0
-          : flow.uniqueNamedNodeIds.has(n.id) ? 1
-          : (fileDefinesSuper && flow.namedNodeIds.has(n.id)) ? 2 : 99;
-        // One ~250-line WINDOW per file. syms are taken by priority (spine first,
-        // then uniquely-named, then family-base), and the cap applies to ALL of
-        // them — including the spine — so a big-spine god-file (tokio's worker.rs:
-        // run→run_task→next_task→steal_work) can't eat the whole response and
-        // starve the co-flow file (harness.rs's poll). The native agent windows
-        // such a file too (~190 lines at a time), so this mimics, not truncates.
-        // Always emit ≥1 (never an empty section).
-        const bodyCap = budget.maxCharsPerFile * 1.5;
-        const bodyIds = new Set<string>();
-        let bodyChars = 0;
-        for (const n of syms.filter(n => prio(n) < 99 && n.endLine >= n.startLine).sort((a, b) => prio(a) - prio(b))) {
-          const sz = fileLines.slice(n.startLine - 1, n.endLine).join('\n').length;
-          if (bodyChars + sz > bodyCap && bodyIds.size > 0) continue;
-          bodyIds.add(n.id);
-          bodyChars += sz;
-        }
-        // Pass 2: render in line order — full body for chosen symbols, else the
-        // signature line (capped, with a "+N more" tail so the structure map of a
-        // god-file doesn't itself bloat the budget).
-        const skel: string[] = [];
-        let coveredUntil = 0; // skip symbols already inside an emitted body
-        let sigCount = 0, sigDropped = 0;
-        const SIG_MAX = Math.max(12, budget.maxSymbolsInFileHeader * 2);
-        for (const n of syms) {
-          if (n.startLine <= coveredUntil) continue;
-          if (bodyIds.has(n.id)) {
-            const end = n.endLine;
-            const body = fileLines.slice(n.startLine - 1, end).join('\n');
-            skel.push(exploreLineNumbersEnabled() ? numberSourceLines(body, n.startLine) : body);
-            coveredUntil = end;
-          } else {
-            // Elide the body, emit the signature. node.startLine can point at a
-            // decorator/annotation, so scan forward for the line that names the symbol.
-            let lineNo = n.startLine;
-            for (let k = 0; k < 4; k++) {
-              if ((fileLines[n.startLine - 1 + k] || '').includes(n.name)) { lineNo = n.startLine + k; break; }
-            }
-            if (lineNo <= coveredUntil) continue;
-            if (sigCount >= SIG_MAX) { sigDropped++; continue; }
-            const sig = (fileLines[lineNo - 1] || '').trim();
-            if (sig) { skel.push(exploreLineNumbersEnabled() ? `${lineNo}\t${sig}` : sig); sigCount++; }
-          }
-        }
-        if (sigDropped > 0) skel.push(`… +${sigDropped} more (signatures elided)`);
-        if (skel.length > 0) {
-          const names = [...new Set(group.nodes.filter(n => n.kind !== 'import' && n.kind !== 'export').map(n => n.name))]
-            .slice(0, budget.maxSymbolsInFileHeader).join(', ');
-          // A signature is a locator, not evidence that its body was read.
-          const tag = bodyIds.size > 0
-            ? 'focused (selected bodies and signatures; omitted bodies may need a targeted query or Read)'
-            : 'skeleton (signatures only; bodies are not included)';
-          lines.push(`#### ${filePath} — ${names} · ${tag}`, '', '```' + lang, skel.join('\n'), '```', '');
-          totalChars += skel.join('\n').length + 120;
-          filesIncluded++;
-          continue;
+      let content: string;
+      try { content = readFileSync(absPath, 'utf-8'); } catch { continue; }
+      const hasSpine = group.nodes.some(n => flow.pathNodeIds.has(n.id));
+      const family = definesPolymorphicSupertype(group.nodes);
+      const spared = group.nodes.some(n => flow.uniqueNamedNodeIds.has(n.id)) && !family;
+      const skeleton = adaptiveExploreEnabled() && flow.pathNodeIds.size > 0
+        && !hasSpine && isPolymorphicSibling(group.nodes) && !spared;
+      // Retain template/reference locations that have no callable AST node.
+      // They are low-priority source evidence, not additional body targets.
+      const sourceNodes = [...group.nodes];
+      const referenceLines = new Set<number>();
+      for (const n of group.nodes) {
+        for (const e of cg.getOutgoingEdges(n.id)) {
+          if (!e.line || e.line < 1 || e.kind === 'contains' || referenceLines.size >= 32) continue;
+          if (referenceLines.has(e.line) || group.nodes.some(v => v.startLine <= e.line! && v.endLine >= e.line!
+            && ['function', 'method', 'component'].includes(v.kind))) continue;
+          referenceLines.add(e.line);
+          sourceNodes.push({ ...n, id: `reference:${n.id}:${e.line}`, name: e.kind,
+            kind: 'variable', startLine: e.line, endLine: e.line, isDeclaration: false });
         }
       }
-
-      // Whole-file rule: if a relevant file is small enough to afford, return it
-      // ENTIRELY instead of clustering. Clustering exists to tame god-files
-      // (App.tsx ~13k lines); on a ~134-line component a cluster is a lossy
-      // subset of a file the agent will just Read in full anyway — costing a
-      // round-trip and a re-read every later turn. Reserve clustering for files
-      // too big to ship whole. Still bounded by the total maxOutputChars check.
-      //
-      // CENTRAL files (where the query's entry points live) get a larger — but
-      // bounded — ceiling: they're the heart of the answer, the file(s) the agent
-      // would Read whole, so a genuinely small one comes back whole rather than as
-      // thin clusters. A LARGE central file (the 791-line org-user store) exceeds
-      // the ceiling and falls through to sectioning/clustering below — full method
-      // bodies + signatures — so we never dump (or overflow on) a whole god-file.
-      const isCentralFile = centralFiles.has(filePath);
-      // Central files get a slightly larger whole-file window than peripheral ones,
-      // but a TIGHT one (~1.5× the per-file cap): the native read of a central file
-      // is a ~150–250 line orientation window, NOT the whole file. A flat "whole
-      // central file" both overflowed the inline cap AND starved the co-flow files
-      // (worker.rs ate the budget, dropping harness.rs's poll). A larger central
-      // file falls through to per-method windowing/clustering below.
-      const WHOLE_FILE_MAX_LINES = isCentralFile ? 280 : 220;
-      const WHOLE_FILE_MAX_CHARS = isCentralFile
-        ? Math.min(Math.max(0, budget.maxOutputChars - totalChars - 200), Math.round(budget.maxCharsPerFile * 1.5))
-        : budget.maxCharsPerFile * 3;
-      if (fileLines.length <= WHOLE_FILE_MAX_LINES && fileContent.length <= WHOLE_FILE_MAX_CHARS) {
-        const body = fileContent.replace(/\n+$/, '');
-        let wholeSection = exploreLineNumbersEnabled() ? numberSourceLines(body, 1) : body;
-        const uniqSymbols = [...new Set(
-          group.nodes
-            .filter(n => n.kind !== 'import' && n.kind !== 'export')
-            .map(n => `${n.name}(${n.kind})`)
-        )];
-        const headerNames = uniqSymbols.slice(0, budget.maxSymbolsInFileHeader);
-        const omitted = uniqSymbols.length - headerNames.length;
-        const wholeHeader = `#### ${filePath} — ${omitted > 0 ? `${headerNames.join(', ')}, +${omitted} more` : headerNames.join(', ')}`;
-
-        if (!fileNecessary && totalChars + wholeSection.length + 200 > budget.maxOutputChars) {
-          // Don't slice a whole file mid-method: an incidental file that doesn't
-          // fit is skipped; a necessary one (below) renders in full. Half a file
-          // forces the Read this is meant to prevent.
-          anyFileTrimmed = true;
-          continue;
-        }
-        lines.push(wholeHeader, '', '```' + lang, wholeSection, '```', '');
-        totalChars += wholeSection.length + 200;
-        filesIncluded++;
-        continue;
-      }
-
-      // Cluster nearby symbols to avoid reading huge gaps between distant symbols.
-      // Sort by start line, then merge overlapping/adjacent ranges (within the
-      // adaptive gap threshold). Include both node ranges AND edge source
-      // locations so template sections with component usages/calls are
-      // covered (not just script block symbols).
-      //
-      // Each range carries an `importance` score so we can rank clusters
-      // when the per-file budget forces us to drop some: entry-point nodes
-      // are worth 10, directly-connected nodes 3, peripheral nodes 1, and
-      // bare edge-source lines 2 (less than a connected node but more than
-      // a peripheral one — they hint at a reference but aren't a definition).
-      // Container kinds whose body can span most/all of a file. When such a
-      // node covers most of the file we drop it from the ranges: keeping it
-      // would merge every method inside it into one giant cluster spanning
-      // the whole file, which then tail-trims down to just the container's
-      // opening lines (its header/declarations) and buries the methods the
-      // query actually asked about (#185 follow-up — Session.swift in
-      // Alamofire is the canonical case: the `Session` class spans ~1,400
-      // lines). We want the granular symbols inside, not the envelope.
-      const ENVELOPE_KINDS = new Set(['file', 'module', 'class', 'struct', 'interface', 'enum', 'namespace', 'protocol', 'trait', 'component']);
-      // Cluster from this file's gathered nodes PLUS any callable the agent NAMED that
-      // lives here. Explore's relevance gather can miss a named method def in a huge
-      // non-sibling file — Django's query.py is 3,040 lines and `_fetch_all` (L2237)
-      // was gathered only as call-reference edges, never as a def, so it formed no
-      // cluster and the agent Read it back. Inject named defs directly and rank them
-      // ABOVE connected/glue nodes (importance 9) so their cluster wins the per-file
-      // budget — the agent explicitly asked for these symbols.
-      const rangeNodes = new Map<string, Node>();
-      for (const n of group.nodes) if (n.startLine > 0 && n.endLine > 0) rangeNodes.set(n.id, n);
-      for (const id of flow.namedNodeIds) {
-        if (rangeNodes.has(id)) continue;
-        const n = cg.getNode(id);
-        if (n && n.filePath === filePath && n.startLine > 0 && n.endLine > 0) rangeNodes.set(id, n);
-      }
-      const ranges: Array<{ start: number; end: number; name: string; kind: string; importance: number }> = [...rangeNodes.values()]
-        // Drop whole-file envelope nodes (containers covering >50% of the file).
-        .filter(n => !(ENVELOPE_KINDS.has(n.kind) && (n.endLine - n.startLine + 1) > fileLines.length * 0.5))
-        .map(n => {
-          let importance = 1;
-          if (entryNodeIds.has(n.id)) importance = 10;
-          else if (flow.namedNodeIds.has(n.id)) importance = 9; // agent named it → keep its cluster
-          else if (glueNodeIds.has(n.id)) importance = 6; // bridging caller/callee of an entry
-          else if (connectedToEntry.has(n.id)) importance = 3;
-          return { start: n.startLine, end: n.endLine, name: n.name, kind: n.kind, importance };
-        });
-
-      // Add edge source locations in this file — captures template references
-      // (component usages, event handlers) that aren't nodes themselves.
-      // Query edges directly from the DB (not just the subgraph) because BFS
-      // traversal may have pruned template reference targets due to node budget.
-      const edgeLines = new Set<string>(); // dedup by "line:name"
-      for (const node of group.nodes) {
-        const outgoing = cg.getOutgoingEdges(node.id);
-        for (const edge of outgoing) {
-          if (!edge.line || edge.line <= 0 || edge.kind === 'contains') continue;
-          const key = `${edge.line}:${edge.target}`;
-          if (edgeLines.has(key)) continue;
-          edgeLines.add(key);
-          // Look up target name from subgraph first, fall back to edge kind
-          const targetNode = subgraph.nodes.get(edge.target);
-          const targetName = targetNode?.name ?? edge.kind;
-          ranges.push({ start: edge.line, end: edge.line, name: targetName, kind: edge.kind, importance: 2 });
-        }
-      }
-
-      ranges.sort((a, b) => a.start - b.start);
-
-      if (ranges.length === 0) continue;
-
-      const gapThreshold = budget.gapThreshold;
-      const clusters: Array<{ start: number; end: number; symbols: string[]; score: number; maxImportance: number }> = [];
-      let current = {
-        start: ranges[0]!.start,
-        end: ranges[0]!.end,
-        symbols: [`${ranges[0]!.name}(${ranges[0]!.kind})`],
-        score: ranges[0]!.importance,
-        maxImportance: ranges[0]!.importance,
-      };
-
-      for (let i = 1; i < ranges.length; i++) {
-        const r = ranges[i]!;
-        if (r.start <= current.end + gapThreshold) {
-          current.end = Math.max(current.end, r.end);
-          current.symbols.push(`${r.name}(${r.kind})`);
-          current.score += r.importance;
-          current.maxImportance = Math.max(current.maxImportance, r.importance);
-        } else {
-          clusters.push(current);
-          current = {
-            start: r.start,
-            end: r.end,
-            symbols: [`${r.name}(${r.kind})`],
-            score: r.importance,
-            maxImportance: r.importance,
-          };
-        }
-      }
-      clusters.push(current);
-
-      // Build file section output from clusters, capped by per-file budget.
-      // The pathological case (#185): a file like Session.swift where every
-      // method is adjacent collapses into one cluster spanning the whole
-      // file, and dumping that into the agent's context is most of the
-      // token cost on small projects. We pick clusters in priority order
-      // until the per-file char cap is hit. Truly enormous single clusters
-      // get tail-trimmed with a marker.
-      const contextPadding = 3;
-      const withLineNumbers = exploreLineNumbersEnabled();
-      const buildSection = (c: { start: number; end: number }): string => {
-        const startIdx = Math.max(0, c.start - 1 - contextPadding);
-        const endIdx = Math.min(fileLines.length, c.end + contextPadding);
-        const slice = fileLines.slice(startIdx, endIdx).join('\n');
-        // startIdx is 0-based, so the slice's first line is line startIdx + 1.
-        return withLineNumbers ? numberSourceLines(slice, startIdx + 1) : slice;
-      };
-      // Language-neutral separator (no `//` — not a comment in Python, Ruby,
-      // etc.). With line numbers on, the line-number jump also signals the gap.
-      const GAP_MARKER = '\n\n... (gap) ...\n\n';
-
-      // Rank clusters for inclusion under the per-file cap. Entry-point
-      // clusters come first: a cluster containing a query entry point
-      // (importance 10) must outrank a dense block of mere declarations,
-      // otherwise on a large file like Session.swift the top-of-file class
-      // header + property list (many adjacent low-importance nodes, high
-      // density) wins the budget and buries the actual methods the query
-      // asked about (perform/didCreateURLRequest/task live deep in the
-      // file). Within the same importance tier, prefer density (score per
-      // line) so we still favor focused clusters over sprawling ones, then
-      // smaller span as a cheap-to-include tiebreak.
-      const rankedClusters = clusters
-        .map((c, i) => ({ idx: i, span: c.end - c.start + 1, c }))
-        .sort((a, b) => {
-          if (b.c.maxImportance !== a.c.maxImportance) return b.c.maxImportance - a.c.maxImportance;
-          const densityA = a.c.score / a.span;
-          const densityB = b.c.score / b.span;
-          if (densityB !== densityA) return densityB - densityA;
-          if (b.c.score !== a.c.score) return b.c.score - a.c.score;
-          return a.span - b.span;
-        });
-
-      // Per-file budget is the SMALLER of the per-file cap and what's left of the
-      // total output cap — so selection (which ranks by importance) keeps the
-      // high-importance clusters and drops peripheral ones, instead of the
-      // downstream source-order trim slicing off whatever comes last in the file.
-      // That source-order slice is what cut Django's `_fetch_all` (L2237, importance
-      // 9 — agent-named) when query.py was the last of four big files to be emitted.
-      const fileBudget = Math.min(budget.maxCharsPerFile, Math.max(0, budget.maxOutputChars - totalChars - 200));
-      const chosenIndices = new Set<number>();
-      let projectedChars = 0;
-      for (const rc of rankedClusters) {
-        const sectionLen = buildSection(rc.c).length + (chosenIndices.size > 0 ? GAP_MARKER.length : 0);
-        // Always take the top-ranked cluster, even if oversize, so we don't
-        // return an empty file section (agent would then re-Read the file,
-        // negating the savings).
-        if (chosenIndices.size === 0) {
-          chosenIndices.add(rc.idx);
-          projectedChars += sectionLen;
-          continue;
-        }
-        if (projectedChars + sectionLen > fileBudget) continue;
-        chosenIndices.add(rc.idx);
-        projectedChars += sectionLen;
-      }
-
-      // Emit chosen clusters in source order so the file reads top-to-bottom.
-      let fileSection = '';
-      const allSymbols: string[] = [];
-      for (let i = 0; i < clusters.length; i++) {
-        if (!chosenIndices.has(i)) continue;
-        const cluster = clusters[i]!;
-        const section = buildSection(cluster);
-        if (fileSection.length > 0) fileSection += GAP_MARKER;
-        fileSection += section;
-        allSymbols.push(...cluster.symbols);
-      }
-
-      // A chosen cluster is a COMPLETE method-range — we never cut through a body.
-      // An oversize single cluster (a long monolithic function) renders in FULL:
-      // half a method is useless (the agent just Reads the rest for the other half),
-      // which is the very fallback explore exists to prevent. A pathological file is
-      // bounded by the per-file cluster SELECTION above + the total hard ceiling.
-      if (chosenIndices.size < clusters.length) {
-        anyFileTrimmed = true;
-      }
-
-      // Dedupe + cap the symbols list shown in the per-file header. Some
-      // files (Session.swift in Alamofire) produced 3.4KB symbol lists
-      // from cluster scoring + edge-source lines, dwarfing the per-file
-      // body cap. Show top names by frequency, with a "+N more" tail.
-      const symbolCounts = new Map<string, number>();
-      for (const s of allSymbols) {
-        symbolCounts.set(s, (symbolCounts.get(s) ?? 0) + 1);
-      }
-      const sortedSymbols = [...symbolCounts.entries()]
-        .sort((a, b) => b[1] - a[1])
-        .map(([name]) => name);
-      const headerCap = budget.maxSymbolsInFileHeader;
-      const headerSymbols = sortedSymbols.slice(0, headerCap);
-      const omittedCount = sortedSymbols.length - headerSymbols.length;
-      const headerSuffix = omittedCount > 0
-        ? `${headerSymbols.join(', ')}, +${omittedCount} more`
-        : headerSymbols.join(', ');
-      const fileHeader = `#### ${filePath} — ${headerSuffix}`;
-
-      // The total cap bounds INCIDENTAL files only. A file that DEFINES a symbol
-      // the agent named (or that's on the flow spine) renders even when the
-      // nominal total is used up — it's the answer, and the set is bounded by
-      // maxFiles AND by true-spine/named-seeding having already trimmed each file
-      // to its necessary content. A file that merely REFERENCES the flow
-      // (Combine.swift name-drops request/task) is incidental → still capped, so
-      // freed budget never leaks into noise. This is the last god-file layer:
-      // build (Session, true-spined) + validators-exec (Request) + validate
-      // (DataRequest/Validation) all render, instead of the cap dropping whichever
-      // phase the file order happened to put last.
-      if (!fileNecessary && totalChars + fileSection.length + 200 > budget.maxOutputChars) {
-        // Incidental file that doesn't fit: SKIP it whole — never slice mid-method.
-        // Keep scanning for necessary files (which bypass this cap and render in
-        // full, bounded by the hard ceiling).
-        anyFileTrimmed = true;
-        continue;
-      }
-
-      lines.push(fileHeader);
-      lines.push('');
-      lines.push('```' + lang);
-      lines.push(fileSection);
-      lines.push('```');
-      lines.push('');
-
-      totalChars += fileSection.length + 200;
-      filesIncluded++;
+      sources.push({ path: filePath, content, nodes: sourceNodes, skeleton,
+        bodyAllowed: n => !skeleton || flow.pathNodeIds.has(n.id)
+          || flow.uniqueNamedNodeIds.has(n.id) || (family && flow.namedNodeIds.has(n.id)),
+        priority: n => entryNodeIds.has(n.id) || flow.uniqueNamedNodeIds.has(n.id) ? 0
+          : flow.pathNodeIds.has(n.id) ? 1 : retrieval.memberNodeIds.has(n.id) ? 2
+          : connectedToEntry.has(n.id) ? 3 : 4,
+        connectivity: n => (memberConnectivity.get(n.id) ?? 0)
+          + (retrieval.contractMemberIds.has(n.id) ? subgraph.nodes.size * 3 : 0),
+      });
     }
-
-    // Add remaining files as references (from both relevant and peripheral files).
-    // Small projects (per budget) skip this — the relevant story already fits
-    // in the source section, and a trailing pointer list is pure overhead.
-    if (budget.includeAdditionalFiles) {
-      const remainingRelevant = sortedFiles.slice(filesIncluded);
-      const peripheralFiles = [...fileGroups.entries()]
-        .filter(([, group]) => group.score < 3)
-        .sort((a, b) => b[1].score - a[1].score);
-      const remainingFiles = [...remainingRelevant, ...peripheralFiles];
-      if (remainingFiles.length > 0) {
-        lines.push('### Not shown above — explore these names for their source');
-        lines.push('');
-        for (const [filePath, group] of remainingFiles.slice(0, 10)) {
-          const symbols = group.nodes.map(n => `${n.name}:${n.startLine}`).join(', ');
-          lines.push(`- ${filePath}: ${symbols}`);
-        }
-        if (remainingFiles.length > 10) {
-          lines.push(`- ... and ${remainingFiles.length - 10} more files`);
-        }
-      }
+    let prefix = flow.text + lines.join('\n') + '\n';
+    // Bound metadata before selection, never slice a delivered source body.
+    const metadataCap = Math.floor(budget.maxOutputChars * 0.25);
+    if (prefix.length > metadataCap) {
+      const cut = prefix.slice(0, Math.max(0, metadataCap - 120));
+      prefix = cut.slice(0, Math.max(0, cut.lastIndexOf('\n')))
+        + '\n> Relationship metadata shortened; source coverage is listed below.\n\n### Source Code\n\n';
     }
-
-    // Report coverage, never a call quota or a file-wide "already read" claim.
-    if (anyFileTrimmed) {
-      lines.push('', '> Some source sections were omitted or shortened for size. Check unresolved evidence with a targeted query or Read.');
-    }
-
-    // Final ceiling — an ABSOLUTE inline cap, not a multiple of the budget. The
-    // render loop renders necessary (named/spine) files even a bit past
-    // maxOutputChars and caps only incidental ones, so this is the last safety.
-    // It MUST stay under the host's inline tool-result limit (~25K chars): above
-    // that the result is externalized to a file the agent Reads back (a 35K
-    // vscode explore did exactly this in the n=4 A/B). So allow a little
-    // necessary overflow above the 24K budget, but hard-stop at 25K — never into
-    // externalize territory.
-    const output = flow.text + lines.join('\n');
+    const output = renderExploreSources(prefix, sources, {
+      maxOutputChars: budget.maxOutputChars, maxCharsPerFile: budget.maxCharsPerFile,
+      maxFiles, lineNumbers: exploreLineNumbersEnabled(), headerSymbols: budget.maxSymbolsInFileHeader,
+    });
     const hardCeiling = Math.min(Math.round(budget.maxOutputChars * 1.5), 25000);
     return this.textResult(capExploreResponse(output, hardCeiling));
   }

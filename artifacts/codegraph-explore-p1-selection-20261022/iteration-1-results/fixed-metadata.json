@@ -1,0 +1,88 @@
+{
+  "arm": "fixed",
+  "pkg": "D:\\python_code\\codegraph\\artifacts\\codegraph-explore-p1-selection-20261022\\candidate",
+  "node": "v24.11.1",
+  "stats": {
+    "nodeCount": 890562,
+    "edgeCount": 5676237,
+    "fileCount": 14258,
+    "nodesByKind": {
+      "class": 36096,
+      "constant": 18759,
+      "enum": 3252,
+      "enum_member": 30726,
+      "field": 124672,
+      "file": 14258,
+      "function": 29772,
+      "import": 62740,
+      "macro": 41020,
+      "method": 458109,
+      "namespace": 28534,
+      "struct": 15948,
+      "type_alias": 8378,
+      "variable": 18298
+    },
+    "edgesByKind": {
+      "calls": 2886908,
+      "contains": 889283,
+      "defines": 140243,
+      "extends": 9822,
+      "imports": 57982,
+      "instantiates": 18313,
+      "references": 1673686
+    },
+    "filesByLanguage": {
+      "c": 587,
+      "cpp": 13554,
+      "lua": 1,
+      "python": 116
+    },
+    "dbSizeBytes": 3653103616,
+    "lastUpdated": 1792621672201
+  },
+  "budget": {
+    "maxOutputChars": 24000,
+    "defaultMaxFiles": 8,
+    "maxCharsPerFile": 7000,
+    "gapThreshold": 15,
+    "maxSymbolsInFileHeader": 15,
+    "maxEdgesPerRelationshipKind": 15,
+    "includeRelationships": true,
+    "includeAdditionalFiles": true,
+    "includeCompletenessSignal": true,
+    "includeBudgetNote": true,
+    "excludeLowValueFiles": false
+  },
+  "hardCeiling": 25000,
+  "tools": [
+    {
+      "name": "explore",
+      "annotations": {
+        "readOnlyHint": true
+      },
+      "description": "按符号、文件名或简短代码术语收集相关源码与关系，输出受预算限制。只将实际返回的源码视为已读；摘要、声明、截断部分不等于完整实现。后续按缺口使用 explore 或原生 Grep/Read。",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "从需求或已知源码提取的符号、文件名或简短代码术语。"
+          },
+          "maxFiles": {
+            "type": "number",
+            "description": "Maximum number of files to include source code from (default: 12)",
+            "default": 12
+          },
+          "projectPath": {
+            "type": "string",
+            "description": "Path to a different project with .codegraph/ initialized. If omitted, uses current project. Use this to query other codebases."
+          }
+        },
+        "required": [
+          "query"
+        ]
+      }
+    }
+  ],
+  "model_calls": 0
+}

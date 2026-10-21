@@ -1,0 +1,549 @@
+**Exploration: ObTableTTLDeleteTask**
+
+Found 46 symbols across 4 files.
+
+**Relationships**
+
+**extends:**
+- ObTableTTLDeleteTask → ObITask
+- ObITask → ObDLinkBase
+- ObDLinkBase → Derived
+- Derived → Abstract
+- ObITask → ObINodeWithChild
+- ObITask → ObIDag
+- ObIDag → ObINodeWithChild
+- ObIDag → ObIDagNet
+- ObTableTTLDeleteTask → ObTableSchema
+- ObIDag → ObDLinkBase
+- ObIDagNet → ObDLinkBase
+- ObTableHRowKeyTTLDelTask → ObTableTTLDeleteTask
+- Abstract → Abstract
+
+**calls:**
+- is_rowkey_ttl_task → is_rowkey_ttl_task
+- process_one → is_rowkey_ttl_task
+- init_ob_table_query → is_rowkey_ttl_task
+- init_scan_tb_ctx → is_rowkey_ttl_task
+- process_one → reset_timeout_ts
+- get_tablet_id → get_tablet_id
+- init_scan_tb_ctx → get_tablet_id
+- init_tb_ctx → get_tablet_id
+- build → get_table_id
+- handle_dml_stmt_with_online_schema_ → get_table_id
+- handle_dml_stmt_with_dict_schema_ → get_table_id
+- check_table_need_ignore_ → get_table_id
+- parse_aux_lob_meta_table_insert_ → get_table_id
+- parse_aux_lob_meta_table_delete_ → get_table_id
+- init_scan_tb_ctx → get_table_id
+- ... and 58 more
+
+**instantiates:**
+- response → ObTableMoveResponseSender
+
+**Source Code**
+
+> The code below is the **verbatim, current on-disk source** of these files — re-read from disk on this call and line-numbered, byte-for-byte identical to what the Read tool returns. It is NOT a summary, outline, or stale cache. Treat each block as a Read you have already performed: do not Read a file shown here.
+
+**`src/observer/table/ttl/ob_table_ttl_task.cpp`** — calls(calls), OB_FAIL(calls), get_tablet_id(calls), instantiates(instantiates), is_rowkey_ttl_task(calls), get_scan_ranges(calls), get_table_id(calls), get_start_rowkey(calls), ObTableTTLDeleteTask(method), init_ob_table_query(method), init_scan_tb_ctx(method), init_tb_ctx(method), get_scan_ranges(method)
+
+```cpp
+81	/**
+82	 * ---------------------------------------- ObTableTTLDeleteTask ----------------------------------------
+83	 */
+84	ObTableTTLDeleteTask::ObTableTTLDeleteTask():
+85	    ObITask(ObITaskType::TASK_TYPE_TTL_DELETE),
+86	    rowkey_allocator_(ObMemAttr(MTL_ID(), "TTLDelTaskRKey")),
+87	    is_inited_(false),
+88	    param_(),
+89	    info_(),
+90	    sess_guard_(),
+91	    schema_guard_(),
+92	    table_schema_(nullptr),
+93	    allocator_(ObMemAttr(MTL_ID(), "TTLDelTaskCtx")),
+94	    rowkey_(),
+95	    ttl_tablet_scheduler_(NULL),
+96	    hbase_cur_version_(0),
+97	    scan_index_schema_(nullptr),
+98	    scan_index_(),
+99	    delete_rate_throttler_(),
+100	    timeout_ts_(0)
+101	{
+102	  MEMSET(scan_index_buf_, 0, sizeof(scan_index_buf_));
+103	}
+104	
+105	ObTableTTLDeleteTask::~ObTableTTLDeleteTask()
+106	{
+
+... (gap) ...
+
+489	  return ret;
+490	}
+491	
+492	int ObTableTTLDeleteTask::init_ob_table_query(ObTableQuery &query, ObKVAttr &attr)
+493	{
+494	  int ret = OB_SUCCESS;
+495	  ObIArray<ObNewRange> &ranges = query.get_scan_ranges();
+496	  if (ObTTLUtil::is_default_scan_index(scan_index_)) { // use primary index scan in TTL task
+497	    // do nothing
+498	  } else if (OB_ISNULL(scan_index_schema_)) {
+499	    ret = OB_ERR_UNEXPECTED;
+500	    LOG_WARN("index schema is NULL", K(ret), K(scan_index_));
+501	  } else {
+502	    query.set_scan_index(scan_index_);
+503	    for (int64_t i = 0; i < scan_index_schema_->get_column_count() && OB_SUCC(ret); i++) {
+504	      const ObColumnSchemaV2 *col_schema = nullptr;
+505	      ObString col_name;
+506	      if (OB_ISNULL(col_schema = scan_index_schema_->get_column_schema_by_idx(i))) {
+507	        ret = OB_ERR_UNEXPECTED;
+508	        LOG_WARN("fail to get column schema", K(ret));
+509	      } else if (col_schema->is_shadow_column()) {
+510	        // do nothing
+511	      } else if (OB_FAIL(query.add_select_column(col_schema->get_column_name_str()))) {
+512	        LOG_WARN("fail to add select column", K(ret), K(query));
+513	      }
+514	    }
+515	  }
+516	  if (OB_SUCC(ret) && !is_rowkey_ttl_task()) {
+517	    // Rowkey TTL: ranges are filled in init_scan_tb_ctx (one rowkey per round); skip here to avoid advancing start_rowkey
+518	    if (OB_FAIL(get_scan_ranges(query.get_scan_ranges(), attr))) {
+519	      LOG_WARN("fail to get scan ranges", K(ret), K(query), K(attr));
+520	    }
+521	  }
+522	  return ret;
+523	}
+524	
+525	int ObTableTTLDeleteTask::init_scan_tb_ctx(ObKvSchemaCacheGuard &schema_cache_guard,
+526	                                           ObTableQuery &query,
+527	                                           ObTableCtx &tb_ctx,
+528	                                           ObTableApiCacheGuard &cache_guard)
+529	{
+530	  int ret = OB_SUCCESS;
+531	  ObExprFrameInfo *expr_frame_info = nullptr;
+532	  ObKVAttr kv_attributes;
+533	  ObIArray<ObNewRange> &ranges = query.get_scan_ranges();
+534	  tb_ctx.set_scan(true);
+535	  tb_ctx.set_schema_cache_guard(&schema_cache_guard);
+536	  tb_ctx.set_schema_guard(&schema_guard_);
+537	  tb_ctx.set_simple_table_schema(table_schema_);
+538	  tb_ctx.set_sess_guard(&sess_guard_);
+539	  if (tb_ctx.is_init()) {
+540	    LOG_INFO("tb ctx has been inited", K(tb_ctx));
+541	  } else if (OB_FAIL(schema_cache_guard.get_kv_attributes(kv_attributes))) {
+542	    LOG_WARN("fail to get kv attributes", K(ret));
+543	  } else if (is_rowkey_ttl_task()) {
+544	    // Rowkey TTL: refill ranges for this round (one rowkey per round); OB_ITER_END when no more rowkeys
+545	    ranges.reset();
+546	    if (OB_FAIL(get_scan_ranges(ranges, kv_attributes))) {
+547	      if (OB_ITER_END != ret) {
+548	        LOG_WARN("fail to get scan ranges", K(ret));
+549	      }
+550	    } else if (ranges.empty()) {
+551	      ret = OB_ITER_END;
+552	      LOG_DEBUG("no ranges to process", K(ret));
+553	    }
+554	  }
+555	
+556	  // Common init logic for both rowkey and non-rowkey TTL tasks
+557	  if (OB_SUCC(ret) && !tb_ctx.is_init()) {
+558	    if (OB_FAIL(tb_ctx.init_common(credential_, get_tablet_id(), get_timeout_ts()))) {
+559	      LOG_WARN("fail to init table ctx common part", KR(ret), "table_id", get_table_id(),
+560	        "tablet_id", get_tablet_id(), "timeout_ts", get_timeout_ts());
+561	    } else if (OB_FAIL(tb_ctx.init_ttl_scan(query))) {
+562	      LOG_WARN("fail to init ttl scan ctx", KR(ret), K(tb_ctx));
+563	    } else if (OB_FAIL(cache_guard.init(&tb_ctx))) {
+564	      LOG_WARN("fail to init cache guard", K(ret));
+565	    } else if (OB_FAIL(cache_guard.get_expr_info(&tb_ctx, expr_frame_info))) {
+566	      LOG_WARN("fail to get expr frame info from cache", K(ret));
+567	    } else if (OB_FAIL(ObTableExprCgService::alloc_exprs_memory(tb_ctx, *expr_frame_info))) {
+568	      LOG_WARN("fail to alloc expr memory", K(ret));
+569	    } else if (OB_FAIL(tb_ctx.init_exec_ctx())) {
+570	      LOG_WARN("fail to init exec ctx", KR(ret), K(tb_ctx));
+571	    } else if (OB_FAIL(tb_ctx.init_expr_frame_info(expr_frame_info))) {
+572	      LOG_WARN("fail to init expr frame info", KR(ret));
+573	    } else {
+574	      tb_ctx.set_init_flag(true);
+575	    }
+576	  }
+577	
+578	  return ret;
+579	}
+580	
+581	int ObTableTTLDeleteTask::process_ttl_delete(ObKvSchemaCacheGuard &schema_cache_guard,
+582	                                             const ObITableEntity &new_entity,
+
+... (gap) ...
+
+605	  return ret;
+606	}
+607	
+608	int ObTableTTLDeleteTask::init_tb_ctx(ObKvSchemaCacheGuard &schema_cache_guard,
+609	                                      const ObITableEntity &entity,
+610	                                      ObTableCtx &ctx)
+611	{
+612	  int ret = OB_SUCCESS;
+613	  ctx.set_entity(&entity);
+614	  ctx.set_entity_type(ObTableEntityType::ET_KV);
+615	  ctx.set_operation_type(ObTableOperationType::DEL);
+616	  ctx.set_batch_operation(NULL);
+617	  ctx.set_schema_cache_guard(&schema_cache_guard);
+618	  ctx.set_schema_guard(&schema_guard_);
+619	  ctx.set_simple_table_schema(table_schema_);
+620	  ctx.set_sess_guard(&sess_guard_);
+621	  if (!ctx.is_init()) {
+622	    if (OB_FAIL(ctx.init_common(credential_, get_tablet_id(), get_timeout_ts()))) {
+623	      LOG_WARN("fail to init table ctx common part", K(ret), "table_id", get_table_id(),
+624	        "tablet_id", get_tablet_id(), "timeout_ts", get_timeout_ts());
+625	    } else if (OB_FAIL(ctx.init_delete())) {
+626	      LOG_WARN("fail to init delete ctx", K(ret), K(ctx));
+627	    } else if (OB_FAIL(ctx.init_exec_ctx())) {
+628	      LOG_WARN("fail to init exec ctx", K(ret), K(ctx));
+629	    } else {
+630	      ctx.set_is_ttl_table(false);
+631	      ctx.set_is_redis_ttl_table(false);
+632	    }
+633	  }
+634	
+635	  return ret;
+636	}
+637	
+638	/**
+639	 * ---------------------------------------- ObTableHRowKeyTTLDelTask ----------------------------------------
+
+... (gap) ...
+
+676	int ObTableHRowKeyTTLDelTask::get_scan_ranges(ObIArray<ObNewRange> &ranges, const ObKVAttr &kv_attributes)
+677	{
+678	  int ret = OB_SUCCESS;
+679	  UNUSED(kv_attributes);
+680	  if (rowkey_iter_end_) {
+681	    ret = OB_ITER_END;
+682	  } else if (rowkeys_.empty()) {
+683	    ret = OB_ERR_UNEXPECTED;
+684	    LOG_WARN("rowkeys is empty", K(ret));
+685	  } else {
+686	    ObRowkey &start_rowkey = get_start_rowkey();
+687	    ObString start_rowkey_str;
+688	    bool has_start_rowkey = start_rowkey.is_valid();
+689	    if (has_start_rowkey) {
+690	      ObObj *obj_ptr = const_cast<ObObj *>(start_rowkey.get_obj_ptr());
+691	      start_rowkey_str = obj_ptr[ObHTableConstants::COL_IDX_K].get_string();
+692	    }
+693	
+694	    int target_idx = -1;
+695	    if (!has_start_rowkey) {
+```
+
+**`src/observer/table/common/ob_table_common_struct.h`** — table(method), ObTableExecCtx(class), ObTableExecCtx(method), ~ObTableExecCtx(method), common(method), set_cb_allocator(method), share(method), transaction(method), get_timeout_ts(method), set_timeout_ts(method), set_table_name(method), get_table_id(method), set_table_id(method), set_audit_ctx(method), get_entity_factory(method), +2 more
+
+```cpp
+1	/**
+2	 * Copyright (c) 2025 OceanBase
+3	 * OceanBase CE is licensed under Mulan PubL v2.
+4	 * You can use this software according to the terms and conditions of the Mulan PubL v2.
+5	 * You may obtain a copy of Mulan PubL v2 at:
+6	 *          http://license.coscl.org.cn/MulanPubL-2.0
+7	 * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND,
+8	 * EITHER EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT,
+9	 * MERCHANTABILITY OR FIT FOR A PARTICULAR PURPOSE.
+10	 * See the Mulan PubL v2 for more details.
+11	 */
+12	
+13	#ifndef _OB_TABLE_COMMON_STRUCT_H
+14	#define _OB_TABLE_COMMON_STRUCT_H
+15	
+16	#include "share/table/ob_table_rpc_struct.h"
+17	#include "observer/table/ob_table_context.h"
+18	#include "observer/table/object_pool/ob_table_object_pool.h"
+19	#include "observer/table/ob_table_schema_cache.h"
+20	#include "observer/table/ob_table_audit.h"
+21	#include "observer/table/utils/ob_table_trans_utils.h"
+22	
+23	namespace oceanbase
+24	{
+25	namespace table
+26	{
+27	
+28	class ObTableExecCtx
+29	{
+30	public:
+31	  ObTableExecCtx(common::ObIAllocator& alloc,
+32	                 table::ObTableApiSessGuard &sess_guard,
+33	                 table::ObKvSchemaCacheGuard &schema_cache_guard,
+34	                 table::ObTableAuditCtx *audit_ctx,
+35	                 table::ObTableApiCredential &credential,
+36	                 share::schema::ObSchemaGetterGuard &schema_guard,
+37	                 table::ObTableTransParam &trans_param)
+38	    : alloc_(alloc),
+39	      cb_alloc_(nullptr),
+40	      sess_guard_(sess_guard),
+41	      schema_cache_guard_(schema_cache_guard),
+42	      audit_ctx_(audit_ctx),
+43	      credential_(credential),
+44	      schema_guard_(schema_guard),
+45	      trans_param_(trans_param),
+46	      timeout_ts_(-1),
+47	      table_name_(),
+48	      table_id_(common::OB_INVALID_ID),
+49	      ls_id_(ObLSID::INVALID_LS_ID),
+50	      entity_factory_(nullptr),
+51	      simple_schema_(nullptr),
+52	      table_schema_(nullptr),
+53	      is_async_commit_(false),
+54	      stat_row_count_(0)
+55	  {}
+56	  ~ObTableExecCtx() = default;
+57	  TO_STRING_KV(K_(sess_guard),
+58	               K_(schema_cache_guard),
+59	               K_(audit_ctx),
+60	               K_(credential),
+61	               K_(timeout_ts),
+62	               K_(table_name),
+63	               K_(table_id),
+64	               K_(ls_id),
+65	               K_(is_async_commit),
+66	               K_(stat_row_count));
+67	public:
+68	  OB_INLINE common::ObIAllocator &get_allocator() const { return alloc_; }
+69	  OB_INLINE void set_cb_allocator(common::ObIAllocator *alloc) { cb_alloc_ = alloc; }
+70	  OB_INLINE common::ObIAllocator *get_cb_allocator() const { return cb_alloc_; }
+71	  OB_INLINE table::ObTableApiSessGuard &get_sess_guard() const { return sess_guard_; }
+72	  OB_INLINE table::ObKvSchemaCacheGuard &get_schema_cache_guard() const { return schema_cache_guard_; }
+73	  OB_INLINE table::ObTableAuditCtx *get_audit_ctx() const { return audit_ctx_; }
+74	  OB_INLINE table::ObTableApiCredential &get_credential() const { return credential_; }
+75	  OB_INLINE share::schema::ObSchemaGetterGuard &get_schema_guard() const { return schema_guard_; }
+76	  OB_INLINE table::ObTableTransParam &get_trans_param() const { return trans_param_; }
+77	  OB_INLINE const transaction::ObTxReadSnapshot &get_tx_snapshot() const { return trans_param_.tx_snapshot_; }
+78	  OB_INLINE int64_t get_timeout_ts() const { return timeout_ts_; }
+79	  OB_INLINE void set_timeout_ts(int64_t timeout_ts) { timeout_ts_ = timeout_ts; }
+80	  OB_INLINE const common::ObString &get_table_name() const { return table_name_; }
+81	  OB_INLINE void set_table_name(const common::ObString &table_name) { table_name_ = table_name; }
+82	  OB_INLINE uint64_t get_table_id() const { return table_id_; }
+83	  OB_INLINE void set_table_id(const uint64_t table_id) { table_id_ = table_id; }
+84	  OB_INLINE void set_audit_ctx(table::ObTableAuditCtx &audit_ctx) { audit_ctx_ = &audit_ctx; }
+85	  OB_INLINE ObITableEntityFactory *get_entity_factory() const { return entity_factory_; }
+86	  OB_INLINE void set_entity_factory(ObITableEntityFactory *entity_factory) { entity_factory_ = entity_factory; }
+87	  OB_INLINE const share::ObLSID &get_ls_id() const { return ls_id_; }
+88	  OB_INLINE void set_ls_id(const share::ObLSID &ls_id) { ls_id_ = ls_id; }
+89	  OB_INLINE const share::schema::ObTableSchema *get_table_schema() const { return table_schema_; }
+90	  OB_INLINE void set_table_schema(const share::schema::ObTableSchema *table_schema) { table_schema_ = table_schema; }
+91	  // if table_schema is set and simple_schema is not set, return table_schema_ directly to avoid init simple_schema_ repeatedly.
+92	  OB_INLINE const share::schema::ObSimpleTableSchemaV2 *get_simple_schema() const
+93	  {
+94	    return simple_schema_ == nullptr ? (table_schema_ != nullptr ?  table_schema_ : nullptr) : simple_schema_;
+95	  }
+96	  OB_INLINE void set_simple_schema(const share::schema::ObSimpleTableSchemaV2 *simple_schema) { simple_schema_ = simple_schema; }
+97	  OB_INLINE void set_async_commit(bool is_async) { is_async_commit_ = is_async; }
+98	  OB_INLINE bool is_async_commit() const { return is_async_commit_; }
+99	  OB_INLINE void add_stat_row_count(int64_t row_count) { stat_row_count_ += row_count; }
+100	  OB_INLINE int64_t get_stat_row_count() { return stat_row_count_; }
+101	private:
+102	  common::ObIAllocator &alloc_;
+103	  common::ObIAllocator *cb_alloc_;
+104	  table::ObTableApiSessGuard &sess_guard_;
+105	  table::ObKvSchemaCacheGuard &schema_cache_guard_;
+106	  table::ObTableAuditCtx *audit_ctx_;
+107	  table::ObTableApiCredential &credential_;
+108	  share::schema::ObSchemaGetterGuard &schema_guard_;
+109	  table::ObTableTransParam &trans_param_;
+110	  int64_t timeout_ts_;
+111	  common::ObString table_name_;
+112	  uint64_t table_id_;
+113	  share::ObLSID ls_id_;
+114	  ObITableEntityFactory *entity_factory_;
+115	  const share::schema::ObSimpleTableSchemaV2 *simple_schema_;
+116	  const share::schema::ObTableSchema *table_schema_;
+117	  bool is_async_commit_;
+118	  int64_t stat_row_count_;
+119	};
+120	
+121	struct ObTableQMParam
+122	{
+123	  const table::ObITableQueryAndMutate &query_and_mutate_;
+124	  uint64_t table_id_;
+125	  common::ObTabletID tablet_id_;
+126	};
+127	
+128	
+129	} // end of namespace table
+130	} // end of namespace oceanbase
+131	
+132	#endif // _OB_TABLE_COMMON_STRUCT_H
+```
+
+**`src/observer/table/ob_table_move_response.h`** — table(method), ObTableMoveResponseSender(class), ObTableMoveResponseSender(method), ~ObTableMoveResponseSender(method), response(method)
+
+```cpp
+1	/**
+2	 * Copyright (c) 2023 OceanBase
+3	 * OceanBase CE is licensed under Mulan PubL v2.
+4	 * You can use this software according to the terms and conditions of the Mulan PubL v2.
+5	 * You may obtain a copy of Mulan PubL v2 at:
+6	 *          http://license.coscl.org.cn/MulanPubL-2.0
+7	 * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND,
+8	 * EITHER EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT,
+9	 * MERCHANTABILITY OR FIT FOR A PARTICULAR PURPOSE.
+10	 * See the Mulan PubL v2 for more details.
+11	 */
+12	
+13	#ifndef _OB_TABLE_MOVE_RESPONSE_H
+14	#define _OB_TABLE_MOVE_RESPONSE_H 1
+15	#include "ob_table_rpc_response_sender.h"
+16	#include "share/table/ob_table.h"
+17	
+18	namespace oceanbase
+19	{
+20	namespace observer
+21	{
+22	class ObTableMoveResponseSender
+23	{
+24	public:
+25	  ObTableMoveResponseSender(rpc::ObRequest *req, const int ret_code)
+26	      :response_sender_(req, &result_, ret_code)
+27	  {
+28	  }
+29	  virtual ~ObTableMoveResponseSender() = default;
+30	  OB_INLINE table::ObTableMoveResult& get_result() { return result_; }
+31	  int init(const uint64_t table_id,
+32	           const common::ObTabletID &tablet_id,
+33	           share::schema::ObMultiVersionSchemaService &schema_service);
+34	  int response() { return response_sender_.response(common::OB_SUCCESS); };
+35	private:
+36	  int get_replica(const uint64_t table_id,
+37	                  const common::ObTabletID &tablet_id,
+38	                  table::ObTableMoveReplicaInfo &replica);
+39	private:
+40	  table::ObTableMoveResult result_;
+41	  obrpc::ObTableRpcResponseSender response_sender_;
+42	private:
+43	  DISALLOW_COPY_AND_ASSIGN(ObTableMoveResponseSender);
+44	};
+45	
+46	} // end namespace server
+47	} // end namespace oceanbase
+48	
+49	#endif /* _OB_TABLE_MOVE_RESPONSE_H */
+```
+
+**`src/observer/table/ttl/ob_table_ttl_task.h`** — is_rowkey_ttl_task(method), ObTableTTLDeleteTask(class), ObITask(extends), is_rowkey_ttl_task(calls), get_allocator(method), reset_timeout_ts(method), get_tablet_id(method), get_tablet_id(calls), get_table_id(method), get_start_rowkey(method), ObTableSchema(extends), ObTableHRowKeyTTLDelTask(class), ObTableTTLDeleteTask(extends)
+
+```cpp
+108	};
+109	
+110	
+111	class ObTableTTLDeleteTask : public share::ObITask
+112	{
+113	public:
+114	  ObTableTTLDeleteTask();
+115	  ~ObTableTTLDeleteTask();
+116	  virtual int init(table::ObTabletTTLScheduler *ttl_tablet_mgr,
+117	                   const table::ObTTLTaskParam &ttl_para,
+118	                   table::ObTTLTaskInfo &ttl_info);
+119	  virtual int process() override;
+120	protected:
+121	  virtual int get_scan_ranges(ObIArray<ObNewRange> &ranges, const ObKVAttr &kv_attributes);
+122	  virtual int init_ob_table_query(ObTableQuery &query, ObKVAttr &attr);
+123	  virtual bool is_rowkey_ttl_task() const { return false; }
+124	  int init_tb_ctx(ObKvSchemaCacheGuard &schema_cache_guard,
+125	                  const table::ObITableEntity &entity,
+126	                  table::ObTableCtx &ctx);
+127	  int init_scan_tb_ctx(ObKvSchemaCacheGuard &schema_cache_guard,
+128	                       ObTableQuery &query,
+129	                       table::ObTableCtx &tb_ctx,
+130	                       table::ObTableApiCacheGuard &cache_guard);
+131	  int execute_ttl_delete(ObKvSchemaCacheGuard &schema_cache_guard,
+132	                         ObTableTTLRowIterator &ttl_row_iter,
+133	                         table::ObTableTTLOperationResult &result,
+134	                         transaction::ObTxDesc *trans_desc,
+135	                         transaction::ObTxReadSnapshot &snapshot);
+136	  int process_ttl_delete(ObKvSchemaCacheGuard &schema_cache_guard,
+137	                         const table::ObITableEntity &new_entity,
+138	                         int64_t &affected_rows,
+139	                         transaction::ObTxDesc *trans_desc,
+140	                         transaction::ObTxReadSnapshot &snapshot,
+141	                         bool is_skip_scan);
+142	  common::ObIAllocator &get_allocator() { return allocator_; }
+143	  int init_credential(const table::ObTTLTaskParam &ttl_param);
+144	  int init_sess_info();
+145	  int init_schema_info(int64_t tenant_id, uint64_t table_id);
+146	  int init_kv_schema_guard(ObKvSchemaCacheGuard &schema_cache_guard);
+147	  int decide_and_check_scan_index(const share::schema::ObTableSchema &table_schema,
+148	                                  ObKVAttr &attr);
+149	  int construct_delete_entity(ObIArray<ObTableTTLRowIterator::ColumnPair> &column_pairs,
+150	                              const ObNewRow &row,
+151	                              ObTableEntity &entity);
+152	  int init_scan_index(const ObString &scan_index);
+153	  int64_t get_timeout_ts();
+154	  void reset_timeout_ts() { timeout_ts_ = 0; }
+155	
+156	  common::ObTabletID get_tablet_id() const
+157	  {
+158	    return info_.get_tablet_id();
+159	  }
+160	  uint64_t get_table_id() const { return param_.table_id_; }
+161	  common::ObRowkey &get_start_rowkey() { return rowkey_; }
+162	
+163	private:
+164	  static const int64_t RETRY_INTERVAL = 30 * 60 * 1000 * 1000l; // 30min
+165	  static const int64_t PER_TASK_DEL_ROWS = 1024l;
+166	  static const int64_t ONE_TASK_TIMEOUT = 1 * 60 * 1000 * 1000l; // 1min
+167	private:
+168	  int process_one();
+169	private:
+170	  common::ObArenaAllocator rowkey_allocator_;
+171	  bool is_inited_;
+172	  table::ObTTLTaskParam param_;
+173	  table::ObTTLTaskInfo info_;
+174	  table::ObTableApiCredential credential_;
+175	  ObTableApiSessGuard sess_guard_;
+176	  share::schema::ObSchemaGetterGuard schema_guard_;
+177	  const share::schema::ObTableSchema *table_schema_;
+178	  common::ObArenaAllocator allocator_;
+179	  common::ObRowkey rowkey_;
+180	  table::ObTabletTTLScheduler *ttl_tablet_scheduler_;
+181	  share::ObLSID ls_id_;
+182	  ObTableEntity delete_entity_;
+183	  uint64_t hbase_cur_version_;
+184	  const ObTableSchema* scan_index_schema_;
+185	  ObString scan_index_;
+186	  char scan_index_buf_[OB_MAX_OBJECT_NAME_LENGTH];
+187	  ObTTLDeleteRateThrottler delete_rate_throttler_;
+188	  int64_t timeout_ts_;
+189	  DISALLOW_COPY_AND_ASSIGN(ObTableTTLDeleteTask);
+190	};
+191	
+192	// TTL delete task using hbase rowkey
+193	class ObTableHRowKeyTTLDelTask : public ObTableTTLDeleteTask
+194	{
+195	public:
+196	  ObTableHRowKeyTTLDelTask();
+197	  ~ObTableHRowKeyTTLDelTask();
+198	  virtual int init(ObTabletTTLScheduler *ttl_tablet_scheduler,
+199	                   const table::ObTTLHRowkeyTaskParam &ttl_para,
+200	                   table::ObTTLTaskInfo &ttl_info);
+201	private:
+202	  virtual int get_scan_ranges(ObIArray<ObNewRange> &ranges, const ObKVAttr &kv_attributes) override;
+203	  bool is_rowkey_ttl_task() const override { return true; }
+204	
+205	private:
+206	  common::ObArenaAllocator hrowkey_alloc_;
+207	  ObSEArray<ObString, 4> rowkeys_;
+208	  bool rowkey_iter_end_;  // true when all rowkeys have been processed (get_scan_ranges returned OB_ITER_END)
+209	};
+210	
+211	class ObTableTTLDag final: public share::ObIDag
+212	{
+```
+
+**Not shown above — explore these names for their source**
+
+- src/share/scheduler/ob_tenant_dag_scheduler.h: ObITask:158, ObINodeWithChild:110, ObIDag:495, ObINodeWithChild:105, ObIDagNet:793, ObITaskType:161
+- src/logservice/libobcdc/src/ob_log_formatter.cpp: handle_dml_stmt_with_online_schema_:525, handle_dml_stmt_with_dict_schema_:613, check_table_need_ignore_:707, parse_aux_lob_meta_table_insert_:2629, parse_aux_lob_meta_table_delete_:2665
+- src/pl/dblink/ob_pl_dblink_guard.h: ObTableSchema:51
+- deps/oblib/src/lib/function/ob_function.h: Derived:182, Abstract:174
+- deps/oblib/src/lib/list/ob_dlink_node.h: ObDLinkBase:30
+- src/rootserver/balance/ob_all_balance_group_builder.h: get_tablet_id:43
+- src/logservice/libobcdc/src/ob_cdc_udt.cpp: build:211
+- ... and 11 more files
+
+---
+> **Complete source for 4 files is included above — do NOT re-read them.** If your question also needs files/symbols listed under "Not shown above" (or any area this call didn't cover), make ANOTHER codegraph_explore targeting those names — it returns the same source with line numbers and is cheaper and more complete than reading. Reserve Read for a single specific line range explore can't surface.

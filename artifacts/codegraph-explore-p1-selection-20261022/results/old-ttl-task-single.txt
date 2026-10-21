@@ -1,0 +1,290 @@
+## Exploration: ObTableTTLDeleteTask
+
+Found 200 symbols across 60 files.
+
+
+Exact symbol/path anchors and identifier text evidence; weak word matches are disabled.
+### Relationships
+
+**extends:**
+- ObTableTTLDeleteTask → ObITask
+- ObTableHRowKeyTTLDelTask → ObTableTTLDeleteTask
+- ObTableLoadDirectWriteOpTask → ObITask
+
+**calls:**
+- ObTableTTLDeleteTask → MEMSET
+- get_timeout_ts → current_time
+- process_one → get_timeout_ts
+- init_scan_tb_ctx → get_timeout_ts
+- init_scan_tb_ctx → get_timeout_ts
+- init_tb_ctx → get_timeout_ts
+- init_tb_ctx → get_timeout_ts
+- execute_ttl_delete → get_timeout_ts
+- init → reset
+- init → is_valid
+- init → init_scan_index
+- init → init_sess_info
+- init → is_valid
+- init → init_schema_info
+- init → reset_cnt
+- ... and 1208 more
+
+### Source Code
+
+> Source excerpts below are read from current files. Only shown source ranges are covered; signatures, outlines and omitted regions are not complete function bodies or complete files.
+
+#### src/observer/table/ttl/ob_table_ttl_task.h — ObTableTTLDeleteTask(class), is_rowkey_ttl_task(method), get_allocator(method), reset_timeout_ts(method), get_tablet_id(method), get_table_id(method), get_start_rowkey(method), ObTableTTLDeleteTask(method), operator=(method), RETRY_INTERVAL(field), PER_TASK_DEL_ROWS(field), ONE_TASK_TIMEOUT(field), rowkey_allocator_(field), is_inited_(field), param_(field), +17 more
+
+```cpp
+1	/**
+2	 * Copyright (c) 2023 OceanBase
+3	 * OceanBase CE is licensed under Mulan PubL v2.
+4	 * You can use this software according to the terms and conditions of the Mulan PubL v2.
+5	 * You may obtain a copy of Mulan PubL v2 at:
+6	 *          http://license.coscl.org.cn/MulanPubL-2.0
+7	 * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND,
+8	 * EITHER EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT,
+9	 * MERCHANTABILITY OR FIT FOR A PARTICULAR PURPOSE.
+10	 * See the Mulan PubL v2 for more details.
+11	 */
+12	
+13	#ifndef OCEANBASE_OBSERVER_OB_TABLE_TTL_TASK_H_
+14	#define OCEANBASE_OBSERVER_OB_TABLE_TTL_TASK_H_
+15	#include "share/table/ob_table_ttl_common.h"
+16	#include "sql/ob_sql_trans_control.h"
+17	#include "share/scheduler/ob_tenant_dag_scheduler.h"
+18	#include "observer/table/ob_table_context.h"
+19	#include "observer/table/ob_table_scan_executor.h"
+20	#include "share/table/ob_table.h"
+21	#include "observer/table/ob_table_cache.h"
+22	#include "observer/table/ttl/ob_tenant_tablet_ttl_mgr.h"
+23	#include "observer/table/ob_table_schema_cache.h"
+24	#include "share/table/ob_ttl_util.h"
+25	
+26	namespace oceanbase
+27	{
+28	namespace table
+29	{
+30	
+31	class ObTableTTLRowIterator : public table::ObTableApiScanRowIterator
+32	{
+33	public:
+34	  explicit ObTableTTLRowIterator()
+35	    : is_inited_(false),
+36	      max_version_cnt_(0),
+37	      cur_version_(0),
+38	      ttl_cnt_(0),
+39	      scan_cnt_(0),
+40	      last_row_(nullptr),
+41	      has_cell_ttl_(false),
+42	      rowkey_cnt_(0),
+43	      iter_end_ts_(0)
+44	  {
+45	    column_pairs_.set_attr(ObMemAttr(MTL_ID(), "TTLRowIter"));
+46	  }
+47	  virtual ~ObTableTTLRowIterator() {}
+48	  int init_common(const share::schema::ObTableSchema &table_schema);
+49	  virtual int close() override;
+50	public:
+51	  struct ColumnPair
+52	  {
+53	    ColumnPair() = default;
+54	    ColumnPair(uint64_t cell_idx, const common::ObString &col_name)
+55	    : cell_idx_(cell_idx),
+56	      col_id_(OB_INVALID_ID),
+57	      col_name_(col_name),
+58	      is_rowkey_column_(false),
+59	      rowkey_pos_idx_(0)
+60	    {}
+61	    uint64_t cell_idx_;
+62	    uint64_t col_id_;
+63	    common::ObString col_name_;
+64	    bool is_rowkey_column_;
+65	    uint64_t rowkey_pos_idx_;
+66	    TO_STRING_KV(K_(cell_idx), K_(col_name), K_(is_rowkey_column), K_(col_id), K_(rowkey_pos_idx));
+67	  };
+68	
+69	public:
+70	  const static int64_t ONE_ITER_EXECUTE_MAX_TIME = 30 * 1000 * 1000; // 30s
+71	  bool is_inited_;
+72	  uint64_t max_version_cnt_; // for hbase
+73	  uint64_t cur_version_; // for hbase
+74	  uint64_t ttl_cnt_;
+75	  uint64_t scan_cnt_;
+76	  ObNewRow *last_row_;
+77	  bool has_cell_ttl_;
+78	  common::ObSArray<ColumnPair> column_pairs_;
+79	  int64_t rowkey_cnt_;
+80	  int64_t iter_end_ts_;
+81	};
+82	
+83	class ObTableTTLDeleteRowIterator : public ObTableTTLRowIterator
+84	{
+85	public:
+86	  ObTableTTLDeleteRowIterator();
+87	  ~ObTableTTLDeleteRowIterator() {}
+88	  virtual int get_next_row(ObNewRow*& row);
+89	  int init(const share::schema::ObTableSchema &index_schema,
+90	           const ObString &ttl_definition,
+91	           const table::ObTableTTLOperation &ttl_operation);
+92	  virtual int close() override;
+93	private:
+94	  int covert_row_to_entity(const ObNewRow &row, ObTableEntity &entity);
+95	public:
+96	  common::ObArenaAllocator hbase_kq_allocator_;
+97	  int32_t max_version_;
+98	  int64_t time_to_live_ms_; // ttl in millisecond
+99	  uint64_t limit_del_rows_; // maximum delete row
+100	  uint64_t cur_del_rows_; // current delete row
+101	  ObString cur_rowkey_; // K
+102	  ObString cur_qualifier_; // Q
+103	  bool is_last_row_ttl_; // false indicate row del by max version
+104	  bool is_hbase_table_;
+105	  bool has_cell_ttl_;
+106	  common::ObTableTTLChecker ttl_checker_;
+107	  bool hbase_new_cq_;
+108	};
+109	
+110	
+111	class ObTableTTLDeleteTask : public share::ObITask
+112	{
+113	public:
+114	  ObTableTTLDeleteTask();
+115	  ~ObTableTTLDeleteTask();
+116	  virtual int init(table::ObTabletTTLScheduler *ttl_tablet_mgr,
+117	                   const table::ObTTLTaskParam &ttl_para,
+118	                   table::ObTTLTaskInfo &ttl_info);
+119	  virtual int process() override;
+120	protected:
+121	  virtual int get_scan_ranges(ObIArray<ObNewRange> &ranges, const ObKVAttr &kv_attributes);
+122	  virtual int init_ob_table_query(ObTableQuery &query, ObKVAttr &attr);
+123	  virtual bool is_rowkey_ttl_task() const { return false; }
+124	  int init_tb_ctx(ObKvSchemaCacheGuard &schema_cache_guard,
+125	                  const table::ObITableEntity &entity,
+126	                  table::ObTableCtx &ctx);
+127	  int init_scan_tb_ctx(ObKvSchemaCacheGuard &schema_cache_guard,
+128	                       ObTableQuery &query,
+129	                       table::ObTableCtx &tb_ctx,
+130	                       table::ObTableApiCacheGuard &cache_guard);
+131	  int execute_ttl_delete(ObKvSchemaCacheGuard &schema_cache_guard,
+132	                         ObTableTTLRowIterator &ttl_row_iter,
+133	                         table::ObTableTTLOperationResult &result,
+134	                         transaction::ObTxDesc *trans_desc,
+135	                         transaction::ObTxReadSnapshot &snapshot);
+136	  int process_ttl_delete(ObKvSchemaCacheGuard &schema_cache_guard,
+137	                         const table::ObITableEntity &new_entity,
+138	                         int64_t &affected_rows,
+139	                         transaction::ObTxDesc *trans_desc,
+140	                         transaction::ObTxReadSnapshot &snapshot,
+141	                         bool is_skip_scan);
+142	  common::ObIAllocator &get_allocator() { return allocator_; }
+143	  int init_credential(const table::ObTTLTaskParam &ttl_param);
+144	  int init_sess_info();
+145	  int init_schema_info(int64_t tenant_id, uint64_t table_id);
+146	  int init_kv_schema_guard(ObKvSchemaCacheGuard &schema_cache_guard);
+147	  int decide_and_check_scan_index(const share::schema::ObTableSchema &table_schema,
+148	                                  ObKVAttr &attr);
+149	  int construct_delete_entity(ObIArray<ObTableTTLRowIterator::ColumnPair> &column_pairs,
+150	                              const ObNewRow &row,
+151	                              ObTableEntity &entity);
+152	  int init_scan_index(const ObString &scan_index);
+153	  int64_t get_timeout_ts();
+154	  void reset_timeout_ts() { timeout_ts_ = 0; }
+155	
+156	  common::ObTabletID get_tablet_id() const
+157	  {
+158	    return info_.get_tablet_id();
+159	  }
+160	  uint64_t get_table_id() const { return param_.table_id_; }
+161	  common::ObRowkey &get_start_rowkey() { return rowkey_; }
+162	
+163	private:
+164	  static const int64_t RETRY_INTERVAL = 30 * 60 * 1000 * 1000l; // 30min
+165	  static const int64_t PER_TASK_DEL_ROWS = 1024l;
+166	  static const int64_t ONE_TASK_TIMEOUT = 1 * 60 * 1000 * 1000l; // 1min
+167	private:
+168	  int process_one();
+169	private:
+170	  common::ObArenaAllocator rowkey_allocator_;
+171	  bool is_inited_;
+172	  table::ObTTLTaskParam param_;
+173	  table::ObTTLTaskInfo info_;
+174	  table::ObTableApiCredential credential_;
+175	  ObTableApiSessGuard sess_guard_;
+176	  share::schema::ObSchemaGetterGuard schema_guard_;
+177	  const share::schema::ObTableSchema *table_schema_;
+178	  common::ObArenaAllocator allocator_;
+179	  common::ObRowkey rowkey_;
+180	  table::ObTabletTTLScheduler *ttl_tablet_scheduler_;
+181	  share::ObLSID ls_id_;
+182	  ObTableEntity delete_entity_;
+183	  uint64_t hbase_cur_version_;
+184	  const ObTableSchema* scan_index_schema_;
+185	  ObString scan_index_;
+186	  char scan_index_buf_[OB_MAX_OBJECT_NAME_LENGTH];
+187	  ObTTLDeleteRateThrottler delete_rate_throttler_;
+188	  int64_t timeout_ts_;
+189	  DISALLOW_COPY_AND_ASSIGN(ObTableTTLDeleteTask);
+190	};
+191	
+192	// TTL delete task using hbase rowkey
+193	class ObTableHRowKeyTTLDelTask : public ObTableTTLDeleteTask
+194	{
+195	public:
+196	  ObTableHRowKeyTTLDelTask();
+197	  ~ObTableHRowKeyTTLDelTask();
+198	  virtual int init(ObTabletTTLScheduler *ttl_tablet_scheduler,
+199	                   const table::ObTTLHRowkeyTaskParam &ttl_para,
+200	                   table::ObTTLTaskInfo &ttl_info);
+201	private:
+202	  virtual int get_scan_ranges(ObIArray<ObNewRange> &ranges, const ObKVAttr &kv_attributes) override;
+203	  bool is_rowkey_ttl_task() const override { return true; }
+204	
+205	private:
+206	  common::ObArenaAllocator hrowkey_alloc_;
+207	  ObSEArray<ObString, 4> rowkeys_;
+208	  bool rowkey_iter_end_;  // true when all rowkeys have been processed (get_scan_ranges returned OB_ITER_END)
+209	};
+210	
+211	class ObTableTTLDag final: public share::ObIDag
+212	{
+213	public:
+214	  ObTableTTLDag();
+215	  virtual ~ObTableTTLDag();
+216	  virtual bool operator==(const ObIDag& other) const override;
+217	  virtual uint64_t hash() const override;
+218	  int init(const table::ObTTLTaskParam &param, table::ObTTLTaskInfo &info);
+219	  virtual lib::Worker::CompatMode get_compat_mode() const override { return compat_mode_; }
+220	  virtual int fill_dag_key(char *buf, const int64_t buf_len) const override;
+221	  virtual int fill_info_param(compaction::ObIBasicInfoParam *&out_param, ObIAllocator &allocator) const override;
+222	  virtual uint64_t get_consumer_group_id() const override { return consumer_group_id_; }
+223	  virtual bool is_ha_dag() const { return false; }
+224	private:
+225	  bool is_inited_;
+226	  table::ObTTLTaskParam param_;
+227	  table::ObTTLTaskInfo info_;
+228	  lib::Worker::CompatMode compat_mode_;
+229	  DISALLOW_COPY_AND_ASSIGN(ObTableTTLDag);
+230	};
+231	
+232	} // end namespace table
+233	} // end namespace oceanbase
+234	
+235	#endif /* OCEANBASE_OBSERVER_OB_TABLE_TTL_TASK_H_ */
+```
+
+### Not shown above — explore these names for their source
+
+- src/share/scheduler/ob_tenant_dag_scheduler.h: ObITask:158, process:443
+- deps/oblib/src/lib/alloc/alloc_assist.h: MEMSET:22, MEMCPY:23
+- src/share/table/ob_table_ttl_common.h: is_valid:182, reset_cnt:196
+- src/observer/table/ttl/ob_tenant_tablet_ttl_mgr.h: generate_ttl_dag:423, dec_dag_ref:150
+- src/share/schema/ob_schema_getter_guard.cpp: get_table_schema:2031, get_user_info:3674
+- src/observer/table/ob_table_schema_cache.cpp: init:330, get_kv_attributes:478
+- src/share/schema/ob_multi_version_schema_service.cpp: get_tenant_schema_guard:1267, get_instance:1853
+- deps/oblib/src/lib/rc/context.h: set_properties:210, set_mem_attr:216
+- deps/oblib/src/lib/allocator/page_arena.h: reuse:1067, alloc:1051
+- src/observer/table/ob_table_scan_executor.cpp: open:713, get_next_row:732
+- ... and 34 more files
+
+> Some source sections were omitted or shortened for size. Check unresolved evidence with a targeted query or Read.

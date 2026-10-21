@@ -1,0 +1,561 @@
+## Exploration: ObDtlBasicChannel ObDtlFlowControl ObPxTransmitOp DTL_BLOCKING_TIME
+
+Found 153 symbols across 7 files.
+
+
+Exact symbol/path anchors and identifier text evidence; weak word matches are disabled.
+### Relationships
+
+**calls:**
+- ~ObDtlBasicChannel → destroy
+- clear_response_block → wait_response
+- flush → wait_response
+- wait_response → belong_to_transmit_data
+- wait_response → belong_to_transmit_data
+- destroy → reset_px_row_iterator
+- destroy → free_buf
+- destroy → free_buf
+- destroy → free_buf
+- destroy → free_buf
+- send → flush
+- send → belong_to_transmit_data
+- mock_eof_buffer → attach
+- mock_eof_buffer → alloc_buf
+- attach → block_on_increase_size
+- ... and 105 more
+
+### Source Code
+
+> Source excerpts below are read from current files. Only shown source ranges are covered; signatures, outlines and omitted regions are not complete function bodies or complete files.
+
+#### src/sql/dtl/ob_dtl_flow_control.h — ~ObDtlFlowControl, destroy, ObDtlFlowControl, is_init, get_tenant_id, get_timeout_ts, set_timeout_ts, increase, decrease, get_used, need_block, can_unblock, is_block, all_ch_drained, increase_blocked_cnt · focused (complete selected bodies; other symbols are outlines)
+
+```cpp
+82	class ObDtlFlowControl
+
+... (gap) ...
+
+85	  ObDtlFlowControl() :
+86	  tenant_id_(OB_INVALID_ID), timeout_ts_(0), communicate_flag_(0),
+87	  compressor_type_(common::ObCompressorType::NONE_COMPRESSOR), is_init_(false), block_ch_cnt_(0),
+88	  total_memory_size_(0), total_buffer_cnt_(0), accumulated_blocked_cnt_(0), blocks_(), chans_(), drain_ch_cnt_(0),
+89	  dfo_key_(), op_metric_(nullptr),
+90	  chan_loop_(nullptr), ch_info_(nullptr), last_block_start_time_(0), total_block_time_(0)
+91	  { }
+
+... (gap) ...
+
+93	  virtual ~ObDtlFlowControl() { destroy(); }
+
+... (gap) ...
+
+96	  bool is_init() { return is_init_; }
+
+... (gap) ...
+
+98	  OB_INLINE uint64_t get_tenant_id() const { return tenant_id_; }
+99	  OB_INLINE int64_t get_timeout_ts() const { return timeout_ts_; }
+100	  OB_INLINE void set_timeout_ts(int64_t timeout_ts) { timeout_ts_ = timeout_ts; }
+
+... (gap) ...
+
+102	  OB_INLINE void increase(int64_t size) { (ATOMIC_AAF(&total_memory_size_, size)); ATOMIC_INC(&total_buffer_cnt_); }
+103	  OB_INLINE void decrease(int64_t size) { (ATOMIC_SAF(&total_memory_size_, size)); ATOMIC_DEC(&total_buffer_cnt_); }
+104	  OB_INLINE int64_t get_used() { return (ATOMIC_LOAD(&total_memory_size_)); }
+
+... (gap) ...
+
+106	  OB_INLINE bool need_block()
+107	  {
+108	    bool need_block = (ATOMIC_LOAD(&total_memory_size_)) >= THRESHOLD_SIZE
+109	      || MAX_BUFFER_CNT <= (ATOMIC_LOAD(&total_buffer_cnt_));
+110	  #ifdef ERRSIM
+111	    int ret = common::OB_SUCCESS;
+112	    ret = OB_E(EventTable::EN_FORCE_DFC_BLOCK) ret;
+113	    need_block = (common::OB_SUCCESS != ret) ? true : need_block;
+114	    SQL_DTL_LOG(TRACE, "trace block", K(need_block), K(total_buffer_cnt_), K(ret));
+115	    ret = common::OB_SUCCESS;
+116	  #endif
+117	    return need_block;
+118	  }
+119	  OB_INLINE bool can_unblock()
+120	  {
+121	    bool can_unblock = (ATOMIC_LOAD(&total_memory_size_)) <= THRESHOLD_SIZE / 2
+122	        || MAX_BUFFER_CNT / 2 >= (ATOMIC_LOAD(&total_buffer_cnt_));
+123	#ifdef ERRSIM
+124	  int ret = common::OB_SUCCESS;
+125	  ret = OB_E(EventTable::EN_DTL_ONE_ROW_ONE_BUFFER) ret;
+126	  can_unblock = (common::OB_SUCCESS != ret) ? 0 == (ATOMIC_LOAD(&total_buffer_cnt_)) : can_unblock;
+127	  SQL_DTL_LOG(TRACE, "trace unblock", K(can_unblock), K(total_buffer_cnt_), K(ret));
+128	  ret = common::OB_SUCCESS;
+129	#endif
+130	    return can_unblock;
+131	  }
+
+... (gap) ...
+
+133	  OB_INLINE bool is_block() { return 1 <= (ATOMIC_LOAD(&block_ch_cnt_)); }
+
+... (gap) ...
+
+138	  bool all_ch_drained() {
+139	    return (ATOMIC_LOAD(&drain_ch_cnt_) == chans_.count());
+140	  }
+
+... (gap) ...
+
+142	  OB_INLINE void increase_blocked_cnt(int64_t cnt) {
+143	    ATOMIC_AAF(&block_ch_cnt_, cnt);
+144	    ATOMIC_AAF(&accumulated_blocked_cnt_, cnt);
+145	  }
+146	  OB_INLINE void decrease_blocked_cnt(int64_t cnt) { ATOMIC_SAF(&block_ch_cnt_, cnt); }
+
+... (gap) ...
+
+152	  OB_INLINE int64_t get_blocked_cnt() { return (ATOMIC_LOAD(&block_ch_cnt_)); }
+153	  OB_INLINE int64_t get_total_buffer_cnt() { return (ATOMIC_LOAD(&total_buffer_cnt_)); }
+154	  OB_INLINE bool get_nth_block(int64_t idx) { return (ATOMIC_LOAD(&blocks_.at(idx))); }
+155	  OB_INLINE int64_t get_accumulated_blocked_cnt() { return (ATOMIC_LOAD(&accumulated_blocked_cnt_)); }
+
+... (gap) ...
+
+161	  int reserve(int64_t size) {
+162	    int ret = OB_SUCCESS;
+163	    if (OB_FAIL(blocks_.reserve(size))) {
+164	      // nop
+165	    } else if (OB_FAIL(chans_.reserve(size))) {
+166	      // nop
+167	    }
+168	    return ret;
+169	  }
+
+... (gap) ...
+
+171	  virtual void destroy() {
+172	    chans_.reset();
+173	    blocks_.reset();
+174	    ch_info_ = nullptr;
+175	    is_init_ = false;
+176	  }
+
+... (gap) ...
+
+188	  int64_t get_channel_count() const {
+189	    return chans_.count();
+190	  }
+
+... (gap) ...
+
+193	  OB_INLINE void set_receive() { communicate_flag_ |= 0x01; }
+194	  OB_INLINE bool is_receive() { return communicate_flag_ & 0x01; }
+195	  OB_INLINE void set_transmit() { communicate_flag_ |= 0x10; }
+196	  OB_INLINE bool is_transmit() { return communicate_flag_ & 0x10; }
+197	  OB_INLINE void set_qc_coord() { communicate_flag_ |= 0x100; }
+198	  OB_INLINE bool is_qc_coord() { return communicate_flag_ & 0x100; }
+
+... (gap) ...
+
+200	  OB_INLINE void set_op_metric(sql::ObOpMetric *op_metric) { op_metric_ = op_metric;}
+201	  OB_INLINE sql::ObOpMetric *get_op_metric() { return op_metric_; }
+202	  OB_INLINE int64_t get_op_id() { return nullptr != op_metric_ ? op_metric_->get_id() : -1; }
+
+... (gap) ...
+
+204	  bool has_dfo_key() { return dfo_key_.is_valid(); }
+205	  ObDtlDfoKey &get_dfo_key() { return dfo_key_; }
+206	  void set_dfo_key(ObDtlDfoKey &key) { dfo_key_ = key; }
+207	  ObDtlSqcInfo &get_sender_sqc_info() { return sender_sqc_info_; }
+208	  void set_sender_sqc_info(ObDtlSqcInfo &sqc_info) { sender_sqc_info_ = sqc_info; }
+
+... (gap) ...
+
+210	  void set_dtl_channel_watcher(ObDtlChannelLoop *dtl_watcher)
+211	  {
+212	    chan_loop_ = dtl_watcher;
+213	  }
+214	  ObDtlChannelLoop *get_dtl_channel_watcher()
+215	  {
+216	    return chan_loop_;
+217	  }
+218	  void set_total_ch_info(ObDtlChTotalInfo *ch_info)
+219	  { ch_info_ = ch_info; }
+
+... (gap) ...
+
+221	  common::ObCompressorType get_compressor_type() { return compressor_type_; }
+```
+
+#### src/sql/dtl/ob_dtl_basic_channel.h — get_recv_buffer_cnt, get_processed_buffer_cnt, belong_to_transmit_data, belong_to_receive_data, inc_recv_buffer_cnt, inc_send_buffer_cnt, inc_processed_buffer_cnt, reset_px_row_iterator, get_peer_id, get_tenant_id, get_hash_val, inc_msg_seq_no, get_msg_seq_no, get_send_buffer_cnt, has_less_buffer_cnt · focused (complete selected bodies; other symbols are outlines)
+
+```cpp
+655	class ObDtlBasicChannel
+
+... (gap) ...
+
+699	  virtual int64_t get_peer_id() const { return peer_id_; }
+700	  virtual uint64_t get_tenant_id() const { return tenant_id_; }
+701	  virtual int64_t get_hash_val() const { return hash_val_; }
+
+... (gap) ...
+
+710	  void inc_msg_seq_no() { ++seq_no_; }
+711	  int64_t get_msg_seq_no() { return seq_no_; }
+712	  void inc_send_buffer_cnt() { ++send_buffer_cnt_; }
+713	  void inc_recv_buffer_cnt() { ++recv_buffer_cnt_; }
+714	  void inc_processed_buffer_cnt() { ++processed_buffer_cnt_; }
+715	  int64_t get_send_buffer_cnt() { return send_buffer_cnt_; }
+716	  int64_t get_recv_buffer_cnt() { return recv_buffer_cnt_; }
+717	  int64_t get_processed_buffer_cnt() { return processed_buffer_cnt_; }
+
+... (gap) ...
+
+724	  inline bool has_less_buffer_cnt()
+725	  {
+726	    return recv_buffer_cnt_ - processed_buffer_cnt_ <= MAX_BUFFER_CNT;
+727	  }
+
+... (gap) ...
+
+730	  void set_dfc_idx(int64_t idx) { dfc_idx_ = idx; }
+
+... (gap) ...
+
+737	  void set_bc_service(ObDtlBcastService *bc_service) { bc_service_ = bc_service; }
+
+... (gap) ...
+
+739	  ObDtlDatumMsgWriter &get_datum_writer() { return datum_msg_writer_; }
+740	  ObDtlVectorRowMsgWriter &get_vector_row_writer() { return vector_row_msg_writer_; }
+741	  ObDtlVectorMsgWriter &get_vector_msg_writer() { return vector_msg_writer_; }
+742	  ObDtlVectorFixedMsgWriter &get_vector_fixed_msg_writer() { return vector_fixed_msg_writer_; }
+
+... (gap) ...
+
+745	  void set_row_meta(RowMeta &meta) { meta_ = &meta; }
+
+... (gap) ...
+
+747	  TO_STRING_KV(KP_(id), K_(peer), K_(peer_id));
+
+... (gap) ...
+
+761	  SendMsgResponse *get_msg_response() { return &msg_response_; }
+
+... (gap) ...
+
+763	  OB_INLINE virtual bool has_msg() { return recv_buffer_cnt_ > processed_buffer_cnt_; }
+
+... (gap) ...
+
+765	  virtual void reset_px_row_iterator()
+766	  {
+767	    datum_iter_.reset();
+768	    row_iter_.reset();
+769	  }
+
+... (gap) ...
+
+823	OB_INLINE bool ObDtlBasicChannel::is_empty() const
+824	{
+825	  return send_list_.is_empty();
+826	}
+
+... (gap) ...
+
+829	OB_INLINE bool ObDtlBasicChannel::belong_to_transmit_data()
+830	{
+831	  return nullptr != dfc_ && dfc_->is_transmit();
+832	}
+
+... (gap) ...
+
+834	OB_INLINE bool ObDtlBasicChannel::belong_to_receive_data()
+835	{
+836	  return nullptr != dfc_ && dfc_->is_receive();
+837	}
+```
+
+#### src/sql/engine/px/exchange/ob_px_transmit_op.h — send_rows_in_batch, get_random_seq, update_row, do_project_trans_exprs, need_wait_sync_msg, ~ObPxTransmitOp, send_rows_one_by_one, get_op_metric, get_task_channels, set_batch_param_remain, send_rows, get_data_msg_type · focused (complete selected bodies; other symbols are outlines)
+
+```cpp
+111	  virtual ~ObPxTransmitOp() {}
+
+... (gap) ...
+
+124	  ObOpMetric &get_op_metric() { return metric_; }
+125	  common::ObIArray<dtl::ObDtlChannel *> &get_task_channels() { return task_channels_; }
+126	  void set_batch_param_remain(bool batch_param_remain) { batch_param_remain_ = batch_param_remain; }
+
+... (gap) ...
+
+129	  virtual int do_project_trans_exprs(const ObIArray<ObExpr *> &trans_exprs, const ObBatchRows &brs,
+130	                                     ObEvalCtx &eval_ctx)
+131	  {
+132	    UNUSED(trans_exprs);
+133	    UNUSED(brs);
+134	    UNUSED(eval_ctx);
+135	    return OB_SUCCESS;
+136	  }
+
+... (gap) ...
+
+143	  int send_rows(ObSliceIdxCalc &sc)
+144	  {
+145	    return is_vectorized()
+146	            ? (get_spec().use_rich_format_
+147	                ? send_rows_in_vector<CALC_TYPE>(sc)
+148	                : send_rows_in_batch<CALC_TYPE>(sc))
+149	            : send_rows_one_by_one<CALC_TYPE>(sc);
+150	  }
+
+... (gap) ...
+
+435	  int64_t get_random_seq()
+436	  {
+437	    return nrand48(rand48_buf_) % INT16_MAX;
+438	  }
+
+... (gap) ...
+
+443	  bool need_wait_sync_msg(const ObPxSQCProxy &proxy) const { return !receive_channel_ready_
+444	                                                                    && !proxy.adjoining_root_dfo()
+445	                                                                    && !proxy.get_transmit_use_interm_result(); }
+
+... (gap) ...
+
+456	  dtl::ObDtlMsgType get_data_msg_type() const { return data_msg_type_; }
+
+... (gap) ...
+
+559	inline void ObPxTransmitOp::update_row(const ObExpr *expr, int64_t tablet_id)
+560	{
+561	  OB_ASSERT(OB_NOT_NULL(expr));
+562	  OB_ASSERT(expr->type_ == T_PDML_PARTITION_ID);
+563	  if (get_spec().use_rich_format_) {
+564	    expr->init_vector(eval_ctx_, VectorFormat::VEC_UNIFORM, 1);
+565	  }
+566	  expr->locate_datum_for_write(eval_ctx_).set_int(tablet_id);
+567	  expr->set_evaluated_projected(eval_ctx_);
+568	}
+
+... (gap) ...
+
+572	int ObPxTransmitOp::send_rows_one_by_one(ObSliceIdxCalc &slice_calc)
+573	{
+574	  int ret = OB_SUCCESS;
+575	  int64_t send_row_time_recorder = 0;
+576	  int64_t row_count = 0;
+577	  ObObj tablet_id;
+578	
+579	  ObSliceIdxCalc::SliceIdxArray slice_idx_array;
+580	  ObPhysicalPlanCtx *phy_plan_ctx = GET_PHY_PLAN_CTX(ctx_);
+581	  if (OB_ISNULL(phy_plan_ctx)) {
+582	    ret = OB_ERR_UNEXPECTED;
+583	    LOG_WARN("physical plan ctx is null", K(ret));
+584	  }
+585	  while (OB_SUCC(ret)) {
+586	    clear_evaluated_flag();
+587	    const ObPxTransmitSpec &spec = static_cast<const ObPxTransmitSpec &>(get_spec());
+588	    ret = next_row();
+589	    if (OB_FAIL(ret)) {
+590	      if (OB_UNLIKELY(OB_ITER_END != ret)) {
+591	        LOG_WARN("fail to get next row from child op",
+592	                 K(ret), K(child_->get_spec().get_type()));
+593	      } else {
+594	        // iter end
+595	        const ObPxTransmitSpec &spec = static_cast<const ObPxTransmitSpec &>(get_spec());
+596	        if (OB_FAIL(try_wait_channel())) {
+597	          LOG_WARN("failed to wait channel init", K(ret));
+598	        } else if (batch_param_remain_) {
+599	          ret = OB_SUCCESS;
+600	          ObPxNewRow px_eof_row;
+601	          px_eof_row.set_eof_row();
+602	          px_eof_row.set_data_type(data_msg_type_);
+603	          for (int i = 0; i < task_channels_.count() && OB_SUCC(ret); i++) {
+604	            dtl::ObDtlChannel *ch = task_channels_.at(i);
+605	            if (OB_FAIL(ch->send(px_eof_row, phy_plan_ctx->get_timeout_timestamp(), &eval_ctx_, false))) {
+606	              LOG_WARN("fail send eof row to slice channel", K(px_eof_row), K(ret));
+607	            } else if (OB_FAIL(ch->push_buffer_batch_info())) {
+608	              LOG_WARN("channel push back batch failed", K(ret));
+609	            }
+610	          }
+611	        } else if (OB_FAIL(send_eof_row())) { // overwrite err code
+612	          LOG_WARN("fail send eof rows to channels", K(ret));
+613	        }
+614	        break;
+615	      }
+616	    }
+617	    row_count++;
+618	    metric_.count();
+619	    if (OB_FAIL(ret)) {
+620	      LOG_WARN("fail to get next row", K(ret));
+621	    } else if (OB_FAIL(set_rollup_hybrid_keys(slice_calc))) {
+622	      LOG_WARN("failed to set rollup hybrid keys", K(ret));
+623	    } else if (OB_FAIL(set_wf_hybrid_slice_id_calc_type(slice_calc))) {
+624	      LOG_WARN("failed to set rollup hybrid keys", K(ret));
+625	    } else if (OB_FAIL((slice_calc.get_slice_indexes<CALC_TYPE, false>(
+626	                       get_spec().output_, eval_ctx_, slice_idx_array)))) {
+627	      LOG_WARN("fail get slice idx", K(ret));
+628	    } else if (dfc_.all_ch_drained()) {
+629	      int tmp_ret = child_->drain_exch();
+630	      if (OB_SUCCESS != tmp_ret) {
+631	        LOG_WARN("drain exchange data failed", K(tmp_ret));
+632	      }
+633	      ret = OB_ITER_END;
+634	      LOG_DEBUG("all channel has been drained");
+635	    } else if (NULL != spec.tablet_id_expr_
+636	               && OB_FAIL(slice_calc.get_previous_row_tablet_id(tablet_id))) {
+637	      LOG_WARN("failed to get previous row tablet_id", K(ret));
+638	    }
+639	    FOREACH_CNT_X(slice_idx, slice_idx_array, OB_SUCC(ret)) {
+640	      if (OB_FAIL(send_row(*slice_idx, send_row_time_recorder, tablet_id.get_int()))) {
+641	        if (OB_ITER_END != ret) {
+642	          LOG_WARN("fail emit row to interm result", K(ret), K(slice_idx_array));
+643	        }
+644	      }
+645	    }
+646	  }
+647	  if (OB_ITER_END == ret) {
+648	    ret = OB_SUCCESS;
+649	    LOG_TRACE("transmit meet a iter end");
+650	  }
+651	  LOG_TRACE("Transmit time record", K(row_count), K(ret));
+652	  return ret;
+653	}
+
+... (gap) ...
+
+656	int ObPxTransmitOp::send_rows_in_batch(ObSliceIdxCalc &slice_calc)
+657	{
+658	  int ret = OB_SUCCESS;
+659	  int64_t send_row_time_recorder = 0;
+660	  int64_t row_count = 0;
+661	  ObObj tablet_id;
+662	  ObSliceIdxCalc::SliceIdxArray slice_idx_array;
+663	  ObEvalCtx::BatchInfoScopeGuard batch_info_guard(eval_ctx_);
+664	  while (OB_SUCC(ret)) {
+665	    if (OB_FAIL(next_row())) {
+666	      LOG_WARN("fetch next rows failed", K(ret));
+667	      break;
+668	    }
+669	    if (dfc_.all_ch_drained()) {
+670	      int tmp_ret = child_->drain_exch();
+671	      if (OB_SUCCESS != tmp_ret) {
+672	        LOG_WARN("drain exchange data failed", K(tmp_ret));
+673	      }
+674	      LOG_TRACE("all channel has been drained");
+675	      break;
+676	    }
+677	    const ObPxTransmitSpec &spec = static_cast<const ObPxTransmitSpec &>(get_spec());
+678	    batch_info_guard.set_batch_size(brs_.size_);
+679	    if (OB_FAIL(ret) || brs_.size_ <= 0) {
+680	    } else if (OB_FAIL(set_rollup_hybrid_keys(slice_calc))) {
+681	      LOG_WARN("failed to set rollup hybrid keys", K(ret));
+682	    } else if ((!slice_calc.support_vectorized_calc() || slice_calc.is_multi_slice_calc_type() || NULL != spec.tablet_id_expr_)) {
+683	      for (int64_t i = 0; OB_SUCC(ret) && i < brs_.size_; i++) {
+684	        if (brs_.skip_->at(i)) {
+685	          continue;
+686	        }
+687	        batch_info_guard.set_batch_idx(i);
+688	        row_count += 1;
+689	        metric_.count();
+690	        if (OB_FAIL(set_wf_hybrid_slice_id_calc_type(slice_calc))) {
+691	          LOG_WARN("failed to set wf hybrid keys", K(ret));
+692	        } else if (OB_FAIL((slice_calc.get_slice_indexes<CALC_TYPE, false>(get_spec().output_, eval_ctx_, slice_idx_array)))) {
+693	          LOG_WARN("fail get slice idx", K(ret));
+694	        } else if (NULL != spec.tablet_id_expr_
+695	                   && OB_FAIL(slice_calc.get_previous_row_tablet_id(tablet_id))) {
+696	          LOG_WARN("failed to get previous row tablet_id", K(ret));
+697	        }
+698	        LOG_DEBUG("[VEC2.0 PX] send rows batch without prefetch", K(i), K(slice_idx_array), K(tablet_id.get_int()));
+699	        FOREACH_CNT_X(slice_idx, slice_idx_array, OB_SUCC(ret)) {
+700	          if (OB_FAIL(send_row(*slice_idx, send_row_time_recorder, tablet_id.get_int()))) {
+701	            LOG_WARN("fail emit row to interm result", K(ret), K(slice_idx_array));
+702	          }
+703	        }
+704	      }
+705	    } else {
+706	      int64_t *indexes = NULL;
+707	      if (OB_FAIL((slice_calc.get_slice_idx_batch<CALC_TYPE, false>(spec_.output_, eval_ctx_,
+708	                                               *brs_.skip_, brs_.size_,
+709	                                               indexes)))) {
+710	        LOG_WARN("calc slice indexes failed", K(ret));
+711	      } else {
+712	        for (int64_t i = 0; OB_SUCC(ret) && i < brs_.size_; i++) {
+713	          if (brs_.skip_->at(i) || indexes[i] < 0) { continue; }
+714	            __builtin_prefetch(&blk_bufs_.at(indexes[i]),
+715	                               0, // for read
+716	                               1); // low temporal locality
+717	        }
+718	        for (int64_t i = 0; OB_SUCC(ret) && i < brs_.size_; i++) {
+719	          if (brs_.skip_->at(i) || indexes[i] < 0) { continue; }
+720	          if (blk_bufs_.at(indexes[i]).is_inited()) {
+721	            __builtin_prefetch(blk_bufs_.at(indexes[i]).head(),
+722	                               1, // for write
+723	                               1); // low temporal locality
+724	          }
+725	        }
+726	        LOG_DEBUG("[VEC2.0 PX] send rows batch with prefetch", K(CALC_TYPE),
+727	                 K(ObArrayWrap<int64_t>(indexes, brs_.size_)));
+728	        for (int64_t i = 0; OB_SUCC(ret) && i < brs_.size_; i++) {
+729	          if (brs_.skip_->at(i)) {
+730	            continue;
+731	          }
+732	          batch_info_guard.set_batch_idx(i);
+733	          row_count += 1;
+734	          metric_.count();
+735	          if (OB_FAIL(send_row(indexes[i], send_row_time_recorder, tablet_id.get_int()))) {
+736	            LOG_WARN("fail emit row to interm result", K(ret), K(indexes[i]));
+737	          }
+738	        }
+739	      }
+740	    }
+741	    if (OB_SUCC(ret) && brs_.end_) {
+742	      if (OB_FAIL(try_wait_channel())) {
+743	        LOG_WARN("failed to wait channel init", K(ret));
+744	      } else if (batch_param_remain_) {
+745	        ObPxNewRow px_eof_row;
+746	        px_eof_row.set_eof_row();
+747	        px_eof_row.set_data_type(data_msg_type_);
+748	        ObPhysicalPlanCtx *phy_plan_ctx = GET_PHY_PLAN_CTX(ctx_);
+749	        if (OB_ISNULL(phy_plan_ctx)) {
+750	          ret = OB_ERR_UNEXPECTED;
+751	          LOG_WARN("phy plan ctx is null", K(ret));
+752	        }
+753	        for (int i = 0; i < task_channels_.count() && OB_SUCC(ret); i++) {
+754	          dtl::ObDtlChannel *ch = task_channels_.at(i);
+755	          if (OB_FAIL(ch->send(px_eof_row, phy_plan_ctx->get_timeout_timestamp(), &eval_ctx_, false))) {
+756	            LOG_WARN("fail send eof row to slice channel", K(px_eof_row), K(ret));
+757	          } else if (OB_FAIL(ch->push_buffer_batch_info())) {
+758	            LOG_WARN("channel push back batch failed", K(ret));
+759	          }
+760	        }
+761	      } else if (OB_FAIL(send_eof_row())) {
+762	        LOG_WARN("fail send eof rows to channels", K(ret));
+763	      }
+764	      break;
+765	    }
+766	    // for those break out ops
+767	  }
+768	  LOG_TRACE("Transmit time record", K(row_count), K(ret));
+769	  return ret;
+770	}
+```
+
+#### src/share/diagnosis/ob_sql_monitor_statname.h — DTL_BLOCKING_TIME, ObSqlMonitorStatIds, ObSqlMonitorStatEnum · focused (complete selected bodies; other symbols are outlines)
+
+```cpp
+182	SQL_MONITOR_STATNAME_DEF(DTL_BLOCKING_TIME, metric::Unit::TIME_NS, "dtl blocking time", "receive block dtl channel time", M_AVG | E_MIN | E_MAX, metric::Level::STANDARD)
+
+... (gap) ...
+
+219	struct ObSqlMonitorStatIds
+
+... (gap) ...
+
+222	  enum ObSqlMonitorStatEnum
+```
+
+> 2 candidate function bodies not fully shown; outlines and Flow are not body coverage.
+- Omitted body: src/sql/engine/px/exchange/ob_px_transmit_op.h:156-390 send_rows_in_vector
+- Omitted body: src/sql/engine/px/exchange/ob_px_transmit_op.h:773-856 broadcast_rows

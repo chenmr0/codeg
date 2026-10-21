@@ -1,0 +1,109 @@
+## Exploration: ObTableTTLDeleteTask
+
+Found 200 symbols across 60 files.
+
+
+Exact symbol/path anchors and identifier text evidence; weak word matches are disabled.
+### Relationships
+
+**extends:**
+- ObTableTTLDeleteTask → ObITask
+- ObTableHRowKeyTTLDelTask → ObTableTTLDeleteTask
+- ObTableLoadDirectWriteOpTask → ObITask
+
+**calls:**
+- ObTableTTLDeleteTask → MEMSET
+- get_timeout_ts → current_time
+- process_one → get_timeout_ts
+- init_scan_tb_ctx → get_timeout_ts
+- init_scan_tb_ctx → get_timeout_ts
+- init_tb_ctx → get_timeout_ts
+- init_tb_ctx → get_timeout_ts
+- execute_ttl_delete → get_timeout_ts
+- init → reset
+- init → is_valid
+- init → init_scan_index
+- init → init_sess_info
+- init → is_valid
+- init → init_schema_info
+- init → reset_cnt
+- ... and 1208 more
+
+### Source Code
+
+> Source excerpts below are read from current files. Only shown source ranges are covered; signatures, outlines and omitted regions are not complete function bodies or complete files.
+
+#### src/observer/table/ttl/ob_table_ttl_task.h — is_rowkey_ttl_task, get_allocator, reset_timeout_ts, get_tablet_id, get_table_id, get_start_rowkey, ObTableTTLDeleteTask, RETRY_INTERVAL, PER_TASK_DEL_ROWS, ONE_TASK_TIMEOUT, rowkey_allocator_, is_inited_, param_, info_, credential_ · focused (complete selected bodies; other symbols are outlines)
+
+```cpp
+111	class ObTableTTLDeleteTask : public share::ObITask
+
+... (gap) ...
+
+123	  virtual bool is_rowkey_ttl_task() const { return false; }
+
+... (gap) ...
+
+142	  common::ObIAllocator &get_allocator() { return allocator_; }
+
+... (gap) ...
+
+154	  void reset_timeout_ts() { timeout_ts_ = 0; }
+
+... (gap) ...
+
+156	  common::ObTabletID get_tablet_id() const
+157	  {
+158	    return info_.get_tablet_id();
+159	  }
+160	  uint64_t get_table_id() const { return param_.table_id_; }
+161	  common::ObRowkey &get_start_rowkey() { return rowkey_; }
+
+... (gap) ...
+
+164	  static const int64_t RETRY_INTERVAL = 30 * 60 * 1000 * 1000l; // 30min
+165	  static const int64_t PER_TASK_DEL_ROWS = 1024l;
+166	  static const int64_t ONE_TASK_TIMEOUT = 1 * 60 * 1000 * 1000l; // 1min
+
+... (gap) ...
+
+170	  common::ObArenaAllocator rowkey_allocator_;
+171	  bool is_inited_;
+172	  table::ObTTLTaskParam param_;
+173	  table::ObTTLTaskInfo info_;
+174	  table::ObTableApiCredential credential_;
+175	  ObTableApiSessGuard sess_guard_;
+176	  share::schema::ObSchemaGetterGuard schema_guard_;
+177	  const share::schema::ObTableSchema *table_schema_;
+178	  common::ObArenaAllocator allocator_;
+179	  common::ObRowkey rowkey_;
+180	  table::ObTabletTTLScheduler *ttl_tablet_scheduler_;
+181	  share::ObLSID ls_id_;
+182	  ObTableEntity delete_entity_;
+183	  uint64_t hbase_cur_version_;
+184	  const ObTableSchema* scan_index_schema_;
+185	  ObString scan_index_;
+186	  char scan_index_buf_[OB_MAX_OBJECT_NAME_LENGTH];
+187	  ObTTLDeleteRateThrottler delete_rate_throttler_;
+188	  int64_t timeout_ts_;
+189	  DISALLOW_COPY_AND_ASSIGN(ObTableTTLDeleteTask);
+
+... (gap) ...
+
+193	class ObTableHRowKeyTTLDelTask : public ObTableTTLDeleteTask
+
+... (gap) ...
+
+203	  bool is_rowkey_ttl_task() const override { return true; }
+```
+
+#### src/share/scheduler/ob_tenant_dag_scheduler.h — ObITask, process · focused (complete selected bodies; other symbols are outlines)
+
+```cpp
+158	class ObITask : public common::ObDLinkBase<ObITask>, public ObINodeWithChild
+
+... (gap) ...
+
+443	  virtual int process() = 0;
+```
+

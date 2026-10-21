@@ -13,6 +13,8 @@ export interface ExploreRetrieval {
   note: string;
   fileEvidence: Map<string, number>;
   definitionFiles: Set<string>;
+  memberNodeIds: Set<string>;
+  contractMemberIds: Set<string>;
 }
 
 /** Exact names/paths and literal evidence only; no FTS, substring or split-word seeds. */
@@ -112,6 +114,8 @@ export async function retrieveExploreContext(cg: CodeGraph, query: string): Prom
   }
   const nodes = new Map(entries);
   const definitionFiles = new Set<string>();
+  const memberNodeIds = new Set<string>();
+  const contractMemberIds = new Set<string>();
   const ownerRoots = new Set<string>();
   for (const n of entries.values()) {
     if (EXPLORE_CALLABLES.has(n.kind)) {
@@ -146,6 +150,18 @@ export async function retrieveExploreContext(cg: CodeGraph, query: string): Prom
           // Naming a type alongside precise members does not request every
           // other method. Type-only and literal-recovery queries retain breadth.
           if (selectedMembers && !selectedMembers.has(member.id)) continue;
+          // A literal hit's enclosing callable is an equally strong owner
+          // anchor. Its sibling methods must not fall behind a named type's
+          // methods merely because the type name was absent from the query.
+          if (support.has(node.id) || ownerRoots.has(node.id)) memberNodeIds.add(member.id);
+          // A declared virtual/override contract is a structural entry point,
+          // even when the out-of-line definition omits those qualifiers.
+          if (view.endpoints(member).some(id => {
+            const signature = cg.getNode(id)?.signature ?? '';
+            return /\b(?:virtual|abstract)\b/.test(signature.split('(', 1)[0]!)
+              || /\boverride\b/.test(signature.slice(signature.lastIndexOf(')') + 1))
+              || cg.getOutgoingEdges(id).some(e => e.kind === 'overrides');
+          })) contractMemberIds.add(member.id);
           for (const token of support.get(node.id) ?? []) corroborate(member, token);
           if (support.has(node.id) && !member.isDeclaration) definitionFiles.add(member.filePath);
           neighbors.push({ node: member,
@@ -195,5 +211,5 @@ export async function retrieveExploreContext(cg: CodeGraph, query: string): Prom
     fileTerms.set(n.filePath, terms);
   }
   const fileEvidence = new Map([...fileTerms].map(([file, terms]) => [file, terms.size]));
-  return { graph: { nodes, edges, roots: [...entries.keys()] }, lookup, evidence, note: parts.join('\n'), fileEvidence, definitionFiles };
+  return { graph: { nodes, edges, roots: [...entries.keys()] }, lookup, evidence, note: parts.join('\n'), fileEvidence, definitionFiles, memberNodeIds, contractMemberIds };
 }

@@ -1,0 +1,555 @@
+## Exploration: ObDtlBasicChannel wait_unblocking ObDtlFlowControl need_block can_unblock
+
+Found 84 symbols across 62 files.
+
+
+Exact symbol/path anchors and identifier text evidence; weak word matches are disabled.
+### Blast radius — what depends on these (update/verify before editing)
+
+- `wait_unblocking` (src/sql/dtl/ob_dtl_basic_channel.cpp:801) — 1 caller in `src/sql/dtl/ob_dtl_basic_channel.cpp`; ⚠️ no covering tests found
+- `need_block` (src/sql/dtl/ob_dtl_flow_control.h:106) — 1 caller in `src/sql/dtl/ob_dtl_fc_server.h`; ⚠️ no covering tests found
+- `can_unblock` (src/sql/dtl/ob_dtl_flow_control.h:119) — 1 caller in `src/sql/dtl/ob_dtl_fc_server.h`; ⚠️ no covering tests found
+
+### Relationships
+
+**extends:**
+- ObDtlLocalChannel → ObDtlBasicChannel
+- ObDtlRpcChannel → ObDtlBasicChannel
+- ObDtlBasicChannel → ObDtlChannel
+
+**calls:**
+- wait_unblocking → current_time
+- wait_unblocking → current_time
+- wait_unblocking → get_process_query_time
+- wait_unblocking → process_one_if
+- wait_unblocking → find
+- wait_unblocking → is_drain
+- wait_unblocking → unblock_channel
+- wait_unblocking → unblock_channel
+- wait_unblocking → check_status
+- wait_unblocking → set_ch_idx_var
+- wait_unblocking_if_blocked → wait_unblocking
+- wait_unblocking → belong_to_transmit_data
+- wait_unblocking → is_in_blacklist
+- wait_unblocking → KP
+- wait_unblocking → KP
+- ... and 306 more
+
+### Source Code
+
+> Source excerpts below are read from current files. Only shown source ranges are covered; signatures, outlines and omitted regions are not complete function bodies or complete files.
+
+#### src/sql/dtl/ob_dtl_flow_control.h — references(references), ATOMIC_LOAD(calls), SQL_DTL_LOG(calls), K(calls), get_used(method), need_block(method), can_unblock(method), get_channel_count(method)
+
+```cpp
+101	
+102	  OB_INLINE void increase(int64_t size) { (ATOMIC_AAF(&total_memory_size_, size)); ATOMIC_INC(&total_buffer_cnt_); }
+103	  OB_INLINE void decrease(int64_t size) { (ATOMIC_SAF(&total_memory_size_, size)); ATOMIC_DEC(&total_buffer_cnt_); }
+104	  OB_INLINE int64_t get_used() { return (ATOMIC_LOAD(&total_memory_size_)); }
+105	
+106	  OB_INLINE bool need_block()
+107	  {
+108	    bool need_block = (ATOMIC_LOAD(&total_memory_size_)) >= THRESHOLD_SIZE
+109	      || MAX_BUFFER_CNT <= (ATOMIC_LOAD(&total_buffer_cnt_));
+110	  #ifdef ERRSIM
+111	    int ret = common::OB_SUCCESS;
+112	    ret = OB_E(EventTable::EN_FORCE_DFC_BLOCK) ret;
+113	    need_block = (common::OB_SUCCESS != ret) ? true : need_block;
+114	    SQL_DTL_LOG(TRACE, "trace block", K(need_block), K(total_buffer_cnt_), K(ret));
+115	    ret = common::OB_SUCCESS;
+116	  #endif
+117	    return need_block;
+118	  }
+119	  OB_INLINE bool can_unblock()
+120	  {
+121	    bool can_unblock = (ATOMIC_LOAD(&total_memory_size_)) <= THRESHOLD_SIZE / 2
+122	        || MAX_BUFFER_CNT / 2 >= (ATOMIC_LOAD(&total_buffer_cnt_));
+123	#ifdef ERRSIM
+124	  int ret = common::OB_SUCCESS;
+125	  ret = OB_E(EventTable::EN_DTL_ONE_ROW_ONE_BUFFER) ret;
+126	  can_unblock = (common::OB_SUCCESS != ret) ? 0 == (ATOMIC_LOAD(&total_buffer_cnt_)) : can_unblock;
+127	  SQL_DTL_LOG(TRACE, "trace unblock", K(can_unblock), K(total_buffer_cnt_), K(ret));
+128	  ret = common::OB_SUCCESS;
+129	#endif
+130	    return can_unblock;
+131	  }
+132	
+133	  OB_INLINE bool is_block() { return 1 <= (ATOMIC_LOAD(&block_ch_cnt_)); }
+134	  OB_INLINE bool is_block(int64_t idx);
+
+... (gap) ...
+
+185	  int sync_send_drain(int64_t &unblock_cnt);
+186	  int notify_all_blocked_channels_unblocking(int64_t &unblock_cnt);
+187	  int notify_channel_unblocking(ObDtlChannel *ch, int64_t &block_cnt, bool asyn_send = true);
+188	  int64_t get_channel_count() const {
+189	    return chans_.count();
+190	  }
+191	  int drain_all_channels();
+192	
+193	  OB_INLINE void set_receive() { communicate_flag_ |= 0x01; }
+```
+
+#### src/sql/dtl/ob_dtl_basic_channel.cpp — references(references), K(calls), LOG_WARN(calls), KP(calls), OB_FAIL(calls), LOG_TRACE(calls), calls(calls), defines(defines), belong_to_transmit_data(calls), OB_ISNULL(calls), OB_SUCC(calls), current_time(calls), unblock_channel(calls), wait_unblocking_if_blocked(method), wait_unblocking(calls), +11 more
+
+```cpp
+765	  return ret;
+766	}
+767	
+768	int ObDtlBasicChannel::wait_unblocking_if_blocked()
+769	{
+770	  int ret = OB_SUCCESS;
+771	  if (belong_to_transmit_data()) {
+772	    if (!msg_response_.is_init()) {
+773	      ret = OB_NOT_INIT;
+774	      LOG_WARN("not init", K(ret));
+775	    } else if (msg_response_.is_block()) {
+776	      // receive response, then set block info for dfc
+777	      msg_response_.reset_block();
+778	      if (OB_ISNULL(dfc_)) {
+779	        ret = OB_ERR_UNEXPECTED;
+780	        LOG_WARN("channel loop is null", K(ret));
+781	      } else if (OB_FAIL(dfc_->block_channel(this))) {
+782	        LOG_WARN("failed to set block", K(ret));
+783	      } else {
+784	        // only block this channel, for other channels, it will also set block, or other channel can't be blocked
+785	        LOG_TRACE("set block dfc", K(ret), KP(id_), K(peer_));
+786	      }
+787	    }
+788	    if (OB_SUCC(ret)) {
+789	      LOG_TRACE("wait unblocking if blocked", K(msg_response_.is_block()), K(dfc_->is_block(this)), K(ret), KP(id_), KP(peer_id_),
+790	        K(peer_), K(ret));
+791	      if (dfc_->is_block(this)) {
+792	        if (OB_FAIL(wait_unblocking())) {
+793	          LOG_WARN("failed to block", K(ret));
+794	        }
+795	      }
+796	    }
+797	  }
+798	  return ret;
+799	}
+800	
+801	int ObDtlBasicChannel::wait_unblocking()
+802	{
+803	  int ret = OB_SUCCESS;
+804	  if (belong_to_transmit_data()) {
+805	    int64_t idx = OB_INVALID_ID;
+806	    LOG_TRACE("blocking:", K(ret), K(dfc_->is_block()), K(dfc_));
+807	    int64_t timeout_ts = 0;
+808	    if (OB_ISNULL(channel_loop_) || OB_ISNULL(dfc_)) {
+809	      ret = OB_ERR_UNEXPECTED;
+810	      LOG_WARN("channel loop is null", K(ret));
+811	    } else if (FALSE_IT(timeout_ts = dfc_->get_timeout_ts())) {
+812	    } else if (0 == timeout_ts) {
+813	      ret = OB_ERR_UNEXPECTED;
+814	      LOG_WARN("timeout is not set", K(ret));
+815	    } else if (OB_FAIL(channel_loop_->find(this, idx))) {
+816	      LOG_WARN("channel not exists in channel loop", K(ret));
+817	    } else {
+818	      int64_t start_t = ObTimeUtility::current_time();
+819	      int64_t interval_t = 1 * 60 * 1000000; // 1min
+820	      int64_t last_t = 0;
+821	      int64_t print_log_t = 10 * 60 * 1000000;
+822	      block_proc_.set_ch_idx_var(&idx);
+823	      LOG_TRACE("wait unblocking", K(ret), K(dfc_->is_block()), KP(id_), K(peer_));
+824	      oceanbase::lib::Thread::WaitGuard guard(oceanbase::lib::Thread::WAIT_FOR_PX_MSG);
+825	      do {
+826	        int64_t got_channel_idx = idx;
+827	        if (is_drain()) {
+828	          // if drain,then ignore blocking
+829	          if (OB_FAIL(dfc_->unblock_channel(this))) {
+830	            LOG_WARN("fail to unblock channel", K(ret), K(dfc_->is_block()), KP(id_), K(peer_));
+831	          }
+832	          break;
+833	        } else if (OB_FAIL(channel_loop_->process_one_if(
+834	            &block_proc_,
+835	            got_channel_idx))) {
+836	          // no msg, then don't process
+837	          if (OB_DTL_WAIT_EAGAIN == ret) {
+838	            // 这里需要检查是否超时以及worker是否已经处于异常状态(退出等)，否则当worker退出时，一直陷入在while中
+839	            int64_t end_t = ObTimeUtility::current_time();
+840	            if (end_t > timeout_ts) {
+841	              ret = OB_TIMEOUT;
+842	              LOG_WARN("get row from channel timeout", K(ret), K(timeout_ts));
+843	            } else {
+844	              int tmp_ret = THIS_WORKER.check_status();
+845	              if (OB_SUCCESS != tmp_ret) {
+846	                ret = tmp_ret;
+847	                LOG_WARN("worker interrupt", K(tmp_ret), K(ret));
+848	                break;
+849	              }
+850	              if (OB_UNLIKELY(ObPxCheckAlive::is_in_blacklist(peer_,
+851	                              channel_loop_->get_process_query_time()))) {
+852	                ret = OB_RPC_CONNECT_ERROR;
+853	                LOG_WARN("peer no in communication, maybe crashed", K(ret), K(peer_),
+854	                         K(static_cast<int64_t>(GCONF.cluster_id)));
+855	                break;
+856	              }
+857	              if (end_t - start_t > print_log_t) {
+858	                bool print_log = false;
+859	                if (0 == last_t || end_t - last_t > interval_t) {
+860	                  print_log = true;
+861	                  last_t = end_t;
+862	                }
+863	                if (print_log) {
+864	                  LOG_INFO("wait unblocking", K(id_), K(peer_id_), K(peer_id_),
+865	                    K(recv_buffer_cnt_), K(processed_buffer_cnt_), K(send_buffer_cnt_),
+866	                    K(idx), K(got_channel_idx));
+867	                }
+868	              }
+869	              ret = OB_SUCCESS;
+870	            }
+871	          } else {
+872	            LOG_WARN("fail to process unblocking msg", K(ret), K(dfc_->is_block()), KP(id_), K(peer_));
+873	          }
+874	        } else {
+875	          // receive unblocking msg:
+876	          // channel is unblock, then skip
+877	          // channel is blocked, then unblock the channel
+878	          if (idx != got_channel_idx) {
+879	            ret = OB_ERR_UNEXPECTED;
+880	            LOG_WARN("no channel is processed", K(ret), K(got_channel_idx), K(idx));
+881	          } else if (OB_FAIL(dfc_->unblock_channel(this))) {
+882	            LOG_WARN("fail to unblock channel", K(ret), K(dfc_->is_block()), KP(id_), K(peer_));
+883	          }
+884	        }
+885	      } while (dfc_->is_block(this) && OB_SUCC(ret));
+886	      LOG_TRACE("unblocking successfully", K(ret), K(dfc_->is_block()), KP(id_), K(peer_));
+887	    }
+888	    LOG_TRACE("unblocking:", K(ret), K(dfc_->is_block()), K(dfc_->is_block(this)), KP(id_), K(peer_));
+889	  }
+890	  return ret;
+891	}
+892	
+893	int ObDtlBasicChannel::send_message(ObDtlLinkedBuffer *&buf)
+894	{
+```
+
+#### src/sql/dtl/ob_dtl_basic_channel.h — references(references), ObDtlBasicChannel(class), ObDtlChannel(extends), set_ch_idx_var(method), belong_to_transmit_data(method), defines(defines), calls(calls)
+
+```cpp
+652	// Rpc channel is "rpc version" of channel. As the name explained,
+653	// this kind of channel will do exchange between two tasks by using
+654	// rpc calls.
+655	class ObDtlBasicChannel
+656	    : public ObDtlChannel
+657	{
+658	  friend class ObDtlChanAgent;
+659	public:
+660	  explicit ObDtlBasicChannel(const uint64_t tenant_id,
+661	     const uint64_t id, const common::ObAddr &peer, DtlChannelType type);
+662	  explicit ObDtlBasicChannel(const uint64_t tenant_id,
+663	     const uint64_t id, const common::ObAddr &peer, const int64_t hash_val, DtlChannelType type);
+664	  virtual ~ObDtlBasicChannel();
+665	
+666	  class ObDtlChannelBlockProc : public ObIDltChannelLoopPred
+667	  {
+668	  public:
+669	    void set_ch_idx_var(int64_t *chan_idx) { chan_idx_ = chan_idx; }
+670	    virtual bool pred_process(int64_t idx, ObDtlChannel *chan) override
+671	    {
+672	      UNUSED(chan);
+673	      return *chan_idx_ == idx;
+674	    }
+675	    int64_t *chan_idx_;
+676	  };
+677	
+678	  int init(ObDtlFlowControl *dfc = nullptr) override;
+679	  void destroy();
+680	
+681	  virtual int send(const ObDtlMsg &msg, int64_t timeout_ts,
+682	      ObEvalCtx *eval_ctx = nullptr, bool is_eof = false) override;
+683	  virtual int feedup(ObDtlLinkedBuffer *&buffer) override;
+684	  virtual int attach(ObDtlLinkedBuffer *&linked_buffer, bool inc_recv_buf_cnt = true);
+685	  // don't call send&flush in different threads.
+686	  virtual int flush(bool wait=true, bool wait_response = true) override;
+687	
+688	  virtual int send_message(ObDtlLinkedBuffer *&buf);
+689	
+690	  virtual int process1(
+691	      ObIDtlChannelProc *proc,
+692	      int64_t timeout, bool &last_row_in_buffer) override;
+693	  virtual int send1(
+694	      std::function<int(const ObDtlLinkedBuffer &buffer)> &proc,
+695	      int64_t timeout) override;
+696	
+697	  bool is_empty() const override;
+698	
+699	  virtual int64_t get_peer_id() const { return peer_id_; }
+700	  virtual uint64_t get_tenant_id() const { return tenant_id_; }
+701	  virtual int64_t get_hash_val() const { return hash_val_; }
+702	
+703	  int wait_unblocking_if_blocked();
+704	  int block_on_increase_size(int64_t size);
+705	  int unblock_on_decrease_size(int64_t size);
+706	  bool belong_to_receive_data();
+707	  bool belong_to_transmit_data();
+708	  virtual int clear_response_block();
+709	  virtual int wait_response();
+710	  void inc_msg_seq_no() { ++seq_no_; }
+711	  int64_t get_msg_seq_no() { return seq_no_; }
+712	  void inc_send_buffer_cnt() { ++send_buffer_cnt_; }
+713	  void inc_recv_buffer_cnt() { ++recv_buffer_cnt_; }
+714	  void inc_processed_buffer_cnt() { ++processed_buffer_cnt_; }
+715	  int64_t get_send_buffer_cnt() { return send_buffer_cnt_; }
+716	  int64_t get_recv_buffer_cnt() { return recv_buffer_cnt_; }
+717	  int64_t get_processed_buffer_cnt() { return processed_buffer_cnt_; }
+718	
+719	  int get_processed_buffer(int64_t timeout);
+720	  virtual int clean_recv_list ();
+721	  void clean_broadcast_buffer();
+722	
+723	  // Only DTL use unblock logic for merge sort coord
+724	  inline bool has_less_buffer_cnt()
+725	  {
+726	    return recv_buffer_cnt_ - processed_buffer_cnt_ <= MAX_BUFFER_CNT;
+727	  }
+728	  int push_back_send_list(ObDtlLinkedBuffer *buffer);
+729	
+730	  void set_dfc_idx(int64_t idx) { dfc_idx_ = idx; }
+731	
+732	  int switch_writer(const ObDtlMsg &msg);
+733	
+734	  int mock_eof_buffer(int64_t timeout_ts, uint64_t dfo_id);
+735	  ObDtlLinkedBuffer *alloc_buf(const int64_t payload_size);
+736	  
+737	  void set_bc_service(ObDtlBcastService *bc_service) { bc_service_ = bc_service; }
+738	
+739	  ObDtlDatumMsgWriter &get_datum_writer() { return datum_msg_writer_; }
+740	  ObDtlVectorRowMsgWriter &get_vector_row_writer() { return vector_row_msg_writer_; }
+741	  ObDtlVectorMsgWriter &get_vector_msg_writer() { return vector_msg_writer_; }
+742	  ObDtlVectorFixedMsgWriter &get_vector_fixed_msg_writer() { return vector_fixed_msg_writer_; }
+743	  virtual int push_buffer_batch_info() override;
+744	  void switch_msg_type(const ObDtlMsg &msg);
+745	  void set_row_meta(RowMeta &meta) { meta_ = &meta; }
+746	
+747	  TO_STRING_KV(KP_(id), K_(peer), K_(peer_id));
+748	protected:
+749	  int push_back_send_list();
+750	  int wait_unblocking();
+751	  int switch_buffer(const int64_t min_size, const bool is_eof,
+752	      const int64_t timeout_ts, ObEvalCtx *eval_ctx);
+753	  int write_msg(const ObDtlMsg &msg, int64_t timeout_ts,
+754	      ObEvalCtx *eval_ctx, bool is_eof);
+755	  int inner_write_msg(const ObDtlMsg &msg, int64_t timeout_ts, ObEvalCtx *eval_ctx, bool is_eof);
+756	
+757	  void free_buf(ObDtlLinkedBuffer *buf);
+758	
+759	  int send_buffer(ObDtlLinkedBuffer *&buffer);
+760	
+761	  SendMsgResponse *get_msg_response() { return &msg_response_; }
+762	
+763	  OB_INLINE virtual bool has_msg() { return recv_buffer_cnt_ > processed_buffer_cnt_; }
+764	
+765	  virtual void reset_px_row_iterator()
+766	  {
+767	    datum_iter_.reset();
+768	    row_iter_.reset();
+769	  }
+770	protected:
+771	  bool is_inited_;
+772	  const uint64_t local_id_;
+773	  const int64_t peer_id_;
+774	  ObSimpleLinkQueue send_list_;
+775	  ObDtlLinkedBuffer *write_buffer_;
+776	  common::ObSpLinkQueue recv_list_;
+777	  ObDtlLinkedBuffer *process_buffer_;
+778	  SimpleCond send_sem_;
+779	  SimpleCond recv_sem_;
+780	  common::ObSpLinkQueue free_list_;
+781	
+782	  SendMsgResponse msg_response_;
+783	  bool alloc_new_buf_;
+784	
+785	  // some statistics
+786	  int64_t seq_no_;
+787	  int64_t send_buffer_cnt_;
+788	  int64_t recv_buffer_cnt_;
+789	  int64_t processed_buffer_cnt_;
+790	  uint64_t tenant_id_;
+791	  bool is_data_msg_;
+792	  bool use_crs_writer_;
+793	  int64_t hash_val_;
+794	  int64_t dfc_idx_;
+795	  int64_t got_from_dtl_cache_;
+796	
+797	  ObDtlControlMsgWriter ctl_msg_writer_;
+798	  ObDtlRowMsgWriter row_msg_writer_;
+799	  ObDtlDatumMsgWriter datum_msg_writer_;
+800	  ObDtlVectorRowMsgWriter vector_row_msg_writer_;
+801	  ObDtlVectorMsgWriter vector_msg_writer_;
+802	  ObDtlVectorFixedMsgWriter vector_fixed_msg_writer_;
+803	  ObDtlChannelEncoder *msg_writer_;
+804	  // row/datum store iterator for interm result iteration.
+805	  ObChunkDatumStore::Iterator datum_iter_;
+806	  ObTempRowStore::Iterator row_iter_;
+807	
+808	  ObDtlBcastService *bc_service_;
+809	
+810	  ObDtlChannelBlockProc block_proc_;
+811	  static const int64_t MAX_BUFFER_CNT = 2;
+812	public:
+813	  //TODO delete muhang
+814	  int64_t times_;
+815	  int64_t write_buf_use_time_;
+816	  int64_t send_use_time_;
+817	  int64_t msg_count_;
+818	  dtl::ObDTLIntermResultInfoGuard result_info_guard_;
+819	  RowMeta *meta_;
+820	  uint64_t plan_min_cluster_version_;
+821	};
+822	
+823	OB_INLINE bool ObDtlBasicChannel::is_empty() const
+824	{
+825	  return send_list_.is_empty();
+826	}
+827	
+828	
+829	OB_INLINE bool ObDtlBasicChannel::belong_to_transmit_data()
+830	{
+831	  return nullptr != dfc_ && dfc_->is_transmit();
+832	}
+833	
+834	OB_INLINE bool ObDtlBasicChannel::belong_to_receive_data()
+835	{
+```
+
+#### deps/oblib/src/lib/atomic/ob_atomic.h — ATOMIC_LOAD(macro)
+
+```cpp
+1	/**
+2	 * Copyright (c) 2021 OceanBase
+3	 * OceanBase CE is licensed under Mulan PubL v2.
+4	 * You can use this software according to the terms and conditions of the Mulan PubL v2.
+5	 * You may obtain a copy of Mulan PubL v2 at:
+6	 *          http://license.coscl.org.cn/MulanPubL-2.0
+7	 * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND,
+8	 * EITHER EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT,
+9	 * MERCHANTABILITY OR FIT FOR A PARTICULAR PURPOSE.
+10	 * See the Mulan PubL v2 for more details.
+11	 */
+12	
+13	#ifndef _OB_ATOMIC_H_
+14	#define _OB_ATOMIC_H_
+15	
+16	#include <stdint.h>
+17	#include "lib/utility/ob_macro_utils.h"
+18	#include "lib/profile/ob_atomic_event.h"
+19	namespace oceanbase
+20	{
+21	namespace common
+22	{
+23	#define OB_GCC_VERSION (__GNUC__ * 10000 + __GNUC_MINOR__ * 100 + __GNUC_PATCHLEVEL__)
+24	
+25	#define __COMPILER_BARRIER() asm volatile("" ::: "memory")
+26	#define MEM_BARRIER() __sync_synchronize()
+27	#if defined(__x86_64__)
+28	#define WEAK_BARRIER() __COMPILER_BARRIER()
+29	#define PAUSE() ({OB_ATOMIC_EVENT(atomic_pause); asm("pause\n");})
+30	#elif defined(__aarch64__)
+31	#define WEAK_BARRIER() __sync_synchronize()
+32	#define PAUSE() ({OB_ATOMIC_EVENT(atomic_pause); asm("yield\n");})  // for ARM
+33	#else
+34	#error arch unsupported
+35	#endif
+36	
+37	#define ATOMIC_LOAD(x) __atomic_load_n((x), __ATOMIC_SEQ_CST)
+38	#define ATOMIC_LOAD_ACQ(x) __atomic_load_n((x), __ATOMIC_ACQUIRE)
+39	#define ATOMIC_LOAD_RLX(x) __atomic_load_n((x), __ATOMIC_RELAXED)
+40	#define ATOMIC_STORE(x, v) ({ __atomic_store_n((x), (v), __ATOMIC_SEQ_CST);})
+41	#define ATOMIC_STORE_REL(x, v) ({ __atomic_store_n((x), (v), __ATOMIC_RELEASE);})
+42	#define ATOMIC_STORE_RLX(x, v) ({ __atomic_store_n((x), (v), __ATOMIC_RELAXED);})
+43	#define ATOMIC_LOAD64(addr) ({int64_t x = __atomic_load_n((int64_t*)addr, __ATOMIC_SEQ_CST); *(typeof(addr))&x; })
+44	#define ATOMIC_STORE64(addr, v) ({ typeof(v) v1 = v; __atomic_store_n((int64_t*)addr, *(int64_t*)&v1, __ATOMIC_SEQ_CST); })
+45	
+46	#define ATOMIC_FAAx(val, addv, id)                              \
+47	    ({ UNUSED(id); OB_ATOMIC_EVENT(atomic_faa); __sync_fetch_and_add((val), (addv)); })
+48	#define ATOMIC_AAFx(val, addv, id)                              \
+49	  ({ UNUSED(id); OB_ATOMIC_EVENT(atomic_aaf); __sync_add_and_fetch((val), (addv)); })
+50	#define ATOMIC_FASx(val, subv, id)                              \
+51	  ({ UNUSED(id); OB_ATOMIC_EVENT(atomic_fas); __sync_fetch_and_sub((val), (subv)); })
+52	#define ATOMIC_SAFx(val, subv, id)                              \
+53	  ({ UNUSED(id); OB_ATOMIC_EVENT(atomic_saf); __sync_sub_and_fetch((val), (subv)); })
+54	#define ATOMIC_TASx(val, newv, id)                              \
+55	  ({ UNUSED(id); OB_ATOMIC_EVENT(atomic_tas); __atomic_exchange_n((val), (newv), __ATOMIC_SEQ_CST); })
+56	#define ATOMIC_SETx(val, newv, id)                              \
+57	  ({ UNUSED(id); OB_ATOMIC_EVENT(atomic_set); __atomic_exchange_n((val), (newv), __ATOMIC_SEQ_CST); })
+58	#define ATOMIC_VCASx(val, cmpv, newv, id)                       \
+59	  ({ UNUSED(id); OB_ATOMIC_EVENT(atomic_vcas);                  \
+60	    __sync_val_compare_and_swap((val), (cmpv), (newv)); })
+61	#define ATOMIC_BCASx(val, cmpv, newv, id)                       \
+62	    ({ UNUSED(id); OB_ATOMIC_EVENT(atomic_bcas);                \
+63	    __sync_bool_compare_and_swap((val), (cmpv), (newv)); })
+64	#define ATOMIC_ANDFx(val, andv, id)                              \
+65	    ({ UNUSED(id); OB_ATOMIC_EVENT(atomic_Aaf); __sync_and_and_fetch((val), (andv)); })
+66	#define ATOMIC_CMP_AND_EXCHANGE(val, cmpv, newv) ({ __atomic_compare_exchange_n(val, cmpv, newv, 0, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE); })
+67	
+68	template<typename T>
+69	    struct remove_volatile { using type=T; };
+70	template<typename T>
+71	    struct remove_volatile<volatile T> { using type=T; };
+72	#define LA_ATOMIC_ID 0
+73	#define ATOMIC_FAA(val, addv) ATOMIC_FAAx(val, addv, LA_ATOMIC_ID)
+74	#define ATOMIC_FAA(val, addv) ATOMIC_FAAx(val, addv, LA_ATOMIC_ID)
+75	#define ATOMIC_FAA_AR(val, addv) __atomic_fetch_add(val, addv, __ATOMIC_ACQ_REL)
+76	#define ATOMIC_AAF(val, addv) ATOMIC_AAFx(val, addv, LA_ATOMIC_ID)
+77	#define ATOMIC_AAF_AR(val, addv) __atomic_add_fetch(val, addv, __ATOMIC_ACQ_REL)
+78	#define ATOMIC_FAS(val, subv) ATOMIC_FASx(val, subv, LA_ATOMIC_ID)
+79	#define ATOMIC_SAF(val, subv) ATOMIC_SAFx(val, subv, LA_ATOMIC_ID)
+80	#define ATOMIC_TAS(val, newv) ATOMIC_TASx(val, newv, LA_ATOMIC_ID)
+81	#define ATOMIC_SET(val, newv) ATOMIC_SETx(val, newv, LA_ATOMIC_ID)
+82	#define ATOMIC_VCAS(val, cmpv, newv) ATOMIC_VCASx(val, cmpv, newv, LA_ATOMIC_ID)
+83	#define ATOMIC_VCAS_AR(val, cmpv, newv) ({ remove_volatile<typeof(*(val))>::type cmp = cmpv; __atomic_compare_exchange_n(val, &cmp, newv, 0, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE); cmp;})
+84	#define ATOMIC_BCAS(val, cmpv, newv) ATOMIC_BCASx(val, cmpv, newv, LA_ATOMIC_ID)
+85	#define ATOMIC_BCAS_AR(val, cmpv, newv) ({ remove_volatile<typeof(*(val))>::type cmp = cmpv; __atomic_compare_exchange_n(val, &cmp, newv, 0, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE); })
+86	#define ATOMIC_ANDF(val, andv) ATOMIC_ANDFx(val, andv, LA_ATOMIC_ID)
+87	
+88	template <typename T>
+89	inline int64_t inc_update(T* v_, T x)
+90	{
+91	  T ov = 0;
+92	  T nv = ATOMIC_LOAD(v_);
+93	  while ((ov = nv) < x) {
+94	    if ((nv = ATOMIC_VCAS(v_, ov, x)) == ov) {
+95	      nv = x;
+96	    }
+97	  }
+98	  return nv;
+99	}
+100	
+101	template <typename T>
+102	inline int64_t dec_update(T* v_, T x)
+103	{
+104	  T ov = 0;
+105	  T nv = ATOMIC_LOAD(v_);
+106	  while ((ov = nv) > x) {
+107	    if ((nv = ATOMIC_VCAS(v_, ov, x)) == ov) {
+108	      nv = x;
+109	    }
+110	  }
+111	  return nv;
+112	}
+113	
+114	#define ATOMIC_CAS(val, cmpv, newv) ATOMIC_VCAS((val), (cmpv), (newv))
+115	#define ATOMIC_INC(val) do { IGNORE_RETURN ATOMIC_AAF((val), 1); } while (0)
+116	#define ATOMIC_DEC(val) do { IGNORE_RETURN ATOMIC_SAF((val), 1); } while (0)
+117	
+118	}
+119	}
+120	
+121	#endif /* _OB_ATOMIC_H_ */
+```
+
+### Not shown above — explore these names for their source
+
+- deps/oblib/src/lib/oblog/ob_log_module.h: LOG_WARN:1394, LOG_INFO:1398, LOG_TRACE:1400, SQL_DTL_LOG:821
+- src/sql/dtl/ob_dtl_fc_server.h: need_block:170, can_unblock:189, ObTenantDfc:33, get_max_size_per_channel:146
+- src/sql/dtl/ob_dtl_channel.h: ObDtlChannel:93, is_drain:188
+- src/sql/dtl/ob_dtl_local_channel.h: ObDtlLocalChannel:35
+- src/sql/dtl/ob_dtl_rpc_channel.h: ObDtlRpcChannel:44
+- deps/oblib/src/lib/metrics/ob_meter.cpp: ObMeter:18, legacy_tick_if_necessary:26
+- deps/oblib/src/lib/tc/deps/single_waiter_cond.h: wait:18, signal:25
+- src/share/scn.cpp: atomic_get:21, atomic_load:29
+- unittest/share/cache/test_vtable_event_recycle_buffer.cpp: get_alloc_times:27, get_free_times:28
+- src/storage/multi_data_source/runtime_utility/common_define.cpp: get_alloc_times:28, get_free_times:29
+- ... and 35 more files
