@@ -27,6 +27,7 @@ import { logDebug } from '../errors';
 import { validatePathWithinRoot, isConfigLeafNode } from '../utils';
 import { isTestFile, extractSearchTerms, scorePathRelevance, getStemVariants, isDistinctiveIdentifier } from '../search/query-utils';
 import { LOW_CONFIDENCE_MARKER } from './markers';
+import { selectContextEntries } from './entry-points';
 
 /**
  * Extract likely symbol names from a natural language query
@@ -898,9 +899,12 @@ export class ContextBuilder {
     // Cap entry points so traversal budget isn't spread too thin.
     // With 36 entry points and maxNodes=120, each gets only 3 nodes — useless.
     // Cap to searchLimit so each entry point gets a meaningful traversal budget.
-    if (filteredResults.length > opts.searchLimit) {
-      filteredResults = filteredResults.slice(0, opts.searchLimit);
-    }
+    const originalEntryCount = Math.min(opts.searchLimit, filteredResults.length);
+    filteredResults = selectContextEntries(this.queries, query, filteredResults,
+      opts.searchLimit, options.nodeKinds, isTestQuery);
+    // Collapsing duplicate declarations must not multiply the traversal quota
+    // of the surviving type. Preserve the original per-entry allocation.
+    const perEntryLimit = Math.ceil(opts.maxNodes / Math.max(1, originalEntryCount, filteredResults.length));
 
     // Confidence signal for the honest-handoff footer (consumed in buildContext).
     // A multi-term prose query that resolves only to isolated common-word matches
@@ -1001,7 +1005,7 @@ export class ContextBuilder {
         edgeKinds: opts.edgeKinds && opts.edgeKinds.length > 0 ? opts.edgeKinds : undefined,
         nodeKinds: opts.nodeKinds && opts.nodeKinds.length > 0 ? opts.nodeKinds : undefined,
         direction: 'both',
-        limit: Math.ceil(opts.maxNodes / Math.max(1, filteredResults.length)),
+        limit: perEntryLimit,
       });
 
       // Merge nodes

@@ -86,6 +86,25 @@ int Foo::baz() {
     expect(barEdge.registeredAt).toMatch(/foo\.h:\d+/);
   });
 
+  it('pairs same-header out-of-line definitions without crossing overloads or case-sensitive owners', async () => {
+    fs.writeFileSync(path.join(dir, 'inline.h'), `namespace left {
+class Channel;
+class Channel { public: int wait(); int wait(int); };
+int Channel::wait() { return 1; }
+int Channel::wait(int value) { return value; }
+}
+namespace Left { class Channel { public: int wait(); }; }
+`);
+    const cg = await CodeGraph.init(dir, { silent: true });
+    try {
+      await cg.indexAll();
+      const edges = definesEdges((cg as any).db.db);
+      expect(edges).toHaveLength(2);
+      expect(edges.every(e => e.src_qn === 'left::Channel::wait' && e.tgt_qn === e.src_qn)).toBe(true);
+      expect(edges.every(e => e.src_signature.includes('(int') === e.tgt_signature.includes('(int'))).toBe(true);
+    } finally { cg.close(); }
+  });
+
   it('does NOT pair free functions (strict mode — no class context to verify)', async () => {
     fs.writeFileSync(
       path.join(dir, 'free.h'),

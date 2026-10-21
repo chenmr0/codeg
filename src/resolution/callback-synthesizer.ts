@@ -690,7 +690,8 @@ function* cppDeclDefEdges(
 
     for (const def of defs) {
       for (const decl of decls) {
-        if (def.filePath === decl.filePath) continue; // cross-file only
+        // C++ headers may contain both the in-class prototype and an out-of-
+        // line definition. They need the same overload-safe bridge as .cpp files.
         if (!cppCallableOwnersMatch(def, decl)) continue;
         const defParams = cppParameterKey(def);
         const declParams = cppParameterKey(decl);

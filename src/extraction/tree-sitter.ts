@@ -3336,7 +3336,7 @@ export class TreeSitterExtractor {
 
   /** A relative out-of-line receiver is resolved in the current namespace,
    * not in a method/class body. Merge a partially qualified namespace once. */
-  private qualifyCppReceiver(receiver: string, sourceLine?: number): string {
+  private qualifyCppReceiver(receiver: string, sourceLine?: number, sourceColumn = 0): string {
     if (receiver.startsWith('::')) return receiver.slice(2);
     let namespace: Node | undefined;
     if (sourceLine !== undefined) {
@@ -3354,15 +3354,22 @@ export class TreeSitterExtractor {
       namespace ??= scope;
       break;
     }
-    if (namespace) {
-      const parts = namespace.qualifiedName.split('::');
+    let namespaceName = namespace?.qualifiedName ?? '';
+    if (sourceLine !== undefined) {
+      const lexical = this.cppSourceScope().namespaceAt(this.originalLineStart(sourceLine) + sourceColumn);
+      // Only restore a source-proven missing suffix. Do not replace a macro-
+      // generated namespace or guess across conflicting lexical/AST owners.
+      if (lexical && (!namespaceName || lexical.startsWith(namespaceName + '::'))) namespaceName = lexical;
+    }
+    if (namespaceName) {
+      const parts = namespaceName.split('::');
       for (let start = 0; start < parts.length; start++) {
         const suffix = parts.slice(start).join('::');
         if (receiver.startsWith(suffix + '::')) {
           return [...parts.slice(0, start), receiver].join('::');
         }
       }
-      return `${namespace.qualifiedName}::${receiver}`;
+      return `${namespaceName}::${receiver}`;
     }
     return receiver;
   }
@@ -4092,7 +4099,7 @@ export class TreeSitterExtractor {
       isDeclaration: isDeclaration || undefined,
     };
     if (receiverType) {
-      extraProps.qualifiedName = `${this.language === 'cpp' ? this.qualifyCppReceiver(receiverType) : receiverType}::${name}`;
+      extraProps.qualifiedName = `${this.language === 'cpp' ? this.qualifyCppReceiver(receiverType, node.startPosition.row + 1, node.startPosition.column) : receiverType}::${name}`;
     }
 
     const methodNode = this.createNode('method', name, node, extraProps);
@@ -4101,12 +4108,14 @@ export class TreeSitterExtractor {
     // For methods with a receiver type but no class-like parent on the stack
     // (e.g., Rust impl blocks), add a contains edge from the owning struct/trait
     if (receiverType && !this.isInsideClassLikeNode()) {
-      const ownerNode = this.nodes.find(
+      const receiverName = methodNode.qualifiedName.slice(0, methodNode.qualifiedName.lastIndexOf('::'));
+      const ownerNode = this.nodes.filter(
         (n) =>
-          n.name === receiverType &&
+          (this.language === 'cpp' ? n.qualifiedName === receiverName : n.name === receiverType) &&
           n.filePath === this.filePath &&
           (n.kind === 'struct' || n.kind === 'class' || n.kind === 'enum' || n.kind === 'trait')
-      );
+      ).sort((a, b) => Number(a.isDeclaration === true) - Number(b.isDeclaration === true)
+        || (b.endLine - b.startLine) - (a.endLine - a.startLine))[0];
       if (ownerNode) {
         this.edges.push({
           source: ownerNode.id,

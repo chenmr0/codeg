@@ -1,7 +1,7 @@
 import { maskCStyleCommentsAndLiterals } from './grammars';
 
 interface Range { start: number; end: number; insideType?: boolean }
-interface State { stack: Array<boolean | 'type' | 'macro-type'>; parens: number; brackets: number; header: number }
+interface State { stack: Array<boolean | 'type' | 'macro-type'>; namespaces: string[]; parens: number; brackets: number; header: number }
 interface Conditional { entry: State; branches: State[]; hasElse: boolean }
 
 /** Source evidence independent of tree-sitter's error-recovered parent chain.
@@ -18,16 +18,21 @@ export class CCppSourceScope {
   private readonly macroTypeHeaders: Range[] = [];
   private readonly macroTypeRanges: Range[] = [];
   private readonly macroTypeNames = new Set<string>();
+  private readonly namespacePoints: Array<{ offset: number; name: string }> = [{ offset: 0, name: '' }];
 
   constructor(source: string, resolveMacroTypeHeader?: (header: string, offset: number) => string | undefined) {
     const code = maskCStyleCommentsAndLiterals(source);
-    let state: State = { stack: [], parens: 0, brackets: 0, header: 0 };
+    let state: State = { stack: [], namespaces: [], parens: 0, brackets: 0, header: 0 };
     const conditions: Conditional[] = [];
-    const copy = (s: State): State => ({ ...s, stack: [...s.stack] });
+    const copy = (s: State): State => ({ ...s, stack: [...s.stack], namespaces: [...s.namespaces] });
     let activeStart: number | null = null;
     let activeInsideType = false;
     let macroStart: number | null = null;
     const transition = (offset: number): void => {
+      const namespace = state.namespaces.filter(Boolean).join('::');
+      if (namespace !== this.namespacePoints.at(-1)!.name) {
+        this.namespacePoints.push({ offset, name: namespace });
+      }
       const macroActive = state.stack.includes('macro-type');
       if (macroActive && macroStart === null) macroStart = offset;
       if (!macroActive && macroStart !== null) {
@@ -70,8 +75,10 @@ export class CCppSourceScope {
             for (const branch of branches.slice(1)) {
               let common = 0;
               while (common < state.stack.length && common < branch.stack.length
-                && state.stack[common] === branch.stack[common]) common++;
+                && state.stack[common] === branch.stack[common]
+                && state.namespaces[common] === branch.namespaces[common]) common++;
               state.stack.length = common;
+              state.namespaces.length = common;
               if (state.parens !== branch.parens) state.parens = conditional.entry.parens;
               if (state.brackets !== branch.brackets) state.brackets = conditional.entry.brackets;
             }
@@ -113,10 +120,13 @@ export class CCppSourceScope {
         const lambda = /(?:^|[=({,:])\s*\[[^\]]*\]\s*(?:\([^)]*\))?\s*(?:mutable\s*)?(?:noexcept\s*)?(?:->[^;{}]+)?$/.test(bare);
         state.stack.push(container && !/\bnamespace\b/.test(bare) ? (macroType ? 'macro-type' : 'type')
           : !container && (state.stack.includes(true) || lambda || callable));
+        const namespace = /^(?:(?:inline|export)\s+)*namespace\s+([A-Za-z_]\w*(?:\s*::\s*(?:inline\s+)?[A-Za-z_]\w*)*)\s*$/.exec(bare)?.[1];
+        state.namespaces.push(namespace?.replace(/\binline\s+|\s+/g, '') ?? '');
         state.header = i + 1;
         transition(i + 1);
       } else if (char === '}' && state.parens === 0 && state.brackets === 0) {
         state.stack.pop();
+        state.namespaces.pop();
         state.header = i + 1;
         transition(i);
       } else if (char === ';' && state.parens === 0 && state.brackets === 0) {
@@ -134,6 +144,17 @@ export class CCppSourceScope {
   isDirective(offset: number): boolean { return this.contains(this.directives, offset); }
   hasUnclosedStandaloneBody(): boolean { return this.unclosedStandaloneBody; }
   isBalanced(): boolean { return this.balanced; }
+  /** Source-written namespaces survive a parser's premature namespace close.
+   * Conditional branches retain only their common, unambiguous scope. */
+  namespaceAt(offset: number): string {
+    let low = 0, high = this.namespacePoints.length;
+    while (low + 1 < high) {
+      const mid = (low + high) >>> 1;
+      if (this.namespacePoints[mid]!.offset <= offset) low = mid;
+      else high = mid;
+    }
+    return this.namespacePoints[low]!.name;
+  }
   isMacroTypeBody(offset: number): boolean { return this.macroTypeBodies.has(offset); }
   isMacroTypeDeclaration(start: number, end: number, name: string, callable: boolean): boolean {
     if (this.isExecutable(start) || this.isDirective(start)) return false;

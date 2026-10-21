@@ -105,32 +105,29 @@ export class GraphTraverser {
     const opts = { ...DEFAULT_OPTIONS, ...options };
     const startNode = this.queries.getNodeById(startId);
 
-    if (!startNode) {
+    if (!startNode || opts.limit <= 0) {
       return { nodes: new Map(), edges: [], roots: [] };
     }
 
     const nodes = new Map<string, Node>();
     const edges: Edge[] = [];
     const visited = new Set<string>();
+    const enqueued = new Set<string>([startId]);
+    const seenEdges = new Set<string>();
     const queue: TraversalStep[] = [{ node: startNode, edge: null, depth: 0 }];
 
     if (opts.includeStart) {
       nodes.set(startNode.id, startNode);
     }
 
-    while (queue.length > 0 && nodes.size < opts.limit) {
+    while (queue.length > 0) {
       const step = queue.shift()!;
-      const { node, edge, depth } = step;
+      const { node, depth } = step;
 
       if (visited.has(node.id)) {
         continue;
       }
       visited.add(node.id);
-
-      // Add edge to result
-      if (edge) {
-        edges.push(edge);
-      }
 
       // Check depth limit
       if (depth >= opts.maxDepth) {
@@ -147,24 +144,37 @@ export class GraphTraverser {
       });
 
       // Batch-fetch the unvisited neighbors in one query (was N+1 per BFS step).
-      const wantIds = adjacentEdges
+      const wantIds = nodes.size >= opts.limit ? [] : adjacentEdges
         .map((e) => (e.source === node.id ? e.target : e.source))
-        .filter((id) => !visited.has(id));
+        .filter((id) => !enqueued.has(id));
       const neighborNodes = wantIds.length > 0 ? this.queries.getNodesByIds(wantIds) : new Map();
 
       for (const adjEdge of adjacentEdges) {
         const nextNodeId = adjEdge.source === node.id ? adjEdge.target : adjEdge.source;
-        if (visited.has(nextNodeId)) continue;
-
-        const nextNode = neighborNodes.get(nextNodeId);
+        const nextNode = nodes.get(nextNodeId) ?? neighborNodes.get(nextNodeId);
         if (!nextNode) continue;
 
         if (opts.nodeKinds && opts.nodeKinds.length > 0 && !opts.nodeKinds.includes(nextNode.kind)) {
           continue;
         }
 
-        nodes.set(nextNode.id, nextNode);
-        queue.push({ node: nextNode, edge: adjEdge, depth: depth + 1 });
+        if (!enqueued.has(nextNodeId)) {
+          // A single hub can have thousands of neighbors. Enforce the limit
+          // per admission, not just when the next BFS step starts.
+          if (nodes.size >= opts.limit) continue;
+          nodes.set(nextNode.id, nextNode);
+          enqueued.add(nextNodeId);
+          queue.push({ node: nextNode, edge: adjEdge, depth: depth + 1 });
+        }
+        // Record on admission/adjacency scan, not on dequeue: the queue may
+        // never drain after reaching the cap. Preserve parallel call sites.
+        if (!nodes.has(adjEdge.source) || !nodes.has(adjEdge.target)) continue;
+        const key = JSON.stringify([adjEdge.source, adjEdge.target, adjEdge.kind,
+          adjEdge.line ?? null, adjEdge.column ?? null]);
+        if (!seenEdges.has(key)) {
+          seenEdges.add(key);
+          edges.push(adjEdge);
+        }
       }
     }
 

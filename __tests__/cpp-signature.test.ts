@@ -99,5 +99,9 @@ describe('C++ callable parameter matching', () => {
       { qualifiedName: 'left::Channel::send' },
       { qualifiedName: 'right::Channel::send' },
     )).toBe(false);
+    expect(cppCallableOwnersMatch(
+      { qualifiedName: 'left::Channel::send' },
+      { qualifiedName: 'Left::Channel::send' },
+    )).toBe(false);
   });
 });
