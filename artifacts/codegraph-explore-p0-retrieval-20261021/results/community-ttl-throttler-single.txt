@@ -1,0 +1,744 @@
+**Exploration: ObTTLDeleteRateThrottler**
+
+Found 37 symbols across 8 files.
+
+**Blast radius — what depends on these (update/verify before editing)**
+
+- `rate` (deps/oblib/src/lib/utility/ob_rate_limiter.h:70) — 2 callers in `deps/oblib/src/lib/allocator/ob_mem_leak_checker.h`, `src/observer/omt/ob_th_worker.cpp`; no tests found within 3 caller hops
+- `throttle` (src/observer/report/ob_ls_table_updater.cpp:398) — 1 caller in `src/observer/report/ob_ls_table_updater.cpp`; no tests found within 3 caller hops
+- `delete` (unittest/sql/optimizer/cost_model_utils/preprocess.py:71) — 1 caller in `unittest/sql/optimizer/cost_model_utils/preprocess.py`; no tests found within 3 caller hops
+
+**Relationships**
+
+**calls:**
+- record_trans_start_time → current_time
+- SMART_VAR → record_trans_start_time
+- reset → reset
+- current_time → ob_abort
+- advance → current_time
+- remove → current_time
+- set_timeout → current_time
+- get_timeout → current_time
+- is_timeouted → current_time
+- handle → current_time
+- wait → current_time
+- append_item → current_time
+- rewind_randomly → current_time
+- wrlock_all → current_time
+- try_lock_all → current_time
+- ... and 60 more
+
+**extends:**
+- ObISyslogRateLimiter → ObRateLimiter
+- ObSimpleRateLimiter → ObRateLimiter
+- ObQueryRateLimiter → ObRateLimiter
+
+**Source Code**
+
+> The code below is the **verbatim, current on-disk source** of these files — re-read from disk on this call and line-numbered, byte-for-byte identical to what the Read tool returns. It is NOT a summary, outline, or stale cache. Treat each block as a Read you have already performed: do not Read a file shown here.
+
+**`src/share/table/ob_ttl_util.cpp`** — ObTTLDeleteRateThrottler(method), reset(method), reset(calls)
+
+```cpp
+2576	const double ObTTLDeleteRateThrottler::DEFAULT_SMOOTH_FACTOR = 0.6;
+2577	const double ObTTLDeleteRateThrottler::DEFAULT_TRANS_TIMEOUT_RATIO = 0.8;
+2578	
+2579	ObTTLDeleteRateThrottler::ObTTLDeleteRateThrottler()
+2580	  : is_inited_(false),
+2581	    max_rows_per_second_(0),
+2582	    smooth_factor_(0.0),
+2583	    trans_start_time_(0),
+2584	    prev_delete_time_(0),
+2585	    cur_del_row_count_(0),
+2586	    expected_interval_us_(0),
+2587	    throttle_info_()
+2588	{}
+2589	
+2590	ObTTLDeleteRateThrottler::~ObTTLDeleteRateThrottler()
+2591	{
+2592	  reset();
+2593	}
+2594	
+2595	void ObTTLDeleteRateThrottler::reset()
+2596	{
+2597	  is_inited_ = false;
+2598	  max_rows_per_second_ = 0;
+2599	  smooth_factor_ = 0.0;
+2600	  trans_start_time_ = 0;
+2601	  prev_delete_time_ = 0;
+2602	  cur_del_row_count_ = 0;
+2603	  expected_interval_us_ = 0;
+2604	  throttle_info_.reset();
+2605	}
+2606	
+2607	int ObTTLDeleteRateThrottler::init(const table::ObTTLTaskInfo &info)
+2608	{
+```
+
+**`src/share/table/ob_ttl_util.h`** — ObTTLDeleteRateThrottler(class), ThrottleInfo(struct), ThrottleInfo(method), reset(method), record_trans_start_time(method), current_time(calls)
+
+```cpp
+623	  ObTimeZoneInfoWrap tz_info_wrap_;
+624	};
+625	
+626	class ObTTLDeleteRateThrottler
+627	{
+628	public:
+629	  struct ThrottleInfo {
+630	    ThrottleInfo()
+631	      : ttl_del_max_ops_(0),
+632	        ttl_thread_num_(0),
+633	        max_rows_per_second_(0),
+634	        expected_interval_us_(0),
+635	        table_id_(0),
+636	        tablet_id_(),
+637	        start_time_(0),
+638	        cur_time_(0),
+639	        total_del_row_count_(0)
+640	    {}
+641	    void reset() {
+642	      ttl_del_max_ops_ = 0;
+643	      ttl_thread_num_ = 0;
+644	      max_rows_per_second_ = 0;
+645	      expected_interval_us_ = 0;
+646	      table_id_ = 0;
+647	      tablet_id_.reset();
+648	      start_time_ = 0;
+649	      cur_time_ = 0;
+650	      total_del_row_count_ = 0;
+651	    }
+652	    TO_STRING_KV(K_(ttl_del_max_ops), K_(ttl_thread_num), K_(max_rows_per_second), K_(expected_interval_us),
+653	        K_(table_id), K_(tablet_id), K_(start_time), K_(cur_time), K_(total_del_row_count));
+654	    int64_t ttl_del_max_ops_;
+655	    int64_t ttl_thread_num_;
+656	    int64_t max_rows_per_second_;
+657	    int64_t expected_interval_us_;
+658	    uint64_t table_id_;
+659	    common::ObTabletID tablet_id_;
+660	    int64_t start_time_;
+661	    int64_t cur_time_;
+662	    int64_t total_del_row_count_;
+663	  };
+664	public:
+665	  ObTTLDeleteRateThrottler();
+666	  ~ObTTLDeleteRateThrottler();
+667	  int init(const table::ObTTLTaskInfo &info);
+668	  int check_and_try_throttle(int64_t trans_timeout_ts);
+669	  int check_and_try_throttle();
+670	  void print_throttle_info();
+671	  void reset();
+672	  OB_INLINE void record_trans_start_time() { trans_start_time_ = ObTimeUtility::current_time(); }
+673	  TO_STRING_KV(K_(is_inited),
+674	               K_(max_rows_per_second),
+675	               K_(smooth_factor),
+676	               K_(trans_start_time),
+677	               K_(prev_delete_time),
+678	               K_(cur_del_row_count),
+679	               K_(expected_interval_us));
+680	private:
+681	  int64_t calculate_wait_time();
+682	  bool need_commit_trans_early(int64_t trans_timeout_ts);
+683	private:
+684	  static const double DEFAULT_SMOOTH_FACTOR;
+685	  static const double DEFAULT_TRANS_TIMEOUT_RATIO;
+686	private:
+687	  bool is_inited_;
+688	  int64_t max_rows_per_second_;
+689	  double smooth_factor_;
+690	  int64_t trans_start_time_;
+691	  int64_t prev_delete_time_;
+692	  int64_t cur_del_row_count_;
+693	  int64_t expected_interval_us_;
+694	  ThrottleInfo throttle_info_;
+695	};
+696	
+697	} // end namespace rootserver
+698	} // end namespace oceanbase
+```
+
+**`src/share/throttle/ob_throttle_info.h`** — ThrottleID(method), ThrottleID(class), operator=(method), ~ThrottleID(method), hash(method), is_valid(method), operator<(method), operator>(method), operator==(method), operator!=(method)
+
+```cpp
+1	/**
+2	 * Copyright (c) 2021 OceanBase
+3	 * OceanBase CE is licensed under Mulan PubL v2.
+4	 * You can use this software according to the terms and conditions of the Mulan PubL v2.
+5	 * You may obtain a copy of Mulan PubL v2 at:
+6	 *          http://license.coscl.org.cn/MulanPubL-2.0
+7	 * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND,
+8	 * EITHER EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT,
+9	 * MERCHANTABILITY OR FIT FOR A PARTICULAR PURPOSE.
+10	 * See the Mulan PubL v2 for more details.
+11	 */
+12	
+13	#ifndef OCEABASE_SHARE_THROTTLE_INFO_H
+14	#define OCEABASE_SHARE_THROTTLE_INFO_H
+15	
+16	#include "share/ob_light_hashmap.h"
+17	#include "lib/objectpool/ob_concurrency_objpool.h"
+18	
+19	namespace oceanbase {
+20	namespace share {
+21	
+22	class ThrottleID
+23	{
+24	  OB_UNIS_VERSION(1);
+25	
+26	public:
+27	  ThrottleID(const int64_t thread_idx)
+28	      : thread_idx_(thread_idx), hash_(murmurhash(&thread_idx, sizeof(thread_idx), 0)) {}
+29	  ThrottleID() = delete;
+30	  ThrottleID(const ThrottleID &) = delete;
+31	  ThrottleID &operator= (const ThrottleID &) = delete;
+32	  ~ThrottleID() {}
+33	
+34	  // hash() and is_valid() is necessary function for light hash map
+35	  uint64_t hash() const
+36	  {
+37	    return hash_;
+38	  }
+39	  bool is_valid() const { return thread_idx_ > 0; }
+40	  bool operator<(const ThrottleID &rhs) {
+41	    bool bool_ret = false;
+42	    if (thread_idx_ < rhs.thread_idx_) {
+43	      bool_ret = true;
+44	    }
+45	    return bool_ret;
+46	  }
+47	  bool operator>(const ThrottleID &rhs) {
+48	    bool bool_ret = false;
+49	    if (thread_idx_ > rhs.thread_idx_) {
+50	      bool_ret = true;
+51	    }
+52	    return bool_ret;
+53	  }
+54	  bool operator==(const ThrottleID &other) const
+55	  { return thread_idx_ == other.thread_idx_; }
+56	  bool operator!=(const ThrottleID &other) const
+57	  { return thread_idx_ != other.thread_idx_; }
+58	
+59	  TO_STRING_KV(K(thread_idx_), K(hash_));
+60	
+61	private:
+62	  const int64_t thread_idx_;
+63	  const uint64_t hash_;
+64	};
+65	
+66	struct ObThrottleInfo : public ObLightHashLink<ObThrottleInfo>
+67	{
+68	  ThrottleID throttle_id_;
+69	  bool need_throttle_;
+70	  int64_t sequence_;
+71	  int64_t allocated_size_;
+72	  ObThrottleInfo(int64_t thread_idx) : throttle_id_(thread_idx), need_throttle_(false), sequence_(0), allocated_size_(0) {}
+73	  void reset()
+74	  {
+75	    need_throttle_ = false;
+76	    sequence_ = 0;
+77	    allocated_size_ = 0;
+78	  }
+79	  bool is_throttling()
+80	  {
+81	    return need_throttle_;
+82	  }
+83	  bool contain(const ThrottleID &throttle_id) const  { return this->throttle_id_ == throttle_id; }
+84	
+85	  TO_STRING_KV(K(throttle_id_), K(need_throttle_), K(sequence_), K(allocated_size_));
+86	};
+87	
+88	struct ObThrottleInfoAllocHandle
+89	{
+90	  ObThrottleInfo *alloc_value()
+91	  {
+92	    return op_alloc_args(ObThrottleInfo, common::get_itid());
+93	  }
+94	
+95	  void free_value(ObThrottleInfo *val)
+96	  {
+97	    if (NULL != val) {
+98	      op_free(val);
+99	    }
+100	  }
+101	};
+102	
+103	using ObThrottleInfoHashMap =
+104	    ObLightHashMap<ThrottleID, ObThrottleInfo, ObThrottleInfoAllocHandle, common::SpinRWLock, 1 << 10 /* BUCKETS_CNT */>;
+105	
+106	struct ObThrottleInfoGuard
+107	{
+108	  ObThrottleInfo *throttle_info_;
+109	  ObThrottleInfoHashMap *throttle_info_map_;
+110	
+111	  ObThrottleInfoGuard() : throttle_info_(nullptr), throttle_info_map_(nullptr) {}
+112	  ~ObThrottleInfoGuard() { reset(); }
+113	
+114	  bool is_valid() { return OB_NOT_NULL(throttle_info_) && OB_NOT_NULL(throttle_info_map_); }
+115	
+116	  void reset()
+117	  {
+118	    if (is_valid()) {
+119	      throttle_info_map_->revert(throttle_info_);
+120	      throttle_info_ = nullptr;
+121	      throttle_info_map_ = nullptr;
+122	    }
+123	  }
+124	
+125	  void init(ObThrottleInfo *throttle_info, ObThrottleInfoHashMap *throttle_info_map)
+126	  {
+127	    reset();
+128	    throttle_info_ = throttle_info;
+129	    throttle_info_map_ = throttle_info_map;
+130	  }
+131	
+132	  ObThrottleInfo *throttle_info() { return throttle_info_; }
+133	  const ObThrottleInfo *throttle_info() const { return throttle_info_; }
+134	
+135	  TO_STRING_KV(KP(throttle_info_), KP(throttle_info_map_));
+136	};
+137	}  // namespace share
+138	}  // namespace oceanbase
+139	
+140	
+141	#endif
+```
+
+**`unittest/sql/optimizer/cost_model_utils/preprocess.py`** — find_max_index(calls), delete(calls), delete(function), find_max_index(function), delete_max_min_case(function)
+
+```python
+68	avgs = []
+69	avg_strs = []
+70	
+71	def delete(li, index):
+72	    li = li[:index] + li[index+1:]
+73	    return li
+74	
+75	def find_max_index(l):
+76	    max = -9999999999999999999999
+77	    max_i = -1
+78	    for i in xrange(len(l)):
+79	        if l[i] > max:
+80	            max = l[i]
+81	            max_i = i
+82	    return max_i
+83	
+84	def find_min_index(l):
+85	    min = 999999999999999999999999
+86	    min_i = -1
+87	    for i in xrange(len(l)):
+88	        if l[i] < min:
+89	            min = l[i]
+90	            min_i = i
+91	    return min_i
+92	
+93	def delete_max_min_case(column_nums, column_id):
+94	    # min_i = find_min_index(column_nums[len(column_nums) - 1])
+95	    # for j in xrange(len(column_nums)):
+96	    #     column_nums[j] = delete(column_nums[j], min_i)
+97	    max_i = find_max_index(column_nums[column_id])
+98	    for j in xrange(len(column_nums)):
+99	       column_nums[j] = delete(column_nums[j], max_i)
+100	    max_i = find_max_index(column_nums[column_id])
+101	    for j in xrange(len(column_nums)):
+102	       column_nums[j] = delete(column_nums[j], max_i)
+103	    # max_i = find_max_index(column_nums[column_id])
+104	    # for j in xrange(len(column_nums)):
+105	    #    column_nums[j] = delete(column_nums[j], max_i)
+106	    # max_i = find_max_index(column_nums[column_id])
+107	    # for j in xrange(len(column_nums)):
+108	    #    column_nums[j] = delete(column_nums[j], max_i)
+109	
+110	
+111	def do_filter(column_strs):
+```
+
+**`unittest/sql/optimizer/cost_model_utils/process_nestloop.py`** — delete(function), delete_max_min_case(function), find_max_index(function)
+
+```python
+1	#!/bin/env python
+2	__author__ = 'dongyun.zdy'
+3	
+4	import sys
+5	import os
+6	import numpy as np
+7	import getopt
+8	
+9	
+10	file_name = "scan_model.res.formal"
+11	if len(sys.argv) >= 2:
+12	    file_name = sys.argv[1]
+13	out_file_name = file_name + ".prep"
+14	time_per_case = 5
+15	use_delete_min_max = False
+16	filters = []
+17	out_columns = [c for c in xrange(100)]
+18	cols_supplied = False
+19	wrong_arg = False
+20	target_column_id = 0
+21	
+22	#sys.argv.extend("-i sort_result -o sort.8.test -t 7 -C 2 -f 1,e,8".split(" "))
+23	sys.argv.extend("-i nestloop_result -o nl_result".split(" "))
+24	opts,args = getopt.getopt(sys.argv[1:],"i:o:t:f:a:dc:C:")
+25	for op, value in opts:
+26	    if "-i" == op:
+27	        file_name = value
+28	    elif "-o" == op:
+29	        out_file_name = value
+30	    elif "-t" == op:
+31	        time_per_case = int(value)
+32	    elif "-f" == op:
+33	        filter_str = value
+34	        filter_elements = filter_str.split(",")
+35	        if not filter_elements[1] in ["g","l","ge","le","e","ne"]:
+36	            print "invalid filter type"
+37	            sys.exit(1)
+38	        filters.append(filter_str.split(","))
+39	    elif "-a" == op:
+40	        time_per_case = int(value)
+41	    elif "-d" == op:
+42	        use_delete_min_max = True
+43	    elif "-C" == op:
+44	        target_column_id = int(value)
+45	    elif "-c" == op:
+46	        if not cols_supplied:
+47	            cols_supplied = True
+48	            out_columns = []
+49	        out_columns.extend([int(c) for c in value.split(",")])
+50	    else:
+51	        wrong_arg = True
+52	
+53	if wrong_arg:
+54	    print "wrong arg"
+55	    sys.exit(1)
+56	
+57	if time_per_case < 5:
+58	    use_delete_min_max = False
+59	
+60	if os.path.exists(out_file_name):
+61	    os.remove(out_file_name)
+62	
+63	origin_file = open(file_name, "r")
+64	out_file = open(out_file_name,"w")
+65	
+66	i = 0
+67	column_nums = []
+68	avgs = []
+69	avg_strs = []
+70	
+71	def delete(li, index):
+72	    li = li[:index] + li[index+1:]
+73	    return li
+74	
+75	def find_max_index(l):
+76	    max = -9999999999999999999999
+77	    max_i = -1
+78	    for i in xrange(len(l)):
+79	        if l[i] > max:
+80	            max = l[i]
+81	            max_i = i
+82	    return max_i
+83	
+84	def find_min_index(l):
+85	    min = 999999999999999999999999
+86	    min_i = -1
+87	    for i in xrange(len(l)):
+88	        if l[i] < min:
+89	            min = l[i]
+90	            min_i = i
+91	    return min_i
+92	
+93	def delete_max_min_case(column_nums, column_id):
+94	    # min_i = find_min_index(column_nums[len(column_nums) - 1])
+95	    # for j in xrange(len(column_nums)):
+96	    #     column_nums[j] = delete(column_nums[j], min_i)
+97	    max_i = find_max_index(column_nums[column_id])
+98	    for j in xrange(len(column_nums)):
+99	       column_nums[j] = delete(column_nums[j], max_i)
+100	    max_i = find_max_index(column_nums[column_id])
+101	    for j in xrange(len(column_nums)):
+102	       column_nums[j] = delete(column_nums[j], max_i)
+103	
+104	
+105	def do_filter(column_strs):
+106	    filtered = False
+107	    for f in filters:
+108	        if f[1] == "g" and float(column_strs[int(f[0])]) <= int(f[2]) :
+109	            filtered = True
+110	            break
+111	        elif f[1] == "l" and float(column_strs[int(f[0])]) >= int(f[2]) :
+112	            filtered = True
+113	            break
+114	        elif f[1] == "ge" and float(column_strs[int(f[0])]) < int(f[2]) :
+115	            filtered = True
+116	            break
+117	        elif f[1] == "le" and float(column_strs[int(f[0])]) > int(f[2]) :
+118	            filtered = True
+119	            break
+120	        elif f[1] == "e" and float(column_strs[int(f[0])]) != int(f[2]) :
+121	            filtered = True
+122	            break
+123	        elif f[1] == "ne" and float(column_strs[int(f[0])]) == int(f[2]) :
+124	            filtered = True
+125	            break
+126	    return filtered
+127	
+128	
+129	
+130	state = 0 #comment line
+131	
+132	elements = []
+133	
+134	
+135	for line in origin_file:
+136	    line = line.strip()
+137	    if state == 0:
+138	        out_file.write(line + "\n")
+139	    elif state == 1:
+140	        elements = line.split(",row_count : ")
+141	    elif state == 2:
+142	        pass
+143	    elif state == 3:
+144	        pass
+145	    elif state == 4:
+146	        elements.append(line.split("join_time except conds : ")[1])
+147	    elif state == 5:
+148	        elements.append(line.split("equal_eval : ")[1])
+149	    elif state == 6:
+150	        pass
+151	    elif state == 7:
+152	        elements.append(line.split("other_eval : ")[1])
+153	    elif state == 8:
+154	        pass
+155	    elif state == 9:
+156	        elements.append(line.split("right_cache_put : ")[1])
+157	    elif state == 10:
+158	        elements.append(line.split("right_cache_acc : ")[1])
+159	    elif state == 11:
+160	        elements.append(line.split("match_group_count : ")[1])
+161	        out_file.write(",".join(elements) + "\n")
+162	    else:
+163	        print "wrong state"
+164	    state = (state + 1) % 12
+165	
+166	origin_file.close()
+167	out_file.close()
+168	
+169	
+170	
+171	
+172	
+```
+
+**`unittest/sql/optimizer/storage_perf/preprocess.py`** — find_max_index(calls), delete(calls), delete(function), find_max_index(function), delete_max_min_case(function)
+
+```python
+72	avgs = []
+73	avg_strs = []
+74	
+75	def delete(li, index):
+76	    li = li[:index] + li[index+1:]
+77	    return li
+78	
+79	def find_max_index(l):
+80	    max = -9999999999999999999999
+81	    max_i = -1
+82	    for i in xrange(len(l)):
+83	        if l[i] > max:
+84	            max = l[i]
+85	            max_i = i
+86	    return max_i
+87	
+88	def find_min_index(l):
+89	    min = 999999999999999999999999
+90	    min_i = -1
+91	    for i in xrange(len(l)):
+92	        if l[i] < min:
+93	            min = l[i]
+94	            min_i = i
+95	    return min_i
+96	
+97	def delete_max_min_case(column_nums, column_id):
+98	    # min_i = find_min_index(column_nums[len(column_nums) - 1])
+99	    # for j in xrange(len(column_nums)):
+100	    #     column_nums[j] = delete(column_nums[j], min_i)
+101	    max_i = find_max_index(column_nums[column_id])
+102	    for j in xrange(len(column_nums)):
+103	       column_nums[j] = delete(column_nums[j], max_i)
+104	    max_i = find_max_index(column_nums[column_id])
+105	    for j in xrange(len(column_nums)):
+106	       column_nums[j] = delete(column_nums[j], max_i)
+107	    max_i = find_max_index(column_nums[column_id])
+108	    for j in xrange(len(column_nums)):
+109	       column_nums[j] = delete(column_nums[j], max_i)
+110	    max_i = find_max_index(column_nums[column_id])
+111	    for j in xrange(len(column_nums)):
+112	       column_nums[j] = delete(column_nums[j], max_i)
+113	
+114	
+115	def do_filter(column_strs):
+```
+
+**`src/observer/report/ob_ls_table_updater.cpp`** — calls(calls), OB_ISNULL(calls), current_time(calls), is_sys_ls(calls), batch_process_tasks(method), throttle(calls), throttle(method), ob_throttle_usleep(calls)
+
+```cpp
+279	  return ret;
+280	}
+281	
+282	int ObLSTableUpdater::batch_process_tasks(
+283	    const common::ObIArray<ObLSTableUpdateTask> &tasks,
+284	    bool &stopped)
+285	{
+286	  int ret = OB_SUCCESS;
+287	  UNUSED(stopped);
+288	  ObCurTraceId::init(GCONF.self_addr_);
+289	  if (OB_UNLIKELY(!inited_)) {
+290	    ret = OB_NOT_INIT;
+291	    LOG_WARN("updater not init", KR(ret));
+292	  } else if (1 != tasks.count()) {
+293	    ret = OB_ERR_UNEXPECTED;
+294	    LOG_WARN("unexpected task count", KR(ret), "tasks count", tasks.count());
+295	  } else {
+296	    const ObLSTableUpdateTask &task = tasks.at(0);
+297	    const uint64_t tenant_id = task.get_tenant_id();
+298	    const ObLSID &ls_id = task.get_ls_id();
+299	    const bool inner_table_only = task.is_inner_table_only();
+300	    bool tenant_dropped = false;
+301	    bool schema_not_ready = false;
+302	    uint64_t superior_tenant_id = OB_INVALID_TENANT_ID;
+303	    ObLSReplica replica;
+304	    if (OB_UNLIKELY(OB_INVALID_TENANT_ID == tenant_id
+305	        || !ls_id.is_valid()
+306	        || OB_ISNULL(GCTX.ob_service_)
+307	        || OB_ISNULL(GCTX.lst_operator_)
+308	        || OB_ISNULL(GCTX.omt_))) {
+309	      ret = OB_INVALID_ARGUMENT;
+310	      LOG_WARN("invalid argument", KR(ret), K(tenant_id), K(ls_id),
+311	          KP(GCTX.ob_service_), KP(GCTX.lst_operator_), KP(GCTX.omt_));
+312	    } else {
+313	      // Make sure the superior tenant which stores meta table has not been dropped and it's schema is ready.
+314	      // User tenant's superior tenant is meta; Meta tenant's superior tenant is sys; Sys tenant manages itself.
+
+... (gap) ...
+
+395	  return ret;
+396	}
+397	
+398	void ObLSTableUpdater::throttle(
+399	    const ObLSID &ls_id,
+400	    const int return_code,
+401	    const int64_t execute_time_us,
+402	    bool &stopped)
+403	{
+404	  int64_t sleep_us = 0;
+405	  if (OB_SUCCESS != return_code) {
+406	    if (ls_id.is_sys_ls()) {
+407	      sleep_us = SYS_RETRY_INTERVAL_US;
+408	    } else {
+409	      sleep_us = RETRY_INTERVAL_US;
+410	    }
+411	  } else if (execute_time_us > SLOW_UPDATE_TIME_US) {
+412	    if (ls_id.is_sys_ls()) {
+413	      // won't limit update for sys log stream
+414	      sleep_us = 0;
+415	      LOG_WARN_RET(OB_ERR_UNEXPECTED, "detected slow update for sys table", K(ls_id));
+416	    } else {
+417	      sleep_us = MIN(RETRY_INTERVAL_US, (execute_time_us - SLOW_UPDATE_TIME_US));
+418	      LOG_WARN_RET(OB_ERR_UNEXPECTED, "detected slow update, may be too many concurrent updating",
+419	          K(ls_id), K(sleep_us));
+420	    }
+421	  }
+422	  const static int64_t sleep_step_us = 20 * 1000; // 20ms
+423	  for (; !stopped && sleep_us > 0; sleep_us -= sleep_step_us) {
+424	    ob_throttle_usleep(static_cast<int32_t>(std::min(sleep_step_us, sleep_us)), return_code);
+425	  }
+426	}
+427	
+428	} // end namespace observer
+429	} // end namespace oceanbase
+```
+
+**`deps/oblib/src/lib/utility/ob_rate_limiter.h`** — rate(method), ObRateLimiter(class), ObRateLimiter(method), ~ObRateLimiter(method), set_name(method), name(method), set_rate(method)
+
+```cpp
+1	/**
+2	 * Copyright (c) 2021 OceanBase
+3	 * OceanBase CE is licensed under Mulan PubL v2.
+4	 * You can use this software according to the terms and conditions of the Mulan PubL v2.
+5	 * You may obtain a copy of Mulan PubL v2 at:
+6	 *          http://license.coscl.org.cn/MulanPubL-2.0
+7	 * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND,
+8	 * EITHER EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT,
+9	 * MERCHANTABILITY OR FIT FOR A PARTICULAR PURPOSE.
+10	 * See the Mulan PubL v2 for more details.
+11	 */
+12	
+13	#ifndef OB_RATE_LIMITER_H
+14	#define OB_RATE_LIMITER_H
+15	
+16	#include <stdint.h>
+17	
+18	namespace oceanbase {
+19	namespace lib {
+20	
+21	class ObRateLimiter
+22	{
+23	public:
+24	  ObRateLimiter(const int64_t rate = 0, const char *name = nullptr);
+25	  virtual ~ObRateLimiter();
+26	
+27	  void set_name(const char *name);
+28	  const char *name() const;
+29	
+30	  void set_rate(int64_t rate);
+31	  int64_t rate() const;
+32	
+33	  virtual bool is_force_allows() const = 0;
+34	  virtual void reset_force_allows() = 0;
+35	  // return OB_SUCCESS for acquire success and OB_EAGAIN for not acquired
+36	  virtual int try_acquire(const int64_t permits = 1,
+37	                          const int64_t arg0 = 0,
+38	                          const int64_t arg1 = 0) = 0;
+39	  virtual int acquire(const int64_t permits = 1,
+40	                      const int64_t arg0 = 0,
+41	                      const int64_t arg1 = 0) = 0;
+42	
+43	protected:
+44	  int64_t rate_;
+45	  const char *name_;
+46	};
+47	
+48	inline ObRateLimiter::ObRateLimiter(const int64_t rate, const char *name)
+49	    : rate_(rate), name_(name)
+50	{}
+51	
+52	inline ObRateLimiter::~ObRateLimiter()
+53	{}
+54	
+55	inline void ObRateLimiter::set_name(const char *name)
+56	{
+57	  name_ = name;
+58	}
+59	
+60	inline const char *ObRateLimiter::name() const
+61	{
+62	  return name_;
+63	}
+64	
+65	inline void ObRateLimiter::set_rate(int64_t rate)
+66	{
+67	  rate_ = rate;
+68	}
+69	
+70	inline int64_t ObRateLimiter::rate() const
+71	{
+72	  return rate_;
+73	}
+74	
+75	}  // lib
+76	}  // oceanbase
+77	
+78	#endif /* OB_RATE_LIMITER_H */
+```
+
+
+---
+> **Complete source for 8 files is included above — do NOT re-read them.** If your question also needs files/symbols listed under "Not shown above" (or any area this call didn't cover), make ANOTHER codegraph_explore targeting those names — it returns the same source with line numbers and is cheaper and more complete than reading. Reserve Read for a single specific line range explore can't surface.

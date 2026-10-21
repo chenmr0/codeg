@@ -1,0 +1,29 @@
+{
+  "baseline": "previous independent contract-fix candidate, P0 commit 87ae5a74c421ddb67bbf3b66ab6c4a8edcceb38a derivative",
+  "upstream_explore_lineage": "community 0.9.9 per user",
+  "community_commit": "f6d8f19b29e5f571ffbc557e160aabc5d8d0373a",
+  "community_version": "1.6.2",
+  "queries_sha256": "6709e13d200b91b73e276c0fdd3b5b510d4c915eb0c55895960b817d6a871705",
+  "maxFiles": 12,
+  "budget": {
+    "maxOutputChars": 24000,
+    "maxCharsPerFile": 7000,
+    "hardCeiling": 25000
+  },
+  "scope": "explore-only retrieval and transient semantic view; existing render allocation rules and numeric output budgets retained",
+  "weak_matching": "no FTS, stem, subword or substring seeds; literal exact common symbols and graph relations remain supported",
+  "index": "fresh isolated copies of previous frozen per-version indexes; no reindex, migration or persistent declaration merging",
+  "old_control": "prior contract-fix outputs reused byte-for-byte; current fixed and community tool results newly executed",
+  "changed_files": [
+    "src/mcp/explore-retrieval.ts",
+    "src/mcp/explore-semantic.ts",
+    "src/mcp/tools.ts",
+    "__tests__/explore-input-contract.test.ts",
+    "__tests__/explore-retrieval-p0.test.ts"
+  ],
+  "model_calls": 0,
+  "iteration_1": "preserved all initial candidate returns and source in iteration-1-results and iteration-1-source",
+  "iteration_2": "Preserved source and all eight outputs after first semantic corrections; excessive type-member expansion caused a DTL regression, addressed by restricting explicit-member queries.",
+  "final_test_report": "logs/combined-third.json",
+  "final_source_runtime_freeze": "candidate-final-replay-hashes.json"
+}

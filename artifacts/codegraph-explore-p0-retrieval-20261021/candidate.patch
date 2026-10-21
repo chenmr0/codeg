@@ -1,0 +1,832 @@
+--- /dev/null
++++ b/src/mcp/explore-retrieval.ts
+@@ -0,0 +1,199 @@
++import type CodeGraph from '../index';
++import type { Edge, Node, Subgraph } from '../types';
++import { isDistinctiveIdentifier, STOP_WORDS } from '../search/query-utils';
++import { isConfigLeafNode } from '../utils';
++import { scanRawSourceEvidence } from './raw-source-evidence';
++import type { RawEvidenceReport } from './raw-source-types';
++import { ExploreSemanticView, EXPLORE_CALLABLES, EXPLORE_TYPES } from './explore-semantic';
++
++export interface ExploreRetrieval {
++  graph: Subgraph;
++  lookup: (token: string) => Node[];
++  evidence?: RawEvidenceReport;
++  note: string;
++  fileEvidence: Map<string, number>;
++  definitionFiles: Set<string>;
++}
++
++/** Exact names/paths and literal evidence only; no FTS, substring or split-word seeds. */
++export async function retrieveExploreContext(cg: CodeGraph, query: string): Promise<ExploreRetrieval> {
++  const view = new ExploreSemanticView(cg);
++  const words = [...new Set(query.match(/[A-Za-z_$][\w$]*(?:(?:::|\.)[\w$]+)*/g) ?? [])].slice(0, 32);
++  const distinctive = words.filter(w => isDistinctiveIdentifier(w) || w.includes('::') || w.includes('.'));
++  const namedTypes = new Map<string, Node>();
++  for (const word of words) {
++    for (const raw of cg.getNodesBySymbolExact(word)) {
++      if (EXPLORE_TYPES.has(raw.kind)) {
++        const n = view.resolve(raw); namedTypes.set(n.id, n);
++      }
++    }
++  }
++  const owners = new Set([...namedTypes.values()].map(n => n.qualifiedName));
++  const ownerTails = new Set([...namedTypes.values()].map(n => n.name));
++  const lookupCache = new Map<string, Node[]>();
++  const lookup = (word: string): Node[] => {
++    if (lookupCache.has(word)) return lookupCache.get(word)!;
++    let raw = cg.getNodesBySymbolExact(word).filter(n => !['import', 'export', 'namespace', 'file', 'parameter'].includes(n.kind)
++      && !isConfigLeafNode(n));
++    const types = raw.filter(n => EXPLORE_TYPES.has(n.kind));
++    // A type name is a type anchor, not an implicit request for its constructor.
++    if (types.length > 0) raw = types;
++    else if (owners.size > 0 && !/[.:]/.test(word)) {
++      let scoped = raw.filter(n => ownerTails.has(n.qualifiedName.split(/::|\./).slice(-2, -1)[0] ?? '')
++        || [...namedTypes.values()].some(t => t.filePath === n.filePath));
++      scoped = scoped.filter(n => {
++        const normalized = view.normalize(n);
++        return owners.has(normalized.qualifiedName.split(/::|\./).slice(0, -1).join(n.language === 'cpp' || n.language === 'c' ? '::' : '.'));
++      });
++      raw = scoped.length > 0 ? scoped : raw.length <= 3 || isDistinctiveIdentifier(word) ? raw : [];
++    } else if (distinctive.length > 0 && !distinctive.includes(word) && raw.length > 3) {
++      // An ambiguous common word needs an owner; an exact unique name does not.
++      raw = [];
++    }
++    const result = [...new Map(raw.map(n => { const v = view.resolve(n); return [v.id, v] as const; })).values()]
++      .sort((a, b) => Number(!!a.isDeclaration) - Number(!!b.isDeclaration)
++        || a.filePath.localeCompare(b.filePath) || a.startLine - b.startLine);
++    lookupCache.set(word, result); return result;
++  };
++  const groups: Node[][] = [];
++  const explicitMembers = new Map<string, Set<string>>();
++  const support = new Map<string, Set<string>>();
++  const corroborate = (n: Node, token: string) => {
++    const terms = support.get(n.id) ?? new Set<string>(); terms.add(token); support.set(n.id, terms);
++  };
++  const unresolved: string[] = [];
++  for (const word of words) {
++    if (STOP_WORDS.has(word.toLowerCase()) && !distinctive.includes(word)) continue;
++    const matches = lookup(word);
++    if (matches.length > 0) {
++      groups.push(matches);
++      for (const n of matches) {
++        corroborate(n, word);
++        if (EXPLORE_CALLABLES.has(n.kind)) {
++          const owner = n.qualifiedName.split(/::|\./).slice(0, -1).join(n.language === 'cpp' || n.language === 'c' ? '::' : '.');
++          if (owner) {
++            const members = explicitMembers.get(owner) ?? new Set<string>();
++            members.add(n.id); explicitMembers.set(owner, members);
++          }
++        }
++      }
++    }
++    else if ((distinctive.includes(word) && word.length >= 4) || words.length === 1) unresolved.push(word);
++  }
++  // Paths stay literal too: a basename must match a whole basename, never a fragment.
++  const paths = query.split(/[\s,;]+/).map(s => s.replace(/^[`'"]|[`'"]$/g, '').replace(/\\/g, '/'))
++    .filter(s => /\.[A-Za-z0-9]+$/.test(s));
++  if (paths.length > 0) {
++    for (const file of cg.getFiles()) {
++      if (!paths.some(p => p === file.path || (!p.includes('/') && file.path.split('/').at(-1) === p))) continue;
++      const matches = view.inFile(file.path).filter(n => EXPLORE_CALLABLES.has(n.kind) || EXPLORE_TYPES.has(n.kind))
++        .map(n => view.resolve(n));
++      groups.push(matches); for (const n of matches) corroborate(n, file.path);
++    }
++  }
++  let evidence: RawEvidenceReport | undefined;
++  if (unresolved.length > 0) {
++    evidence = await scanRawSourceEvidence(cg, unresolved.map(needle => ({ label: needle, needle, mode: 'identifier' })));
++    for (const state of evidence.states) {
++      const bodies = new Map<string, Node>();
++      for (const hit of state.snippets) {
++        const body = view.enclosingBody(hit.file, hit.line);
++        if (body) { bodies.set(body.id, body); corroborate(body, state.spec.needle); }
++      }
++      if (bodies.size > 0) groups.push([...bodies.values()]);
++    }
++  }
++  // Fair first slot per query anchor; unresolved literals never promote their fragments.
++  const entries = new Map<string, Node>();
++  for (let rank = 0; rank < 8 && entries.size < 32; rank++) {
++    for (const group of groups) {
++      const n = group[rank]; if (n && entries.size < 32) entries.set(n.id, n);
++    }
++  }
++  const nodes = new Map(entries);
++  const definitionFiles = new Set<string>();
++  const ownerRoots = new Set<string>();
++  for (const n of entries.values()) {
++    if (EXPLORE_CALLABLES.has(n.kind)) {
++      const owner = view.ownerType(n); if (owner) ownerRoots.add(owner.id);
++    }
++  }
++  const edges: Edge[] = [];
++  const edgeKeys = new Set<string>();
++  const addEdge = (edge: Edge) => {
++    if (!nodes.has(edge.source) || !nodes.has(edge.target)) return;
++    const key = JSON.stringify([edge.source, edge.target, edge.kind, edge.line, edge.column]);
++    if (!edgeKeys.has(key)) { edgeKeys.add(key); edges.push(edge); }
++  };
++  const perEntryLimit = Math.ceil(200 / Math.max(1, entries.size));
++  for (const root of entries.values()) {
++    const admitted = new Set([root.id]);
++    const queue: Array<{ node: Node; depth: number }> = [{ node: root, depth: 0 }];
++    while (queue.length > 0) {
++      const { node, depth } = queue.shift()!;
++      if (depth >= 3) continue;
++      const neighbors: Array<{ node: Node; edge: Edge }> = [];
++      const isType = EXPLORE_TYPES.has(node.kind);
++      const selectedMembers = isType ? explicitMembers.get(node.qualifiedName) : undefined;
++      const expandMembers = support.has(node.id) || ownerRoots.has(node.id);
++      if (depth === 0 && EXPLORE_CALLABLES.has(node.kind)) {
++        const owner = view.ownerType(node);
++        if (owner) neighbors.push({ node: owner, edge: { source: owner.id, target: node.id, kind: 'contains',
++          metadata: { evidence: 'source-owner' } } });
++      }
++      if (isType && expandMembers) {
++        for (const member of view.members(node)) {
++          // Naming a type alongside precise members does not request every
++          // other method. Type-only and literal-recovery queries retain breadth.
++          if (selectedMembers && !selectedMembers.has(member.id)) continue;
++          for (const token of support.get(node.id) ?? []) corroborate(member, token);
++          if (support.has(node.id) && !member.isDeclaration) definitionFiles.add(member.filePath);
++          neighbors.push({ node: member,
++            edge: { source: node.id, target: member.id, kind: 'contains', metadata: { evidence: 'semantic-member' } } });
++        }
++      }
++      const endpointIds = new Set(view.endpoints(node));
++      for (const e of [...endpointIds].flatMap(id => [...cg.getOutgoingEdges(id), ...cg.getIncomingEdges(id)])) {
++        if (!['calls', 'contains', 'defines', 'overrides', 'type_of', 'extends', 'implements'].includes(e.kind)) continue;
++        const raw = cg.getNode(endpointIds.has(e.source) ? e.target : e.source);
++        if (!raw || ['file', 'namespace', 'import', 'export'].includes(raw.kind) || isConfigLeafNode(raw)) continue;
++        const next = view.resolve(raw);
++        if (next.id === node.id) continue;
++        if (isType && e.kind === 'contains' && endpointIds.has(e.source)
++          && (!expandMembers || (selectedMembers && !selectedMembers.has(next.id)))) continue;
++        neighbors.push({ node: next, edge: { ...e,
++          source: endpointIds.has(e.source) ? node.id : next.id,
++          target: endpointIds.has(e.target) ? node.id : next.id } });
++      }
++      neighbors.sort((a, b) => Number(a.edge.kind !== 'contains') - Number(b.edge.kind !== 'contains')
++        || Number(!EXPLORE_CALLABLES.has(a.node.kind)) - Number(!EXPLORE_CALLABLES.has(b.node.kind))
++        || Number(!!a.node.isDeclaration) - Number(!!b.node.isDeclaration)
++        || a.node.startLine - b.node.startLine);
++      for (const next of neighbors) {
++        if (!admitted.has(next.node.id)) {
++          if (admitted.size >= perEntryLimit || (!nodes.has(next.node.id) && nodes.size >= 200)) continue;
++          admitted.add(next.node.id); nodes.set(next.node.id, next.node);
++          queue.push({ node: next.node, depth: depth + 1 });
++        }
++        addEdge(next.edge);
++      }
++    }
++  }
++  const parts = ['Exact symbol/path anchors and identifier text evidence; weak word matches are disabled.'];
++  if (evidence) {
++    const partial = evidence.budgetReached || evidence.timeBudgetReached || evidence.cancelled
++      || evidence.omittedQueries > 0 || evidence.states.some(s => s.unreadableFiles > 0 || s.scannedFiles < s.eligibleFiles);
++    parts.push(`Literal fallback (${evidence.backend}): ${evidence.states.length} identifier(s), ${evidence.states.reduce((n, s) => n + s.matchingLines, 0)} matching line(s).${partial ? ' Scan incomplete; absence is not established.' : ''}`);
++    const locations = evidence.states.flatMap(s => s.snippets.map(h => `${s.spec.needle}: ${h.file}:${h.line}`)).slice(0, 12);
++    if (locations.length) parts.push('Literal locations (not complete bodies): ' + locations.join('; '));
++    if (evidence.states.some(s => s.matchingLines > s.snippets.length)) parts.push('Only a bounded sample of literal hits was mapped to bodies.');
++  }
++  const fileTerms = new Map<string, Set<string>>();
++  for (const n of nodes.values()) {
++    const terms = fileTerms.get(n.filePath) ?? new Set<string>();
++    for (const token of support.get(n.id) ?? []) terms.add(token);
++    fileTerms.set(n.filePath, terms);
++  }
++  const fileEvidence = new Map([...fileTerms].map(([file, terms]) => [file, terms.size]));
++  return { graph: { nodes, edges, roots: [...entries.keys()] }, lookup, evidence, note: parts.join('\n'), fileEvidence, definitionFiles };
++}
+--- /dev/null
++++ b/src/mcp/explore-semantic.ts
+@@ -0,0 +1,197 @@
++import type CodeGraph from '../index';
++import type { Node } from '../types';
++import { readFileSync } from 'fs';
++import { createHash } from 'crypto';
++import { CCppSourceScope } from '../extraction/c-cpp-source-scope';
++import { maskCStyleCommentsAndLiterals } from '../extraction/grammars';
++import { cppCallableParametersMatch, cppParameterKey } from '../resolution/cpp-signature';
++import { validatePathWithinRoot } from '../utils';
++
++export const EXPLORE_TYPES = new Set(['class', 'struct', 'interface', 'trait', 'protocol', 'enum']);
++export const EXPLORE_CALLABLES = new Set(['method', 'function', 'component', 'constructor']);
++
++/** Per-query, read-only semantic view. IDs and original declaration rows stay intact. */
++export class ExploreSemanticView {
++  private names = new Map<string, Node[]>();
++  private files = new Map<string, Node[]>();
++  private sources = new Map<string, { text: string; masked: string; offsets: number[]; scope: CCppSourceScope } | null>();
++  private normalized = new Map<string, Node>();
++  private canonical = new Map<string, Node>();
++  private owners = new Map<string, string | undefined>();
++  private aliases = new Map<string, Set<string>>();
++  constructor(private cg: CodeGraph) {}
++
++  byName(name: string): Node[] {
++    if (!this.names.has(name)) this.names.set(name, this.cg.getNodesByName(name));
++    return this.names.get(name)!;
++  }
++  inFile(file: string): Node[] {
++    if (!this.files.has(file)) this.files.set(file, this.cg.getNodesInFile(file));
++    return this.files.get(file)!;
++  }
++  private source(file: string) {
++    if (!this.sources.has(file)) {
++      const abs = validatePathWithinRoot(this.cg.getProjectRoot(), file);
++      try {
++        if (!abs) throw new Error('outside project');
++        const text = readFileSync(abs, 'utf8');
++        const tracked = this.cg.getFile(file);
++        if (tracked && createHash('sha256').update(text).digest('hex') !== tracked.contentHash) {
++          throw new Error('source changed since indexing');
++        }
++        const offsets = [0];
++        for (let i = 0; i < text.length; i++) if (text[i] === '\n') offsets.push(i + 1);
++        this.sources.set(file, { text, masked: maskCStyleCommentsAndLiterals(text), offsets, scope: new CCppSourceScope(text) });
++      } catch { this.sources.set(file, null); }
++    }
++    return this.sources.get(file);
++  }
++  private enclosingType(n: Node): Node | undefined {
++    return this.inFile(n.filePath).filter(t => t.id !== n.id && EXPLORE_TYPES.has(t.kind)
++      && !t.isDeclaration && t.startLine <= n.startLine && t.endLine >= n.endLine
++      && (t.startLine < n.startLine || t.endLine > n.endLine || t.startColumn < n.startColumn))
++      .sort((a, b) => (a.endLine - a.startLine) - (b.endLine - b.startLine))[0];
++  }
++  private typeName(n: Node): string {
++    const source = this.source(n.filePath);
++    if (!source) return n.qualifiedName;
++    const lineOffset = source.offsets[n.startLine - 1];
++    if (lineOffset === undefined) return n.qualifiedName;
++    const offset = lineOffset + n.startColumn;
++    const parent = this.enclosingType(n);
++    return [parent ? this.typeName(parent) : source.scope.namespaceAt(offset), n.name].filter(Boolean).join('::');
++  }
++  owner(n: Node): string | undefined {
++    if (this.owners.has(n.id)) return this.owners.get(n.id);
++    // Cache the unresolved state before recursing through type identities.
++    this.owners.set(n.id, undefined);
++    const parent = this.enclosingType(n);
++    if (parent) {
++      const owner = this.typeName(parent); this.owners.set(n.id, owner); return owner;
++    }
++    const source = this.source(n.filePath);
++    if (!source) return undefined;
++    const lineOffset = source.offsets[n.startLine - 1];
++    if (lineOffset === undefined) return undefined;
++    const offset = lineOffset + n.startColumn;
++    const head = source.masked.slice(offset, source.offsets[Math.min(n.endLine, n.startLine + 16)] ?? source.masked.length);
++    const escaped = n.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
++    const spelling = new RegExp('([A-Za-z_]\\w*(?:::[A-Za-z_]\\w*)*)::' + escaped + '\\s*\\(').exec(head)?.[1];
++    if (!spelling) return undefined;
++    const ns = source.scope.namespaceAt(offset);
++    const types = this.byName(spelling.split('::').at(-1)!).filter(t => EXPLORE_TYPES.has(t.kind) && !t.isDeclaration)
++      .map(t => this.typeName(t));
++    // Lexical declarations hide namespace imports. Walk outward before considering using-directives.
++    const namespaces = ns.split('::').filter(Boolean);
++    for (let count = namespaces.length; count >= 0; count--) {
++      const local = [...namespaces.slice(0, count), spelling].join('::');
++      if (types.includes(local)) { this.owners.set(n.id, local); return local; }
++    }
++    const possible = new Set<string>();
++    // Only source-written, preceding namespace directives visible at this scope.
++    // Block-local directives do not establish ownership of an out-of-line method.
++    const prefix = source.masked.slice(0, offset);
++    for (const m of prefix.matchAll(/\busing\s+namespace\s+([A-Za-z_]\w*(?:::[A-Za-z_]\w*)*)\s*;/g)) {
++      const at = m.index!; const usingScope = source.scope.namespaceAt(at);
++      if (source.scope.isExecutable(at) || (usingScope && ns !== usingScope && !ns.startsWith(usingScope + '::'))) continue;
++      possible.add(m[1] + '::' + spelling);
++      if (usingScope) possible.add(usingScope + '::' + m[1] + '::' + spelling);
++    }
++    const matches = new Set(types.filter(q => possible.has(q)));
++    const owner = matches.size === 1 ? [...matches][0] : undefined;
++    this.owners.set(n.id, owner); return owner;
++  }
++  normalize(n: Node): Node {
++    if (this.normalized.has(n.id)) return this.normalized.get(n.id)!;
++    let result = n;
++    if (n.language === 'cpp' || n.language === 'c') {
++      if (EXPLORE_TYPES.has(n.kind)) result = { ...n, qualifiedName: this.typeName(n) };
++      else if (EXPLORE_CALLABLES.has(n.kind)) {
++        const owner = this.owner(n);
++        if (owner) result = { ...n, qualifiedName: owner + '::' + n.name };
++        // Stored display signatures may be shortened. Never compare a truncated
++        // parameter list: recover its balanced declarator from unchanged source.
++        if (cppParameterKey(result) === null) {
++          const source = this.source(n.filePath);
++          const offset = source?.offsets[n.startLine - 1];
++          if (source && offset !== undefined) {
++            const head = source.masked.slice(offset + n.startColumn,
++              source.offsets[Math.min(n.endLine, n.startLine + 32)] ?? source.masked.length);
++            const escaped = n.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
++            const match = new RegExp(escaped + '\\s*\\(').exec(head);
++            if (match) {
++              const open = head.indexOf('(', match.index + n.name.length);
++              let depth = 0;
++              for (let i = open; i < head.length; i++) {
++                if (head[i] === '(') depth++;
++                else if (head[i] === ')' && --depth === 0) {
++                  const suffix = head.slice(i + 1).split(/[;{]/, 1)[0]!;
++                  result = { ...result, signature: head.slice(0, i + 1) + suffix };
++                  break;
++                }
++              }
++            }
++          }
++        }
++      }
++    }
++    this.normalized.set(n.id, result); return result;
++  }
++  resolve(n: Node): Node {
++    if (this.canonical.has(n.id)) return this.canonical.get(n.id)!;
++    const normalized = this.normalize(n);
++    this.canonical.set(n.id, normalized);
++    if (!n.isDeclaration || (n.language !== 'cpp' && n.language !== 'c')) return normalized;
++    let candidates: Node[] = [];
++    if (EXPLORE_TYPES.has(n.kind)) {
++      candidates = this.byName(n.name).filter(d => d.kind === n.kind && !d.isDeclaration
++        && this.normalize(d).qualifiedName === normalized.qualifiedName);
++    } else if (EXPLORE_CALLABLES.has(n.kind)) {
++      const owner = this.owner(n);
++      const qualifiers = (v: Node) => ((v.signature ?? '').slice((v.signature ?? '').lastIndexOf(')') + 1)
++        .match(/\bconst\b|\bvolatile\b|&&?/g) ?? []).join(' ');
++      candidates = this.byName(n.name).filter(d => !d.isDeclaration && EXPLORE_CALLABLES.has(d.kind)
++        // Cheap tail check before loading source for common names like init/run.
++        && (owner ? d.qualifiedName.split('::').slice(-2, -1)[0] === owner.split('::').at(-1)
++          : d.qualifiedName === n.qualifiedName)
++        && d.language === n.language && cppCallableParametersMatch(normalized, this.normalize(d)) === true
++        && qualifiers(normalized) === qualifiers(this.normalize(d))
++        && (owner ? this.owner(d) === owner : d.kind === 'function' && d.qualifiedName === n.qualifiedName));
++      // An unqualified definition shared by two namespaces is not safe to merge.
++      if (owner) candidates = candidates.filter(d => this.owner(d) !== undefined);
++    }
++    if (candidates.length === 1) {
++      const definition = this.normalize(candidates[0]!);
++      this.canonical.set(n.id, definition);
++      const aliases = this.aliases.get(definition.id) ?? new Set<string>();
++      aliases.add(n.id); this.aliases.set(definition.id, aliases);
++    }
++    return this.canonical.get(n.id)!;
++  }
++  endpoints(n: Node): string[] { return [n.id, ...this.aliases.get(n.id) ?? []]; }
++  ownerType(n: Node): Node | undefined {
++    if (n.language !== 'cpp' && n.language !== 'c') return undefined;
++    const owner = this.owner(n);
++    if (!owner) return undefined;
++    const matches = this.byName(owner.split('::').at(-1)!).filter(t => EXPLORE_TYPES.has(t.kind)
++      && !t.isDeclaration && this.normalize(t).qualifiedName === owner);
++    return matches.length === 1 ? this.normalize(matches[0]!) : undefined;
++  }
++  members(type: Node): Node[] {
++    const ids = new Map<string, Node>();
++    for (const n of this.inFile(type.filePath)) {
++      if (n.id === type.id || !EXPLORE_CALLABLES.has(n.kind)) continue;
++      if (this.enclosingType(n)?.id !== type.id) continue;
++      const member = this.resolve(n); ids.set(member.id, member);
++    }
++    return [...ids.values()];
++  }
++  /** Resolve literal source evidence to the tightest indexed callable body. */
++  enclosingBody(file: string, line: number): Node | undefined {
++    if (!this.source(file)) return undefined;
++    return this.inFile(file).filter(n => EXPLORE_CALLABLES.has(n.kind) && !n.isDeclaration
++      && n.startLine <= line && n.endLine >= line)
++      .sort((a, b) => (a.endLine - a.startLine) - (b.endLine - b.startLine))
++      .map(n => this.resolve(n))[0];
++  }
++}
+--- a/src/mcp/tools.ts
++++ b/src/mcp/tools.ts
+@@ -6,6 +6,7 @@
+ 
+ import type CodeGraph from '../index';
+ import { capExploreResponse } from './explore-response';
++import { retrieveExploreContext } from './explore-retrieval';
+ import type { IndexDataReadiness } from '../index';
+ import { AsyncLocalStorage } from 'async_hooks';
+ import { findNearestCodeGraphRoot } from '../directory';
+@@ -31,7 +32,6 @@
+   isDistinctiveIdentifier,
+   isNaturalLanguageQuery,
+   isTestFile,
+-  normalizeNameToken,
+   normalizePathForComparison,
+   pathContainsHint,
+   scorePathSimilarity,
+@@ -3348,7 +3348,7 @@
+    * whose qualifiedName contains another named token (`PmsProductServiceImpl::list`),
+    * dropping unrelated `OmsOrderService::list`.
+    */
+-  private buildFlowFromNamedSymbols(cg: CodeGraph, query: string): { text: string; pathNodeIds: Set<string>; namedNodeIds: Set<string>; uniqueNamedNodeIds: Set<string> } {
++  private buildFlowFromNamedSymbols(cg: CodeGraph, query: string, lookup?: (token: string) => Node[]): { text: string; pathNodeIds: Set<string>; namedNodeIds: Set<string>; uniqueNamedNodeIds: Set<string> } {
+     const EMPTY = { text: '', pathNodeIds: new Set<string>(), namedNodeIds: new Set<string>(), uniqueNamedNodeIds: new Set<string>() };
+     try {
+       const CALLABLE = new Set(['method', 'function', 'component', 'constructor']);
+@@ -3376,7 +3376,7 @@
+       // so naming it doesn't keep every backend variant full and flood the budget.
+       const uniqueNamedNodeIds = new Set<string>();
+       for (const t of tokens) {
+-        const cands = this.findAllSymbols(cg, t).nodes.filter((n) => CALLABLE.has(n.kind));
++        const cands = (lookup ? lookup(t) : this.findAllSymbols(cg, t).nodes).filter((n) => CALLABLE.has(n.kind));
+         // A qualified or otherwise-specific name (<=3 hits) keeps all; an
+         // ambiguous simple name keeps only candidates whose container is named.
+         const specific = cands.length <= 3;
+@@ -3474,7 +3474,7 @@
+           ''
+         );
+       }
+-      out.push('> Full source for these symbols is below — the call flow among them, followed by their bodies.', '');
++      out.push('> This flow describes indexed relationships. Only source ranges actually rendered below are covered; a listed function may be omitted or shown as a signature.', '');
+       // namedNodeIds = every callable the agent explicitly named (a superset of
+       // the spine). A file holding one is something the agent asked to SEE, so it
+       // must keep full source even if it's an off-spine polymorphic sibling — the
+@@ -3650,125 +3650,16 @@
+     }
+     const maxFiles = clamp((args.maxFiles as number) || budget.defaultMaxFiles, 1, 20);
+ 
+-    // Step 1: Find relevant context with generous parameters.
+-    // Use a large maxNodes budget — explore has its own 35k char output limit
+-    // that prevents context bloat, so more nodes just means better coverage
+-    // across entry points (especially for large files like Svelte components).
+-    const subgraph = await cg.findRelevantContext(query, {
+-      searchLimit: 8,
+-      traversalDepth: 3,
+-      maxNodes: 200,
+-      minScore: 0.2,
+-    });
+-
++    const retrieval = await retrieveExploreContext(cg, query);
++    const subgraph = retrieval.graph;
+     if (subgraph.nodes.size === 0) {
+-      return this.textResult(`No relevant code found for "${query}"`);
+-    }
+-
+-    // Graph-aware glue: findRelevantContext builds the subgraph from name/text
+-    // search, so a method that BRIDGES named symbols — e.g. App.tsx's
+-    // triggerRender, which calls the named triggerUpdate — is never a search hit
+-    // and gets missed, forcing the agent to Read the file to trace it. Pull in
+-    // the callers/callees of the entry (root) nodes, but ONLY those that live in
+-    // files the subgraph already surfaces (where the agent reads to fill gaps),
+-    // so we add wiring without dragging in unrelated files. These get an
+-    // importance boost below so they survive the per-file cluster budget.
++      return this.textResult(capExploreResponse(
++        `No exact symbol or callable source evidence found for "${query}".\n${retrieval.note}`,
++        Math.min(Math.round(budget.maxOutputChars * 1.5), 25000),
++      ));
++    }
+     const glueNodeIds = new Set<string>();
+-    const subgraphFiles = new Set<string>();
+-    for (const n of subgraph.nodes.values()) subgraphFiles.add(n.filePath);
+-    const GLUE_NODE_CAP = 60;
+-    for (const rootId of subgraph.roots) {
+-      if (glueNodeIds.size >= GLUE_NODE_CAP) break;
+-      let neighbors: Node[] = [];
+-      try {
+-        neighbors = [
+-          ...cg.getCallers(rootId).map(c => c.node),
+-          ...cg.getCallees(rootId).map(c => c.node),
+-        ];
+-      } catch {
+-        continue;
+-      }
+-      for (const nb of neighbors) {
+-        if (glueNodeIds.size >= GLUE_NODE_CAP) break;
+-        if (subgraph.nodes.has(nb.id)) continue;
+-        if (!subgraphFiles.has(nb.filePath)) continue;
+-        subgraph.nodes.set(nb.id, nb);
+-        glueNodeIds.add(nb.id);
+-      }
+-    }
+-
+-    // Named-symbol seeding: findRelevantContext is an FTS/text rank, so a query
+-    // that's a BAG of symbol names skewed toward one phase (Alamofire: 5 build
+-    // terms, each a high-frequency name, vs 3 validate terms) lets the
+-    // lower-frequency names fall below the search cut — their definitions, and
+-    // whole files (Validation.swift), never get gathered, so they can never
+-    // render and the agent Reads them. Resolve EACH named token to its
+-    // substantive definition (skip empty stubs + test files, same relevance the
+-    // trace endpoint picker uses) and inject it as an entry, so every symbol the
+-    // agent explicitly named is in the subgraph and its file is scored.
+-    const namedSeedIds = new Set<string>();
+-    {
+-      const FILE_EXT = /\.(?:java|kt|kts|ts|tsx|js|jsx|mjs|cjs|cs|py|go|rb|php|swift|rs|cpp|cc|cxx|c|h|hpp|scala|lua|dart|vue|svelte)$/i;
+-      const CALLABLE = new Set(['method', 'function', 'component', 'constructor']);
+-      const isTestPath = (p: string) => /(^|\/)(tests?|specs?|__tests__|testdata|mocks?|fixtures?)\//i.test(p) || /\.(test|spec)\.[a-z]+$/i.test(p);
+-      const bodyLines = (n: Node) => Math.max(0, (n.endLine ?? n.startLine) - n.startLine);
+-      const tokens = [...new Set(
+-        query.split(/[\s,()[\]]+/)
+-          .map((t) => t.replace(FILE_EXT, '').trim())
+-          .filter((t) => t.length >= 3 && /^[A-Za-z_$][\w$]*(?:(?:::|\.)[\w$]+)*$/.test(t))
+-      )].slice(0, 16);
+-      // PascalCase tokens in the query are type/file disambiguators — when the
+-      // agent writes "DataRequest task validate", the `task`/`validate` it wants
+-      // are DataRequest's, NOT the same-named overloads in Validation.swift /
+-      // Concurrency.swift / the abstract base. Used below to bias overloaded
+-      // names toward the file/class the query also names. EXCLUDE the project
+-      // name (a PascalCase token a user naturally includes) — it names the whole
+-      // repo, so biasing toward it just pulls overloads to whichever stack
+-      // embeds it, re-burying the rest (#720).
+-      const projectNameTokens = cg.getProjectNameTokens();
+-      const typeTokens = tokens.filter(
+-        (o) => /^[A-Z][A-Za-z0-9]{3,}/.test(o) && !projectNameTokens.has(normalizeNameToken(o)),
+-      );
+-      const inNamedContext = (n: Node) =>
+-        typeTokens.some((ct) => {
+-          const lc = ct.toLowerCase();
+-          return n.filePath.toLowerCase().includes(lc) || n.qualifiedName.toLowerCase().includes(lc);
+-        });
+-      for (const t of tokens) {
+-        // Enumerate ALL defs of a bare token via the direct index, not FTS — a
+-        // 50+-overload name (tokio `poll`) ranks the wanted def (`Harness::poll`)
+-        // below the FTS cut, so findAllSymbols would never see it and the
+-        // type-token bias below couldn't pick the harness.rs one. (Same fix as
+-        // codegraph_node's findSymbolMatches.) Qualified tokens keep findAllSymbols.
+-        const isQual = /[.\/]|::/.test(t);
+-        const raw = isQual ? this.findAllSymbols(cg, t).nodes : cg.getNodesByName(t);
+-        const cands = raw
+-          .filter((n) => CALLABLE.has(n.kind) && !isTestPath(n.filePath))
+-          .sort((a, b) => (bodyLines(b) > 1 ? 1 : 0) - (bodyLines(a) > 1 ? 1 : 0) || bodyLines(b) - bodyLines(a));
+-        // A specific name (<=3 defs) injects all its defs. An overloaded name
+-        // (`validate` = 10, `request` = 44) would flood the subgraph, so inject
+-        // only: the overloads whose file/class the query ALSO names (the agent
+-        // told us which one it wants — DataRequest's, not Validation.swift's),
+-        // capped; else fall back to the single most-substantive def. This is the
+-        // explore-side mirror of codegraph_node's overload disambiguation.
+-        let picks: Node[];
+-        if (cands.length <= 3) {
+-          picks = cands;
+-        } else {
+-          const ctx = cands.filter(inNamedContext);
+-          picks = ctx.length > 0 ? ctx.slice(0, 4) : cands.slice(0, 1);
+-        }
+-        for (const n of picks) {
+-          if (!subgraph.nodes.has(n.id)) subgraph.nodes.set(n.id, n);
+-          // Mark as a named seed EVEN IF the FTS gather already had it — being
+-          // "named by the agent" is independent of whether search happened to
+-          // surface it, and it drives the +50 score, the gate, and the
+-          // named-file sort below. (Previously only NEW injections were marked,
+-          // so a named symbol FTS already gathered never sorted to the top.)
+-          namedSeedIds.add(n.id);
+-        }
+-      }
+-    }
++    const namedSeedIds = new Set(subgraph.roots);
+ 
+     // Step 2: Group nodes by file, score by relevance
+     const fileGroups = new Map<string, { nodes: Node[]; score: number }>();
+@@ -3942,7 +3833,7 @@
+     // connectivity abstract base (`Request.swift`) and the same-named overloads
+     // in other files (`Validation.swift`), falls outside the budget, and the
+     // agent Reads it. The named file is the answer — rank it at the top.
+-    const namedSeedFiles = new Set<string>();
++    const namedSeedFiles = new Set<string>(retrieval.definitionFiles);
+     for (const id of namedSeedIds) {
+       const n = subgraph.nodes.get(id);
+       if (n) namedSeedFiles.add(n.filePath);
+@@ -3951,6 +3842,11 @@
+     const sortedFiles = relevantFiles.sort((a, b) => {
+       const aPath = a[0].toLowerCase();
+       const bPath = b[0].toLowerCase();
++
++      // Independent exact identifiers corroborating the same file beat walk
++      // mass from a common helper. Repeated occurrences do not inflate this.
++      const proof = (retrieval.fileEvidence.get(b[0]) ?? 0) - (retrieval.fileEvidence.get(a[0]) ?? 0);
++      if (proof) return proof;
+ 
+       // Agent-named files first (it asked for a symbol defined here by name).
+       const aNamed = namedSeedFiles.has(a[0]) ? 1 : 0;
+@@ -3991,6 +3887,8 @@
+       '',
+       `Found ${subgraph.nodes.size} symbols across ${fileGroups.size} files.`,
+       '',
++      '',
++      retrieval.note,
+     ];
+ 
+     // Blast radius (always-on, compact): for the entry symbols, who depends on
+@@ -4038,7 +3936,7 @@
+     // Compute the flow spine once — used both to prepend the Flow section (below)
+     // and to gate adaptive source sizing: files on the spine get full source,
+     // off-spine peers skeletonize.
+-    const flow = this.buildFlowFromNamedSymbols(cg, query);
++    const flow = this.buildFlowFromNamedSymbols(cg, query, retrieval.lookup);
+ 
+     // Polymorphic-sibling detector for adaptive sizing. A class that implements/
+     // extends a supertype shared by >= MIN_SIBLINGS classes is one of many
+--- a/__tests__/explore-input-contract.test.ts
++++ b/__tests__/explore-input-contract.test.ts
+@@ -25,10 +25,9 @@
+     'engine.cpp calculate', 'calculate, apply; receive',
+     'How does apply call calculate?', '检查 calculate 与 apply 的调用关系',
+   ])('passes valid explore input to retrieval: %s', async query => {
+-    const spy = vi.spyOn(cg, 'findRelevantContext');
+     const result = await handler.execute('explore', { query, maxFiles: 12 });
+     expect(result.isError).not.toBe(true);
+-    expect(spy).toHaveBeenCalledWith(query, expect.any(Object));
++    expect(result.content?.[0]?.text).toContain('return value + 11;');
+     expect(result.content?.[0]?.text).not.toContain('不支持自然语言');
+   });
+ 
+--- /dev/null
++++ b/__tests__/explore-retrieval-p0.test.ts
+@@ -0,0 +1,195 @@
++import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
++import * as fs from 'node:fs';
++import * as path from 'node:path';
++import * as os from 'node:os';
++import CodeGraph from '../src/index';
++import { QueryBuilder } from '../src/db/queries';
++import { ToolHandler } from '../src/mcp/tools';
++import { retrieveExploreContext } from '../src/mcp/explore-retrieval';
++import { ExploreSemanticView } from '../src/mcp/explore-semantic';
++
++describe('exact exploration and semantic traversal on real indexed source', () => {
++  let root: string, cg: CodeGraph;
++  beforeAll(async () => {
++    vi.stubEnv('CODEGRAPH_ENABLE_EXPLORE', '1');
++    vi.stubEnv('CODEGRAPH_RAW_EVIDENCE_BACKEND', 'ripgrep');
++    root = fs.mkdtempSync(path.join(os.tmpdir(), 'cg-explore-p0-'));
++    fs.writeFileSync(path.join(root, 'worker.h'), `namespace alpha { namespace detail {
++class WorkerUnit {
++public:
++  int run(int value);
++  int run(double value);
++  int save();
++  int unrelated();
++};
++} }
++namespace beta { class WorkerUnit { public: int run(int value); }; }
++`);
++    fs.writeFileSync(path.join(root, 'worker.cpp'), `#include "worker.h"
++using namespace alpha::detail;
++int WorkerUnit::run(int value) { return save() + value; }
++int WorkerUnit::run(double value) { return 22; }
++int WorkerUnit::save() { return 91; }
++namespace beta { int WorkerUnit::run(int value) { return 73; } }
++int WorkerUnit::unrelated() { return 999; }
++`);
++    fs.writeFileSync(path.join(root, 'quota.cpp'), `int read_quota(Config *cfg) {
++  return cfg->cache_batch_limit;
++}
++int read_prefix(Config *cfg) { return cfg->cache_batch_limit_extra; }
++`);
++    fs.writeFileSync(path.join(root, 'client.ts'), `export function consumeBudget(config: any) {
++  return config.retry_window_ms + 17;
++}
++export function score() { return 500; }
++export class Thread { run() { return 100; } }
++`);
++    cg = CodeGraph.initSync(root, { config: { include: ['**/*.cpp', '**/*.h', '**/*.ts'], exclude: [] } });
++    await cg.indexAll();
++  });
++  afterAll(() => { cg?.close(); fs.rmSync(root, { recursive: true, force: true }); vi.unstubAllEnvs(); });
++
++  it('maps unresolved C++ identifiers through ripgrep into a whole indexed function', async () => {
++    expect(cg.getNodesBySymbolExact('cache_batch_limit')).toHaveLength(0);
++    const r = await retrieveExploreContext(cg, 'cache_batch_limit');
++    expect(r.evidence?.backend).toBe('ripgrep');
++    expect(r.evidence?.states[0]?.matchingLines).toBe(1);
++    const roots = r.graph.roots.map(id => r.graph.nodes.get(id)!);
++    expect(roots.map(n => n.name)).toEqual(['read_quota']);
++    expect(roots[0]!.endLine - roots[0]!.startLine).toBe(2);
++  });
++  it('batches literal misses and maps TypeScript as well as C++ bodies', async () => {
++    const r = await retrieveExploreContext(cg, 'cache_batch_limit retry_window_ms');
++    expect(r.evidence?.states).toHaveLength(2);
++    expect(r.graph.roots.map(id => r.graph.nodes.get(id)!.name).sort()).toEqual(['consumeBudget', 'read_quota']);
++  });
++  it('never turns fragments of an absent identifier into Thread/score roots', async () => {
++    const r = await retrieveExploreContext(cg, 'missing_thread_score');
++    expect(r.graph.nodes.size).toBe(0);
++    expect(r.evidence?.states[0]?.matchingLines).toBe(0);
++  });
++  it('scopes common member names to the explicitly named type and merges declarations', async () => {
++    const r = await retrieveExploreContext(cg, 'alpha::detail::WorkerUnit run');
++    const runs = [...r.graph.nodes.values()].filter(n => n.name === 'run');
++    expect(runs.length).toBeGreaterThanOrEqual(2);
++    expect(runs.every(n => n.filePath === 'worker.cpp' && !n.isDeclaration)).toBe(true);
++    expect(r.lookup('run').every(n => n.qualifiedName === 'alpha::detail::WorkerUnit::run')).toBe(true);
++    expect(new Set(runs.map(n => n.id)).size).toBe(runs.length);
++  });
++  it('attaches out-of-line definitions to their source-supported type during traversal', async () => {
++    const r = await retrieveExploreContext(cg, 'alpha::detail::WorkerUnit');
++    const type = r.graph.nodes.get(r.graph.roots[0]!)!;
++    const save = [...r.graph.nodes.values()].find(n => n.name === 'save' && n.filePath === 'worker.cpp');
++    expect(save).toBeTruthy();
++    expect(r.graph.edges.some(e => e.source === type.id && e.target === save!.id && e.kind === 'contains')).toBe(true);
++    expect(r.graph.nodes.size).toBeLessThanOrEqual(200);
++    expect(r.graph.edges.every(e => r.graph.nodes.has(e.source) && r.graph.nodes.has(e.target))).toBe(true);
++  });
++  it('does not expand unrequested class members when precise members were named', async () => {
++    const broad = await retrieveExploreContext(cg, 'alpha::detail::WorkerUnit');
++    expect([...broad.graph.nodes.values()].some(n => n.name === 'unrelated')).toBe(true);
++    const precise = await retrieveExploreContext(cg, 'alpha::detail::WorkerUnit run');
++    expect([...precise.graph.nodes.values()].some(n => n.name === 'unrelated')).toBe(false);
++    // A real callee remains useful evidence even though it was not a named member.
++    expect([...precise.graph.nodes.values()].some(n => n.name === 'save' && !n.isDeclaration)).toBe(true);
++  });
++  it('corrects legacy namespace metadata using source, without updating stored rows', () => {
++    const q = (cg as unknown as { queries: QueryBuilder }).queries;
++    const original = cg.getNodesByName('WorkerUnit').find(n => n.kind === 'class' && n.qualifiedName === 'alpha::detail::WorkerUnit')!;
++    expect(original).toBeTruthy();
++    q.insertNodes([{ ...original, qualifiedName: 'alpha::WorkerUnit' }]);
++    try {
++      const old = cg.getNode(original.id)!;
++      const view = new ExploreSemanticView(cg);
++      expect(view.normalize(old).qualifiedName).toBe('alpha::detail::WorkerUnit');
++      expect(view.members(old).some(n => n.name === 'save' && n.filePath === 'worker.cpp')).toBe(true);
++      expect(cg.getNode(original.id)!.qualifiedName).toBe('alpha::WorkerUnit');
++    } finally { q.insertNodes([original]); }
++  });
++  it('retains overloads and does not merge definitions from another namespace', () => {
++    const view = new ExploreSemanticView(cg);
++    const declarations = cg.getNodesByName('run').filter(n => n.isDeclaration && n.qualifiedName.startsWith('alpha::detail::'));
++    expect(declarations).toHaveLength(2);
++    const defs = declarations.map(n => view.resolve(n));
++    expect(new Set(defs.map(n => n.id)).size).toBe(2);
++    expect(defs.map(n => [n.qualifiedName, !!n.isDeclaration])).toEqual([['alpha::detail::WorkerUnit::run', false], ['alpha::detail::WorkerUnit::run', false]]);
++  });
++  it('recovers display-truncated signatures from source before comparing overloads', () => {
++    const q = (cg as unknown as { queries: QueryBuilder }).queries;
++    const original = cg.getNodesByName('run').find(n => n.filePath === 'worker.cpp' && n.startLine === 3)!;
++    q.insertNodes([{ ...original, signature: 'int WorkerUnit::run(int val...' }]);
++    try {
++      const declaration = cg.getNodesByName('run').find(n => n.isDeclaration && n.filePath === 'worker.h' && n.startLine === 4)!;
++      const result = new ExploreSemanticView(cg).resolve(declaration);
++      expect(result.id).toBe(original.id);
++      expect(result.signature).toContain('int value)');
++      expect(cg.getNode(original.id)!.signature).toContain('...');
++    } finally { q.insertNodes([original]); }
++  });
++  it('counts independent literal identifiers, not repeated occurrences, as file evidence', async () => {
++    const r = await retrieveExploreContext(cg, 'cache_batch_limit cache_batch_limit retry_window_ms');
++    expect(r.fileEvidence.get('quota.cpp')).toBe(1);
++    expect(r.fileEvidence.get('client.ts')).toBe(1);
++  });
++  it('does not promise complete source just because a flow exists', async () => {
++    const r = await new ToolHandler(cg).execute('explore', { query: 'alpha::detail::WorkerUnit run save', maxFiles: 12 });
++    const text = r.content[0]!.text;
++    expect(text).not.toMatch(/Full source for these|Complete source for|already Read|Explore budget:/);
++    expect(text).toContain('return 91;');
++  });
++  it('does not map current text hits onto stale indexed function spans', async () => {
++    const file = path.join(root, 'quota.cpp'); const original = fs.readFileSync(file, 'utf8');
++    try {
++      fs.writeFileSync(file, '\n\n\n' + original);
++      const r = await retrieveExploreContext(cg, 'cache_batch_limit');
++      expect(r.evidence?.states[0]?.matchingLines).toBe(1);
++      expect(r.graph.nodes.size).toBe(0);
++      expect(r.note).toContain('quota.cpp:5');
++    } finally { fs.writeFileSync(file, original); }
++  });
++  it('reports incomplete fallback scans instead of claiming absence', async () => {
++    vi.stubEnv('CODEGRAPH_RAW_EVIDENCE_TIMEOUT_MS', '0');
++    try {
++      const r = await retrieveExploreContext(cg, 'never_present_identifier');
++      expect(r.note).toContain('Scan incomplete; absence is not established.');
++    } finally { vi.unstubAllEnvs(); vi.stubEnv('CODEGRAPH_ENABLE_EXPLORE', '1'); }
++  });
++});
++
++describe('semantic ownership ambiguity', () => {
++  it('retains ambiguous imports and distinguishes const overloads', async () => {
++    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cg-explore-owners-'));
++    let cg: CodeGraph | undefined;
++    try {
++      fs.writeFileSync(path.join(root, 'types.h'), `namespace left {
++class Unit {
++public:
++  int pick(int v);
++  int read();
++  int read() const;
++};
++}
++namespace right { class Unit { public: int pick(int v); }; }
++`);
++      fs.writeFileSync(path.join(root, 'ambiguous.cpp'), `#include "types.h"
++using namespace left;
++using namespace right;
++int Unit::pick(int v) { return v; }
++namespace left {
++int Unit::read() { return 31; }
++int Unit::read() const { return 47; }
++}
++`);
++      cg = CodeGraph.initSync(root, { config: { include: ['**/*.cpp', '**/*.h'], exclude: [] } });
++      await cg.indexAll();
++      const view = new ExploreSemanticView(cg);
++      const declarations = cg.getNodesByName('pick').filter(n => n.isDeclaration);
++      expect(declarations).toHaveLength(2);
++      expect(declarations.map(n => view.resolve(n).id)).toEqual(declarations.map(n => n.id));
++      const reads = cg.getNodesByName('read').filter(n => n.isDeclaration).map(n => view.resolve(n));
++      expect(reads).toHaveLength(2);
++      expect(reads.every(n => !n.isDeclaration && n.filePath === 'ambiguous.cpp')).toBe(true);
++      expect(new Set(reads.map(n => n.id)).size).toBe(2);
++    } finally { cg?.close(); fs.rmSync(root, { recursive: true, force: true }); }
++  });
++});

@@ -1,0 +1,554 @@
+## Exploration: ObTableTTLDeleteTask kv_ttl_delete_max_ops ttl_thread_score
+
+Found 197 symbols across 56 files.
+
+
+Exact symbol/path anchors and identifier text evidence; weak word matches are disabled.
+Literal fallback (ripgrep): 2 identifier(s), 6 matching line(s).
+Literal locations (not complete bodies): kv_ttl_delete_max_ops: src/share/table/ob_ttl_util.cpp:2622; kv_ttl_delete_max_ops: src/share/parameter/ob_parameter_seed.ipp:2362; ttl_thread_score: src/share/table/ob_ttl_util.cpp:2620; ttl_thread_score: src/share/table/ob_ttl_util.cpp:2621; ttl_thread_score: src/share/parameter/ob_parameter_seed.ipp:2359; ttl_thread_score: src/share/scheduler/ob_tenant_dag_scheduler.cpp:4455
+### Blast radius — what depends on these (update/verify before editing)
+
+- `init` (src/share/table/ob_ttl_util.cpp:2607) — 1 caller in `src/observer/table/ttl/ob_table_ttl_task.cpp`; ⚠️ no covering tests found
+- `inner_reload_config` (src/share/scheduler/ob_tenant_dag_scheduler.cpp:4441) — 1 caller in `src/share/scheduler/ob_tenant_dag_scheduler.cpp`; ⚠️ no covering tests found
+
+### Relationships
+
+**extends:**
+- ObTableTTLDeleteTask → ObITask
+- ObTableHRowKeyTTLDelTask → ObTableTTLDeleteTask
+
+**calls:**
+- ObTableTTLDeleteTask → MEMSET
+- get_timeout_ts → current_time
+- process_one → get_timeout_ts
+- init_scan_tb_ctx → get_timeout_ts
+- init_scan_tb_ctx → get_timeout_ts
+- init_tb_ctx → get_timeout_ts
+- init_tb_ctx → get_timeout_ts
+- execute_ttl_delete → get_timeout_ts
+- init → reset
+- init → is_valid
+- init → init_scan_index
+- init → init_sess_info
+- init → is_valid
+- init → init_schema_info
+- init → reset_cnt
+- ... and 812 more
+
+### Source Code
+
+> Source excerpts below are read from current files. Only shown source ranges are covered; signatures, outlines and omitted regions are not complete function bodies or complete files.
+
+#### src/share/table/ob_ttl_util.cpp — references(references), current_time(calls), K(calls), calls(calls), LOG_WARN(calls), check_and_try_throttle(method), ObTTLDeleteRateThrottler(method), ~ObTTLDeleteRateThrottler(method), reset(calls), reset(method), init(method), TENANT_CONF(calls), is_valid(calls), need_commit_trans_early(calls), calculate_wait_time(calls), +3 more
+
+```cpp
+2576	const double ObTTLDeleteRateThrottler::DEFAULT_SMOOTH_FACTOR = 0.6;
+2577	const double ObTTLDeleteRateThrottler::DEFAULT_TRANS_TIMEOUT_RATIO = 0.8;
+2578	
+2579	ObTTLDeleteRateThrottler::ObTTLDeleteRateThrottler()
+2580	  : is_inited_(false),
+2581	    max_rows_per_second_(0),
+2582	    smooth_factor_(0.0),
+2583	    trans_start_time_(0),
+2584	    prev_delete_time_(0),
+2585	    cur_del_row_count_(0),
+2586	    expected_interval_us_(0),
+2587	    throttle_info_()
+2588	{}
+2589	
+2590	ObTTLDeleteRateThrottler::~ObTTLDeleteRateThrottler()
+2591	{
+2592	  reset();
+2593	}
+2594	
+2595	void ObTTLDeleteRateThrottler::reset()
+2596	{
+2597	  is_inited_ = false;
+2598	  max_rows_per_second_ = 0;
+2599	  smooth_factor_ = 0.0;
+2600	  trans_start_time_ = 0;
+2601	  prev_delete_time_ = 0;
+2602	  cur_del_row_count_ = 0;
+2603	  expected_interval_us_ = 0;
+2604	  throttle_info_.reset();
+2605	}
+2606	
+2607	int ObTTLDeleteRateThrottler::init(const table::ObTTLTaskInfo &info)
+2608	{
+2609	  int ret = OB_SUCCESS;
+2610	  if (is_inited_) {
+2611	    ret = OB_INIT_TWICE;
+2612	    LOG_WARN("delete rate limiter is already initialized", K(ret));
+2613	  } else {
+2614	    omt::ObTenantConfigGuard tenant_config(TENANT_CONF(info.tenant_id_));
+2615	    if (!tenant_config.is_valid()) {
+2616	      ret = OB_ERR_UNEXPECTED;
+2617	      LOG_WARN("invalid tenant config", K(ret), K(info.tenant_id_));
+2618	    } else {
+2619	      int64_t cur_time = ObTimeUtility::current_time();
+2620	      int64_t ttl_thread_num = tenant_config->ttl_thread_score == 0 ?
+2621	              OB_DAG_PRIOS[ObDagPrio::DAG_PRIO_TTL].score_ : tenant_config->ttl_thread_score;
+2622	      int64_t ttl_del_rate_limit = tenant_config->kv_ttl_delete_max_ops;
+2623	      max_rows_per_second_ = ttl_del_rate_limit == 0 ? 0 : ttl_del_rate_limit / ttl_thread_num;
+2624	      expected_interval_us_ = max_rows_per_second_ == 0 ? 0 : 1000000 / max_rows_per_second_;
+2625	      smooth_factor_ = DEFAULT_SMOOTH_FACTOR;
+2626	      // init throttle info
+2627	      throttle_info_.table_id_ = info.table_id_;
+2628	      throttle_info_.tablet_id_ = info.tablet_id_;
+2629	      throttle_info_.ttl_del_max_ops_ = ttl_del_rate_limit;
+2630	      throttle_info_.ttl_thread_num_ = ttl_thread_num;
+2631	      throttle_info_.max_rows_per_second_ = max_rows_per_second_;
+2632	      throttle_info_.expected_interval_us_ = expected_interval_us_;
+2633	      throttle_info_.total_del_row_count_ = 0;
+2634	      throttle_info_.start_time_ = cur_time;
+2635	      throttle_info_.cur_time_ = cur_time;
+2636	      is_inited_ = true;
+2637	    }
+2638	  }
+2639	  return ret;
+2640	}
+2641	
+2642	int ObTTLDeleteRateThrottler::check_and_try_throttle(int64_t trans_timeout_ts)
+2643	{
+2644	  int ret = OB_SUCCESS;
+2645	  if (!is_inited_) {
+2646	    ret = OB_NOT_INIT;
+2647	    LOG_WARN("delete rate throttler is not initialized", K(ret));
+2648	  } else if (max_rows_per_second_ == 0) {
+2649	    // do nothing
+2650	  } else if (need_commit_trans_early(trans_timeout_ts)) {
+2651	    ret = OB_ITER_END;
+2652	  } else {
+2653	    int64_t wait_time = calculate_wait_time();
+2654	    if (wait_time > 0) {
+2655	      ob_usleep(wait_time);
+2656	    }
+2657	  }
+2658	  cur_del_row_count_++;
+2659	  prev_delete_time_ = ObTimeUtility::current_time();
+2660	  throttle_info_.cur_time_ = prev_delete_time_;
+2661	  throttle_info_.total_del_row_count_++;
+2662	  return ret;
+2663	}
+2664	
+2665	int ObTTLDeleteRateThrottler::check_and_try_throttle()
+2666	{
+2667	  int ret = OB_SUCCESS;
+2668	  if (!is_inited_) {
+2669	    ret = OB_NOT_INIT;
+2670	    LOG_WARN("delete rate throttler is not initialized", K(ret));
+2671	  } else if (max_rows_per_second_ == 0) {
+2672	    // do nothing
+2673	  } else {
+2674	    int64_t cur_time = ObTimeUtility::current_time();
+2675	    int64_t wait_time = expected_interval_us_ * cur_del_row_count_ - (cur_time - trans_start_time_);
+2676	    if (wait_time > 0) {
+2677	      ob_usleep(wait_time);
+2678	    }
+2679	  }
+2680	  cur_del_row_count_ = 0;
+2681	  trans_start_time_ = 0;
+2682	  throttle_info_.cur_time_ = ObTimeUtility::current_time();
+2683	  return ret;
+2684	}
+2685	
+2686	int64_t ObTTLDeleteRateThrottler::calculate_wait_time()
+2687	{
+2688	  int64_t wait_time = 0;
+2689	  if (prev_delete_time_ == 0) {
+2690	    wait_time = 0;
+2691	  } else {
+2692	    int64_t cur_time = ObTimeUtility::current_time();
+2693	    int64_t elapsed = cur_time - prev_delete_time_;
+2694	    if (elapsed >= expected_interval_us_) {
+2695	      wait_time = 0;
+2696	    } else {
+2697	      wait_time = (expected_interval_us_ - elapsed) * smooth_factor_;
+2698	    }
+2699	  }
+2700	  return wait_time;
+2701	}
+2702	
+2703	bool ObTTLDeleteRateThrottler::need_commit_trans_early(int64_t trans_timeout_ts)
+2704	{
+2705	  bool bret = false;
+2706	  int64_t cur_time = ObTimeUtility::current_time();
+2707	  if ((cur_time - trans_start_time_) > (trans_timeout_ts - trans_start_time_) * DEFAULT_TRANS_TIMEOUT_RATIO) {
+2708	    bret = true;
+2709	  }
+2710	  return bret;
+2711	}
+2712	
+2713	void ObTTLDeleteRateThrottler::print_throttle_info()
+2714	{
+2715	  int64_t avg_delete_ops = 0;
+2716	  if (throttle_info_.cur_time_ - throttle_info_.start_time_ > 0) {
+2717	    avg_delete_ops = throttle_info_.total_del_row_count_ * 1000000L / (throttle_info_.cur_time_ - throttle_info_.start_time_);
+2718	  }
+2719	  LOG_INFO("[TTL TASK DELETE RATE] print ttl delete rate throttle info", K(throttle_info_), "avg delete ops", avg_delete_ops);
+2720	}
+2721	
+2722	} // end namespace rootserver
+2723	} // end namespace oceanbase
+```
+
+#### src/share/scheduler/ob_tenant_dag_scheduler.cpp — calls(calls), references(references), K(calls), OB_FAIL(calls), LOG_WARN(calls), OB_ISNULL(calls), OB_SUCC(calls), set_thread_score(calls), ob_abort(calls), finish_dag_(calls), erase_dag_net_list_or_abort(calls), check_need_load_shedding_(calls), is_empty(calls), add_dag_net_list_or_abort(calls), dump_dag_status(method), +72 more
+
+```cpp
+2844	}
+2845	
+2846	// when cancel_dag(), the dag may have parent
+2847	int ObDagPrioScheduler::finish_dag_(
+2848	    const ObIDag::ObDagStatus status,
+2849	    ObIDag *&dag,
+2850	    const bool try_move_child)
+2851	{
+2852	  int ret = OB_SUCCESS;
+2853	  int tmp_ret = OB_SUCCESS;
+2854	  bool need_add = false; // need add compaction dag warning info
+2855	  bool dag_net_finished = false;
+2856	  ObIDagNet *dag_net = nullptr;
+2857	
+2858	  if (OB_ISNULL(dag)) {
+2859	    ret = OB_INVALID_ARGUMENT;
+2860	    COMMON_LOG(WARN, "invalid args", K(ret), KP(dag));
+2861	  } else if (OB_UNLIKELY(dag->get_priority() != priority_ || OB_ISNULL(scheduler_))) {
+2862	    ret = OB_ERR_UNEXPECTED;
+2863	    COMMON_LOG(WARN, "unexpect value", K(ret), K(dag->get_priority()), K_(priority), KP_(scheduler));
+2864	  } else if (OB_UNLIKELY(dag->get_running_task_count() > 0)) {
+2865	    ret = OB_ERR_UNEXPECTED;
+2866	    COMMON_LOG(ERROR, "exist running task", K(ret), K(dag->get_priority()), K(dag), KP_(scheduler));
+2867	  } else if (FALSE_IT(need_add = is_diagnose_dag(dag->get_type()))) {
+2868	  } else if (FALSE_IT(dag_net = dag->get_dag_net())) {
+2869	  } else if (OB_FAIL(dag->finish(status, dag_net_finished))) { // dag record will be erase, making this dag_net could be free.
+2870	    COMMON_LOG(WARN, "dag finished failed", K(ret), K(dag), "dag_ret", dag->get_dag_ret());
+2871	  } else if (OB_TMP_FAIL(dag->report_result())) {
+2872	    COMMON_LOG(WARN, "failed to report result", K(tmp_ret), K(dag));
+2873	  }
+2874	  if (OB_FAIL(ret)) {
+2875	  } else if (try_move_child && OB_FAIL(try_move_child_to_ready_list_(*dag))) {
+2876	    LOG_WARN("failed to try move child to ready list", K(ret), K(&dag));
+2877	  } else if (OB_FAIL(erase_dag_(*dag))) {
+2878	    COMMON_LOG(ERROR, "failed to erase dag from dag_map", K(ret), K(dag));
+2879	  } else {
+2880	    LOG_INFO("dag finished", "dag_ret", dag->get_dag_ret(),
+2881	        "runtime", ObTimeUtility::fast_current_time() - dag->get_start_time(),
+2882	        "dag_cnt", scheduler_->get_cur_dag_cnt(), "dag_type_cnt", scheduler_->get_type_dag_cnt(dag->get_type()),
+2883	        K(dag), KPC(dag));
+2884	    if (dag->get_dag_id().is_valid() && OB_TMP_FAIL(ObSysTaskStatMgr::get_instance().del_task(dag->get_dag_id()))) {
+2885	      STORAGE_LOG(WARN, "failed to del sys task", K(tmp_ret), K(dag->get_dag_id()));
+2886	    }
+2887	
+2888	    compaction::ObCompactionSuggestionMgr *suggestion_mgr = MTL(compaction::ObCompactionSuggestionMgr *);
+2889	    if (OB_NOT_NULL(suggestion_mgr)
+2890	      && OB_TMP_FAIL(suggestion_mgr->update_finish_cnt(
+2891	        dag->get_type(),
+2892	        OB_SUCCESS != dag->get_dag_ret(),
+2893	        ObTimeUtility::fast_current_time() - dag->get_start_time()))) {
+2894	      COMMON_LOG(WARN, "failed to update finish cnt", K(tmp_ret), K_(priority), K(dag));
+2895	    }
+2896	
+2897	    // compaction dag success
+2898	    if (ObIDag::DAG_STATUS_FINISH == status && is_mini_compaction_dag(dag->get_type())) {
+2899	      ObTenantCompactionMemPool *mem_pool = MTL(ObTenantCompactionMemPool *);
+2900	      if (OB_NOT_NULL(mem_pool)) {
+2901	        mem_pool->reset_memory_mode();
+2902	      }
+2903	    }
+2904	
+2905	    if (need_add) {
+2906	      if (OB_TMP_FAIL(MTL(ObDagWarningHistoryManager*)->add_dag_warning_info(dag))) {
+2907	        COMMON_LOG(WARN, "failed to add dag warning info", K(tmp_ret), K(dag));
+2908	      } else if (is_batch_exec_dag(dag->get_type())) {
+2909	        // do nothing
+2910	      } else {
+2911	        compaction::ObTabletMergeDag &merge_dag = static_cast<compaction::ObTabletMergeDag &>(*dag);
+2912	        if (OB_SUCCESS != dag->get_dag_ret() && OB_NO_NEED_MERGE != dag->get_dag_ret()) {
+2913	          if (OB_TMP_FAIL(MTL(compaction::ObDiagnoseTabletMgr *)->add_diagnose_tablet(
+2914	                merge_dag.ls_id_, merge_dag.tablet_id_, ObIDag::get_diagnose_tablet_type(dag->get_type())))) {
+2915	            COMMON_LOG(WARN, "failed to add diagnose tablet", K(tmp_ret),
+2916	                "ls_id", merge_dag.ls_id_, "tablet_id", merge_dag.tablet_id_);
+2917	          }
+2918	        } else if (OB_TMP_FAIL(MTL(compaction::ObDiagnoseTabletMgr *)->delete_diagnose_tablet(
+2919	              merge_dag.ls_id_, merge_dag.tablet_id_, ObIDag::get_diagnose_tablet_type(dag->get_type())))) {
+2920	          if (OB_HASH_NOT_EXIST != tmp_ret) {
+2921	            COMMON_LOG(WARN, "failed to delete diagnose tablet", K(tmp_ret),
+2922	              "ls_id", merge_dag.ls_id_, "tablet_id", merge_dag.tablet_id_);
+2923	          }
+2924	        }
+2925	      }
+2926	    }
+2927	
+2928	    scheduler_->inner_free_dag(*dag); // free after log print
+2929	    dag = nullptr;
+2930	    if (OB_NOT_NULL(dag_net) && dag_net_finished) {
+2931	      dag_net->set_last_dag_finished();
+2932	      scheduler_->notify_when_dag_net_finish();
+2933	    }
+2934	  }
+2935	  return ret;
+2936	}
+2937	
+2938	int ObDagPrioScheduler::try_move_child_to_ready_list_(ObIDag &dag)
+2939	{
+2940	  int ret = OB_SUCCESS;
+2941	  const common::ObIArray<ObINodeWithChild*> &child_array = dag.get_child_nodes();
+2942	
+2943	  if (child_array.empty()) {
+2944	  } else if (dag.is_dag_net_canceled()) {
+2945	    COMMON_LOG(INFO, "dag net is canceled, skip move child dag to ready list", K(ret), K(dag));
+2946	  } else {
+2947	    for (int64_t i = 0; OB_SUCC(ret) && i < child_array.count(); ++i) {
+2948	      ObIDag *child_dag = static_cast<ObIDag *>(child_array.at(i));
+2949	      if (OB_ISNULL(child_dag)) {
+2950	        ret = OB_ERR_UNEXPECTED;
+2951	        LOG_WARN("child dag should not be NULL", K(ret), KP(child_dag));
+2952	      } else if (dag.get_priority() == child_dag->get_priority() // for same priority dag, could move list under curr lock
+2953	          && WAITING_DAG_LIST == child_dag->get_list_idx()
+2954	          && 0 == child_dag->get_indegree()
+2955	          && child_dag->check_can_schedule()) {
+2956	        if (OB_FAIL(move_dag_to_list_(*child_dag, WAITING_DAG_LIST, READY_DAG_LIST, false/*add_last*/))) {
+2957	          COMMON_LOG(WARN, "failed to move dag from waitinig list to ready list", K(ret), KPC(child_dag));
+2958	        }
+2959	      }
+2960	    }
+2961	  }
+2962	  return ret;
+2963	}
+2964	
+2965	int ObDagPrioScheduler::erase_dag_(ObIDag &dag)
+2966	{
+2967	  int ret = OB_SUCCESS;
+2968	  if (OB_UNLIKELY(OB_ISNULL(scheduler_))) {
+2969	    ret = OB_ERR_UNEXPECTED;
+2970	    COMMON_LOG(WARN, "unexpected null scheduler", K(ret), KP_(scheduler));
+2971	  } else if (OB_FAIL(dag_map_.erase_refactored(&dag))) {
+2972	    COMMON_LOG(ERROR, "failed to erase dag from dag_map", K(ret), K(dag));
+2973	    ob_abort();
+2974	  } else if (!dag_list_[dag.get_list_idx()].remove(&dag)) {
+2975	    ret = OB_ERR_UNEXPECTED;
+2976	    COMMON_LOG(ERROR, "failed to remove dag from dag list", K(dag));
+2977	  } else {
+2978	    scheduler_->sub_cur_dag_cnt();
+2979	    scheduler_->sub_type_dag_cnt(dag.get_type());
+2980	  }
+2981	  return ret;
+2982	}
+2983	
+2984	int ObDagPrioScheduler::deal_with_fail_dag_(ObIDag &dag, ObITask *&cur_task, const int errcode, bool &retry_flag)
+2985	{
+2986	  int ret = OB_SUCCESS;
+2987	  if (OB_FAIL(dag.handle_retry_strategy(errcode))) {
+2988	    COMMON_LOG(WARN, "failed to set retry strategy", K(errcode), K(dag));
+2989	  } else if (1 == dag.get_running_task_count() && dag.check_can_retry()) { // dag retry is triggered by last finished task
+2990	    COMMON_LOG(INFO, "dag retry", K(ret), K(dag));
+2991	    (void) dag.reset_task_list_for_retry();
+2992	    cur_task = nullptr;
+2993	    if (OB_FAIL(dag.reset_status_for_retry())) { // clear task/running_info and init again
+2994	      COMMON_LOG(WARN, "failed to reset status for retry", K(ret), K(dag));
+2995	    } else {
+2996	      if (OB_FAIL(move_dag_to_list_(dag, READY_DAG_LIST, WAITING_DAG_LIST))) {
+2997	        COMMON_LOG(WARN, "failed to move dag to waiting list", K(ret), K(dag));
+2998	      } else {
+2999	        retry_flag = true;
+3000	      }
+3001	    }
+3002	  }
+3003	  return ret;
+3004	}
+3005	
+3006	int ObDagPrioScheduler::finish_task_in_dag_(
+3007	    ObITask *&task,
+3008	    ObIDag *&dag)
+3009	{
+3010	  int ret = OB_SUCCESS;
+3011	  int tmp_ret = OB_SUCCESS;
+3012	
+3013	  if (OB_ISNULL(dag)) {
+3014	    ret = OB_INVALID_ARGUMENT;
+3015	    COMMON_LOG(WARN, "invalid args", K(ret), KP(task), KP(dag));
+3016	  } else if (nullptr == task) {
+3017	    // Means dag have entered retry process, but failed.
+3018	    // It is not enough to judge by task_list_count, since new task may be allocated and added into new task list but inited failed
+3019	    COMMON_LOG(INFO, "dag is reset when retry but failed, directly finish this dag", K(ret), K(dag));
+3020	  } else if (OB_TMP_FAIL(dag->finish_task(task))) {
+3021	    dag->set_dag_status(ObIDag::DAG_STATUS_NODE_FAILED);
+3022	    dag->set_dag_ret(tmp_ret);
+3023	    COMMON_LOG_RET(WARN, tmp_ret, "failed to finish task");
+3024	  } else {
+3025	    COMMON_LOG_RET(DEBUG, tmp_ret, "success to finish task", K(&dag));
+3026	  }
+3027	
+3028	  if (OB_ISNULL(dag)) {
+3029	    // only this condition we don't need to finish dag
+3030	  } else if (dag->check_finished_and_set_stop()) {
+3031	    ObIDag::ObDagStatus status =
+3032	        dag->is_dag_failed() ? ObIDag::DAG_STATUS_ABORT : ObIDag::DAG_STATUS_FINISH;
+3033	    if (OB_FAIL(finish_dag_(status, dag, true/*try_move_child*/))) {
+3034	      COMMON_LOG(WARN, "failed to finish dag and dag net", K(ret), K(dag));
+3035	      ob_abort();
+3036	    }
+3037	  }
+3038	  return ret;
+3039	}
+3040	
+3041	void ObDagPrioScheduler::pause_worker_(ObTenantDagWorker &worker)
+3042	{
+3043	  if (OB_UNLIKELY(OB_ISNULL(scheduler_))) {
+3044	    COMMON_LOG_RET(WARN, OB_ERR_UNEXPECTED, "unexpected null scheduler", KP_(scheduler));
+3045	  } else {
+3046	    scheduler_->sub_total_running_task_cnt();
+3047	    // dag still exist now
+3048	    scheduler_->sub_running_dag_cnts(worker.get_task()->get_dag()->get_type());
+3049	    --running_task_cnts_;
+3050	    running_workers_.remove(&worker);
+3051	    waiting_workers_.add_last(&worker);
+3052	    COMMON_LOG(INFO, "pause worker", K(*worker.get_task()),
+3053	        "priority", OB_DAG_PRIOS[priority_].dag_prio_str_,
+3054	        K(running_task_cnts_), "total_running_task_cnt", scheduler_->get_total_running_task_cnt());
+3055	  }
+3056	}
+3057	
+3058	int ObDagPrioScheduler::loop_ready_dag_list(bool &is_found)
+3059	{
+3060	  int ret = OB_SUCCESS;
+3061	  {
+3062	    common::SpinWLockGuard guard(prio_rwlock_);
+3063	    if (running_task_cnts_ < adaptive_task_limit_) {
+3064	      // if extra_erase_dag_net not null, the is_found must be false.
+3065	      if (!check_need_load_shedding_(true/*for_schedule*/)) {
+3066	        is_found = (OB_SUCCESS == schedule_one_());
+3067	      }
+3068	
+3069	      while (running_task_cnts_ < adaptive_task_limit_ && is_found) {
+3070	        if (check_need_load_shedding_(true/*for_schedule*/)) {
+3071	          break;
+3072	        } else if (OB_SUCCESS != schedule_one_()) {
+3073	          break;
+3074	        }
+3075	      }
+3076	    }
+3077	  }
+3078	
+3079	  return ret;
+3080	}
+3081	
+3082	int ObDagPrioScheduler::loop_waiting_dag_list()
+3083	{
+3084	  int ret = OB_SUCCESS;
+3085	  {
+3086	    common::SpinWLockGuard guard(prio_rwlock_);
+3087	    if (!dag_list_[WAITING_DAG_LIST].is_empty()) {
+3088	      int64_t moving_dag_cnt = 0;
+3089	      ObIDag *head = dag_list_[WAITING_DAG_LIST].get_header();
+3090	      ObIDag *cur = head->get_next();
+3091	      ObIDag *move_dag = nullptr;
+3092	      while (NULL != cur && head != cur && OB_SUCC(ret)) {
+3093	        if (OB_UNLIKELY(cur->get_list_idx() != WAITING_DAG_LIST)) {
+3094	          ret = OB_ERR_UNEXPECTED;
+3095	          COMMON_LOG(ERROR, "get unexpceted dag", K(ret), KPC(cur));
+3096	          break;
+3097	        } else if (0 == cur->get_indegree() && cur->is_dag_net_canceled()) {
+3098	          move_dag = cur;
+3099	          cur = cur->get_next();
+3100	          COMMON_LOG(INFO, "finish waiting dag in canceled dag net", K(ret), KPC(move_dag));
+3101	          /* the child of the moving dag maybe the next one in the waiting list, cannot move its children to READY LIST */
+3102	          if (OB_FAIL(finish_dag_(ObIDag::DAG_STATUS_ABORT, move_dag, false/*try_move_child*/))) { // will report result
+3103	            COMMON_LOG(WARN, "failed to deal with failed dag", K(ret), KPC(cur));
+3104	            ob_abort();
+3105	          }
+3106	        } else if (0 == cur->get_indegree() && cur->check_can_schedule()) {
+3107	          move_dag = cur;
+3108	          cur = cur->get_next();
+3109	          if (OB_FAIL(move_dag_to_list_(*move_dag, WAITING_DAG_LIST, READY_DAG_LIST))) {
+3110	            COMMON_LOG(WARN, "failed to move dag to low priority list", K(ret), KPC(move_dag));
+3111	          } else {
+3112	            ++moving_dag_cnt;
+3113	            COMMON_LOG(DEBUG, "move dag to ready list", K(ret), KPC(move_dag),
+3114	                "waiting_list_size", dag_list_[WAITING_DAG_LIST].get_size(),
+3115	                "ready_list_size", dag_list_[READY_DAG_LIST].get_size());
+3116	          }
+3117	        } else {
+3118	          if (ObTimeUtility::fast_current_time() - cur->get_add_time() > DUMP_STATUS_INTERVAL)  {
+3119	            COMMON_LOG(DEBUG, "print remain waiting dag", K(ret), KPC(cur), "indegree", cur->get_indegree(),
+3120	                "check_can_schedule", cur->check_can_schedule());
+3121	          }
+3122	          cur = cur->get_next();
+3123	        }
+3124	      } // end of while
+3125	      if (OB_SUCC(ret)) {
+3126	        COMMON_LOG(INFO, "loop_waiting_dag_list", K(ret), K_(priority), K(moving_dag_cnt),
+3127	            "remain waiting_list_size", dag_list_[WAITING_DAG_LIST].get_size(),
+3128	            "ready_list_size", dag_list_[READY_DAG_LIST].get_size());
+3129	      }
+3130	    }
+3131	  } // prio_rwlock_ unlock
+3132	  return ret;
+3133	}
+3134	
+3135	void ObDagPrioScheduler::dump_dag_status()
+3136	{
+3137	  int64_t running_task;
+3138	  int64_t limits;
+3139	  int64_t adaptive_task_limit;
+3140	  int64_t ready_dag_count;
+3141	  int64_t waiting_dag_count;
+3142	  int64_t rank_dag_count;
+3143	  {
+3144	    common::SpinRLockGuard guard(prio_rwlock_);
+3145	    running_task = running_task_cnts_;
+3146	    limits = limits_;
+3147	    adaptive_task_limit = adaptive_task_limit_;
+3148	    ready_dag_count = dag_list_[READY_DAG_LIST].get_size();
+3149	    waiting_dag_count = dag_list_[WAITING_DAG_LIST].get_size();
+3150	    rank_dag_count = dag_list_[RANK_DAG_LIST].get_size();
+3151	  }
+3152	  COMMON_LOG(INFO, "dump_dag_status", "priority", OB_DAG_PRIOS[priority_].dag_prio_str_,
+3153	          K(limits), K(running_task), K(adaptive_task_limit), K(ready_dag_count),
+3154	          K(waiting_dag_count), K(rank_dag_count));
+3155	}
+3156	
+3157	int ObDagPrioScheduler::inner_add_dag(
+3158	    const bool check_size_overflow,
+3159	    ObIDag *&dag)
+3160	{
+3161	  common::SpinWLockGuard guard(prio_rwlock_);
+3162	  return inner_add_dag_(check_size_overflow, dag);
+3163	}
+3164	
+3165	#define ADD_DAG_SCHEDULER_INFO(value_type, key_str, value) \
+3166	  { \
+3167	    info_list[idx].tenant_id_ = MTL_ID(); \
+3168	    info_list[idx].value_type_ = value_type; \
+3169	    strncpy(info_list[idx].key_, key_str, MIN(common::OB_DAG_KEY_LENGTH - 1, strlen(key_str))); \
+3170	    info_list[idx].value_ = value; \
+3171	    (void)scheduler_infos.push_back(&info_list[idx++]); \
+3172	  }
+3173	
+3174	void ObDagPrioScheduler::get_all_dag_scheduler_info(
+3175	    ObDagSchedulerInfo *info_list,
+3176	    common::ObIArray<void *> &scheduler_infos,
+3177	    int64_t &idx)
+3178	{
+3179	  if (OB_NOT_NULL(info_list)) {
+3180	    common::SpinRLockGuard guard(prio_rwlock_);
+3181	    ADD_DAG_SCHEDULER_INFO(ObDagSchedulerInfo::UP_LIMIT, OB_DAG_PRIOS[priority_].dag_prio_str_, limits_);
+3182	    ADD_DAG_SCHEDULER_INFO(ObDagSchedulerInfo::RUNNING_TASK_CNT, OB_DAG_PRIOS[priority_].dag_prio_str_, running_task_cnts_);
+3183	    ADD_DAG_SCHEDULER_INFO(ObDagSchedulerInfo::ADAPTIVE_LIMIT, OB_DAG_PRIOS[priority_].dag_prio_str_, adaptive_task_limit_);
+3184	  }
+3185	}
+3186	
+3187	#define ADD_DAG_INFO(cur, list_info) \
+3188	  { \
+3189	    cur->gene_dag_info(info_list[idx], list_info); \
+3190	    (void)dag_infos.push_back(&info_list[idx++]); \
+3191	  }
+3192	
+3193	void ObDagPrioScheduler::get_all_dag_info(
+3194	    ObDagInfo *info_list,
+3195	    common::ObIArray<void *> &dag_infos,
+3196	    int64_t &idx, const int64_t total_cnt)
+3197	{
+```
+
+> Output truncated to budget. Only the shown source ranges are covered; omitted bodies and file regions may require a targeted query or Read.

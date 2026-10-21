@@ -1,0 +1,638 @@
+**Exploration: ObDtlBasicChannel ObDtlFlowControl ObPxTransmitOp DTL_BLOCKING_TIME**
+
+Found 96 symbols across 6 files.
+
+**Relationships**
+
+**extends:**
+- ObDtlFlowControl → ObDtlChannelLoop
+- ObDtlFlowControl → ObDtlChTotalInfo
+- ObPxTransmitOp → ObTransmitOp
+- ObDtlBasicChannel → ObDtlChannel
+- ObDtlBasicChannel → ObDtlLinkedBuffer
+- ObDtlLinkedBuffer → ObLink
+- ObLink → ObLink
+- ObDtlBasicChannel → ObDtlChannelEncoder
+- ObDtlChannelEncoder → DtlWriterType
+- ObDtlBasicChannel → ObDtlBcastService
+- ObDtlBasicChannel → RowMeta
+- ObDtlBcastService → ObDtlLinkedBuffer
+- <anonymous> → Block
+- ObTempBlockStore → Block
+- BlockReader → Block
+- ... and 12 more
+
+**calls:**
+- init_dtl_block_buffer → min_blk_size
+- new_block → min_blk_size
+- add_batch → min_blk_size
+- contain → begin
+- contain → end
+- TEST_F → begin
+- TEST_F → begin
+- compile_module → begin
+- parse_table_field → begin
+- append_block_payload → end
+- init_dtl_block_buffer → buffer_position
+- checksum → fill
+- ObDtlBasicChannel → get
+- ObDtlBasicChannel → set_id
+- get → gen_seed
+- ... and 52 more
+
+**Source Code**
+
+> The code below is the **verbatim, current on-disk source** of these files — re-read from disk on this call and line-numbered, byte-for-byte identical to what the Read tool returns. It is NOT a summary, outline, or stale cache. Treat each block as a Read you have already performed: do not Read a file shown here.
+
+**`src/sql/dtl/ob_dtl_flow_control.h`** — calls(calls), ObDtlFlowControl(method), ~ObDtlFlowControl(method), is_init(method), get_tenant_id(method), get_timeout_ts(method), set_timeout_ts(method), increase(method), decrease(method), get_used(method), need_block(method), can_unblock(method), is_block(method), all_ch_drained(method), increase_blocked_cnt(method), +12 more
+
+```cpp
+82	class ObDtlFlowControl
+83	{
+84	public:
+85	  ObDtlFlowControl() :
+86	  tenant_id_(OB_INVALID_ID), timeout_ts_(0), communicate_flag_(0),
+87	  compressor_type_(common::ObCompressorType::NONE_COMPRESSOR), is_init_(false), block_ch_cnt_(0),
+88	  total_memory_size_(0), total_buffer_cnt_(0), accumulated_blocked_cnt_(0), blocks_(), chans_(), drain_ch_cnt_(0),
+89	  dfo_key_(), op_metric_(nullptr),
+90	  chan_loop_(nullptr), ch_info_(nullptr), last_block_start_time_(0), total_block_time_(0)
+91	  { }
+92	
+93	  virtual ~ObDtlFlowControl() { destroy(); }
+94	
+95	  bool is_all_channel_act();
+96	  bool is_init() { return is_init_; }
+97	
+98	  OB_INLINE uint64_t get_tenant_id() const { return tenant_id_; }
+99	  OB_INLINE int64_t get_timeout_ts() const { return timeout_ts_; }
+100	  OB_INLINE void set_timeout_ts(int64_t timeout_ts) { timeout_ts_ = timeout_ts; }
+101	
+102	  OB_INLINE void increase(int64_t size) { (ATOMIC_AAF(&total_memory_size_, size)); ATOMIC_INC(&total_buffer_cnt_); }
+103	  OB_INLINE void decrease(int64_t size) { (ATOMIC_SAF(&total_memory_size_, size)); ATOMIC_DEC(&total_buffer_cnt_); }
+104	  OB_INLINE int64_t get_used() { return (ATOMIC_LOAD(&total_memory_size_)); }
+105	
+106	  OB_INLINE bool need_block()
+107	  {
+108	    bool need_block = (ATOMIC_LOAD(&total_memory_size_)) >= THRESHOLD_SIZE
+109	      || MAX_BUFFER_CNT <= (ATOMIC_LOAD(&total_buffer_cnt_));
+110	  #ifdef ERRSIM
+111	    int ret = common::OB_SUCCESS;
+112	    ret = OB_E(EventTable::EN_FORCE_DFC_BLOCK) ret;
+113	    need_block = (common::OB_SUCCESS != ret) ? true : need_block;
+114	    SQL_DTL_LOG(TRACE, "trace block", K(need_block), K(total_buffer_cnt_), K(ret));
+115	    ret = common::OB_SUCCESS;
+116	  #endif
+117	    return need_block;
+118	  }
+119	  OB_INLINE bool can_unblock()
+120	  {
+121	    bool can_unblock = (ATOMIC_LOAD(&total_memory_size_)) <= THRESHOLD_SIZE / 2
+122	        || MAX_BUFFER_CNT / 2 >= (ATOMIC_LOAD(&total_buffer_cnt_));
+123	#ifdef ERRSIM
+124	  int ret = common::OB_SUCCESS;
+125	  ret = OB_E(EventTable::EN_DTL_ONE_ROW_ONE_BUFFER) ret;
+126	  can_unblock = (common::OB_SUCCESS != ret) ? 0 == (ATOMIC_LOAD(&total_buffer_cnt_)) : can_unblock;
+127	  SQL_DTL_LOG(TRACE, "trace unblock", K(can_unblock), K(total_buffer_cnt_), K(ret));
+128	  ret = common::OB_SUCCESS;
+129	#endif
+130	    return can_unblock;
+131	  }
+132	
+133	  OB_INLINE bool is_block() { return 1 <= (ATOMIC_LOAD(&block_ch_cnt_)); }
+134	  OB_INLINE bool is_block(int64_t idx);
+135	
+136	  bool is_drain(ObDtlBasicChannel *channel);
+137	  int set_drain(ObDtlBasicChannel *channel);
+138	  bool all_ch_drained() {
+139	    return (ATOMIC_LOAD(&drain_ch_cnt_) == chans_.count());
+140	  }
+141	
+142	  OB_INLINE void increase_blocked_cnt(int64_t cnt) {
+143	    ATOMIC_AAF(&block_ch_cnt_, cnt);
+144	    ATOMIC_AAF(&accumulated_blocked_cnt_, cnt);
+145	  }
+146	  OB_INLINE void decrease_blocked_cnt(int64_t cnt) { ATOMIC_SAF(&block_ch_cnt_, cnt); }
+147	
+148	
+149	  // 支持多个channel公用一起block，如果block_ch_cnt_大于1，表示block为true
+150	  OB_INLINE void set_block(int64_t idx);
+151	  OB_INLINE void unblock(int64_t idx);
+152	  OB_INLINE int64_t get_blocked_cnt() { return (ATOMIC_LOAD(&block_ch_cnt_)); }
+153	  OB_INLINE int64_t get_total_buffer_cnt() { return (ATOMIC_LOAD(&total_buffer_cnt_)); }
+154	  OB_INLINE bool get_nth_block(int64_t idx) { return (ATOMIC_LOAD(&blocks_.at(idx))); }
+155	  OB_INLINE int64_t get_accumulated_blocked_cnt() { return (ATOMIC_LOAD(&accumulated_blocked_cnt_)); }
+156	
+157	  int register_channel(ObDtlChannel* ch);
+158	  int unregister_channel(ObDtlChannel* ch);
+159	  int unregister_all_channel();
+160	
+161	  int reserve(int64_t size) {
+162	    int ret = OB_SUCCESS;
+163	    if (OB_FAIL(blocks_.reserve(size))) {
+164	      // nop
+165	    } else if (OB_FAIL(chans_.reserve(size))) {
+166	      // nop
+167	    }
+168	    return ret;
+169	  }
+170	  virtual int init(uint64_t tenant_id, int64_t chan_cnt);
+171	  virtual void destroy() {
+172	    chans_.reset();
+173	    blocks_.reset();
+174	    ch_info_ = nullptr;
+175	    is_init_ = false;
+176	  }
+177	
+178	  virtual int final_check();
+179	
+180	  int get_channel(int64_t idx, ObDtlChannel *&ch);
+181	  int find(ObDtlChannel* ch, int64_t &out_idx);
+182	  bool is_block(ObDtlChannel* ch);
+183	  int block_channel(ObDtlChannel* ch);
+184	  int unblock_channel(ObDtlChannel* ch);
+185	  int sync_send_drain(int64_t &unblock_cnt);
+186	  int notify_all_blocked_channels_unblocking(int64_t &unblock_cnt);
+187	  int notify_channel_unblocking(ObDtlChannel *ch, int64_t &block_cnt, bool asyn_send = true);
+188	  int64_t get_channel_count() const {
+189	    return chans_.count();
+190	  }
+191	  int drain_all_channels();
+192	
+193	  OB_INLINE void set_receive() { communicate_flag_ |= 0x01; }
+194	  OB_INLINE bool is_receive() { return communicate_flag_ & 0x01; }
+195	  OB_INLINE void set_transmit() { communicate_flag_ |= 0x10; }
+196	  OB_INLINE bool is_transmit() { return communicate_flag_ & 0x10; }
+197	  OB_INLINE void set_qc_coord() { communicate_flag_ |= 0x100; }
+
+... (gap) ...
+
+253	  sql::ObOpMetric *op_metric_;
+254	
+255	  // for dtl channel notify
+256	  ObDtlChannelLoop *chan_loop_;
+257	
+258	  ObDtlChTotalInfo *ch_info_;
+259	
+260	private:
+261	  // Todo: In DFC, it can monitor data size and so on
+```
+
+**`src/sql/dtl/ob_dtl_basic_channel.cpp`** — ObDtlBasicChannel(method), set_id(calls), get(calls)
+
+```cpp
+141	  return OB_SUCCESS == ret ? ret_ : ret;
+142	}
+143	
+144	ObDtlBasicChannel::ObDtlBasicChannel(
+145	    const uint64_t tenant_id,
+146	    const uint64_t id,
+147	    const ObAddr &peer,
+148	    DtlChannelType type)
+149	    : ObDtlChannel(id, peer, type),
+150	      is_inited_(false),
+151	      local_id_(id),
+152	      peer_id_(id ^ 1),
+153	      write_buffer_(nullptr),
+154	      process_buffer_(nullptr),
+155	      send_sem_(common::ObWaitEventIds::DTL_PROCESS_BUFFER_SEND_WAIT),
+156	      recv_sem_(common::ObWaitEventIds::DTL_PROCESS_BUFFER_RECEIVE_WAIT),
+157	      alloc_new_buf_(false),
+158	      seq_no_(0),
+159	      send_buffer_cnt_(0),
+160	      recv_buffer_cnt_(0),
+161	      processed_buffer_cnt_(0),
+162	      tenant_id_(tenant_id),
+163	      is_data_msg_(false),
+164	      hash_val_(0),
+165	      dfc_idx_(OB_INVALID_ID),
+166	      got_from_dtl_cache_(true),
+167	      msg_writer_(nullptr),
+168	      bc_service_(nullptr),
+169	      times_(0),
+170	      write_buf_use_time_(0),
+171	      send_use_time_(0),
+172	      msg_count_(0),
+173	      result_info_guard_(),
+174	      meta_(nullptr)
+175	{
+176	  ObRandom rand;
+177	  hash_val_ = rand.get();
+178	  // dtl创建时候的server版本决定发送老的ser方式还是新的chunk row store方式
+179	  use_crs_writer_ = true;
+180	  msg_response_.set_id(id_);
+181	}
+182	
+183	ObDtlBasicChannel::ObDtlBasicChannel(
+184	    const uint64_t tenant_id,
+185	    const uint64_t id,
+186	    const ObAddr &peer,
+187	    const int64_t hash_val,
+188	    DtlChannelType type)
+189	    : ObDtlChannel(id, peer, type),
+190	          is_inited_(false),
+191	          local_id_(id),
+192	          peer_id_(id ^ 1),
+193	          write_buffer_(nullptr),
+194	          process_buffer_(nullptr),
+195	          send_sem_(common::ObWaitEventIds::DTL_PROCESS_BUFFER_SEND_WAIT),
+196	          recv_sem_(common::ObWaitEventIds::DTL_PROCESS_BUFFER_RECEIVE_WAIT),
+197	          alloc_new_buf_(false),
+198	          seq_no_(0),
+199	          send_buffer_cnt_(0),
+200	          recv_buffer_cnt_(0),
+201	          processed_buffer_cnt_(0),
+202	          tenant_id_(tenant_id),
+203	          is_data_msg_(false),
+204	          hash_val_(hash_val),
+205	          dfc_idx_(OB_INVALID_ID),
+206	          got_from_dtl_cache_(true),
+207	          msg_writer_(nullptr),
+208	          bc_service_(nullptr),
+209	          times_(0),
+210	          write_buf_use_time_(0),
+211	          send_use_time_(0),
+212	          msg_count_(0),
+213	          meta_(nullptr)
+214	{
+215	  // dtl创建时候的server版本决定发送老的ser方式还是新的chunk row store方式
+216	  use_crs_writer_ = true;
+217	  msg_response_.set_id(id_);
+218	}
+219	
+220	ObDtlBasicChannel::~ObDtlBasicChannel()
+221	{
+```
+
+**`src/sql/engine/px/exchange/ob_px_transmit_op.cpp`** — calls(calls), ObPxTransmitOp(method), destroy(method), destroy(calls), inner_rescan(method)
+
+```cpp
+119	{
+120	}
+121	
+122	ObPxTransmitOp::ObPxTransmitOp(ObExecContext &exec_ctx, const ObOpSpec &spec, ObOpInput *input)
+123	: ObTransmitOp(exec_ctx, spec, input),
+124	  px_row_allocator_(common::ObModIds::OB_SQL_PX),
+125	  transmited_(false),
+126	  // first_row_(),
+127	  iter_end_(false),
+128	  consume_first_row_(false),
+129	  dfc_unblock_msg_proc_(dfc_),
+130	  loop_(op_monitor_info_),
+131	  chs_agent_(),
+132	  use_bcast_opt_(false),
+133	  part_ch_info_(),
+134	  ch_info_(nullptr),
+135	  sample_done_(false),
+136	  sample_stores_(),
+137	  cur_transmit_sampled_rows_(NULL),
+138	  has_set_hybrid_key_(false),
+139	  batch_param_remain_(false),
+140	  receive_channel_ready_(false),
+141	  data_msg_type_(dtl::ObDtlMsgType::PX_DATUM_ROW),
+142	  params_(px_row_allocator_)
+143	{
+144	  MEMSET(rand48_buf_, 0, sizeof(rand48_buf_));
+145	}
+146	
+147	void ObPxTransmitOp::destroy()
+148	{
+149	  task_ch_set_.reset();
+150	  px_row_allocator_.reset();
+151	  ch_blocks_.reset();
+152	  blk_bufs_.reset();
+153	  task_channels_.reset();
+154	  dfc_.destroy();
+155	  loop_.reset();
+156	  chs_agent_.~ObDtlChanAgent();
+157	  part_ch_info_.~ObPxPartChInfo();
+158	  has_set_hybrid_key_ = false;
+159	  receive_channel_ready_ = false;
+160	  for (int i = 0; i < sample_stores_.count(); ++i) {
+161	    if (OB_NOT_NULL(sample_stores_.at(i))) {
+162	      sample_stores_.at(i)->reset();
+163	    }
+164	  }
+165	  sample_stores_.reset();
+166	  cur_transmit_sampled_rows_ = NULL;
+167	  sampled_rows2transmit_.reset();
+168	  sampled_input_rows_.~ObRADatumStore();
+169	  params_.meta_.reset();
+170	  ObTransmitOp::destroy();
+171	}
+172	
+173	int ObPxTransmitOp::inner_open()
+174	{
+
+... (gap) ...
+
+1690	  return ret;
+1691	}
+1692	
+1693	int ObPxTransmitOp::inner_rescan()
+1694	{
+1695	  int ret = OB_SUCCESS;
+1696	  iter_end_ = false;
+1697	  transmited_ = false;
+1698	  has_set_hybrid_key_ = false;
+1699	  dtl::ObDtlChannel *ch = NULL;
+1700	  common::ObIArray<dtl::ObDtlChannel*> &channels = task_channels_;
+1701	  for (int i = 0; i < channels.count(); ++i) {
+1702	    ch = channels.at(i);
+1703	    ch->reset_state();
+1704	    ch->set_channel_is_eof(false);
+1705	    ch->set_batch_id(ctx_.get_px_batch_id());
+1706	  }
+1707	  sampled_input_rows_.reuse();
+1708	  cur_transmit_sampled_rows_ = NULL;
+1709	  OZ(ObTransmitOp::inner_rescan());
+1710	  return ret;
+1711	}
+1712	
+1713	int ObPxTransmitOp::build_object_sample_piece_msg(
+1714	    int64_t expected_range_count,
+```
+
+**`src/sql/engine/basic/ob_temp_block_store.h`** — calls(calls), <anonymous>(union), Block(struct), Block(method), min_blk_size(method), contain(method), begin(calls), end(calls), is_empty(method), begin(method), end(method), payload_size(method), buffer_position(method), checksum(method), fill(calls), +5 more
+
+```cpp
+118	   * | Block Header | Payload                   | ShrinkBuffer(optional)|
+119	   * +------------------------------------------------------------------+
+120	   */
+121	  struct Block
+122	  {
+123	    static const int64_t MAGIC = 0x35f4451b9b56eb12;
+124	
+125	    Block() : magic_(MAGIC), block_id_(0), cnt_(0), raw_size_(0) {}
+126	
+127	    template <bool WITH_BLK_BUF>
+128	    inline static int64_t min_blk_size(const int64_t size)
+129	    {
+130	      return sizeof(Block) + size + (WITH_BLK_BUF ? sizeof(ShrinkBuffer) : 0);
+131	    }
+132	    inline bool contain(const int64_t block_id) const
+133	    {
+134	      return begin() <= block_id && block_id < end();
+135	    }
+136	    inline bool is_empty() const { return 0 == cnt_; }
+137	    inline int64_t begin() const { return block_id_; }
+138	    inline int64_t end() const { return block_id_ + cnt_; }
+139	    inline int64_t payload_size() const { return raw_size_ - sizeof(Block); }
+140	    // We put the buffer at the end of the block. This is only used in dtl scenarios
+141	    // to support the self-explanatory ability of the block.
+142	    inline static char *buffer_position(void *mem, const int64_t size)
+143	    {
+144	      return static_cast<char*>(mem) + size - sizeof(ShrinkBuffer);
+145	    }
+146	    inline uint64_t checksum() const
+147	    {
+148	      ObBatchChecksum bc;
+149	      bc.fill(payload_, raw_size_ - sizeof(Block));
+150	      return bc.calc();
+151	    }
+152	    TO_STRING_KV(K_(magic), K_(block_id), K_(cnt), K_(raw_size));
+153	
+154	    int64_t magic_;
+155	    // increment identity of the block, it also can be row_id or any identity that
+156	    // satisfies the incremental unique identity.
+157	    int64_t block_id_;
+158	    // count of items in the block, ensure that the next block's `begin()` should
+159	    // be equal to the `end()` of this block.
+160	    uint32_t cnt_;
+161	    union {
+162	      // raw size of the block before compression.
+163	      uint32_t raw_size_;
+164	      // buffer offset before block switching.
+165	      uint32_t buf_off_;
+166	    };
+167	    char payload_[0];
+168	  } __attribute__((packed));
+169	
+170	  struct IndexBlock;
+171	  // The index of the block (index block) records the block's id, size, capacity, memory pointer
+
+... (gap) ...
+
+182	    uint64_t is_idx_block_:1;
+183	    uint64_t on_disk_:1;
+184	    uint64_t block_id_ : 62;
+185	    union {
+186	      IndexBlock *idx_blk_;
+187	      Block *blk_;
+188	      int64_t offset_;
+189	    };
+190	    int32_t length_;
+191	    int32_t capacity_;
+192	  } __attribute__((packed));
+
+... (gap) ...
+
+223	
+224	    int64_t magic_;
+225	    int32_t cnt_;
+226	    BlockIndex block_indexes_[0];
+227	  } __attribute__((packed));
+228	
+229	  // Iteration age used for iterated rows life cycle control, iterated rows' memory are available
+```
+
+**`src/sql/dtl/ob_dtl_basic_channel.h`** — ObDtlLinkedBuffer(extends), SendMsgResponse(class), is_init(method), is_in_process(method), is_block(method), reset_block(method), set_id(method), get_id(method), ObDtlBasicChannel(class), ObDtlChannel(extends), ObDtlChannelBlockProc(class), extends(extends), get_peer_id(method), get_tenant_id(method), get_hash_val(method), +24 more
+
+```cpp
+652	// Rpc channel is "rpc version" of channel. As the name explained,
+653	// this kind of channel will do exchange between two tasks by using
+654	// rpc calls.
+655	class ObDtlBasicChannel
+656	    : public ObDtlChannel
+657	{
+658	  friend class ObDtlChanAgent;
+659	public:
+660	  explicit ObDtlBasicChannel(const uint64_t tenant_id,
+661	     const uint64_t id, const common::ObAddr &peer, DtlChannelType type);
+662	  explicit ObDtlBasicChannel(const uint64_t tenant_id,
+663	     const uint64_t id, const common::ObAddr &peer, const int64_t hash_val, DtlChannelType type);
+664	  virtual ~ObDtlBasicChannel();
+665	
+666	  class ObDtlChannelBlockProc : public ObIDltChannelLoopPred
+667	  {
+668	  public:
+669	    void set_ch_idx_var(int64_t *chan_idx) { chan_idx_ = chan_idx; }
+670	    virtual bool pred_process(int64_t idx, ObDtlChannel *chan) override
+671	    {
+672	      UNUSED(chan);
+673	      return *chan_idx_ == idx;
+674	    }
+675	    int64_t *chan_idx_;
+676	  };
+677	
+678	  int init(ObDtlFlowControl *dfc = nullptr) override;
+679	  void destroy();
+680	
+681	  virtual int send(const ObDtlMsg &msg, int64_t timeout_ts,
+682	      ObEvalCtx *eval_ctx = nullptr, bool is_eof = false) override;
+683	  virtual int feedup(ObDtlLinkedBuffer *&buffer) override;
+684	  virtual int attach(ObDtlLinkedBuffer *&linked_buffer, bool inc_recv_buf_cnt = true);
+685	  // don't call send&flush in different threads.
+686	  virtual int flush(bool wait=true, bool wait_response = true) override;
+687	
+688	  virtual int send_message(ObDtlLinkedBuffer *&buf);
+689	
+690	  virtual int process1(
+691	      ObIDtlChannelProc *proc,
+692	      int64_t timeout, bool &last_row_in_buffer) override;
+693	  virtual int send1(
+694	      std::function<int(const ObDtlLinkedBuffer &buffer)> &proc,
+695	      int64_t timeout) override;
+696	
+697	  bool is_empty() const override;
+698	
+699	  virtual int64_t get_peer_id() const { return peer_id_; }
+700	  virtual uint64_t get_tenant_id() const { return tenant_id_; }
+701	  virtual int64_t get_hash_val() const { return hash_val_; }
+702	
+703	  int wait_unblocking_if_blocked();
+704	  int block_on_increase_size(int64_t size);
+705	  int unblock_on_decrease_size(int64_t size);
+706	  bool belong_to_receive_data();
+707	  bool belong_to_transmit_data();
+708	  virtual int clear_response_block();
+709	  virtual int wait_response();
+710	  void inc_msg_seq_no() { ++seq_no_; }
+711	  int64_t get_msg_seq_no() { return seq_no_; }
+712	  void inc_send_buffer_cnt() { ++send_buffer_cnt_; }
+713	  void inc_recv_buffer_cnt() { ++recv_buffer_cnt_; }
+714	  void inc_processed_buffer_cnt() { ++processed_buffer_cnt_; }
+715	  int64_t get_send_buffer_cnt() { return send_buffer_cnt_; }
+716	  int64_t get_recv_buffer_cnt() { return recv_buffer_cnt_; }
+717	  int64_t get_processed_buffer_cnt() { return processed_buffer_cnt_; }
+718	
+719	  int get_processed_buffer(int64_t timeout);
+720	  virtual int clean_recv_list ();
+721	  void clean_broadcast_buffer();
+722	
+723	  // Only DTL use unblock logic for merge sort coord
+724	  inline bool has_less_buffer_cnt()
+725	  {
+726	    return recv_buffer_cnt_ - processed_buffer_cnt_ <= MAX_BUFFER_CNT;
+727	  }
+728	  int push_back_send_list(ObDtlLinkedBuffer *buffer);
+729	
+730	  void set_dfc_idx(int64_t idx) { dfc_idx_ = idx; }
+731	
+732	  int switch_writer(const ObDtlMsg &msg);
+733	
+734	  int mock_eof_buffer(int64_t timeout_ts, uint64_t dfo_id);
+735	  ObDtlLinkedBuffer *alloc_buf(const int64_t payload_size);
+736	  
+737	  void set_bc_service(ObDtlBcastService *bc_service) { bc_service_ = bc_service; }
+738	
+739	  ObDtlDatumMsgWriter &get_datum_writer() { return datum_msg_writer_; }
+740	  ObDtlVectorRowMsgWriter &get_vector_row_writer() { return vector_row_msg_writer_; }
+741	  ObDtlVectorMsgWriter &get_vector_msg_writer() { return vector_msg_writer_; }
+742	  ObDtlVectorFixedMsgWriter &get_vector_fixed_msg_writer() { return vector_fixed_msg_writer_; }
+743	  virtual int push_buffer_batch_info() override;
+744	  void switch_msg_type(const ObDtlMsg &msg);
+745	  void set_row_meta(RowMeta &meta) { meta_ = &meta; }
+746	
+747	  TO_STRING_KV(KP_(id), K_(peer), K_(peer_id));
+748	protected:
+749	  int push_back_send_list();
+750	  int wait_unblocking();
+751	  int switch_buffer(const int64_t min_size, const bool is_eof,
+752	      const int64_t timeout_ts, ObEvalCtx *eval_ctx);
+753	  int write_msg(const ObDtlMsg &msg, int64_t timeout_ts,
+754	      ObEvalCtx *eval_ctx, bool is_eof);
+755	  int inner_write_msg(const ObDtlMsg &msg, int64_t timeout_ts, ObEvalCtx *eval_ctx, bool is_eof);
+756	
+757	  void free_buf(ObDtlLinkedBuffer *buf);
+758	
+759	  int send_buffer(ObDtlLinkedBuffer *&buffer);
+760	
+761	  SendMsgResponse *get_msg_response() { return &msg_response_; }
+762	
+763	  OB_INLINE virtual bool has_msg() { return recv_buffer_cnt_ > processed_buffer_cnt_; }
+764	
+765	  virtual void reset_px_row_iterator()
+766	  {
+767	    datum_iter_.reset();
+768	    row_iter_.reset();
+769	  }
+770	protected:
+771	  bool is_inited_;
+772	  const uint64_t local_id_;
+773	  const int64_t peer_id_;
+```
+
+**`src/sql/engine/px/exchange/ob_px_transmit_op.h`** — calls(calls), get_spec(calls), ObTransmitOp(extends), ~ObPxTransmitOp(method), get_op_metric(method), get_task_channels(method), set_batch_param_remain(method), do_project_trans_exprs(method), send_rows(method), is_vectorized(calls), send_rows_in_vector(calls), send_rows_in_batch(calls), send_rows_one_by_one(calls), send_rows_in_vector(method), do_project_trans_exprs(calls), +3 more
+
+```cpp
+97	  ExprFixedArray real_trans_exprs_;
+98	};
+99	
+100	class ObPxTransmitOp : public ObTransmitOp
+101	{
+102	public:
+103	  // sample DYNAMIC_SAMPLE_ROW_COUNT to MAX_DYNAMIC_SAMPLE_ROW_COUNT for dynamic sampling
+104	  // with DYNAMIC_SAMPLE_INTERVAL interval.
+105	  const static int64_t DYNAMIC_SAMPLE_ROW_COUNT = 90;
+106	  const static int64_t MAX_DYNAMIC_SAMPLE_ROW_COUNT = 500;
+107	  const static int64_t DYNAMIC_SAMPLE_INTERVAL = 10000;
+108	  const static int64_t MAX_BKT_FOR_REORDER = 1 << 16;
+109	
+110	  ObPxTransmitOp(ObExecContext &exec_ctx, const ObOpSpec &spec, ObOpInput *input);
+111	  virtual ~ObPxTransmitOp() {}
+112	
+113	  virtual int inner_open() override;
+114	  virtual int inner_rescan() override;
+115	  virtual void destroy() override;
+116	  virtual int inner_close() override;
+117	  virtual int inner_get_next_row() override;
+118	  virtual int inner_get_next_batch(const int64_t max_row_cnt) override;
+119	  virtual int transmit();
+120	public:
+121	  int init_channel(ObPxTransmitOpInput &trans_input);
+122	  int init_dfc(dtl::ObDtlDfoKey &parent_key, dtl::ObDtlSqcInfo &child_info);
+123	
+124	  ObOpMetric &get_op_metric() { return metric_; }
+125	  common::ObIArray<dtl::ObDtlChannel *> &get_task_channels() { return task_channels_; }
+126	  void set_batch_param_remain(bool batch_param_remain) { batch_param_remain_ = batch_param_remain; }
+127	protected:
+128	  virtual int do_transmit() = 0;
+129	  virtual int do_project_trans_exprs(const ObIArray<ObExpr *> &trans_exprs, const ObBatchRows &brs,
+130	                                     ObEvalCtx &eval_ctx)
+131	  {
+132	    UNUSED(trans_exprs);
+133	    UNUSED(brs);
+134	    UNUSED(eval_ctx);
+135	    return OB_SUCCESS;
+136	  }
+137	  int init_channels_cur_block(common::ObIArray<dtl::ObDtlChannel*> &dtl_chs);
+138	protected:
+139	  int link_ch_sets(ObPxTaskChSet &ch_set,
+140	                   common::ObIArray<dtl::ObDtlChannel *> &channels,
+141	                   dtl::ObDtlFlowControl *dfc = nullptr);
+142	  template <ObSliceIdxCalc::SliceCalcType CALC_TYPE>
+143	  int send_rows(ObSliceIdxCalc &sc)
+144	  {
+145	    return is_vectorized()
+146	            ? (get_spec().use_rich_format_
+147	                ? send_rows_in_vector<CALC_TYPE>(sc)
+148	                : send_rows_in_batch<CALC_TYPE>(sc))
+149	            : send_rows_one_by_one<CALC_TYPE>(sc);
+150	  }
+151	  template <ObSliceIdxCalc::SliceCalcType CALC_TYPE>
+152	  int send_rows_one_by_one(ObSliceIdxCalc &sc);
+153	  template <ObSliceIdxCalc::SliceCalcType CALC_TYPE>
+154	  int send_rows_in_batch(ObSliceIdxCalc &sc);
+155	  template <ObSliceIdxCalc::SliceCalcType CALC_TYPE>
+156	  int send_rows_in_vector(ObSliceIdxCalc &slice_calc) {
+157	    int ret = OB_SUCCESS;
+158	    int64_t send_row_time_recorder = 0;
+159	    ObObj tablet_id;
+160	    ObEvalCtx::BatchInfoScopeGuard batch_info_guard(eval_ctx_);
+161	    ObSliceIdxCalc::SliceIdxArray slice_idx_array;
+```
+
+**Not shown above — explore these names for their source**
+
+- src/sql/dtl/ob_dtl_channel_agent.h: ObDtlBcastService:98, ObDtlChanAgent:128, ObServerChannel:132
+- ... and 34 more files

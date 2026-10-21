@@ -1,0 +1,226 @@
+--- /dev/null
++++ b/src/mcp/explore-response.ts
+@@ -0,0 +1,12 @@
++/** Bound the complete response, including its omission notice, without claiming file completeness. */
++export function capExploreResponse(output: string, hardCeiling: number): string {
++  if (output.length <= hardCeiling) return output;
++  const notice = '\n\n> Output truncated to budget. Only the shown source ranges are covered; omitted bodies and file regions may require a targeted query or Read.';
++  // Reserve a closing fence for the single-section fallback as well as the notice.
++  const cut = output.slice(0, Math.max(0, hardCeiling - notice.length - 4));
++  const lastSection = cut.lastIndexOf('\n#### ');
++  const boundary = lastSection > hardCeiling * 0.5 ? lastSection : cut.lastIndexOf('\n');
++  let safe = boundary > 0 ? cut.slice(0, boundary) : cut;
++  if ((safe.match(/^```/gm)?.length ?? 0) % 2 !== 0) safe += '\n```';
++  return (safe + notice).slice(0, hardCeiling);
++}
+--- a/src/mcp/tools.ts
++++ b/src/mcp/tools.ts
+@@ -5,6 +5,7 @@
+  */
+ 
+ import type CodeGraph from '../index';
++import { capExploreResponse } from './explore-response';
+ import type { IndexDataReadiness } from '../index';
+ import { AsyncLocalStorage } from 'async_hooks';
+ import { findNearestCodeGraphRoot } from '../directory';
+@@ -3630,27 +3631,10 @@
+   private async handleExplore(args: Record<string, unknown>): Promise<ToolResult> {
+     const query = this.validateString(args.query, 'query');
+     if (typeof query !== 'string') return query;
+-
+-    // Fast-fail: reject natural-language queries. Explore works best with
+-    // symbol/file names extracted from the question, not the raw question.
+-    const nlCheck = isNaturalLanguageQuery(query);
+-    if (nlCheck.isNatural) {
+-      // Extract any identifier-looking tokens as a hint for the agent.
+-      const idTokens = query
+-        .split(/[\s,;]+/)
+-        .map((t) => t.replace(/^[^\w]+|[^\w]+$/g, ''))
+-        .filter((t) => /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(t) && t.length >= 2);
+-      const hint = idTokens.length >= 2
+-        ? `\n→ 请尝试: codegraph_explore query="${idTokens.join(' ')}"\n  （从问题中提取的关键符号名）`
+-        : '';
+-      return this.textResult(
+-        `codegraph_explore 使用符号名/文件名效果最好，不支持自然语言描述。\n\n` +
+-        `收到的查询: "${query}"\n` +
+-        `检测到: ${nlCheck.reason}\n\n` +
+-        `→ 请从问题中提取关键符号名后直接传入` +
+-        hint
+-      );
+-    }
++    if (!query.trim()) return this.errorResult('query must contain non-whitespace characters');
++
++    // Explore accepts symbol/file bags and mixed prose, like the relevance search
++    // beneath it. The single-symbol search validator must not reject this input.
+ 
+     const cg = this.getCodeGraph(args.projectPath as string | undefined);
+     const projectRoot = cg.getProjectRoot();
+@@ -4110,7 +4094,7 @@
+ 
+     lines.push('### Source Code');
+     lines.push('');
+-    lines.push('> The code below is the **verbatim, current on-disk source** of these files — re-read from disk on this call and line-numbered, byte-for-byte identical to what the Read tool returns. It is NOT a summary, outline, or stale cache. Treat each block as a Read you have already performed: do not Read a file shown here.');
++    lines.push('> Source excerpts below are read from current files. Only shown source ranges are covered; signatures, outlines and omitted regions are not complete function bodies or complete files.');
+     lines.push('');
+ 
+     let totalChars = lines.join('\n').length;
+@@ -4243,15 +4227,10 @@
+         if (skel.length > 0) {
+           const names = [...new Set(group.nodes.filter(n => n.kind !== 'import' && n.kind !== 'export').map(n => n.name))]
+             .slice(0, budget.maxSymbolsInFileHeader).join(', ');
+-          // Steer the agent to codegraph_explore for an elided body — NEVER to
+-          // Read. The old "Read for more" / "Read for a full body" tags invited
+-          // a Read of the very file just skeletonized; on a central, wanted file
+-          // (Session.swift, DataRequest.swift) that fired an over-investigation
+-          // spiral (the agent Read the skeletonized file, then kept digging).
+-          // CLAUDE.md: explore output must never tell the agent to Read.
++          // A signature is a locator, not evidence that its body was read.
+           const tag = bodyIds.size > 0
+-            ? 'focused (the methods you named in full, the rest as signatures — codegraph_explore a signature by name for its body; do NOT Read)'
+-            : 'skeleton (signatures only — codegraph_explore a name for its full body; do NOT Read)';
++            ? 'focused (selected bodies and signatures; omitted bodies may need a targeted query or Read)'
++            : 'skeleton (signatures only; bodies are not included)';
+           lines.push(`#### ${filePath} — ${names} · ${tag}`, '', '```' + lang, skel.join('\n'), '```', '');
+           totalChars += skel.join('\n').length + 120;
+           filesIncluded++;
+@@ -4563,29 +4542,9 @@
+       }
+     }
+ 
+-    // Add completeness signal so agents know they don't need to re-read these files.
+-    // On small projects the budget gates this off — but if we actually had to
+-    // trim or drop clusters, surface a brief note so the agent knows it can
+-    // still Read for more detail.
+-    if (budget.includeCompletenessSignal) {
+-      lines.push('');
+-      lines.push('---');
+-      lines.push(`> **Complete source for ${filesIncluded} files is included above — do NOT re-read them.** If your question also needs files/symbols listed under "Not shown above" (or any area this call didn't cover), make ANOTHER codegraph_explore targeting those names — it returns the same source with line numbers and is cheaper and more complete than reading. Reserve Read for a single specific line range explore can't surface.`);
+-    } else if (anyFileTrimmed) {
+-      lines.push('');
+-      lines.push(`> Some file sections were trimmed for size. For a specific symbol you still need, run another \`codegraph_explore\` (or \`codegraph_node\`) with its exact name — line-numbered source, cheaper and more complete than Read.`);
+-    }
+-
+-    // Add explore budget note based on project size
+-    if (budget.includeBudgetNote) {
+-      try {
+-        const stats = cg.getStats();
+-        const callBudget = getExploreBudget(stats.fileCount);
+-        lines.push('');
+-        lines.push(`> **Explore budget: ${callBudget} calls for this project (${stats.fileCount.toLocaleString()} files indexed).** Each call covers ~6 files; if your question spans more, spend your remaining calls on the uncovered area BEFORE falling back to Read — another explore is cheaper and more complete than reading those files. Synthesize once you've used ${callBudget}.`);
+-      } catch {
+-        // Stats unavailable — skip budget note
+-      }
++    // Report coverage, never a call quota or a file-wide "already read" claim.
++    if (anyFileTrimmed) {
++      lines.push('', '> Some source sections were omitted or shortened for size. Check unresolved evidence with a targeted query or Read.');
+     }
+ 
+     // Final ceiling — an ABSOLUTE inline cap, not a multiple of the budget. The
+@@ -4598,19 +4557,7 @@
+     // externalize territory.
+     const output = flow.text + lines.join('\n');
+     const hardCeiling = Math.min(Math.round(budget.maxOutputChars * 1.5), 25000);
+-    if (output.length > hardCeiling) {
+-      // Cut at a FILE-SECTION boundary (the last `#### ` header before the
+-      // ceiling) so we drop whole trailing file-sections rather than slicing
+-      // through a method body — a half-rendered method just forces the Read this
+-      // tool exists to prevent. Fall back to a line boundary only if no section
+-      // header sits in the back half (degenerate single-giant-section case).
+-      const cut = output.slice(0, hardCeiling);
+-      const lastSection = cut.lastIndexOf('\n#### ');
+-      const boundary = lastSection > hardCeiling * 0.5 ? lastSection : cut.lastIndexOf('\n');
+-      const safe = boundary > 0 ? cut.slice(0, boundary) : cut;
+-      return this.textResult(safe + '\n\n... (output truncated to budget; the source above is complete and verbatim — treat it as already Read. For any area not covered, run another codegraph_explore with the specific names — do NOT Read these files.)');
+-    }
+-    return this.textResult(output);
++    return this.textResult(capExploreResponse(output, hardCeiling));
+   }
+ 
+   /**
+--- /dev/null
++++ b/__tests__/explore-input-contract.test.ts
+@@ -0,0 +1,84 @@
++import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
++import * as fs from 'node:fs';
++import * as os from 'node:os';
++import * as path from 'node:path';
++import CodeGraph from '../src/index';
++import { ToolHandler } from '../src/mcp/tools';
++import { capExploreResponse } from '../src/mcp/explore-response';
++
++describe('explore input and evidence contract', () => {
++  let dir: string, cg: CodeGraph, handler: ToolHandler;
++  beforeAll(async () => {
++    vi.stubEnv('CODEGRAPH_ENABLE_EXPLORE', '1');
++    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cg-explore-contract-'));
++    fs.writeFileSync(path.join(dir, 'engine.cpp'), 'namespace demo {\nint calculate(int value) {\n  return value + 11;\n}\nint apply(int value) {\n  return calculate(value);\n}\n}\n');
++    fs.writeFileSync(path.join(dir, 'client.ts'), 'export function receive(value: number) {\n  return value * 7;\n}\n');
++    cg = CodeGraph.initSync(dir, { config: { include: ['**/*.cpp', '**/*.ts'], exclude: [] } });
++    await cg.indexAll();
++    handler = new ToolHandler(cg);
++  });
++  afterEach(() => vi.restoreAllMocks());
++  afterAll(() => { cg?.close(); if (dir) fs.rmSync(dir, { recursive: true, force: true }); vi.unstubAllEnvs(); });
++
++  it.each([
++    'calculate apply', 'calculate\tapply\nreceive', 'demo::calculate demo::apply',
++    'engine.cpp calculate', 'calculate, apply; receive',
++    'How does apply call calculate?', '检查 calculate 与 apply 的调用关系',
++  ])('passes valid explore input to retrieval: %s', async query => {
++    const spy = vi.spyOn(cg, 'findRelevantContext');
++    const result = await handler.execute('explore', { query, maxFiles: 12 });
++    expect(result.isError).not.toBe(true);
++    expect(spy).toHaveBeenCalledWith(query, expect.any(Object));
++    expect(result.content?.[0]?.text).not.toContain('不支持自然语言');
++  });
++
++  it('returns real bodies for a cross-file symbol bag', async () => {
++    const result = await handler.execute('explore', { query: 'calculate receive', maxFiles: 12 });
++    const text = result.content?.[0]?.text ?? '';
++    expect(text).toContain('return value + 11;');
++    expect(text).toContain('return value * 7;');
++  });
++
++  it.each([undefined, 12, '', '   ', 'x'.repeat(10001)])('retains basic input validation: %s', async query => {
++    const spy = vi.spyOn(cg, 'findRelevantContext');
++    const result = await handler.execute('explore', { query });
++    expect(result.isError).toBe(true);
++    expect(spy).not.toHaveBeenCalled();
++  });
++
++  it('does not change single-symbol search validation', async () => {
++    const result = await handler.execute('search', { query: 'calculate apply' });
++    expect(result.content?.[0]?.text).toContain('不是单个符号名');
++  });
++
++  it('never claims whole files were read or imposes a call quota, including large tiers', async () => {
++    const stats = cg.getStats();
++    vi.spyOn(cg, 'getStats').mockReturnValue({ ...stats, fileCount: 10000 });
++    const result = await handler.execute('explore', { query: 'calculate receive', maxFiles: 12 });
++    const text = result.content?.[0]?.text ?? '';
++    expect(text).toContain('Only shown source ranges');
++    expect(text).not.toMatch(/Explore budget:|remaining calls|Synthesize once|already Read|do NOT|Complete source for|byte-for-byte identical/i);
++    expect(text).toContain('return value + 11;');
++  });
++});
++
++describe('explore response ceiling', () => {
++  it('leaves an in-budget answer unchanged', () => {
++    expect(capExploreResponse('a short answer', 25000)).toBe('a short answer');
++  });
++  it.each([19500, 25000])('includes its truthful notice and balanced fences within %i chars', ceiling => {
++    const output = '### Source Code\n#### huge.cpp\n```cpp\n' + '1\tint x = 0;\n'.repeat(4000) + '```';
++    const result = capExploreResponse(output, ceiling);
++    expect(result.length).toBeLessThanOrEqual(ceiling);
++    expect(result).toContain('Output truncated to budget. Only the shown source ranges');
++    expect((result.match(/^```/gm)?.length ?? 0) % 2).toBe(0);
++    expect(result).not.toMatch(/complete and verbatim|already Read|do NOT Read/);
++  });
++  it('drops a trailing file section instead of slicing its body when possible', () => {
++    const first = '#### first.cpp\n```cpp\n' + '1\t// source\n'.repeat(1400) + '```';
++    const result = capExploreResponse(first + '\n#### last.cpp\n```cpp\n' + '2\t// tail\n'.repeat(2000) + '```', 25000);
++    expect(result).toContain(first);
++    expect(result).not.toContain('last.cpp');
++    expect(result.length).toBeLessThanOrEqual(25000);
++  });
++});

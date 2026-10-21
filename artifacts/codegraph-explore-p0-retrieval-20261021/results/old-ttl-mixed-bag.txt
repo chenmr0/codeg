@@ -1,0 +1,571 @@
+## Exploration: kv_ttl_delete_max_ops ObTableTTLDeleteTask ttl_thread_score TTL delete task limit rate
+
+Found 207 symbols across 41 files.
+
+### Blast radius — what depends on these (update/verify before editing)
+
+- `ops` (src/observer/table/redis/ob_redis_context.h:250) — 15 callers in `src/observer/table/redis/operator/ob_redis_hash_operator.cpp`, `src/observer/table/redis/operator/ob_redis_list_operator.cpp`, `src/observer/table/redis/operator/ob_redis_operator.cpp`, `src/observer/table/redis/operator/ob_redis_string_operator.cpp` +1 more; ⚠️ no covering tests found
+
+### Relationships
+
+**extends:**
+- ObTableTTLDeleteTask → ObITask
+- ObITask → ObINodeWithChild
+- ObTableTTLDeleteRowIterator → ObTableTTLRowIterator
+- ObTableTTLRowIterator → ObTableApiScanRowIterator
+- ObRedisBatchCtx → ObRedisCtx
+- ObRedisRowIterator → ObTableTTLRowIterator
+- ObTableHRowKeyTTLDelTask → ObTableTTLDeleteTask
+- ObTTLHRowkeyTaskScheduler → ObTTLTaskScheduler
+- ObTabletHRowkeyTTLScheduler → ObTabletTTLScheduler
+
+**references:**
+- unittest → TTL
+- is_obkv_feature_enable → TTL
+- is_ttl_enable → TTL
+- process → ObRedisBatchCtx
+- generate_one_tablet_task → ObTTLTaskCtx
+- reuse → ObTTLTaskCtx
+- destory → ObTTLTaskCtx
+- process_one → ObRedisRowIterator
+- process_one → ObTableTTLDeleteRowIterator
+
+**calls:**
+- unittest → EXEC_SUCC
+- unittest → EXEC_FAIL
+- unittest → check_table_ttl
+- unittest → insert_rows
+- is_ttl_enable → is_obkv_feature_enable
+- insert_rows → EXEC_SUCC
+- check_table_ttl → get_table_schema
+- check_aux_lob_ttl → check_schema_ttl
+- check_table_ttl → check_schema_ttl
+- check_table_ttl → check_aux_lob_ttl
+- ObTableTTLDeleteTask → MEMSET
+- ObBasicTimeGuard → MEMSET
+- load_from_file → MEMSET
+- set_and_dump_to_file_ → MEMSET
+- remove_and_dump_to_file_ → MEMSET
+- ... and 67 more
+
+**defines:**
+- ObTableTTLDeleteTask → ObTableTTLDeleteTask
+- ObTableTTLDeleteRowIterator → ObTableTTLDeleteRowIterator
+- get_next_row → get_next_row
+- init → init
+- close → close
+- covert_row_to_entity → covert_row_to_entity
+- deep_copy_task_info_string_fields → deep_copy_task_info_string_fields
+
+**instantiates:**
+- generate_one_tablet_task → ObTTLTaskCtx
+
+### Source Code
+
+> Source excerpts below are read from current files. Only shown source ranges are covered; signatures, outlines and omitted regions are not complete function bodies or complete files.
+
+#### src/observer/table/ttl/ob_table_ttl_task.h — ObTableTTLDeleteTask(class), ObTableTTLDeleteRowIterator(class), ObTableTTLRowIterator(class), ObTableTTLDeleteTask(method), ~ObTableTTLDeleteTask(method), init(method), process(method), get_scan_ranges(method), init_ob_table_query(method), is_rowkey_ttl_task(method), init_tb_ctx(method), init_scan_tb_ctx(method), execute_ttl_delete(method), process_ttl_delete(method), get_allocator(method), +23 more
+
+```cpp
+1	/**
+2	 * Copyright (c) 2023 OceanBase
+3	 * OceanBase CE is licensed under Mulan PubL v2.
+4	 * You can use this software according to the terms and conditions of the Mulan PubL v2.
+5	 * You may obtain a copy of Mulan PubL v2 at:
+6	 *          http://license.coscl.org.cn/MulanPubL-2.0
+7	 * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND,
+8	 * EITHER EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT,
+9	 * MERCHANTABILITY OR FIT FOR A PARTICULAR PURPOSE.
+10	 * See the Mulan PubL v2 for more details.
+11	 */
+12	
+13	#ifndef OCEANBASE_OBSERVER_OB_TABLE_TTL_TASK_H_
+14	#define OCEANBASE_OBSERVER_OB_TABLE_TTL_TASK_H_
+15	#include "share/table/ob_table_ttl_common.h"
+16	#include "sql/ob_sql_trans_control.h"
+17	#include "share/scheduler/ob_tenant_dag_scheduler.h"
+18	#include "observer/table/ob_table_context.h"
+19	#include "observer/table/ob_table_scan_executor.h"
+20	#include "share/table/ob_table.h"
+21	#include "observer/table/ob_table_cache.h"
+22	#include "observer/table/ttl/ob_tenant_tablet_ttl_mgr.h"
+23	#include "observer/table/ob_table_schema_cache.h"
+24	#include "share/table/ob_ttl_util.h"
+25	
+26	namespace oceanbase
+27	{
+28	namespace table
+29	{
+30	
+31	class ObTableTTLRowIterator : public table::ObTableApiScanRowIterator
+32	{
+33	public:
+34	  explicit ObTableTTLRowIterator()
+35	    : is_inited_(false),
+36	      max_version_cnt_(0),
+37	      cur_version_(0),
+38	      ttl_cnt_(0),
+39	      scan_cnt_(0),
+40	      last_row_(nullptr),
+41	      has_cell_ttl_(false),
+42	      rowkey_cnt_(0),
+43	      iter_end_ts_(0)
+44	  {
+45	    column_pairs_.set_attr(ObMemAttr(MTL_ID(), "TTLRowIter"));
+46	  }
+47	  virtual ~ObTableTTLRowIterator() {}
+48	  int init_common(const share::schema::ObTableSchema &table_schema);
+49	  virtual int close() override;
+50	public:
+51	  struct ColumnPair
+52	  {
+53	    ColumnPair() = default;
+54	    ColumnPair(uint64_t cell_idx, const common::ObString &col_name)
+55	    : cell_idx_(cell_idx),
+56	      col_id_(OB_INVALID_ID),
+57	      col_name_(col_name),
+58	      is_rowkey_column_(false),
+59	      rowkey_pos_idx_(0)
+60	    {}
+61	    uint64_t cell_idx_;
+62	    uint64_t col_id_;
+63	    common::ObString col_name_;
+64	    bool is_rowkey_column_;
+65	    uint64_t rowkey_pos_idx_;
+66	    TO_STRING_KV(K_(cell_idx), K_(col_name), K_(is_rowkey_column), K_(col_id), K_(rowkey_pos_idx));
+67	  };
+68	
+69	public:
+70	  const static int64_t ONE_ITER_EXECUTE_MAX_TIME = 30 * 1000 * 1000; // 30s
+71	  bool is_inited_;
+72	  uint64_t max_version_cnt_; // for hbase
+73	  uint64_t cur_version_; // for hbase
+74	  uint64_t ttl_cnt_;
+75	  uint64_t scan_cnt_;
+76	  ObNewRow *last_row_;
+77	  bool has_cell_ttl_;
+78	  common::ObSArray<ColumnPair> column_pairs_;
+79	  int64_t rowkey_cnt_;
+80	  int64_t iter_end_ts_;
+81	};
+82	
+83	class ObTableTTLDeleteRowIterator : public ObTableTTLRowIterator
+84	{
+85	public:
+86	  ObTableTTLDeleteRowIterator();
+87	  ~ObTableTTLDeleteRowIterator() {}
+88	  virtual int get_next_row(ObNewRow*& row);
+89	  int init(const share::schema::ObTableSchema &index_schema,
+90	           const ObString &ttl_definition,
+91	           const table::ObTableTTLOperation &ttl_operation);
+92	  virtual int close() override;
+93	private:
+94	  int covert_row_to_entity(const ObNewRow &row, ObTableEntity &entity);
+95	public:
+96	  common::ObArenaAllocator hbase_kq_allocator_;
+97	  int32_t max_version_;
+98	  int64_t time_to_live_ms_; // ttl in millisecond
+99	  uint64_t limit_del_rows_; // maximum delete row
+100	  uint64_t cur_del_rows_; // current delete row
+101	  ObString cur_rowkey_; // K
+102	  ObString cur_qualifier_; // Q
+103	  bool is_last_row_ttl_; // false indicate row del by max version
+104	  bool is_hbase_table_;
+105	  bool has_cell_ttl_;
+106	  common::ObTableTTLChecker ttl_checker_;
+107	  bool hbase_new_cq_;
+108	};
+109	
+110	
+111	class ObTableTTLDeleteTask : public share::ObITask
+112	{
+113	public:
+114	  ObTableTTLDeleteTask();
+115	  ~ObTableTTLDeleteTask();
+116	  virtual int init(table::ObTabletTTLScheduler *ttl_tablet_mgr,
+117	                   const table::ObTTLTaskParam &ttl_para,
+118	                   table::ObTTLTaskInfo &ttl_info);
+119	  virtual int process() override;
+120	protected:
+121	  virtual int get_scan_ranges(ObIArray<ObNewRange> &ranges, const ObKVAttr &kv_attributes);
+122	  virtual int init_ob_table_query(ObTableQuery &query, ObKVAttr &attr);
+123	  virtual bool is_rowkey_ttl_task() const { return false; }
+124	  int init_tb_ctx(ObKvSchemaCacheGuard &schema_cache_guard,
+125	                  const table::ObITableEntity &entity,
+126	                  table::ObTableCtx &ctx);
+127	  int init_scan_tb_ctx(ObKvSchemaCacheGuard &schema_cache_guard,
+128	                       ObTableQuery &query,
+129	                       table::ObTableCtx &tb_ctx,
+130	                       table::ObTableApiCacheGuard &cache_guard);
+131	  int execute_ttl_delete(ObKvSchemaCacheGuard &schema_cache_guard,
+132	                         ObTableTTLRowIterator &ttl_row_iter,
+133	                         table::ObTableTTLOperationResult &result,
+134	                         transaction::ObTxDesc *trans_desc,
+135	                         transaction::ObTxReadSnapshot &snapshot);
+136	  int process_ttl_delete(ObKvSchemaCacheGuard &schema_cache_guard,
+137	                         const table::ObITableEntity &new_entity,
+138	                         int64_t &affected_rows,
+139	                         transaction::ObTxDesc *trans_desc,
+140	                         transaction::ObTxReadSnapshot &snapshot,
+141	                         bool is_skip_scan);
+142	  common::ObIAllocator &get_allocator() { return allocator_; }
+143	  int init_credential(const table::ObTTLTaskParam &ttl_param);
+144	  int init_sess_info();
+145	  int init_schema_info(int64_t tenant_id, uint64_t table_id);
+146	  int init_kv_schema_guard(ObKvSchemaCacheGuard &schema_cache_guard);
+147	  int decide_and_check_scan_index(const share::schema::ObTableSchema &table_schema,
+148	                                  ObKVAttr &attr);
+149	  int construct_delete_entity(ObIArray<ObTableTTLRowIterator::ColumnPair> &column_pairs,
+150	                              const ObNewRow &row,
+151	                              ObTableEntity &entity);
+152	  int init_scan_index(const ObString &scan_index);
+153	  int64_t get_timeout_ts();
+154	  void reset_timeout_ts() { timeout_ts_ = 0; }
+155	
+156	  common::ObTabletID get_tablet_id() const
+157	  {
+158	    return info_.get_tablet_id();
+159	  }
+160	  uint64_t get_table_id() const { return param_.table_id_; }
+161	  common::ObRowkey &get_start_rowkey() { return rowkey_; }
+162	
+163	private:
+164	  static const int64_t RETRY_INTERVAL = 30 * 60 * 1000 * 1000l; // 30min
+165	  static const int64_t PER_TASK_DEL_ROWS = 1024l;
+166	  static const int64_t ONE_TASK_TIMEOUT = 1 * 60 * 1000 * 1000l; // 1min
+167	private:
+168	  int process_one();
+169	private:
+170	  common::ObArenaAllocator rowkey_allocator_;
+171	  bool is_inited_;
+172	  table::ObTTLTaskParam param_;
+173	  table::ObTTLTaskInfo info_;
+174	  table::ObTableApiCredential credential_;
+175	  ObTableApiSessGuard sess_guard_;
+176	  share::schema::ObSchemaGetterGuard schema_guard_;
+177	  const share::schema::ObTableSchema *table_schema_;
+178	  common::ObArenaAllocator allocator_;
+179	  common::ObRowkey rowkey_;
+180	  table::ObTabletTTLScheduler *ttl_tablet_scheduler_;
+181	  share::ObLSID ls_id_;
+182	  ObTableEntity delete_entity_;
+183	  uint64_t hbase_cur_version_;
+184	  const ObTableSchema* scan_index_schema_;
+185	  ObString scan_index_;
+186	  char scan_index_buf_[OB_MAX_OBJECT_NAME_LENGTH];
+187	  ObTTLDeleteRateThrottler delete_rate_throttler_;
+188	  int64_t timeout_ts_;
+189	  DISALLOW_COPY_AND_ASSIGN(ObTableTTLDeleteTask);
+190	};
+191	
+192	// TTL delete task using hbase rowkey
+193	class ObTableHRowKeyTTLDelTask : public ObTableTTLDeleteTask
+194	{
+195	public:
+196	  ObTableHRowKeyTTLDelTask();
+197	  ~ObTableHRowKeyTTLDelTask();
+198	  virtual int init(ObTabletTTLScheduler *ttl_tablet_scheduler,
+199	                   const table::ObTTLHRowkeyTaskParam &ttl_para,
+200	                   table::ObTTLTaskInfo &ttl_info);
+201	private:
+202	  virtual int get_scan_ranges(ObIArray<ObNewRange> &ranges, const ObKVAttr &kv_attributes) override;
+203	  bool is_rowkey_ttl_task() const override { return true; }
+204	
+205	private:
+206	  common::ObArenaAllocator hrowkey_alloc_;
+207	  ObSEArray<ObString, 4> rowkeys_;
+208	  bool rowkey_iter_end_;  // true when all rowkeys have been processed (get_scan_ranges returned OB_ITER_END)
+209	};
+210	
+211	class ObTableTTLDag final: public share::ObIDag
+212	{
+213	public:
+214	  ObTableTTLDag();
+215	  virtual ~ObTableTTLDag();
+216	  virtual bool operator==(const ObIDag& other) const override;
+217	  virtual uint64_t hash() const override;
+218	  int init(const table::ObTTLTaskParam &param, table::ObTTLTaskInfo &info);
+219	  virtual lib::Worker::CompatMode get_compat_mode() const override { return compat_mode_; }
+220	  virtual int fill_dag_key(char *buf, const int64_t buf_len) const override;
+221	  virtual int fill_info_param(compaction::ObIBasicInfoParam *&out_param, ObIAllocator &allocator) const override;
+222	  virtual uint64_t get_consumer_group_id() const override { return consumer_group_id_; }
+223	  virtual bool is_ha_dag() const { return false; }
+224	private:
+225	  bool is_inited_;
+226	  table::ObTTLTaskParam param_;
+227	  table::ObTTLTaskInfo info_;
+228	  lib::Worker::CompatMode compat_mode_;
+229	  DISALLOW_COPY_AND_ASSIGN(ObTableTTLDag);
+230	};
+231	
+232	} // end namespace table
+233	} // end namespace oceanbase
+234	
+235	#endif /* OCEANBASE_OBSERVER_OB_TABLE_TTL_TASK_H_ */
+```
+
+#### deps/oblib/src/lib/utility/ob_rate_limiter.h — rate(method)
+
+```cpp
+1	/**
+2	 * Copyright (c) 2021 OceanBase
+3	 * OceanBase CE is licensed under Mulan PubL v2.
+4	 * You can use this software according to the terms and conditions of the Mulan PubL v2.
+5	 * You may obtain a copy of Mulan PubL v2 at:
+6	 *          http://license.coscl.org.cn/MulanPubL-2.0
+7	 * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND,
+8	 * EITHER EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT,
+9	 * MERCHANTABILITY OR FIT FOR A PARTICULAR PURPOSE.
+10	 * See the Mulan PubL v2 for more details.
+11	 */
+12	
+13	#ifndef OB_RATE_LIMITER_H
+14	#define OB_RATE_LIMITER_H
+15	
+16	#include <stdint.h>
+17	
+18	namespace oceanbase {
+19	namespace lib {
+20	
+21	class ObRateLimiter
+22	{
+23	public:
+24	  ObRateLimiter(const int64_t rate = 0, const char *name = nullptr);
+25	  virtual ~ObRateLimiter();
+26	
+27	  void set_name(const char *name);
+28	  const char *name() const;
+29	
+30	  void set_rate(int64_t rate);
+31	  int64_t rate() const;
+32	
+33	  virtual bool is_force_allows() const = 0;
+34	  virtual void reset_force_allows() = 0;
+35	  // return OB_SUCCESS for acquire success and OB_EAGAIN for not acquired
+36	  virtual int try_acquire(const int64_t permits = 1,
+37	                          const int64_t arg0 = 0,
+38	                          const int64_t arg1 = 0) = 0;
+39	  virtual int acquire(const int64_t permits = 1,
+40	                      const int64_t arg0 = 0,
+41	                      const int64_t arg1 = 0) = 0;
+42	
+43	protected:
+44	  int64_t rate_;
+45	  const char *name_;
+46	};
+47	
+48	inline ObRateLimiter::ObRateLimiter(const int64_t rate, const char *name)
+49	    : rate_(rate), name_(name)
+50	{}
+51	
+52	inline ObRateLimiter::~ObRateLimiter()
+53	{}
+54	
+55	inline void ObRateLimiter::set_name(const char *name)
+56	{
+57	  name_ = name;
+58	}
+59	
+60	inline const char *ObRateLimiter::name() const
+61	{
+62	  return name_;
+63	}
+64	
+65	inline void ObRateLimiter::set_rate(int64_t rate)
+66	{
+67	  rate_ = rate;
+68	}
+69	
+70	inline int64_t ObRateLimiter::rate() const
+71	{
+72	  return rate_;
+73	}
+74	
+75	}  // lib
+76	}  // oceanbase
+77	
+78	#endif /* OB_RATE_LIMITER_H */
+```
+
+#### unittest/sql/optimizer/cost_model_utils/preprocess.py — delete(function)
+
+```python
+1	#!/bin/env python
+2	__author__ = 'dongyun.zdy'
+3	
+4	import sys
+5	import os
+6	import numpy as np
+7	import getopt
+8	
+9	
+10	file_name = "scan_model.res.formal"
+11	if len(sys.argv) >= 2:
+12	    file_name = sys.argv[1]
+13	out_file_name = file_name + ".prep"
+14	time_per_case = 2
+15	use_delete_min_max = False
+16	filters = []
+17	out_columns = [c for c in xrange(100)]
+18	cols_supplied = False
+19	wrong_arg = False
+20	target_column_id = 0
+21	
+22	#sys.argv.extend("-i sort_result -o sort.prep -t 5 -C 4 -f 0,g,1 -f 0,le,100000".split(" "))
+23	
+24	opts,args = getopt.getopt(sys.argv[1:],"i:o:t:f:a:dc:C:")
+25	for op, value in opts:
+26	    if "-i" == op:
+27	        file_name = value
+28	    elif "-o" == op:
+29	        out_file_name = value
+30	    elif "-t" == op:
+31	        time_per_case = int(value)
+32	    elif "-f" == op:
+33	        filter_str = value
+34	        filter_elements = filter_str.split(",")
+35	        if not filter_elements[1] in ["g","l","ge","le","e","ne"]:
+36	            print "invalid filter type"
+37	            sys.exit(1)
+38	        filters.append(filter_str.split(","))
+39	    elif "-a" == op:
+40	        time_per_case = int(value)
+41	    elif "-d" == op:
+42	        use_delete_min_max = True
+43	    elif "-C" == op:
+44	        target_column_id = int(value)
+45	    elif "-c" == op:
+46	        if not cols_supplied:
+47	            cols_supplied = True
+48	            out_columns = []
+49	        out_columns.extend([int(c) for c in value.split(",")])
+50	    else:
+51	        wrong_arg = True
+52	
+53	if wrong_arg:
+54	    print "wrong arg"
+55	    sys.exit(1)
+56	
+57	if time_per_case < 5:
+58	    use_delete_min_max = False
+59	
+60	if os.path.exists(out_file_name):
+61	    os.remove(out_file_name)
+62	
+63	origin_file = open(file_name, "r")
+64	out_file = open(out_file_name,"w")
+65	
+66	i = 0
+67	column_nums = []
+68	avgs = []
+69	avg_strs = []
+70	
+71	def delete(li, index):
+72	    li = li[:index] + li[index+1:]
+73	    return li
+74	
+75	def find_max_index(l):
+76	    max = -9999999999999999999999
+77	    max_i = -1
+78	    for i in xrange(len(l)):
+79	        if l[i] > max:
+80	            max = l[i]
+81	            max_i = i
+82	    return max_i
+83	
+84	def find_min_index(l):
+85	    min = 999999999999999999999999
+86	    min_i = -1
+87	    for i in xrange(len(l)):
+88	        if l[i] < min:
+89	            min = l[i]
+90	            min_i = i
+91	    return min_i
+92	
+93	def delete_max_min_case(column_nums, column_id):
+94	    # min_i = find_min_index(column_nums[len(column_nums) - 1])
+95	    # for j in xrange(len(column_nums)):
+96	    #     column_nums[j] = delete(column_nums[j], min_i)
+97	    max_i = find_max_index(column_nums[column_id])
+98	    for j in xrange(len(column_nums)):
+99	       column_nums[j] = delete(column_nums[j], max_i)
+100	    max_i = find_max_index(column_nums[column_id])
+101	    for j in xrange(len(column_nums)):
+102	       column_nums[j] = delete(column_nums[j], max_i)
+103	    # max_i = find_max_index(column_nums[column_id])
+104	    # for j in xrange(len(column_nums)):
+105	    #    column_nums[j] = delete(column_nums[j], max_i)
+106	    # max_i = find_max_index(column_nums[column_id])
+107	    # for j in xrange(len(column_nums)):
+108	    #    column_nums[j] = delete(column_nums[j], max_i)
+109	
+110	
+111	def do_filter(column_strs):
+112	    filtered = False
+113	    for f in filters:
+114	        if f[1] == "g" and float(column_strs[int(f[0])]) <= int(f[2]) :
+115	            filtered = True
+116	            break
+117	        elif f[1] == "l" and float(column_strs[int(f[0])]) >= int(f[2]) :
+118	            filtered = True
+119	            break
+120	        elif f[1] == "ge" and float(column_strs[int(f[0])]) < int(f[2]) :
+121	            filtered = True
+122	            break
+123	        elif f[1] == "le" and float(column_strs[int(f[0])]) > int(f[2]) :
+124	            filtered = True
+125	            break
+126	        elif f[1] == "e" and float(column_strs[int(f[0])]) != int(f[2]) :
+127	            filtered = True
+128	            break
+129	        elif f[1] == "ne" and float(column_strs[int(f[0])]) == int(f[2]) :
+130	            filtered = True
+131	            break
+132	    return filtered
+133	
+134	
+135	for line in origin_file:
+136	    if line.startswith("#"):
+137	        out_file.write(line)
+138	        continue #skip comment
+139	    column_strs_raw = line.split(",")
+140	    if do_filter(column_strs_raw):
+141	        continue
+142	    column_count = len(column_strs_raw)
+143	    if i == 0:
+144	        avg_strs = []
+145	        avgs = []
+146	        column_nums = []
+147	        for n in xrange(column_count):
+148	            column_nums.append([])
+149	    #split line and cast to float
+150	    for n in xrange(column_count):
+151	        column_nums[n].append(float(column_strs_raw[n]))
+152	    if i == time_per_case - 1:
+153	        if use_delete_min_max:
+154	            delete_max_min_case(column_nums, target_column_id)
+155	        #calc avg per column
+156	        for n in xrange(column_count):
+157	            avgs.append(np.mean(column_nums[n]))
+158	        #cast to str
+159	        avg_strs = [str(a) for a in avgs]
+160	        real_avg_strs = []
+161	        #out_columns filter
+162	        for cid in xrange(len(avg_strs)):
+163	            if cid in out_columns:
+164	                real_avg_strs.append(avg_strs[cid])
+165	
+166	        out_file.write(",".join(real_avg_strs) + "\n")
+167	    i = (i + 1) % time_per_case
+168	
+169	origin_file.close()
+170	out_file.close()
+171	
+172	
+173	
+174	
+175	
+```
+
+
+> Output truncated to budget. Only the shown source ranges are covered; omitted bodies and file regions may require a targeted query or Read.

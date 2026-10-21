@@ -1,0 +1,36 @@
+{
+  "protected_files_verified": 1193,
+  "changed_historical_or_product_files": [],
+  "source_files_verified": 16317,
+  "same_queries_and_budgets": true,
+  "frozen_candidate_runtime_verified": true,
+  "tool_results": 24,
+  "new_final_tool_calls": 16,
+  "historical_before_control_calls": 8,
+  "community_matches_previous": [
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true
+  ],
+  "index_counts_unchanged": {
+    "fixed": {
+      "nodeCount": 890562,
+      "edgeCount": 5676237,
+      "fileCount": 14258
+    },
+    "community": {
+      "nodeCount": 388727,
+      "edgeCount": 2510241,
+      "fileCount": 14247
+    }
+  },
+  "tests_passed": 68,
+  "fixed_body_hints_clean": true,
+  "model_calls": 0,
+  "complete_body_regressions_vs_previous": []
+}

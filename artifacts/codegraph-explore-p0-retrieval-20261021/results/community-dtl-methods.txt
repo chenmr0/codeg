@@ -1,0 +1,599 @@
+**Exploration: ObDtlBasicChannel wait_unblocking ObDtlFlowControl need_block can_unblock**
+
+Found 71 symbols across 4 files.
+
+**Blast radius — what depends on these (update/verify before editing)**
+
+- `can_unblock` (src/sql/dtl/ob_dtl_flow_control.h:119) — 1 caller in `src/sql/dtl/ob_dtl_fc_server.h`; no tests found within 3 caller hops
+- `can_unblock` (src/sql/dtl/ob_dtl_fc_server.h:189) — 1 caller in `src/sql/dtl/ob_dtl_fc_server.cpp`; no tests found within 3 caller hops
+- `need_block` (src/sql/dtl/ob_dtl_flow_control.h:106) — 1 caller in `src/sql/dtl/ob_dtl_fc_server.h`; no tests found within 3 caller hops
+- `need_block` (src/sql/dtl/ob_dtl_fc_server.h:170) — 1 caller in `src/sql/dtl/ob_dtl_fc_server.cpp`; no tests found within 3 caller hops
+- `wait_unblocking` (src/sql/dtl/ob_dtl_basic_channel.cpp:801) — 1 caller in `src/sql/dtl/ob_dtl_basic_channel.cpp`; no tests found within 3 caller hops
+
+**Relationships**
+
+**calls:**
+- can_unblock → can_unblock
+- can_unblock → is_block
+- can_unblock → get_max_size_per_channel
+- can_unblock → get_channel_count
+- can_unblock → get_used
+- try_unblock_tenant_dfc → can_unblock
+- need_block → need_block
+- need_block → get_max_size_per_channel
+- need_block → get_channel_count
+- need_block → get_used
+- block_tenant_dfc → need_block
+- wait_unblocking → belong_to_transmit_data
+- wait_unblocking → OB_ISNULL
+- wait_unblocking → OB_FAIL
+- wait_unblocking → find
+- ... and 93 more
+
+**extends:**
+- <anonymous> → Block
+- ObTempBlockStore → Block
+- BlockReader → Block
+- <anonymous> → IndexBlock
+- BlockReader → ObTempBlockStore
+- ObTempBlockStore → IndexBlock
+- IndexBlock → BlockIndex
+
+**Source Code**
+
+> The code below is the **verbatim, current on-disk source** of these files — re-read from disk on this call and line-numbered, byte-for-byte identical to what the Read tool returns. It is NOT a summary, outline, or stale cache. Treat each block as a Read you have already performed: do not Read a file shown here.
+
+**`src/sql/dtl/ob_dtl_flow_control.h`** — calls(calls), OB_FAIL(calls), extends(extends), ObDtlFlowControl(method), ~ObDtlFlowControl(method), is_init(method), get_tenant_id(method), get_timeout_ts(method), set_timeout_ts(method), increase(method), decrease(method), get_used(method), need_block(method), can_unblock(method), is_block(method), +16 more
+
+```cpp
+82	class ObDtlFlowControl
+83	{
+84	public:
+85	  ObDtlFlowControl() :
+86	  tenant_id_(OB_INVALID_ID), timeout_ts_(0), communicate_flag_(0),
+87	  compressor_type_(common::ObCompressorType::NONE_COMPRESSOR), is_init_(false), block_ch_cnt_(0),
+88	  total_memory_size_(0), total_buffer_cnt_(0), accumulated_blocked_cnt_(0), blocks_(), chans_(), drain_ch_cnt_(0),
+89	  dfo_key_(), op_metric_(nullptr),
+90	  chan_loop_(nullptr), ch_info_(nullptr), last_block_start_time_(0), total_block_time_(0)
+91	  { }
+92	
+93	  virtual ~ObDtlFlowControl() { destroy(); }
+94	
+95	  bool is_all_channel_act();
+96	  bool is_init() { return is_init_; }
+97	
+98	  OB_INLINE uint64_t get_tenant_id() const { return tenant_id_; }
+99	  OB_INLINE int64_t get_timeout_ts() const { return timeout_ts_; }
+100	  OB_INLINE void set_timeout_ts(int64_t timeout_ts) { timeout_ts_ = timeout_ts; }
+101	
+102	  OB_INLINE void increase(int64_t size) { (ATOMIC_AAF(&total_memory_size_, size)); ATOMIC_INC(&total_buffer_cnt_); }
+103	  OB_INLINE void decrease(int64_t size) { (ATOMIC_SAF(&total_memory_size_, size)); ATOMIC_DEC(&total_buffer_cnt_); }
+104	  OB_INLINE int64_t get_used() { return (ATOMIC_LOAD(&total_memory_size_)); }
+105	
+106	  OB_INLINE bool need_block()
+107	  {
+108	    bool need_block = (ATOMIC_LOAD(&total_memory_size_)) >= THRESHOLD_SIZE
+109	      || MAX_BUFFER_CNT <= (ATOMIC_LOAD(&total_buffer_cnt_));
+110	  #ifdef ERRSIM
+111	    int ret = common::OB_SUCCESS;
+112	    ret = OB_E(EventTable::EN_FORCE_DFC_BLOCK) ret;
+113	    need_block = (common::OB_SUCCESS != ret) ? true : need_block;
+114	    SQL_DTL_LOG(TRACE, "trace block", K(need_block), K(total_buffer_cnt_), K(ret));
+115	    ret = common::OB_SUCCESS;
+116	  #endif
+117	    return need_block;
+118	  }
+119	  OB_INLINE bool can_unblock()
+120	  {
+121	    bool can_unblock = (ATOMIC_LOAD(&total_memory_size_)) <= THRESHOLD_SIZE / 2
+122	        || MAX_BUFFER_CNT / 2 >= (ATOMIC_LOAD(&total_buffer_cnt_));
+123	#ifdef ERRSIM
+124	  int ret = common::OB_SUCCESS;
+125	  ret = OB_E(EventTable::EN_DTL_ONE_ROW_ONE_BUFFER) ret;
+126	  can_unblock = (common::OB_SUCCESS != ret) ? 0 == (ATOMIC_LOAD(&total_buffer_cnt_)) : can_unblock;
+127	  SQL_DTL_LOG(TRACE, "trace unblock", K(can_unblock), K(total_buffer_cnt_), K(ret));
+128	  ret = common::OB_SUCCESS;
+129	#endif
+130	    return can_unblock;
+131	  }
+132	
+133	  OB_INLINE bool is_block() { return 1 <= (ATOMIC_LOAD(&block_ch_cnt_)); }
+134	  OB_INLINE bool is_block(int64_t idx);
+135	
+136	  bool is_drain(ObDtlBasicChannel *channel);
+137	  int set_drain(ObDtlBasicChannel *channel);
+138	  bool all_ch_drained() {
+139	    return (ATOMIC_LOAD(&drain_ch_cnt_) == chans_.count());
+140	  }
+141	
+142	  OB_INLINE void increase_blocked_cnt(int64_t cnt) {
+143	    ATOMIC_AAF(&block_ch_cnt_, cnt);
+144	    ATOMIC_AAF(&accumulated_blocked_cnt_, cnt);
+145	  }
+146	  OB_INLINE void decrease_blocked_cnt(int64_t cnt) { ATOMIC_SAF(&block_ch_cnt_, cnt); }
+147	
+148	
+149	  // 支持多个channel公用一起block，如果block_ch_cnt_大于1，表示block为true
+150	  OB_INLINE void set_block(int64_t idx);
+151	  OB_INLINE void unblock(int64_t idx);
+152	  OB_INLINE int64_t get_blocked_cnt() { return (ATOMIC_LOAD(&block_ch_cnt_)); }
+153	  OB_INLINE int64_t get_total_buffer_cnt() { return (ATOMIC_LOAD(&total_buffer_cnt_)); }
+154	  OB_INLINE bool get_nth_block(int64_t idx) { return (ATOMIC_LOAD(&blocks_.at(idx))); }
+155	  OB_INLINE int64_t get_accumulated_blocked_cnt() { return (ATOMIC_LOAD(&accumulated_blocked_cnt_)); }
+156	
+157	  int register_channel(ObDtlChannel* ch);
+158	  int unregister_channel(ObDtlChannel* ch);
+159	  int unregister_all_channel();
+160	
+161	  int reserve(int64_t size) {
+162	    int ret = OB_SUCCESS;
+163	    if (OB_FAIL(blocks_.reserve(size))) {
+164	      // nop
+165	    } else if (OB_FAIL(chans_.reserve(size))) {
+166	      // nop
+167	    }
+168	    return ret;
+169	  }
+170	  virtual int init(uint64_t tenant_id, int64_t chan_cnt);
+171	  virtual void destroy() {
+172	    chans_.reset();
+173	    blocks_.reset();
+174	    ch_info_ = nullptr;
+175	    is_init_ = false;
+176	  }
+177	
+178	  virtual int final_check();
+179	
+180	  int get_channel(int64_t idx, ObDtlChannel *&ch);
+181	  int find(ObDtlChannel* ch, int64_t &out_idx);
+182	  bool is_block(ObDtlChannel* ch);
+183	  int block_channel(ObDtlChannel* ch);
+184	  int unblock_channel(ObDtlChannel* ch);
+185	  int sync_send_drain(int64_t &unblock_cnt);
+186	  int notify_all_blocked_channels_unblocking(int64_t &unblock_cnt);
+187	  int notify_channel_unblocking(ObDtlChannel *ch, int64_t &block_cnt, bool asyn_send = true);
+188	  int64_t get_channel_count() const {
+189	    return chans_.count();
+190	  }
+191	  int drain_all_channels();
+192	
+193	  OB_INLINE void set_receive() { communicate_flag_ |= 0x01; }
+194	  OB_INLINE bool is_receive() { return communicate_flag_ & 0x01; }
+195	  OB_INLINE void set_transmit() { communicate_flag_ |= 0x10; }
+196	  OB_INLINE bool is_transmit() { return communicate_flag_ & 0x10; }
+197	  OB_INLINE void set_qc_coord() { communicate_flag_ |= 0x100; }
+198	  OB_INLINE bool is_qc_coord() { return communicate_flag_ & 0x100; }
+199	
+
+... (gap) ...
+
+253	  sql::ObOpMetric *op_metric_;
+254	
+255	  // for dtl channel notify
+256	  ObDtlChannelLoop *chan_loop_;
+257	
+258	  ObDtlChTotalInfo *ch_info_;
+259	
+260	private:
+261	  // Todo: In DFC, it can monitor data size and so on
+262	  int64_t last_block_start_time_;
+263	  int64_t total_block_time_;
+264	};
+265	
+266	OB_INLINE void ObDtlFlowControl::set_block(int64_t idx)
+267	{
+268	  increase_blocked_cnt(1);
+269	  bool &blocked = blocks_.at(idx);
+270	  ATOMIC_SET(&blocked, true);
+271	}
+272	
+273	OB_INLINE void ObDtlFlowControl::unblock(int64_t idx)
+274	{
+275	  decrease_blocked_cnt(1);
+276	  bool &blocked = blocks_.at(idx);
+277	  ATOMIC_SET(&blocked, false);
+278	}
+279	
+280	OB_INLINE bool ObDtlFlowControl::is_block(int64_t idx)
+281	{
+```
+
+**`src/sql/dtl/ob_dtl_basic_channel.cpp`** — calls(calls), OB_FAIL(calls), ObDtlBasicChannel(method), belong_to_transmit_data(calls), OB_ISNULL(calls), OB_SUCC(calls), current_time(calls), unblock_channel(calls), wait_unblocking_if_blocked(method), wait_unblocking(calls), wait_unblocking(method), find(calls), set_ch_idx_var(calls), is_drain(calls), process_one_if(calls), +3 more
+
+```cpp
+141	  return OB_SUCCESS == ret ? ret_ : ret;
+142	}
+143	
+144	ObDtlBasicChannel::ObDtlBasicChannel(
+145	    const uint64_t tenant_id,
+146	    const uint64_t id,
+147	    const ObAddr &peer,
+148	    DtlChannelType type)
+149	    : ObDtlChannel(id, peer, type),
+150	      is_inited_(false),
+151	      local_id_(id),
+152	      peer_id_(id ^ 1),
+153	      write_buffer_(nullptr),
+154	      process_buffer_(nullptr),
+155	      send_sem_(common::ObWaitEventIds::DTL_PROCESS_BUFFER_SEND_WAIT),
+156	      recv_sem_(common::ObWaitEventIds::DTL_PROCESS_BUFFER_RECEIVE_WAIT),
+157	      alloc_new_buf_(false),
+158	      seq_no_(0),
+159	      send_buffer_cnt_(0),
+160	      recv_buffer_cnt_(0),
+161	      processed_buffer_cnt_(0),
+162	      tenant_id_(tenant_id),
+163	      is_data_msg_(false),
+164	      hash_val_(0),
+165	      dfc_idx_(OB_INVALID_ID),
+166	      got_from_dtl_cache_(true),
+167	      msg_writer_(nullptr),
+168	      bc_service_(nullptr),
+169	      times_(0),
+170	      write_buf_use_time_(0),
+171	      send_use_time_(0),
+172	      msg_count_(0),
+173	      result_info_guard_(),
+174	      meta_(nullptr)
+175	{
+176	  ObRandom rand;
+177	  hash_val_ = rand.get();
+178	  // dtl创建时候的server版本决定发送老的ser方式还是新的chunk row store方式
+179	  use_crs_writer_ = true;
+180	  msg_response_.set_id(id_);
+181	}
+182	
+183	ObDtlBasicChannel::ObDtlBasicChannel(
+184	    const uint64_t tenant_id,
+185	    const uint64_t id,
+186	    const ObAddr &peer,
+187	    const int64_t hash_val,
+188	    DtlChannelType type)
+189	    : ObDtlChannel(id, peer, type),
+190	          is_inited_(false),
+191	          local_id_(id),
+192	          peer_id_(id ^ 1),
+193	          write_buffer_(nullptr),
+194	          process_buffer_(nullptr),
+195	          send_sem_(common::ObWaitEventIds::DTL_PROCESS_BUFFER_SEND_WAIT),
+196	          recv_sem_(common::ObWaitEventIds::DTL_PROCESS_BUFFER_RECEIVE_WAIT),
+197	          alloc_new_buf_(false),
+198	          seq_no_(0),
+199	          send_buffer_cnt_(0),
+200	          recv_buffer_cnt_(0),
+201	          processed_buffer_cnt_(0),
+202	          tenant_id_(tenant_id),
+203	          is_data_msg_(false),
+204	          hash_val_(hash_val),
+205	          dfc_idx_(OB_INVALID_ID),
+206	          got_from_dtl_cache_(true),
+207	          msg_writer_(nullptr),
+208	          bc_service_(nullptr),
+209	          times_(0),
+210	          write_buf_use_time_(0),
+
+... (gap) ...
+
+765	  return ret;
+766	}
+767	
+768	int ObDtlBasicChannel::wait_unblocking_if_blocked()
+769	{
+770	  int ret = OB_SUCCESS;
+771	  if (belong_to_transmit_data()) {
+772	    if (!msg_response_.is_init()) {
+773	      ret = OB_NOT_INIT;
+774	      LOG_WARN("not init", K(ret));
+775	    } else if (msg_response_.is_block()) {
+776	      // receive response, then set block info for dfc
+777	      msg_response_.reset_block();
+778	      if (OB_ISNULL(dfc_)) {
+779	        ret = OB_ERR_UNEXPECTED;
+780	        LOG_WARN("channel loop is null", K(ret));
+781	      } else if (OB_FAIL(dfc_->block_channel(this))) {
+782	        LOG_WARN("failed to set block", K(ret));
+783	      } else {
+784	        // only block this channel, for other channels, it will also set block, or other channel can't be blocked
+785	        LOG_TRACE("set block dfc", K(ret), KP(id_), K(peer_));
+786	      }
+787	    }
+788	    if (OB_SUCC(ret)) {
+789	      LOG_TRACE("wait unblocking if blocked", K(msg_response_.is_block()), K(dfc_->is_block(this)), K(ret), KP(id_), KP(peer_id_),
+790	        K(peer_), K(ret));
+791	      if (dfc_->is_block(this)) {
+792	        if (OB_FAIL(wait_unblocking())) {
+793	          LOG_WARN("failed to block", K(ret));
+794	        }
+795	      }
+796	    }
+797	  }
+798	  return ret;
+799	}
+800	
+801	int ObDtlBasicChannel::wait_unblocking()
+802	{
+803	  int ret = OB_SUCCESS;
+804	  if (belong_to_transmit_data()) {
+805	    int64_t idx = OB_INVALID_ID;
+806	    LOG_TRACE("blocking:", K(ret), K(dfc_->is_block()), K(dfc_));
+807	    int64_t timeout_ts = 0;
+808	    if (OB_ISNULL(channel_loop_) || OB_ISNULL(dfc_)) {
+809	      ret = OB_ERR_UNEXPECTED;
+810	      LOG_WARN("channel loop is null", K(ret));
+811	    } else if (FALSE_IT(timeout_ts = dfc_->get_timeout_ts())) {
+812	    } else if (0 == timeout_ts) {
+813	      ret = OB_ERR_UNEXPECTED;
+814	      LOG_WARN("timeout is not set", K(ret));
+815	    } else if (OB_FAIL(channel_loop_->find(this, idx))) {
+816	      LOG_WARN("channel not exists in channel loop", K(ret));
+817	    } else {
+818	      int64_t start_t = ObTimeUtility::current_time();
+819	      int64_t interval_t = 1 * 60 * 1000000; // 1min
+820	      int64_t last_t = 0;
+821	      int64_t print_log_t = 10 * 60 * 1000000;
+822	      block_proc_.set_ch_idx_var(&idx);
+823	      LOG_TRACE("wait unblocking", K(ret), K(dfc_->is_block()), KP(id_), K(peer_));
+824	      oceanbase::lib::Thread::WaitGuard guard(oceanbase::lib::Thread::WAIT_FOR_PX_MSG);
+825	      do {
+826	        int64_t got_channel_idx = idx;
+827	        if (is_drain()) {
+828	          // if drain,then ignore blocking
+829	          if (OB_FAIL(dfc_->unblock_channel(this))) {
+830	            LOG_WARN("fail to unblock channel", K(ret), K(dfc_->is_block()), KP(id_), K(peer_));
+831	          }
+832	          break;
+833	        } else if (OB_FAIL(channel_loop_->process_one_if(
+834	            &block_proc_,
+835	            got_channel_idx))) {
+836	          // no msg, then don't process
+837	          if (OB_DTL_WAIT_EAGAIN == ret) {
+838	            // 这里需要检查是否超时以及worker是否已经处于异常状态(退出等)，否则当worker退出时，一直陷入在while中
+839	            int64_t end_t = ObTimeUtility::current_time();
+840	            if (end_t > timeout_ts) {
+841	              ret = OB_TIMEOUT;
+842	              LOG_WARN("get row from channel timeout", K(ret), K(timeout_ts));
+843	            } else {
+844	              int tmp_ret = THIS_WORKER.check_status();
+845	              if (OB_SUCCESS != tmp_ret) {
+846	                ret = tmp_ret;
+847	                LOG_WARN("worker interrupt", K(tmp_ret), K(ret));
+848	                break;
+849	              }
+850	              if (OB_UNLIKELY(ObPxCheckAlive::is_in_blacklist(peer_,
+851	                              channel_loop_->get_process_query_time()))) {
+852	                ret = OB_RPC_CONNECT_ERROR;
+853	                LOG_WARN("peer no in communication, maybe crashed", K(ret), K(peer_),
+854	                         K(static_cast<int64_t>(GCONF.cluster_id)));
+855	                break;
+856	              }
+857	              if (end_t - start_t > print_log_t) {
+858	                bool print_log = false;
+859	                if (0 == last_t || end_t - last_t > interval_t) {
+860	                  print_log = true;
+861	                  last_t = end_t;
+862	                }
+863	                if (print_log) {
+864	                  LOG_INFO("wait unblocking", K(id_), K(peer_id_), K(peer_id_),
+865	                    K(recv_buffer_cnt_), K(processed_buffer_cnt_), K(send_buffer_cnt_),
+866	                    K(idx), K(got_channel_idx));
+867	                }
+868	              }
+869	              ret = OB_SUCCESS;
+870	            }
+871	          } else {
+872	            LOG_WARN("fail to process unblocking msg", K(ret), K(dfc_->is_block()), KP(id_), K(peer_));
+873	          }
+874	        } else {
+875	          // receive unblocking msg:
+876	          // channel is unblock, then skip
+877	          // channel is blocked, then unblock the channel
+878	          if (idx != got_channel_idx) {
+879	            ret = OB_ERR_UNEXPECTED;
+880	            LOG_WARN("no channel is processed", K(ret), K(got_channel_idx), K(idx));
+881	          } else if (OB_FAIL(dfc_->unblock_channel(this))) {
+882	            LOG_WARN("fail to unblock channel", K(ret), K(dfc_->is_block()), KP(id_), K(peer_));
+883	          }
+884	        }
+885	      } while (dfc_->is_block(this) && OB_SUCC(ret));
+886	      LOG_TRACE("unblocking successfully", K(ret), K(dfc_->is_block()), KP(id_), K(peer_));
+887	    }
+888	    LOG_TRACE("unblocking:", K(ret), K(dfc_->is_block()), K(dfc_->is_block(this)), KP(id_), K(peer_));
+889	  }
+890	  return ret;
+891	}
+892	
+893	int ObDtlBasicChannel::send_message(ObDtlLinkedBuffer *&buf)
+894	{
+```
+
+**`src/sql/dtl/ob_dtl_fc_server.h`** — calls(calls), get_max_size_per_channel(calls), get_channel_count(calls), get_used(calls), ObTenantDfc(class), get_tenant_id(method), get_current_buffer_used(method), get_current_blocked_cnt(method), get_blocked_cnt(calls), get_current_total_blocked_cnt(method), get_current_buffer_cnt(method), get_total_buffer_cnt(calls), get_max_parallel(method), get_max_blocked_buffer_size(method), get_max_buffer_size(method), +20 more
+
+```cpp
+30	namespace sql {
+31	namespace dtl {
+32	
+33	class ObTenantDfc
+34	{
+35	public:
+36	  ObTenantDfc(uint64_t tenant_id);
+37	  virtual ~ObTenantDfc();
+38	public:
+39	  static int mtl_new(ObTenantDfc *&tenant_dfc);
+40	  static int mtl_init(ObTenantDfc *&tenant_dfc);
+41	  static void mtl_destroy(ObTenantDfc *&tenant_dfc);
+42	
+43	  OB_INLINE virtual int64_t get_max_size_per_channel();
+44	
+45	  OB_INLINE virtual bool need_block(ObDtlFlowControl *dfc);
+46	  OB_INLINE virtual bool can_unblock(ObDtlFlowControl *dfc);
+47	
+48	  OB_INLINE virtual void increase(int64_t size);
+49	  OB_INLINE virtual void decrease(int64_t size);
+50	
+51	  OB_INLINE virtual void increase_blocked_channel_cnt();
+52	  OB_INLINE virtual void decrease_blocked_channel_cnt(int64_t unblock_cnt);
+53	
+54	  int register_dfc_channel(ObDtlFlowControl &dfc, ObDtlChannel* ch);
+55	  int unregister_dfc_channel(ObDtlFlowControl &dfc, ObDtlChannel* ch);
+56	
+57	  int deregister_dfc(ObDtlFlowControl &dfc);
+58	
+59	public:
+60	  // for cache first msg and release first msg
+61	  int64_t get_hash_value(int64_t chid);
+62	  void check_dtl(uint64_t tenant_id);
+63	  // for block and unblock
+
+... (gap) ...
+
+143	  int get_current_tenant_dfc(uint64_t tenant_id, ObTenantDfc *&tenant_dfc);
+144	};
+145	
+146	OB_INLINE int64_t ObTenantDfc::get_max_size_per_channel()
+147	{
+148	  //这里不原子拿，因为仅仅估算，感觉没有必要保证原子性
+149	  int64_t tmp_total_cnt = channel_total_cnt_;
+150	  int64_t tmp_blocked_dfc_cnt = blocked_dfc_cnt_;
+151	  //并发不一致可能导致小于0
+152	  tmp_blocked_dfc_cnt = tmp_total_cnt <= tmp_blocked_dfc_cnt ? tmp_total_cnt : tmp_blocked_dfc_cnt;
+153	  int64_t tmp_unblock_dfc_cnt = tmp_total_cnt - tmp_blocked_dfc_cnt;
+154	  tmp_total_cnt = 0 == tmp_total_cnt ? 1 : tmp_total_cnt;
+155	  int64_t max_parallel_cnt = (0 == max_parallel_cnt_) ? 1 : max_parallel_cnt_;
+156	  // 这里是为了限制一个channel使用了太多buffer
+157	  int64_t tmp_max_size_per_channel = max_blocked_buffer_size_ / max_parallel_cnt * 2;
+158	  int64_t max_size_per_channel = max_blocked_buffer_size_ / tmp_total_cnt * 8 / 10;
+159	  if (0 != tmp_total_cnt && 0 != tmp_blocked_dfc_cnt) {
+160	    max_size_per_channel = max_blocked_buffer_size_ * (1 + tmp_unblock_dfc_cnt * 8 / 10 / tmp_blocked_dfc_cnt) / tmp_total_cnt;
+161	  }
+162	  if (max_size_per_channel > tmp_max_size_per_channel) {
+163	    max_size_per_channel = tmp_max_size_per_channel;
+164	  }
+165	  return max_size_per_channel;
+166	}
+167	
+168	// 这里是假设在整个workder都达到平衡状态下，由于worker数限制了dfc数量，所以每个op的dfc认为是和max_dop相关的
+169	// 即同时receive处理时，只有max_dop的dfc需要buffer，其他时候的buffer都是多余的，而不是从channel角度看，否则channel需要的个数，就和channel平方相关，这里不假设是这个
+170	OB_INLINE bool ObTenantDfc::need_block(ObDtlFlowControl *dfc)
+171	{
+172	  // first judge whether current dfc need block, reduce concurrent effects
+173	  // then judge whether global server need block
+174	  bool need_block = false;
+175	  if (nullptr != dfc && dfc->need_block()) {
+176	    int64_t max_size_per_dfc = get_max_size_per_channel() * dfc->get_channel_count();
+177	    need_block = dfc->get_used() >= max_size_per_dfc || tenant_dfc_.get_used() >= max_buffer_size_;
+178	  #ifdef ERRSIM
+179	    int ret = common::OB_SUCCESS;
+180	    ret = OB_E(EventTable::EN_FORCE_DFC_BLOCK) ret;
+181	    need_block = (common::OB_SUCCESS != ret) ? true : need_block;
+182	    SQL_DTL_LOG(TRACE, "trace block", K(need_block), K(ret));
+183	    ret = common::OB_SUCCESS;
+184	  #endif
+185	  }
+186	  return need_block;
+187	}
+188	
+189	OB_INLINE bool ObTenantDfc::can_unblock(ObDtlFlowControl *dfc)
+190	{
+191	  bool can_unblock = false;
+192	  // 如果有一个channel，一直接收比较大的msg，如block等，会不会导致全部block住，只有等待该sql运行完，其他session才会继续
+193	  if (nullptr != dfc && dfc->is_block()) {
+194	    // 这里有几种策略进行unblocking操作
+195	    // 1 直接根据当前dfc的状态发送unblocking msg
+196	    // 2 如果超卖，则根据全局使用情况发送unblock msg
+197	    // 需要注意的是，如果既需要看当前dfc满足条件，又需要满足全局使用情况，则dfc_server当满足时，对所有dfc发送unblocking状况
+198	    // 否则会导致某个channel由于之前达到了自身可以unblock条件，由于没有发送unblocking msg，后面可能没有该channel的任何msg处理，这样就永远再发送unblocking，deadlock
+199	    // 所以必须dfc server在达到unblocking条件时，对当前所有的dfc通知unblocking，感觉这样有点重
+200	    // 现仅仅满足其中之一就通知unblocking
+201	    int64_t max_size_per_dfc = get_max_size_per_channel() * dfc->get_channel_count();
+202	    can_unblock = dfc->can_unblock() ||
+203	      (dfc->get_used() <= max_size_per_dfc / 2 && tenant_dfc_.get_used() < max_buffer_size_);
+204	  }
+205	  return can_unblock;
+206	}
+207	
+208	OB_INLINE void ObDtlCacheBufferInfo::set_buffer(ObDtlLinkedBuffer *buffer)
+209	{
+210	  buffer_ = buffer;
+211	  if (nullptr != buffer) {
+212	    ts_ = buffer->timeout_ts();
+213	  }
+214	}
+215	
+216	OB_INLINE void ObTenantDfc::increase(int64_t size)
+217	{
+218	  tenant_dfc_.increase(size);
+219	}
+220	
+221	OB_INLINE void ObTenantDfc::decrease(int64_t size)
+222	{
+223	  tenant_dfc_.decrease(size);
+224	}
+225	
+226	OB_INLINE void ObTenantDfc::increase_channel_cnt(int64_t n_ch)
+227	{
+228	  ATOMIC_AAF(&channel_total_cnt_, n_ch);
+229	}
+230	
+231	OB_INLINE void ObTenantDfc::decrease_channel_cnt(int64_t n_ch)
+232	{
+233	  ATOMIC_SAF(&channel_total_cnt_, n_ch);
+234	}
+235	
+236	OB_INLINE void ObTenantDfc::increase_blocked_channel_cnt()
+237	{
+238	  ATOMIC_INC(&blocked_dfc_cnt_);
+239	  tenant_dfc_.increase_blocked_cnt(1);
+240	}
+241	
+242	OB_INLINE void ObTenantDfc::decrease_blocked_channel_cnt(int64_t unblock_cnt)
+243	{
+244	  ATOMIC_SAF(&blocked_dfc_cnt_, unblock_cnt);
+245	  tenant_dfc_.decrease_blocked_cnt(unblock_cnt);
+246	}
+247	
+248	} // dtl
+249	} // sql
+```
+
+**`src/sql/engine/basic/ob_temp_block_store.h`** — calls(calls), <anonymous>(union), Block(struct), Block(method), min_blk_size(method), contain(method), begin(calls), end(calls), is_empty(method), begin(method), end(method), payload_size(method), buffer_position(method), checksum(method), fill(calls), +5 more
+
+```cpp
+122	  {
+123	    static const int64_t MAGIC = 0x35f4451b9b56eb12;
+124	
+125	    Block() : magic_(MAGIC), block_id_(0), cnt_(0), raw_size_(0) {}
+126	
+127	    template <bool WITH_BLK_BUF>
+128	    inline static int64_t min_blk_size(const int64_t size)
+129	    {
+130	      return sizeof(Block) + size + (WITH_BLK_BUF ? sizeof(ShrinkBuffer) : 0);
+131	    }
+132	    inline bool contain(const int64_t block_id) const
+133	    {
+134	      return begin() <= block_id && block_id < end();
+135	    }
+136	    inline bool is_empty() const { return 0 == cnt_; }
+137	    inline int64_t begin() const { return block_id_; }
+138	    inline int64_t end() const { return block_id_ + cnt_; }
+139	    inline int64_t payload_size() const { return raw_size_ - sizeof(Block); }
+140	    // We put the buffer at the end of the block. This is only used in dtl scenarios
+141	    // to support the self-explanatory ability of the block.
+142	    inline static char *buffer_position(void *mem, const int64_t size)
+143	    {
+144	      return static_cast<char*>(mem) + size - sizeof(ShrinkBuffer);
+145	    }
+146	    inline uint64_t checksum() const
+147	    {
+148	      ObBatchChecksum bc;
+149	      bc.fill(payload_, raw_size_ - sizeof(Block));
+150	      return bc.calc();
+151	    }
+152	    TO_STRING_KV(K_(magic), K_(block_id), K_(cnt), K_(raw_size));
+153	
+```
+
+**Not shown above — explore these names for their source**
+
+- src/sql/dtl/ob_dtl_flow_control.cpp: is_block:194, unblock_channel:234, notify_channel_unblocking:256
+- src/sql/dtl/ob_dtl_fc_server.cpp: try_unblock_tenant_dfc:211, block_tenant_dfc:286, unblock_channel:261
+- ... and 20 more files

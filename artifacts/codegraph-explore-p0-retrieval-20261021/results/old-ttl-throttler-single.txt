@@ -1,0 +1,127 @@
+## Exploration: ObTTLDeleteRateThrottler
+
+Found 50 symbols across 4 files.
+
+### Relationships
+
+**calls:**
+- record_trans_start_time → current_time
+- process_one → record_trans_start_time
+- process_one → current_time
+- parse_ttl_daytime → extract_val
+- parse → parse_ttl_daytime
+- check_tenant_state → transform_tenant_state
+- check_tenant_state → read_tenant_ttl_task
+
+### Source Code
+
+> Source excerpts below are read from current files. Only shown source ranges are covered; signatures, outlines and omitted regions are not complete function bodies or complete files.
+
+#### src/share/table/ob_ttl_util.h — references(references), reset(method), to_string(method), check_and_try_throttle(method), ObTTLDeleteRateThrottler(class), ThrottleInfo(struct), ThrottleInfo(method), calls(calls), ObTTLDeleteRateThrottler(method), ~ObTTLDeleteRateThrottler(method), init(method), print_throttle_info(method), record_trans_start_time(method), current_time(calls), calculate_wait_time(method), +1 more
+
+```cpp
+623	  ObTimeZoneInfoWrap tz_info_wrap_;
+624	};
+625	
+626	class ObTTLDeleteRateThrottler
+627	{
+628	public:
+629	  struct ThrottleInfo {
+630	    ThrottleInfo()
+631	      : ttl_del_max_ops_(0),
+632	        ttl_thread_num_(0),
+633	        max_rows_per_second_(0),
+634	        expected_interval_us_(0),
+635	        table_id_(0),
+636	        tablet_id_(),
+637	        start_time_(0),
+638	        cur_time_(0),
+639	        total_del_row_count_(0)
+640	    {}
+641	    void reset() {
+642	      ttl_del_max_ops_ = 0;
+643	      ttl_thread_num_ = 0;
+644	      max_rows_per_second_ = 0;
+645	      expected_interval_us_ = 0;
+646	      table_id_ = 0;
+647	      tablet_id_.reset();
+648	      start_time_ = 0;
+649	      cur_time_ = 0;
+650	      total_del_row_count_ = 0;
+651	    }
+652	    TO_STRING_KV(K_(ttl_del_max_ops), K_(ttl_thread_num), K_(max_rows_per_second), K_(expected_interval_us),
+653	        K_(table_id), K_(tablet_id), K_(start_time), K_(cur_time), K_(total_del_row_count));
+654	    int64_t ttl_del_max_ops_;
+655	    int64_t ttl_thread_num_;
+656	    int64_t max_rows_per_second_;
+657	    int64_t expected_interval_us_;
+658	    uint64_t table_id_;
+659	    common::ObTabletID tablet_id_;
+660	    int64_t start_time_;
+661	    int64_t cur_time_;
+662	    int64_t total_del_row_count_;
+663	  };
+664	public:
+665	  ObTTLDeleteRateThrottler();
+666	  ~ObTTLDeleteRateThrottler();
+667	  int init(const table::ObTTLTaskInfo &info);
+668	  int check_and_try_throttle(int64_t trans_timeout_ts);
+669	  int check_and_try_throttle();
+670	  void print_throttle_info();
+671	  void reset();
+672	  OB_INLINE void record_trans_start_time() { trans_start_time_ = ObTimeUtility::current_time(); }
+673	  TO_STRING_KV(K_(is_inited),
+674	               K_(max_rows_per_second),
+675	               K_(smooth_factor),
+676	               K_(trans_start_time),
+677	               K_(prev_delete_time),
+678	               K_(cur_del_row_count),
+679	               K_(expected_interval_us));
+680	private:
+681	  int64_t calculate_wait_time();
+682	  bool need_commit_trans_early(int64_t trans_timeout_ts);
+683	private:
+684	  static const double DEFAULT_SMOOTH_FACTOR;
+685	  static const double DEFAULT_TRANS_TIMEOUT_RATIO;
+686	private:
+687	  bool is_inited_;
+688	  int64_t max_rows_per_second_;
+689	  double smooth_factor_;
+690	  int64_t trans_start_time_;
+691	  int64_t prev_delete_time_;
+692	  int64_t cur_del_row_count_;
+693	  int64_t expected_interval_us_;
+694	  ThrottleInfo throttle_info_;
+695	};
+696	
+697	} // end namespace rootserver
+698	} // end namespace oceanbase
+```
+
+#### src/share/table/ob_ttl_util.cpp — ObTTLDeleteRateThrottler(method)
+
+```cpp
+2576	const double ObTTLDeleteRateThrottler::DEFAULT_SMOOTH_FACTOR = 0.6;
+2577	const double ObTTLDeleteRateThrottler::DEFAULT_TRANS_TIMEOUT_RATIO = 0.8;
+2578	
+2579	ObTTLDeleteRateThrottler::ObTTLDeleteRateThrottler()
+2580	  : is_inited_(false),
+2581	    max_rows_per_second_(0),
+2582	    smooth_factor_(0.0),
+2583	    trans_start_time_(0),
+2584	    prev_delete_time_(0),
+2585	    cur_del_row_count_(0),
+2586	    expected_interval_us_(0),
+2587	    throttle_info_()
+2588	{}
+2589	
+2590	ObTTLDeleteRateThrottler::~ObTTLDeleteRateThrottler()
+2591	{
+```
+
+### Not shown above — explore these names for their source
+
+- deps/oblib/src/lib/time/ob_time_utility.cpp: current_time:23
+- src/observer/table/ttl/ob_table_ttl_task.cpp: process_one:289
+
+> Some source sections were omitted or shortened for size. Check unresolved evidence with a targeted query or Read.
