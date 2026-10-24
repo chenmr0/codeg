@@ -1,0 +1,98 @@
+[
+  {
+    "id": "ttl-seed-bag",
+    "before_chars": 23999,
+    "after_chars": 23999,
+    "before_complete": 7,
+    "after_complete": 7,
+    "core_bodies": 8
+  },
+  {
+    "id": "ttl-mixed-bag",
+    "before_chars": 23922,
+    "after_chars": 23922,
+    "before_complete": 7,
+    "after_complete": 7,
+    "core_bodies": 8
+  },
+  {
+    "id": "ttl-task-single",
+    "before_chars": 23942,
+    "after_chars": 23942,
+    "before_complete": 3,
+    "after_complete": 3,
+    "core_bodies": 8
+  },
+  {
+    "id": "ttl-throttler-single",
+    "before_chars": 20045,
+    "after_chars": 20045,
+    "before_complete": 7,
+    "after_complete": 7,
+    "core_bodies": 8
+  },
+  {
+    "id": "ttl-throttler-methods",
+    "before_chars": 22979,
+    "after_chars": 22979,
+    "before_complete": 8,
+    "after_complete": 8,
+    "core_bodies": 8
+  },
+  {
+    "id": "ttl-task-methods",
+    "before_chars": 23945,
+    "after_chars": 23945,
+    "before_complete": 4,
+    "after_complete": 4,
+    "core_bodies": 8
+  },
+  {
+    "id": "dtl-seed-bag",
+    "before_chars": 23885,
+    "after_chars": 23885,
+    "before_complete": 2,
+    "after_complete": 2,
+    "core_bodies": 5
+  },
+  {
+    "id": "dtl-methods",
+    "before_chars": 16867,
+    "after_chars": 16867,
+    "before_complete": 4,
+    "after_complete": 4,
+    "core_bodies": 5
+  },
+  {
+    "id": "ttl-explicit-range",
+    "before_chars": 415,
+    "after_chars": 7482,
+    "before_complete": 0,
+    "after_complete": 1,
+    "core_bodies": 8
+  },
+  {
+    "id": "ttl-qualified-member",
+    "before_chars": 23653,
+    "after_chars": 23498,
+    "before_complete": 2,
+    "after_complete": 2,
+    "core_bodies": 8
+  },
+  {
+    "id": "dtl-explicit-range",
+    "before_chars": 393,
+    "after_chars": 5013,
+    "before_complete": 0,
+    "after_complete": 1,
+    "core_bodies": 5
+  },
+  {
+    "id": "dtl-qualified-member",
+    "before_chars": 13621,
+    "after_chars": 13383,
+    "before_complete": 2,
+    "after_complete": 2,
+    "core_bodies": 5
+  }
+]

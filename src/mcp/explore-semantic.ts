@@ -1,11 +1,9 @@
 import type CodeGraph from '../index';
 import type { Node } from '../types';
-import { readFileSync } from 'fs';
-import { createHash } from 'crypto';
 import { CCppSourceScope } from '../extraction/c-cpp-source-scope';
 import { maskCStyleCommentsAndLiterals } from '../extraction/grammars';
 import { cppCallableParametersMatch, cppParameterKey } from '../resolution/cpp-signature';
-import { validatePathWithinRoot } from '../utils';
+import { ExploreSourceSnapshots } from './explore-source';
 
 export const EXPLORE_TYPES = new Set(['class', 'struct', 'interface', 'trait', 'protocol', 'enum']);
 export const EXPLORE_CALLABLES = new Set(['method', 'function', 'component', 'constructor']);
@@ -19,7 +17,7 @@ export class ExploreSemanticView {
   private canonical = new Map<string, Node>();
   private owners = new Map<string, string | undefined>();
   private aliases = new Map<string, Set<string>>();
-  constructor(private cg: CodeGraph) {}
+  constructor(private cg: CodeGraph, private snapshots = new ExploreSourceSnapshots(cg)) {}
 
   byName(name: string): Node[] {
     if (!this.names.has(name)) this.names.set(name, this.cg.getNodesByName(name));
@@ -31,14 +29,10 @@ export class ExploreSemanticView {
   }
   private source(file: string) {
     if (!this.sources.has(file)) {
-      const abs = validatePathWithinRoot(this.cg.getProjectRoot(), file);
       try {
-        if (!abs) throw new Error('outside project');
-        const text = readFileSync(abs, 'utf8');
-        const tracked = this.cg.getFile(file);
-        if (tracked && createHash('sha256').update(text).digest('hex') !== tracked.contentHash) {
-          throw new Error('source changed since indexing');
-        }
+        const snapshot = this.snapshots.get(file);
+        if (snapshot.status !== 'fresh' || snapshot.content === undefined) throw new Error('source is not verified');
+        const text = snapshot.content;
         const offsets = [0];
         for (let i = 0; i < text.length; i++) if (text[i] === '\n') offsets.push(i + 1);
         this.sources.set(file, { text, masked: maskCStyleCommentsAndLiterals(text), offsets, scope: new CCppSourceScope(text) });

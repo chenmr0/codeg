@@ -1,0 +1,19 @@
+## Exploration: notes.cpp:1-2
+
+Found 0 symbols across 1 files.
+
+
+Exact symbol/path anchors and identifier text evidence; weak word matches are disabled.
+### Source Code
+
+> Source excerpts below are read from current files. Only shown source ranges are covered; signatures, outlines and omitted regions are not complete function bodies or complete files.
+
+#### notes.cpp — requested source range · focused source ranges (coverage below)
+
+```
+1	// comments_only_first
+2	// comments_only_second
+```
+
+> Explicit target coverage (source ranges actually emitted):
+- Complete target: notes.cpp:1-2 requested source range; shown 1-2; missing none

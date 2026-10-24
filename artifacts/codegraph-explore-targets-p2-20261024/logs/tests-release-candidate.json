@@ -1,0 +1,33 @@
+{
+  "argv": [
+    "node",
+    "--liftoff-only",
+    "D:/python_code/codegraph/node_modules/vitest/vitest.mjs",
+    "run",
+    "--pool",
+    "forks",
+    "--maxWorkers",
+    "2",
+    "--minWorkers",
+    "1",
+    "__tests__/explore-admission-p1.test.ts",
+    "__tests__/explore-seed-evidence-p1.test.ts",
+    "__tests__/explore-retrieval-p0.test.ts",
+    "__tests__/explore-p0.test.ts",
+    "__tests__/explore-selection-p1.test.ts",
+    "__tests__/explore-entry-gaps.test.ts",
+    "__tests__/explore-input-contract.test.ts",
+    "__tests__/explore-output-budget.test.ts",
+    "__tests__/adaptive-explore-sizing.test.ts",
+    "__tests__/explore-blast-radius.test.ts",
+    "__tests__/explore-source-snapshot.test.ts",
+    "__tests__/explore-explicit-targets.test.ts",
+    "__tests__/query-paths.test.ts",
+    "__tests__/explore-target-selection.test.ts",
+    "__tests__/explore-targets-integration.test.ts",
+    "--reporter=json",
+    "--outputFile=../logs/tests-release-candidate-results.json"
+  ],
+  "exit_code": 0,
+  "seconds": 11.009545803070068
+}

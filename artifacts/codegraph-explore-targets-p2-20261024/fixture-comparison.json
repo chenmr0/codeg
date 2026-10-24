@@ -1,0 +1,735 @@
+{
+  "method": "Actual handlers with separately built small indices from identical source; per-line verification. Community may return complete current small files on drift; candidate withholds stale indexed slices. This is not a model or OceanBase community ranking.",
+  "rows": [
+    {
+      "arm": "baseline",
+      "id": "ambiguous-basename",
+      "query": "peer.ts:1",
+      "maxFiles": 2,
+      "chars": 228,
+      "invalid_source_lines": [],
+      "shown_lines": {},
+      "wanted_lines": null,
+      "covered_wanted_lines": null,
+      "outside_requested_lines": null,
+      "stale_source_omitted": null,
+      "stale_whole_current_file": null,
+      "stale_warning": null,
+      "unsafe_stale_partial_slice": false,
+      "log": "fixture-results\\baseline-ambiguous-basename.json"
+    },
+    {
+      "arm": "baseline",
+      "id": "comment-range",
+      "query": "notes.cpp:1-2",
+      "maxFiles": 2,
+      "chars": 232,
+      "invalid_source_lines": [],
+      "shown_lines": {},
+      "wanted_lines": 2,
+      "covered_wanted_lines": 0,
+      "outside_requested_lines": 0,
+      "stale_source_omitted": null,
+      "stale_whole_current_file": null,
+      "stale_warning": null,
+      "unsafe_stale_partial_slice": false,
+      "log": "fixture-results\\baseline-comment-range.json"
+    },
+    {
+      "arm": "baseline",
+      "id": "declaration-line",
+      "query": "worker.h:5",
+      "maxFiles": 2,
+      "chars": 293,
+      "invalid_source_lines": [],
+      "shown_lines": {},
+      "wanted_lines": 4,
+      "covered_wanted_lines": 0,
+      "outside_requested_lines": null,
+      "stale_source_omitted": null,
+      "stale_whole_current_file": null,
+      "stale_warning": null,
+      "unsafe_stale_partial_slice": false,
+      "log": "fixture-results\\baseline-declaration-line.json"
+    },
+    {
+      "arm": "baseline",
+      "id": "explicit-range",
+      "query": "worker.cpp:4-6",
+      "maxFiles": 2,
+      "chars": 233,
+      "invalid_source_lines": [],
+      "shown_lines": {},
+      "wanted_lines": 3,
+      "covered_wanted_lines": 0,
+      "outside_requested_lines": 0,
+      "stale_source_omitted": null,
+      "stale_whole_current_file": null,
+      "stale_warning": null,
+      "unsafe_stale_partial_slice": false,
+      "log": "fixture-results\\baseline-explicit-range.json"
+    },
+    {
+      "arm": "baseline",
+      "id": "path-and-member",
+      "query": "worker.h LedgerWriter::commit",
+      "maxFiles": 2,
+      "chars": 1002,
+      "invalid_source_lines": [],
+      "shown_lines": {
+        "worker.cpp": [
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10
+        ],
+        "worker.h": [
+          2
+        ]
+      },
+      "wanted_lines": 8,
+      "covered_wanted_lines": 8,
+      "outside_requested_lines": null,
+      "stale_source_omitted": null,
+      "stale_whole_current_file": null,
+      "stale_warning": null,
+      "unsafe_stale_partial_slice": false,
+      "log": "fixture-results\\baseline-path-and-member.json"
+    },
+    {
+      "arm": "baseline",
+      "id": "qualified-overloads",
+      "query": "harbor::LedgerWriter::commit",
+      "maxFiles": 2,
+      "chars": 875,
+      "invalid_source_lines": [],
+      "shown_lines": {
+        "worker.cpp": [
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10
+        ],
+        "worker.h": [
+          2
+        ]
+      },
+      "wanted_lines": 8,
+      "covered_wanted_lines": 8,
+      "outside_requested_lines": null,
+      "stale_source_omitted": null,
+      "stale_whole_current_file": null,
+      "stale_warning": null,
+      "unsafe_stale_partial_slice": false,
+      "log": "fixture-results\\baseline-qualified-overloads.json"
+    },
+    {
+      "arm": "baseline",
+      "id": "stale-file",
+      "query": "worker.cpp",
+      "maxFiles": 2,
+      "chars": 986,
+      "invalid_source_lines": [],
+      "shown_lines": {
+        "worker.cpp": [
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10
+        ],
+        "worker.h": [
+          2,
+          4,
+          5
+        ]
+      },
+      "wanted_lines": null,
+      "covered_wanted_lines": null,
+      "outside_requested_lines": null,
+      "stale_source_omitted": false,
+      "stale_whole_current_file": false,
+      "stale_warning": false,
+      "unsafe_stale_partial_slice": true,
+      "log": "fixture-results\\baseline-stale-file.json"
+    },
+    {
+      "arm": "baseline",
+      "id": "stale-qualified",
+      "query": "harbor::LedgerWriter::commit",
+      "maxFiles": 2,
+      "chars": 942,
+      "invalid_source_lines": [],
+      "shown_lines": {
+        "worker.cpp": [
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10
+        ],
+        "worker.h": [
+          2,
+          4,
+          5
+        ]
+      },
+      "wanted_lines": null,
+      "covered_wanted_lines": null,
+      "outside_requested_lines": null,
+      "stale_source_omitted": false,
+      "stale_whole_current_file": false,
+      "stale_warning": false,
+      "unsafe_stale_partial_slice": true,
+      "log": "fixture-results\\baseline-stale-qualified.json"
+    },
+    {
+      "arm": "baseline",
+      "id": "stale-range",
+      "query": "worker.cpp:3-6",
+      "maxFiles": 2,
+      "chars": 233,
+      "invalid_source_lines": [],
+      "shown_lines": {},
+      "wanted_lines": null,
+      "covered_wanted_lines": null,
+      "outside_requested_lines": null,
+      "stale_source_omitted": true,
+      "stale_whole_current_file": false,
+      "stale_warning": false,
+      "unsafe_stale_partial_slice": false,
+      "log": "fixture-results\\baseline-stale-range.json"
+    },
+    {
+      "arm": "community",
+      "id": "ambiguous-basename",
+      "query": "peer.ts:1",
+      "maxFiles": 2,
+      "chars": 633,
+      "invalid_source_lines": [],
+      "shown_lines": {
+        "left/peer.ts": [
+          1
+        ],
+        "right/peer.ts": [
+          1
+        ]
+      },
+      "wanted_lines": null,
+      "covered_wanted_lines": null,
+      "outside_requested_lines": null,
+      "stale_source_omitted": null,
+      "stale_whole_current_file": null,
+      "stale_warning": null,
+      "unsafe_stale_partial_slice": false,
+      "log": "fixture-results\\community-ambiguous-basename.json"
+    },
+    {
+      "arm": "community",
+      "id": "comment-range",
+      "query": "notes.cpp:1-2",
+      "maxFiles": 2,
+      "chars": 389,
+      "invalid_source_lines": [],
+      "shown_lines": {},
+      "wanted_lines": 2,
+      "covered_wanted_lines": 0,
+      "outside_requested_lines": 0,
+      "stale_source_omitted": null,
+      "stale_whole_current_file": null,
+      "stale_warning": null,
+      "unsafe_stale_partial_slice": false,
+      "log": "fixture-results\\community-comment-range.json"
+    },
+    {
+      "arm": "community",
+      "id": "declaration-line",
+      "query": "worker.h:5",
+      "maxFiles": 2,
+      "chars": 608,
+      "invalid_source_lines": [],
+      "shown_lines": {
+        "worker.h": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8
+        ]
+      },
+      "wanted_lines": 4,
+      "covered_wanted_lines": 0,
+      "outside_requested_lines": null,
+      "stale_source_omitted": null,
+      "stale_whole_current_file": null,
+      "stale_warning": null,
+      "unsafe_stale_partial_slice": false,
+      "log": "fixture-results\\community-declaration-line.json"
+    },
+    {
+      "arm": "community",
+      "id": "explicit-range",
+      "query": "worker.cpp:4-6",
+      "maxFiles": 2,
+      "chars": 774,
+      "invalid_source_lines": [],
+      "shown_lines": {
+        "worker.cpp": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11
+        ]
+      },
+      "wanted_lines": 3,
+      "covered_wanted_lines": 3,
+      "outside_requested_lines": 8,
+      "stale_source_omitted": null,
+      "stale_whole_current_file": null,
+      "stale_warning": null,
+      "unsafe_stale_partial_slice": false,
+      "log": "fixture-results\\community-explicit-range.json"
+    },
+    {
+      "arm": "community",
+      "id": "path-and-member",
+      "query": "worker.h LedgerWriter::commit",
+      "maxFiles": 2,
+      "chars": 976,
+      "invalid_source_lines": [],
+      "shown_lines": {
+        "worker.h": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8
+        ],
+        "worker.cpp": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11
+        ]
+      },
+      "wanted_lines": 8,
+      "covered_wanted_lines": 8,
+      "outside_requested_lines": null,
+      "stale_source_omitted": null,
+      "stale_whole_current_file": null,
+      "stale_warning": null,
+      "unsafe_stale_partial_slice": false,
+      "log": "fixture-results\\community-path-and-member.json"
+    },
+    {
+      "arm": "community",
+      "id": "qualified-overloads",
+      "query": "harbor::LedgerWriter::commit",
+      "maxFiles": 2,
+      "chars": 945,
+      "invalid_source_lines": [],
+      "shown_lines": {
+        "worker.cpp": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11
+        ],
+        "worker.h": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8
+        ]
+      },
+      "wanted_lines": 8,
+      "covered_wanted_lines": 8,
+      "outside_requested_lines": null,
+      "stale_source_omitted": null,
+      "stale_whole_current_file": null,
+      "stale_warning": null,
+      "unsafe_stale_partial_slice": false,
+      "log": "fixture-results\\community-qualified-overloads.json"
+    },
+    {
+      "arm": "community",
+      "id": "stale-file",
+      "query": "worker.cpp",
+      "maxFiles": 2,
+      "chars": 1137,
+      "invalid_source_lines": [],
+      "shown_lines": {
+        "worker.cpp": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13
+        ]
+      },
+      "wanted_lines": null,
+      "covered_wanted_lines": null,
+      "outside_requested_lines": null,
+      "stale_source_omitted": false,
+      "stale_whole_current_file": true,
+      "stale_warning": true,
+      "unsafe_stale_partial_slice": false,
+      "log": "fixture-results\\community-stale-file.json"
+    },
+    {
+      "arm": "community",
+      "id": "stale-qualified",
+      "query": "harbor::LedgerWriter::commit",
+      "maxFiles": 2,
+      "chars": 1312,
+      "invalid_source_lines": [],
+      "shown_lines": {
+        "worker.cpp": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13
+        ],
+        "worker.h": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8
+        ]
+      },
+      "wanted_lines": null,
+      "covered_wanted_lines": null,
+      "outside_requested_lines": null,
+      "stale_source_omitted": false,
+      "stale_whole_current_file": true,
+      "stale_warning": true,
+      "unsafe_stale_partial_slice": false,
+      "log": "fixture-results\\community-stale-qualified.json"
+    },
+    {
+      "arm": "community",
+      "id": "stale-range",
+      "query": "worker.cpp:3-6",
+      "maxFiles": 2,
+      "chars": 824,
+      "invalid_source_lines": [],
+      "shown_lines": {
+        "worker.cpp": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13
+        ]
+      },
+      "wanted_lines": null,
+      "covered_wanted_lines": null,
+      "outside_requested_lines": null,
+      "stale_source_omitted": false,
+      "stale_whole_current_file": true,
+      "stale_warning": false,
+      "unsafe_stale_partial_slice": false,
+      "log": "fixture-results\\community-stale-range.json"
+    },
+    {
+      "arm": "candidate",
+      "id": "ambiguous-basename",
+      "query": "peer.ts:1",
+      "maxFiles": 2,
+      "chars": 249,
+      "invalid_source_lines": [],
+      "shown_lines": {},
+      "wanted_lines": null,
+      "covered_wanted_lines": null,
+      "outside_requested_lines": null,
+      "stale_source_omitted": null,
+      "stale_whole_current_file": null,
+      "stale_warning": null,
+      "unsafe_stale_partial_slice": false,
+      "log": "fixture-results-release\\candidate-ambiguous-basename.json"
+    },
+    {
+      "arm": "candidate",
+      "id": "comment-range",
+      "query": "notes.cpp:1-2",
+      "maxFiles": 2,
+      "chars": 639,
+      "invalid_source_lines": [],
+      "shown_lines": {
+        "notes.cpp": [
+          1,
+          2
+        ]
+      },
+      "wanted_lines": 2,
+      "covered_wanted_lines": 2,
+      "outside_requested_lines": 0,
+      "stale_source_omitted": null,
+      "stale_whole_current_file": null,
+      "stale_warning": null,
+      "unsafe_stale_partial_slice": false,
+      "log": "fixture-results-release\\candidate-comment-range.json"
+    },
+    {
+      "arm": "candidate",
+      "id": "declaration-line",
+      "query": "worker.h:5",
+      "maxFiles": 2,
+      "chars": 1090,
+      "invalid_source_lines": [],
+      "shown_lines": {
+        "worker.cpp": [
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10
+        ],
+        "worker.h": [
+          2,
+          5,
+          6
+        ]
+      },
+      "wanted_lines": 4,
+      "covered_wanted_lines": 4,
+      "outside_requested_lines": null,
+      "stale_source_omitted": null,
+      "stale_whole_current_file": null,
+      "stale_warning": null,
+      "unsafe_stale_partial_slice": false,
+      "log": "fixture-results-release\\candidate-declaration-line.json"
+    },
+    {
+      "arm": "candidate",
+      "id": "explicit-range",
+      "query": "worker.cpp:4-6",
+      "maxFiles": 2,
+      "chars": 669,
+      "invalid_source_lines": [],
+      "shown_lines": {
+        "worker.cpp": [
+          4,
+          5,
+          6
+        ]
+      },
+      "wanted_lines": 3,
+      "covered_wanted_lines": 3,
+      "outside_requested_lines": 0,
+      "stale_source_omitted": null,
+      "stale_whole_current_file": null,
+      "stale_warning": null,
+      "unsafe_stale_partial_slice": false,
+      "log": "fixture-results-release\\candidate-explicit-range.json"
+    },
+    {
+      "arm": "candidate",
+      "id": "path-and-member",
+      "query": "worker.h LedgerWriter::commit",
+      "maxFiles": 2,
+      "chars": 1003,
+      "invalid_source_lines": [],
+      "shown_lines": {
+        "worker.cpp": [
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10
+        ],
+        "worker.h": [
+          2
+        ]
+      },
+      "wanted_lines": 8,
+      "covered_wanted_lines": 8,
+      "outside_requested_lines": null,
+      "stale_source_omitted": null,
+      "stale_whole_current_file": null,
+      "stale_warning": null,
+      "unsafe_stale_partial_slice": false,
+      "log": "fixture-results-release\\candidate-path-and-member.json"
+    },
+    {
+      "arm": "candidate",
+      "id": "qualified-overloads",
+      "query": "harbor::LedgerWriter::commit",
+      "maxFiles": 2,
+      "chars": 1002,
+      "invalid_source_lines": [],
+      "shown_lines": {
+        "worker.cpp": [
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10
+        ],
+        "worker.h": [
+          2
+        ]
+      },
+      "wanted_lines": 8,
+      "covered_wanted_lines": 8,
+      "outside_requested_lines": null,
+      "stale_source_omitted": null,
+      "stale_whole_current_file": null,
+      "stale_warning": null,
+      "unsafe_stale_partial_slice": false,
+      "log": "fixture-results-release\\candidate-qualified-overloads.json"
+    },
+    {
+      "arm": "candidate",
+      "id": "stale-file",
+      "query": "worker.cpp",
+      "maxFiles": 2,
+      "chars": 944,
+      "invalid_source_lines": [],
+      "shown_lines": {
+        "worker.h": [
+          2,
+          4,
+          5
+        ]
+      },
+      "wanted_lines": null,
+      "covered_wanted_lines": null,
+      "outside_requested_lines": null,
+      "stale_source_omitted": true,
+      "stale_whole_current_file": false,
+      "stale_warning": true,
+      "unsafe_stale_partial_slice": false,
+      "log": "fixture-results-release\\candidate-stale-file.json"
+    },
+    {
+      "arm": "candidate",
+      "id": "stale-qualified",
+      "query": "harbor::LedgerWriter::commit",
+      "maxFiles": 2,
+      "chars": 1153,
+      "invalid_source_lines": [],
+      "shown_lines": {
+        "worker.h": [
+          2,
+          4,
+          5
+        ]
+      },
+      "wanted_lines": null,
+      "covered_wanted_lines": null,
+      "outside_requested_lines": null,
+      "stale_source_omitted": true,
+      "stale_whole_current_file": false,
+      "stale_warning": true,
+      "unsafe_stale_partial_slice": false,
+      "log": "fixture-results-release\\candidate-stale-qualified.json"
+    },
+    {
+      "arm": "candidate",
+      "id": "stale-range",
+      "query": "worker.cpp:3-6",
+      "maxFiles": 2,
+      "chars": 1041,
+      "invalid_source_lines": [],
+      "shown_lines": {
+        "worker.h": [
+          2,
+          4,
+          5
+        ]
+      },
+      "wanted_lines": null,
+      "covered_wanted_lines": null,
+      "outside_requested_lines": null,
+      "stale_source_omitted": true,
+      "stale_whole_current_file": false,
+      "stale_warning": true,
+      "unsafe_stale_partial_slice": false,
+      "log": "fixture-results-release\\candidate-stale-range.json"
+    }
+  ]
+}

@@ -1,0 +1,367 @@
+## Exploration: ObDtlBasicChannel::wait_unblocking
+
+Found 200 symbols across 177 files.
+
+
+Exact symbol/path anchors and identifier text evidence; weak word matches are disabled.
+### Blast radius — what depends on these (update/verify before editing)
+
+- `wait_unblocking` (src/sql/dtl/ob_dtl_basic_channel.cpp:801) — 1 caller in `src/sql/dtl/ob_dtl_basic_channel.cpp`; ⚠️ no covering tests found
+
+### Relationships
+
+**calls:**
+- wait_unblocking → current_time
+- wait_unblocking → current_time
+- wait_unblocking → get_process_query_time
+- wait_unblocking → process_one_if
+- wait_unblocking → find
+- wait_unblocking → is_drain
+- wait_unblocking → unblock_channel
+- wait_unblocking → unblock_channel
+- wait_unblocking → check_status
+- wait_unblocking → set_ch_idx_var
+- wait_unblocking_if_blocked → wait_unblocking
+- wait_unblocking → belong_to_transmit_data
+- wait_unblocking → is_in_blacklist
+- wait_unblocking → KP
+- wait_unblocking → KP
+- ... and 2838 more
+
+**extends:**
+- ObDtlLocalChannel → ObDtlBasicChannel
+- ObDtlRpcChannel → ObDtlBasicChannel
+- ObDtlBasicChannel → ObDtlChannel
+
+### Source Code
+
+> Source excerpts below are read from current files. Only shown source ranges are covered; signatures, outlines and omitted regions are not complete function bodies or complete files.
+
+#### src/sql/dtl/ob_dtl_basic_channel.cpp — wait_unblocking, wait_unblocking_if_blocked · focused source ranges (coverage below)
+
+```cpp
+768	int ObDtlBasicChannel::wait_unblocking_if_blocked()
+769	{
+770	  int ret = OB_SUCCESS;
+771	  if (belong_to_transmit_data()) {
+772	    if (!msg_response_.is_init()) {
+773	      ret = OB_NOT_INIT;
+774	      LOG_WARN("not init", K(ret));
+775	    } else if (msg_response_.is_block()) {
+776	      // receive response, then set block info for dfc
+777	      msg_response_.reset_block();
+778	      if (OB_ISNULL(dfc_)) {
+779	        ret = OB_ERR_UNEXPECTED;
+780	        LOG_WARN("channel loop is null", K(ret));
+781	      } else if (OB_FAIL(dfc_->block_channel(this))) {
+782	        LOG_WARN("failed to set block", K(ret));
+783	      } else {
+784	        // only block this channel, for other channels, it will also set block, or other channel can't be blocked
+785	        LOG_TRACE("set block dfc", K(ret), KP(id_), K(peer_));
+786	      }
+787	    }
+788	    if (OB_SUCC(ret)) {
+789	      LOG_TRACE("wait unblocking if blocked", K(msg_response_.is_block()), K(dfc_->is_block(this)), K(ret), KP(id_), KP(peer_id_),
+790	        K(peer_), K(ret));
+791	      if (dfc_->is_block(this)) {
+792	        if (OB_FAIL(wait_unblocking())) {
+793	          LOG_WARN("failed to block", K(ret));
+794	        }
+795	      }
+796	    }
+797	  }
+798	  return ret;
+799	}
+
+... (gap) ...
+
+801	int ObDtlBasicChannel::wait_unblocking()
+802	{
+803	  int ret = OB_SUCCESS;
+804	  if (belong_to_transmit_data()) {
+805	    int64_t idx = OB_INVALID_ID;
+806	    LOG_TRACE("blocking:", K(ret), K(dfc_->is_block()), K(dfc_));
+807	    int64_t timeout_ts = 0;
+808	    if (OB_ISNULL(channel_loop_) || OB_ISNULL(dfc_)) {
+809	      ret = OB_ERR_UNEXPECTED;
+810	      LOG_WARN("channel loop is null", K(ret));
+811	    } else if (FALSE_IT(timeout_ts = dfc_->get_timeout_ts())) {
+812	    } else if (0 == timeout_ts) {
+813	      ret = OB_ERR_UNEXPECTED;
+814	      LOG_WARN("timeout is not set", K(ret));
+815	    } else if (OB_FAIL(channel_loop_->find(this, idx))) {
+816	      LOG_WARN("channel not exists in channel loop", K(ret));
+817	    } else {
+818	      int64_t start_t = ObTimeUtility::current_time();
+819	      int64_t interval_t = 1 * 60 * 1000000; // 1min
+820	      int64_t last_t = 0;
+821	      int64_t print_log_t = 10 * 60 * 1000000;
+822	      block_proc_.set_ch_idx_var(&idx);
+823	      LOG_TRACE("wait unblocking", K(ret), K(dfc_->is_block()), KP(id_), K(peer_));
+824	      oceanbase::lib::Thread::WaitGuard guard(oceanbase::lib::Thread::WAIT_FOR_PX_MSG);
+825	      do {
+826	        int64_t got_channel_idx = idx;
+827	        if (is_drain()) {
+828	          // if drain,then ignore blocking
+829	          if (OB_FAIL(dfc_->unblock_channel(this))) {
+830	            LOG_WARN("fail to unblock channel", K(ret), K(dfc_->is_block()), KP(id_), K(peer_));
+831	          }
+832	          break;
+833	        } else if (OB_FAIL(channel_loop_->process_one_if(
+834	            &block_proc_,
+835	            got_channel_idx))) {
+836	          // no msg, then don't process
+837	          if (OB_DTL_WAIT_EAGAIN == ret) {
+838	            // 这里需要检查是否超时以及worker是否已经处于异常状态(退出等)，否则当worker退出时，一直陷入在while中
+839	            int64_t end_t = ObTimeUtility::current_time();
+840	            if (end_t > timeout_ts) {
+841	              ret = OB_TIMEOUT;
+842	              LOG_WARN("get row from channel timeout", K(ret), K(timeout_ts));
+843	            } else {
+844	              int tmp_ret = THIS_WORKER.check_status();
+845	              if (OB_SUCCESS != tmp_ret) {
+846	                ret = tmp_ret;
+847	                LOG_WARN("worker interrupt", K(tmp_ret), K(ret));
+848	                break;
+849	              }
+850	              if (OB_UNLIKELY(ObPxCheckAlive::is_in_blacklist(peer_,
+851	                              channel_loop_->get_process_query_time()))) {
+852	                ret = OB_RPC_CONNECT_ERROR;
+853	                LOG_WARN("peer no in communication, maybe crashed", K(ret), K(peer_),
+854	                         K(static_cast<int64_t>(GCONF.cluster_id)));
+855	                break;
+856	              }
+857	              if (end_t - start_t > print_log_t) {
+858	                bool print_log = false;
+859	                if (0 == last_t || end_t - last_t > interval_t) {
+860	                  print_log = true;
+861	                  last_t = end_t;
+862	                }
+863	                if (print_log) {
+864	                  LOG_INFO("wait unblocking", K(id_), K(peer_id_), K(peer_id_),
+865	                    K(recv_buffer_cnt_), K(processed_buffer_cnt_), K(send_buffer_cnt_),
+866	                    K(idx), K(got_channel_idx));
+867	                }
+868	              }
+869	              ret = OB_SUCCESS;
+870	            }
+871	          } else {
+872	            LOG_WARN("fail to process unblocking msg", K(ret), K(dfc_->is_block()), KP(id_), K(peer_));
+873	          }
+874	        } else {
+875	          // receive unblocking msg:
+876	          // channel is unblock, then skip
+877	          // channel is blocked, then unblock the channel
+878	          if (idx != got_channel_idx) {
+879	            ret = OB_ERR_UNEXPECTED;
+880	            LOG_WARN("no channel is processed", K(ret), K(got_channel_idx), K(idx));
+881	          } else if (OB_FAIL(dfc_->unblock_channel(this))) {
+882	            LOG_WARN("fail to unblock channel", K(ret), K(dfc_->is_block()), KP(id_), K(peer_));
+883	          }
+884	        }
+885	      } while (dfc_->is_block(this) && OB_SUCC(ret));
+886	      LOG_TRACE("unblocking successfully", K(ret), K(dfc_->is_block()), KP(id_), K(peer_));
+887	    }
+888	    LOG_TRACE("unblocking:", K(ret), K(dfc_->is_block()), K(dfc_->is_block(this)), KP(id_), K(peer_));
+889	  }
+890	  return ret;
+891	}
+```
+
+#### deps/oblib/src/lib/time/ob_time_utility.cpp — current_time, current_time_s, current_time_ms, current_time_us · focused source ranges (coverage below)
+
+```cpp
+23	int64_t ObTimeUtility::current_time()
+24	{
+25	  int err_ret = 0;
+26	  struct timeval t;
+27	  if (OB_UNLIKELY((err_ret = gettimeofday(&t, nullptr)) < 0)) {
+28	    LIB_LOG_RET(ERROR, err_ret, "gettimeofday error", K(err_ret), K(errno));
+29	    systime_error = true;
+30	    ob_abort();
+31	  }
+32	  return (static_cast<int64_t>(t.tv_sec) * 1000000L +
+33	          static_cast<int64_t>(t.tv_usec));
+34	}
+
+... (gap) ...
+
+36	int64_t ObTimeUtility::current_time_s()
+37	{
+38	  return (ObTimeUtility::current_time() / 1000000L);
+39	}
+
+... (gap) ...
+
+41	int64_t ObTimeUtility::current_time_ms()
+42	{
+43	  return (ObTimeUtility::current_time() / 1000L);
+44	}
+
+... (gap) ...
+
+46	int64_t ObTimeUtility::current_time_us()
+47	{
+48	  return ObTimeUtility::current_time();
+49	}
+```
+
+#### src/sql/dtl/ob_dtl_basic_channel.h — set_ch_idx_var, belong_to_transmit_data, extends, ObDtlBasicChannel · focused source ranges (coverage below)
+
+```cpp
+655	class ObDtlBasicChannel
+656	    : public ObDtlChannel
+
+... (gap) ...
+
+669	    void set_ch_idx_var(int64_t *chan_idx) { chan_idx_ = chan_idx; }
+
+... (gap) ...
+
+829	OB_INLINE bool ObDtlBasicChannel::belong_to_transmit_data()
+830	{
+831	  return nullptr != dfc_ && dfc_->is_transmit();
+832	}
+```
+
+#### src/sql/dtl/ob_dtl_fc_server.cpp — unblock_channel · focused source ranges (coverage below)
+
+```cpp
+388	int ObDfcServer::unblock_channel(ObDtlFlowControl *dfc, int64_t ch_idx)
+389	{
+390	  int ret = OB_SUCCESS;
+391	  uint64_t tenant_id = dfc->get_tenant_id();
+392	  ObTenantDfc *tenant_dfc = nullptr;
+393	  if (OB_FAIL(get_current_tenant_dfc(tenant_id, tenant_dfc))) {
+394	    LOG_WARN("failed to get tenant dfc", K(tenant_id), K(ret));
+395	  } else if (OB_FAIL(tenant_dfc->unblock_channel(dfc, ch_idx))) {
+396	    LOG_WARN("failed to unblock tenant dfc", K(tenant_id), K(ret));
+397	  }
+398	  return ret;
+399	}
+```
+
+#### src/sql/dtl/ob_dtl_channel.h — is_drain, ObDtlChannel · focused source ranges (coverage below)
+
+```cpp
+93	class ObDtlChannel : public common::ObDLinkBase<ObDtlChannel>
+
+... (gap) ...
+
+188	  bool is_drain() { return (ATOMIC_LOAD(&state_) & DTL_CHAN_DARIN); }
+```
+
+#### src/sql/dtl/ob_dtl_channel_loop.h — get_process_query_time · focused source ranges (coverage below)
+
+```cpp
+91	  int64_t get_process_query_time() const { return process_query_time_; }
+```
+
+#### unittest/sql/engine/px/test_merge_sort_receive.cpp — process_one_if · focused source ranges (coverage below)
+
+```cpp
+122	int ObMockChannelLoop::process_one_if(PredFunc pred, int64_t timeout, int64_t &nth_channel)
+123	{
+124	  int ret = OB_SUCCESS;
+125	  UNUSED(pred);
+126	  UNUSED(timeout);
+127	  nth_channel = nth_process_channel_ % n_channel_;
+128	//  cout << "channel:" << nth_process_channel_ << endl;
+129	  nth_process_channel_ = (nth_process_channel_ + 1) % n_channel_;
+130	  return ret;
+131	}
+```
+
+#### src/sql/dtl/ob_dtl_channel_loop.cpp — find · focused source ranges (coverage below)
+
+```cpp
+125	int ObDtlChannelLoop::find(ObDtlChannel* ch, int64_t &out_idx)
+126	{
+127	  int ret = OB_SUCCESS;
+128	  out_idx = OB_INVALID_ID;
+129	  ARRAY_FOREACH_X(chans_, idx, cnt, OB_INVALID_ID == out_idx) {
+130	    if (ch == chans_.at(idx)) {
+131	      out_idx = idx;
+132	    }
+133	  }
+134	  if (OB_INVALID_ID == out_idx) {
+135	    ret = OB_ERR_UNEXPECTED;
+136	    LOG_WARN("channel not found", K(ch), KP(ch->get_id()), K(ch->get_peer()), K(out_idx));
+137	  }
+138	  return ret;
+139	}
+```
+
+#### src/sql/engine/px/ob_px_worker.cpp — check_status · focused source ranges (coverage below)
+
+```cpp
+529	int ObPxWorker::check_status()
+530	{
+531	  int ret = OB_SUCCESS;
+532	  if (nullptr != session_) {
+533	    session_->is_terminate(ret);
+534	  }
+535	
+536	  if (OB_SUCC(ret)) {
+537	    if (is_timeout()) {
+538	      ret = OB_TIMEOUT;
+539	    } else if (IS_INTERRUPTED()) {
+540	      ObInterruptCode &ic = GET_INTERRUPT_CODE();
+541	      ret = ic.code_;
+542	      LOG_WARN("px execution was interrupted", K(ic), K(ret));
+543	    }
+544	  }
+545	  return ret;
+546	}
+```
+
+#### src/sql/engine/px/ob_px_util.cpp — is_in_blacklist · focused source ranges (coverage below)
+
+```cpp
+4978	bool ObPxCheckAlive::is_in_blacklist(const common::ObAddr &addr, int64_t server_start_time)
+4979	{
+4980	  int ret = OB_SUCCESS;
+4981	  bool in_blacklist = false;
+4982	  obrpc::ObNetKeepAliveData alive_data;
+4983	  if (OB_FAIL(ObNetKeepAlive::get_instance().in_black(addr, in_blacklist, &alive_data))) {
+4984	    ret = OB_SUCCESS;
+4985	    in_blacklist = false;
+4986	  } else if (!in_blacklist && server_start_time > 0) {
+4987	    in_blacklist = alive_data.start_service_time_ >= server_start_time;
+4988	  }
+4989	  if (in_blacklist) {
+4990	    LOG_WARN("server in blacklist", K(addr), K(server_start_time), K(alive_data.start_service_time_));
+4991	  }
+4992	  return in_blacklist;
+4993	}
+```
+
+#### deps/oblib/src/lib/oblog/ob_log_module.h — LOG_WARN, LOG_INFO, LOG_TRACE · focused source ranges (coverage below)
+
+```cpp
+1394	#define LOG_WARN(args...) LOG_MACRO_JOIN(USING_LOG_PREFIX, _LOG) (WARN, ##args)
+1395	#define LOG_WARN_RET(args...) LOG_MACRO_JOIN(USING_LOG_PREFIX, _LOG_RET) (WARN, ##args)
+
+... (gap) ...
+
+1398	#define LOG_INFO(args...) LOG_MACRO_JOIN(USING_LOG_PREFIX, _LOG) (INFO, ##args)
+1399	#define _LOG_INFO(args...) _LOG_MACRO_JOIN(USING_LOG_PREFIX, _LOG) (INFO, ##args)
+1400	#define LOG_TRACE(args...) LOG_MACRO_JOIN(USING_LOG_PREFIX, _LOG) (TRACE, ##args)
+1401	#define _LOG_TRACE(args...) _LOG_MACRO_JOIN(USING_LOG_PREFIX, _LOG) (TRACE, ##args)
+```
+
+#### deps/oblib/src/lib/utility/ob_macro_utils.h — OB_SUCC, OB_FAIL, OB_ISNULL · focused source ranges (coverage below)
+
+```cpp
+714	#define OB_SUCC(statement) (OB_LIKELY(::oceanbase::common::OB_SUCCESS == (ret = (statement))))
+715	#define OB_FAIL(statement) (OB_UNLIKELY(::oceanbase::common::OB_SUCCESS != (ret = (statement))))
+716	#define OB_TMP_FAIL(statement) (OB_UNLIKELY(::oceanbase::common::OB_SUCCESS != (tmp_ret = (statement))))
+
+... (gap) ...
+
+720	#define OB_ISNULL(statement) (OB_UNLIKELY(NULL == (statement)))
+721	#define OB_NOT_NULL(statement) (OB_LIKELY(NULL != (statement)))
+```
+
+> Explicit target coverage (source ranges actually emitted):
+- Complete target: src/sql/dtl/ob_dtl_basic_channel.cpp:801-891 wait_unblocking; shown 801-891; missing none

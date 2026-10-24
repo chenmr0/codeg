@@ -1,0 +1,26 @@
+[
+  {
+    "id": "ttl-explicit-range",
+    "area": "ttl",
+    "query": "src/observer/table/ttl/ob_table_ttl_task.cpp:1075-1209",
+    "maxFiles": 12
+  },
+  {
+    "id": "ttl-qualified-member",
+    "area": "ttl",
+    "query": "ObTableTTLDeleteTask::execute_ttl_delete",
+    "maxFiles": 12
+  },
+  {
+    "id": "dtl-explicit-range",
+    "area": "dtl",
+    "query": "src/sql/dtl/ob_dtl_basic_channel.cpp:801-891",
+    "maxFiles": 12
+  },
+  {
+    "id": "dtl-qualified-member",
+    "area": "dtl",
+    "query": "ObDtlBasicChannel::wait_unblocking",
+    "maxFiles": 12
+  }
+]

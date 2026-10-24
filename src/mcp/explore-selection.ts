@@ -14,6 +14,12 @@ export interface ExploreSourceFile {
   connectivity: (node: Node) => number;
   skeleton: boolean;
   bodyAllowed: (node: Node) => boolean;
+  /** Explicit file-path match, not an ordinary retrieval seed. */
+  pinned?: boolean;
+  /** Canonical exact targets (including declaration-to-definition resolution). */
+  protectedNodeIds?: ReadonlySet<string>;
+  /** Literal requested source spans; these must not expand to enclosing functions. */
+  requestedRanges?: ReadonlyArray<{ start: number; end: number }>;
 }
 interface Unit { node: Node; start: number; end: number; full: boolean; priority: number; connectivity: number }
 interface Plan { file: ExploreSourceFile; lines: string[]; units: Unit[]; selected: Unit[]; rank: number }
@@ -27,6 +33,9 @@ export interface ExploreSelectionOptions {
 
 /** Select function bodies before presentation. No adjacency clustering or tail slicing. */
 export function renderExploreSources(prefix: string, files: ExploreSourceFile[], options: ExploreSelectionOptions): string {
+  if (files.some(f => f.pinned || f.nodes.some(node => f.protectedNodeIds?.has(node.id)) || f.requestedRanges?.length)) {
+    return renderTargetedExploreSources(prefix, files, options);
+  }
   const renderLines = (p: Plan, start: number, end: number) => p.lines.slice(start - 1, end)
     .map((line, i) => options.lineNumbers ? `${start + i}\t${line}` : line).join('\n');
   const plans: Plan[] = files.map((file, rank) => {
@@ -192,6 +201,234 @@ export function renderExploreSources(prefix: string, files: ExploreSourceFile[],
       const line = `- Omitted body: ${p.file.path}:${u.start}-${u.end} ${u.node.name}; shown ${spans(covered)}; missing ${spans(gaps)}\n`;
       if (output.length + line.length > options.maxOutputChars) break;
       output += line;
+    }
+  }
+  return output;
+}
+
+interface SourceSpan { start: number; end: number }
+interface TargetUnit extends SourceSpan {
+  name: string;
+  node?: Node;
+  body: boolean;
+  explicit: boolean;
+  /** Retain the original target range without treating an outline as body coverage. */
+  outline?: 'type' | 'declaration' | 'signature';
+  priority: number;
+  connectivity: number;
+}
+interface TargetPlan {
+  file: ExploreSourceFile;
+  lines: string[];
+  rank: number;
+  admission: number;
+  targets: TargetUnit[];
+  ordinary: TargetUnit[];
+  selected: SourceSpan[];
+}
+
+/** Explicit targets have a separate reservation pass. The historical allocator
+ * remains unchanged for queries without path, range or qualified-member intent. */
+function renderTargetedExploreSources(prefix: string, files: ExploreSourceFile[], options: ExploreSelectionOptions): string {
+  const limit = Math.max(0, Math.floor(options.maxOutputChars));
+  if (prefix.length >= limit) return prefix.slice(0, limit);
+  const merge = (spans: ReadonlyArray<SourceSpan>): SourceSpan[] => {
+    const result: SourceSpan[] = [];
+    for (const span of [...spans].sort((a, b) => a.start - b.start || a.end - b.end)) {
+      const previous = result.at(-1);
+      if (previous && span.start <= previous.end + 1) previous.end = Math.max(previous.end, span.end);
+      else result.push({ ...span });
+    }
+    return result;
+  };
+  const intersect = (spans: ReadonlyArray<SourceSpan>, target: SourceSpan) => merge(spans.map(span => ({
+    start: Math.max(span.start, target.start), end: Math.min(span.end, target.end),
+  })).filter(span => span.start <= span.end));
+  const missing = (spans: ReadonlyArray<SourceSpan>, target: SourceSpan): SourceSpan[] => {
+    const gaps: SourceSpan[] = [];
+    let next = target.start;
+    for (const span of intersect(spans, target)) {
+      if (next < span.start) gaps.push({ start: next, end: span.start - 1 });
+      next = Math.max(next, span.end + 1);
+    }
+    if (next <= target.end) gaps.push({ start: next, end: target.end });
+    return gaps;
+  };
+  const plans: TargetPlan[] = files.map((file, rank) => {
+    const lines = file.content.replace(/\r\n/g, '\n').split('\n');
+    const targets: TargetUnit[] = [];
+    const ordinary: TargetUnit[] = [];
+    const seen = new Set<string>();
+    for (const node of file.nodes) {
+      if (node.startLine < 1 || node.endLine < node.startLine || node.endLine > lines.length) continue;
+      if (['file', 'import', 'export', 'namespace', 'parameter'].includes(node.kind)) continue;
+      const explicit = file.protectedNodeIds?.has(node.id) ?? false;
+      // Exact source targets outrank relevance/skeleton gates. Freshness is
+      // validated by the source loader before any file reaches this renderer.
+      const body = CALLABLES.has(node.kind) && !node.isDeclaration && (explicit || file.bodyAllowed(node));
+      const outline = CONTAINERS.has(node.kind) || (CALLABLES.has(node.kind) && !body);
+      const targetOutline: TargetUnit['outline'] = explicit && outline
+        ? CONTAINERS.has(node.kind) ? 'type' : node.isDeclaration ? 'declaration' : 'signature'
+        : undefined;
+      const unit: TargetUnit = { start: node.startLine, end: targetOutline ? node.endLine : outline ? node.startLine : node.endLine,
+        name: node.name, node, body, explicit, outline: targetOutline,
+        priority: body ? file.priority(node) : outline ? 10 : 5, connectivity: file.connectivity(node) };
+      const key = `${unit.start}:${unit.end}:${body}`;
+      // Explicit evidence wins if declaration aliases share a source range.
+      if (seen.has(key) && !explicit) continue;
+      seen.add(key);
+      if (explicit) targets.push(unit);
+      else if (!file.requestedRanges?.some(range => range.end > range.start)
+        && !file.requestedRanges?.some(range => range.start <= unit.end && range.end >= unit.start)) ordinary.push(unit);
+    }
+    for (const range of file.requestedRanges ?? []) {
+      if (!Number.isInteger(range.start) || !Number.isInteger(range.end) || range.start < 1 || range.end < range.start) continue;
+      targets.push({ ...range, name: 'requested source range', body: false, explicit: true, priority: -1, connectivity: 0 });
+    }
+    ordinary.sort((a, b) => a.priority - b.priority || b.connectivity - a.connectivity || a.start - b.start);
+    // A path-only request to an unindexed file still has useful source evidence.
+    if (file.pinned && !targets.length && !ordinary.length) targets.push({ start: 1, end: lines.length,
+      name: 'requested file', body: false, explicit: true, priority: 0, connectivity: 0 });
+    const admission = file.requestedRanges?.some(range => range.end > range.start) ? 0
+      : targets.some(unit => unit.body) ? 1 : targets.length ? 2 : file.pinned ? 3 : 4;
+    return { file, lines, rank, admission, targets, ordinary, selected: [] };
+  }).filter(plan => plan.targets.length || plan.ordinary.length);
+  plans.sort((a, b) => a.admission - b.admission
+    || (a.admission === 4 ? (a.ordinary[0]?.priority ?? 10) - (b.ordinary[0]?.priority ?? 10) : 0)
+    || a.rank - b.rank);
+  const admitted = plans.slice(0, Math.max(0, options.maxFiles));
+  const admittedSet = new Set(admitted);
+  const sourceText = (plan: TargetPlan, span: SourceSpan) => plan.lines.slice(span.start - 1, span.end)
+    .map((line, i) => options.lineNumbers ? `${span.start + i}\t${line}` : line).join('\n');
+  const section = (plan: TargetPlan, selection = plan.selected): string => {
+    if (!selection.length) return '';
+    const spans = merge(selection);
+    const represented = [...plan.targets, ...plan.ordinary].filter(unit => intersect(spans, unit).length);
+    const names = [...new Set(represented.map(unit => unit.name))].slice(0, options.headerSymbols).join(', ');
+    // Completeness is stated only in the range ledger, never inferred from a heading.
+    return `#### ${plan.file.path} — ${names} · focused source ranges (coverage below)\n\n\`\`\`${plan.file.nodes[0]?.language ?? ''}\n`
+      + spans.map(span => sourceText(plan, span)).join(GAP) + '\n```\n\n';
+  };
+  const formatSpans = (spans: SourceSpan[]) => spans.length ? spans.map(span => span.start === span.end
+    ? `${span.start}` : `${span.start}-${span.end}`).join(',') : 'none';
+  const ledgerLine = (plan: TargetPlan, unit: TargetUnit): string => {
+    const shown = intersect(plan.selected, unit);
+    const gaps = missing(plan.selected, unit);
+    const state = unit.outline === 'type' ? 'Outline only'
+      : unit.outline === 'declaration' ? 'Declaration only'
+      : unit.outline === 'signature' ? 'Signature only'
+      : gaps.length ? 'Omitted target' : 'Complete target';
+    const reason = !admittedSet.has(plan) ? '; file omitted by maxFiles' : '';
+    const bodyNote = unit.outline ? '; body not included' : '';
+    return `- ${state}: ${plan.file.path}:${unit.start}-${unit.end} ${unit.name}; shown ${formatSpans(shown)}; missing ${formatSpans(gaps)}${bodyNote}${reason}\n`;
+  };
+  const explicit = plans.flatMap(plan => plan.targets.map(unit => ({ plan, unit })));
+  const ledgerHeading = '> Explicit target coverage (source ranges actually emitted):\n';
+  // Reserve the target ledger before spending on source. Large query lists are
+  // summarized rather than allowing diagnostics to exceed the output contract.
+  const estimatedLedger = ledgerHeading.length + explicit.slice(0, 12)
+    .reduce((size, { plan, unit }) => size + ledgerLine(plan, unit).length + 24, 0) + 100;
+  const reserve = Math.min(Math.floor((limit - prefix.length) * 0.3), Math.max(300, estimatedLedger));
+  const pool = Math.max(0, limit - prefix.length - reserve);
+  let spent = 0;
+  const change = (plan: TargetPlan, span: SourceSpan, ceiling: number): boolean => {
+    const clipped = { start: Math.max(1, span.start), end: Math.min(plan.lines.length, span.end) };
+    if (clipped.start > clipped.end) return false;
+    const selected = merge([...plan.selected, clipped]);
+    const before = section(plan).length;
+    const after = section(plan, selected).length;
+    if (after > ceiling || spent + after - before > pool) return false;
+    plan.selected = selected;
+    spent += after - before;
+    return true;
+  };
+  const minimum = (plan: TargetPlan, unit: TargetUnit): SourceSpan => {
+    let end = unit.start;
+    if (unit.body && unit.end > unit.start) {
+      // Include executable body lines, not just a possibly multiline signature.
+      const opening = plan.lines.slice(unit.start - 1, unit.end).findIndex(line => line.includes('{'));
+      end = opening >= 0 ? unit.start + opening + 2 : unit.start + 5;
+    }
+    return { start: unit.start, end: Math.min(unit.end, plan.lines.length, end) };
+  };
+  const required = explicit.filter(({ plan }) => admittedSet.has(plan));
+  const selectable = (unit: TargetUnit): SourceSpan => ({ start: unit.start, end: unit.outline ? unit.start : unit.end });
+  const minima = required.map(({ plan, unit }) => ({ plan, unit, span: minimum(plan, unit) }));
+  const combinedMinimum = new Map<TargetPlan, SourceSpan[]>();
+  for (const { plan, span } of minima) combinedMinimum.set(plan, [...(combinedMinimum.get(plan) ?? []), span]);
+  const minimumCost = [...combinedMinimum].reduce((size, [plan, spans]) => size + section(plan, merge(spans)).length, 0);
+  if (minimumCost <= pool) {
+    for (const { plan, span } of minima) change(plan, span, pool);
+  } else {
+    const share = Math.floor(pool / Math.max(1, required.length));
+    for (const { plan, span } of minima) change(plan, span, section(plan).length + share);
+    // A long signature that cannot fit its equal share must not consume a later
+    // target's minimum. Reclaim only after every target has had its turn.
+    for (const { plan, span } of minima) change(plan, span, pool);
+  }
+  const byCost = [...required].sort((a, b) => section(a.plan, [...a.plan.selected, selectable(a.unit)]).length - section(a.plan).length
+    - (section(b.plan, [...b.plan.selected, selectable(b.unit)]).length - section(b.plan).length)
+    || a.plan.rank - b.plan.rank || a.unit.start - b.unit.start);
+  for (const { plan, unit } of byCost) change(plan, selectable(unit), options.maxCharsPerFile);
+  for (const { plan, unit } of byCost) change(plan, selectable(unit), pool);
+  // Extend incomplete explicit evidence even when another body in the same file
+  // is already complete. Every extension ends on a whole source line.
+  for (const { plan, unit } of required) {
+    if (unit.outline || !missing(plan.selected, unit).length) continue;
+    const first = minimum(plan, unit);
+    if (missing(plan.selected, first).length && !change(plan, first, options.maxCharsPerFile)) continue;
+    for (let end = first.end + 1; end <= Math.min(unit.end, plan.lines.length); end++) {
+      if (!change(plan, { start: unit.start, end }, options.maxCharsPerFile)) break;
+    }
+  }
+  // Path-only files get a compact unit before ordinary neighboring files. Exact
+  // targets have already reserved evidence and cannot be displaced by this pass.
+  for (const plan of admitted) {
+    if (plan.targets.length || (!plan.file.pinned && (plan.ordinary[0]?.priority ?? 10) > 2)) continue;
+    const best = plan.ordinary[0]?.priority;
+    for (const unit of plan.ordinary.filter(unit => unit.priority === best)
+      .sort((a, b) => section(plan, [a]).length - section(plan, [b]).length)) {
+      if (change(plan, unit, options.maxCharsPerFile)) break;
+    }
+    if (plan.file.pinned && !plan.selected.length) {
+      const unit = plan.ordinary.find(candidate => candidate.body);
+      if (!unit) continue;
+      const first = minimum(plan, unit);
+      if (!change(plan, first, options.maxCharsPerFile)) continue;
+      for (let end = first.end + 1; end <= unit.end; end++) {
+        if (!change(plan, { start: unit.start, end }, options.maxCharsPerFile)) break;
+      }
+    }
+  }
+  const ordinary = admitted.flatMap(plan => plan.ordinary.map(unit => ({ plan, unit })))
+    .sort((a, b) => a.unit.priority - b.unit.priority || b.unit.connectivity - a.unit.connectivity
+      || a.plan.rank - b.plan.rank || a.unit.start - b.unit.start);
+  for (const { plan, unit } of ordinary) change(plan, unit, options.maxCharsPerFile);
+  for (const { plan, unit } of ordinary) if (unit.body) change(plan, unit, pool);
+  let output = prefix + admitted.map(plan => section(plan)).join('');
+  const append = (text: string): boolean => {
+    if (output.length + text.length > limit) return false;
+    output += text; return true;
+  };
+  if (explicit.length) {
+    append(ledgerHeading);
+    // Omitted explicit targets come first, including files excluded by maxFiles.
+    const ordered = [...explicit].sort((a, b) => Number(!!missing(b.plan.selected, b.unit).length)
+      - Number(!!missing(a.plan.selected, a.unit).length) || a.plan.rank - b.plan.rank || a.unit.start - b.unit.start);
+    let listed = 0;
+    for (const { plan, unit } of ordered) {
+      if (!append(ledgerLine(plan, unit))) break;
+      listed++;
+    }
+    if (listed < explicit.length) append(`> ${explicit.length - listed} additional explicit targets are not listed; do not assume their coverage.\n`);
+  }
+  const ordinaryGaps = plans.flatMap(plan => plan.ordinary.filter(unit => unit.body && missing(plan.selected, unit).length)
+    .map(unit => ({ plan, unit })));
+  if (ordinaryGaps.length) {
+    append(`> ${ordinaryGaps.length} other candidate function bodies not fully shown; outlines and Flow are not body coverage.\n`);
+    for (const { plan, unit } of ordinaryGaps.slice(0, 8)) {
+      const line = `- Omitted body: ${plan.file.path}:${unit.start}-${unit.end} ${unit.name}; shown ${formatSpans(intersect(plan.selected, unit))}; missing ${formatSpans(missing(plan.selected, unit))}\n`;
+      if (!append(line)) break;
     }
   }
   return output;

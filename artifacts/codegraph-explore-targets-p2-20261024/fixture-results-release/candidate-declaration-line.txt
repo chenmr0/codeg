@@ -1,0 +1,37 @@
+## Exploration: worker.h:5
+
+Found 4 symbols across 2 files.
+
+
+Exact symbol/path anchors and identifier text evidence; weak word matches are disabled.
+### Source Code
+
+> Source excerpts below are read from current files. Only shown source ranges are covered; signatures, outlines and omitted regions are not complete function bodies or complete files.
+
+#### worker.cpp — commit · focused source ranges (coverage below)
+
+```cpp
+3	int LedgerWriter::commit(int value) {
+4	  const int integer_marker = 813;
+5	  return integer_marker + value;
+6	}
+7	int LedgerWriter::commit(double value) {
+8	  const int decimal_marker = 927;
+9	  return decimal_marker + static_cast<int>(value);
+10	}
+```
+
+#### worker.h — requested source range, limit_, LedgerWriter · focused source ranges (coverage below)
+
+```cpp
+2	class LedgerWriter {
+
+... (gap) ...
+
+5	  int commit(double value);
+6	  int limit_;
+```
+
+> Explicit target coverage (source ranges actually emitted):
+- Complete target: worker.cpp:7-10 commit; shown 7-10; missing none
+- Complete target: worker.h:5-5 requested source range; shown 5; missing none

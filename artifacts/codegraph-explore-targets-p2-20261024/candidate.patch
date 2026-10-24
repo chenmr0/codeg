@@ -1,0 +1,2628 @@
+--- baseline/src/mcp/explore-retrieval.ts
++++ candidate/src/mcp/explore-retrieval.ts
+@@ -6,6 +6,8 @@
+ import type { RawEvidenceReport } from './raw-source-types';
+ import { ExploreSemanticView, EXPLORE_CALLABLES, EXPLORE_TYPES } from './explore-semantic';
+ import { admitExploreGraph, type AdmissionAudit } from './explore-admission';
++import { ExploreSourceSnapshots } from './explore-source';
++import { resolveExploreTargets, supplementExploreTargets, type ExploreTargets } from './explore-targets';
+ 
+ export type ExploreSeedKind = 'qualified' | 'identifier' | 'owner-member' | 'co-named' | 'symbol-bag' | 'single-symbol' | 'path' | 'literal';
+ interface SeedDecision {
+@@ -16,6 +18,8 @@
+ }
+ 
+ export interface ExploreRetrieval {
++  sources: ExploreSourceSnapshots;
++  targets: ExploreTargets;
+   graph: Subgraph;
+   lookup: (token: string) => Node[];
+   evidence?: RawEvidenceReport;
+@@ -27,6 +31,7 @@
+   /** Explicit query names/paths, distinct from bodies recovered by literal hits. */
+   namedNodeIds: Set<string>;
+   diagnostics: {
++    targets: { addedNodes: number; exactTargets: number; baseNodes: number };
+     seeds: SeedDecision[];
+     admission: AdmissionAudit;
+     omittedSeedIds: string[];
+@@ -36,12 +41,16 @@
+ }
+ 
+ /** Exact names/paths and literal evidence only; no FTS, substring or split-word seeds. */
+-export async function retrieveExploreContext(cg: CodeGraph, query: string): Promise<ExploreRetrieval> {
+-  const view = new ExploreSemanticView(cg);
+-  const words = [...new Set(query.match(/[A-Za-z_$][\w$]*(?:(?:::|\.)[\w$]+)*/g) ?? [])].slice(0, 32);
++export async function retrieveExploreContext(cg: CodeGraph, query: string, options: { maxFiles?: number } = {}): Promise<ExploreRetrieval> {
++  const sources = new ExploreSourceSnapshots(cg);
++  const view = new ExploreSemanticView(cg, sources);
++  const resolvedTargets = resolveExploreTargets(cg, query, view, sources, options);
++  const { targets } = resolvedTargets;
++  const words = [...new Set(targets.matchQuery.match(/[A-Za-z_$][\w$]*(?:(?:::|\.)~?[\w$]+)*/g) ?? [])].slice(0, 32);
+   const distinctive = words.filter(w => isDistinctiveIdentifier(w) || /[.:]/.test(w) || /^[A-Z]/.test(w));
+   const exactCache = new Map<string, Node[]>();
+   const exact = (word: string) => {
++    if (resolvedTargets.qualifiedMatches.has(word)) return resolvedTargets.qualifiedMatches.get(word)!;
+     if (!exactCache.has(word)) exactCache.set(word, cg.getNodesBySymbolExact(word).filter(n =>
+       !['import', 'export', 'namespace', 'file', 'parameter'].includes(n.kind) && !isConfigLeafNode(n)));
+     return exactCache.get(word)!;
+@@ -123,21 +132,17 @@
+         }
+       }
+     }
+-    else if (exact(word).length === 0 && !STOP_WORDS.has(word.toLowerCase())
++    else if (!resolvedTargets.qualifiedMatches.has(word) && exact(word).length === 0 && !STOP_WORDS.has(word.toLowerCase())
+       && ((distinctive.includes(word) && word.length >= 4) || words.length === 1)) unresolved.push(word);
+   }
+-  // Paths stay literal too: a basename must match a whole basename, never a fragment.
+-  const paths = query.split(/[\s,;]+/).map(s => s.replace(/^[`'"]|[`'"]$/g, '').replace(/\\/g, '/'))
+-    .filter(s => /\.[A-Za-z0-9]+$/.test(s));
+-  if (paths.length > 0) {
+-    for (const file of cg.getFiles()) {
+-      if (!paths.some(p => p === file.path || (!p.includes('/') && file.path.split('/').at(-1) === p))) continue;
+-      const matches = view.inFile(file.path).filter(n => EXPLORE_CALLABLES.has(n.kind) || EXPLORE_TYPES.has(n.kind))
+-        .map(n => view.resolve(n));
+-      groups.push(matches);
+-      decisions.set(file.path, { token: file.path, kind: 'path', candidateIds: matches.map(n => n.id) });
+-      for (const n of matches) { corroborate(n, file.path); namedCandidates.add(n.id); }
+-    }
++  for (const [file, matches] of resolvedTargets.fileNodes) {
++    // A pure source-range request needs target span nodes for coverage, but
++    // does not request a traversal through siblings and cross-file callees.
++    if (!targets.rangeOnly) groups.push(matches);
++    decisions.set(file, { token: file, kind: 'path', candidateIds: matches.map(n => n.id) });
++    // A file pin supplies scoped evidence without pretending every member was
++    // explicitly requested. Only line-owned/qualified nodes become exact.
++    for (const n of matches) corroborate(n, file);
+   }
+   let evidence: RawEvidenceReport | undefined;
+   if (unresolved.length > 0) {
+@@ -228,6 +233,8 @@
+   // Ordinary neighbors keep their first-pass allocation, without automatically
+   // turning every spare node slot into more peripheral context.
+   }, 200, 3, node => memberNodeIds.has(node.id));
++  const targetAudit = supplementExploreTargets(cg, view, graph, resolvedTargets);
++  for (const id of targets.exactNodeIds) namedNodeIds.add(id);
+   const parts = ['Exact symbol/path anchors and identifier text evidence; weak word matches are disabled.'];
+   if (graph.nodes.size === 0) {
+     const rejected = [...decisions.values()].filter(d => d.kind === 'uncorroborated');
+@@ -249,8 +256,8 @@
+   }
+   const fileEvidence = new Map([...fileTerms].map(([file, terms]) => [file, terms.size]));
+   const omitted = new Set(audit.omittedNodeIds);
+-  return { graph, lookup, evidence, note: parts.join('\n'), fileEvidence, definitionFiles, memberNodeIds, contractMemberIds, namedNodeIds,
+-    diagnostics: { seeds: [...decisions.values()], admission: audit,
++  return { sources, targets, graph, lookup, evidence, note: parts.join('\n'), fileEvidence, definitionFiles, memberNodeIds, contractMemberIds, namedNodeIds,
++    diagnostics: { targets: targetAudit, seeds: [...decisions.values()], admission: audit,
+       omittedSeedIds: [...new Set(groups.flat().map(n => n.id))].filter(id => !entries.has(id)),
+       members: [...knownMembers].map(([nodeId, value]) => ({ ownerId: value.ownerId, nodeId,
+         admitted: graph.nodes.has(nodeId), reason: graph.nodes.has(nodeId) ? 'admitted'
+--- baseline/src/mcp/explore-selection.ts
++++ candidate/src/mcp/explore-selection.ts
+@@ -14,6 +14,12 @@
+   connectivity: (node: Node) => number;
+   skeleton: boolean;
+   bodyAllowed: (node: Node) => boolean;
++  /** Explicit file-path match, not an ordinary retrieval seed. */
++  pinned?: boolean;
++  /** Canonical exact targets (including declaration-to-definition resolution). */
++  protectedNodeIds?: ReadonlySet<string>;
++  /** Literal requested source spans; these must not expand to enclosing functions. */
++  requestedRanges?: ReadonlyArray<{ start: number; end: number }>;
+ }
+ interface Unit { node: Node; start: number; end: number; full: boolean; priority: number; connectivity: number }
+ interface Plan { file: ExploreSourceFile; lines: string[]; units: Unit[]; selected: Unit[]; rank: number }
+@@ -27,6 +33,9 @@
+ 
+ /** Select function bodies before presentation. No adjacency clustering or tail slicing. */
+ export function renderExploreSources(prefix: string, files: ExploreSourceFile[], options: ExploreSelectionOptions): string {
++  if (files.some(f => f.pinned || f.nodes.some(node => f.protectedNodeIds?.has(node.id)) || f.requestedRanges?.length)) {
++    return renderTargetedExploreSources(prefix, files, options);
++  }
+   const renderLines = (p: Plan, start: number, end: number) => p.lines.slice(start - 1, end)
+     .map((line, i) => options.lineNumbers ? `${start + i}\t${line}` : line).join('\n');
+   const plans: Plan[] = files.map((file, rank) => {
+@@ -196,3 +205,231 @@
+   }
+   return output;
+ }
++
++interface SourceSpan { start: number; end: number }
++interface TargetUnit extends SourceSpan {
++  name: string;
++  node?: Node;
++  body: boolean;
++  explicit: boolean;
++  /** Retain the original target range without treating an outline as body coverage. */
++  outline?: 'type' | 'declaration' | 'signature';
++  priority: number;
++  connectivity: number;
++}
++interface TargetPlan {
++  file: ExploreSourceFile;
++  lines: string[];
++  rank: number;
++  admission: number;
++  targets: TargetUnit[];
++  ordinary: TargetUnit[];
++  selected: SourceSpan[];
++}
++
++/** Explicit targets have a separate reservation pass. The historical allocator
++ * remains unchanged for queries without path, range or qualified-member intent. */
++function renderTargetedExploreSources(prefix: string, files: ExploreSourceFile[], options: ExploreSelectionOptions): string {
++  const limit = Math.max(0, Math.floor(options.maxOutputChars));
++  if (prefix.length >= limit) return prefix.slice(0, limit);
++  const merge = (spans: ReadonlyArray<SourceSpan>): SourceSpan[] => {
++    const result: SourceSpan[] = [];
++    for (const span of [...spans].sort((a, b) => a.start - b.start || a.end - b.end)) {
++      const previous = result.at(-1);
++      if (previous && span.start <= previous.end + 1) previous.end = Math.max(previous.end, span.end);
++      else result.push({ ...span });
++    }
++    return result;
++  };
++  const intersect = (spans: ReadonlyArray<SourceSpan>, target: SourceSpan) => merge(spans.map(span => ({
++    start: Math.max(span.start, target.start), end: Math.min(span.end, target.end),
++  })).filter(span => span.start <= span.end));
++  const missing = (spans: ReadonlyArray<SourceSpan>, target: SourceSpan): SourceSpan[] => {
++    const gaps: SourceSpan[] = [];
++    let next = target.start;
++    for (const span of intersect(spans, target)) {
++      if (next < span.start) gaps.push({ start: next, end: span.start - 1 });
++      next = Math.max(next, span.end + 1);
++    }
++    if (next <= target.end) gaps.push({ start: next, end: target.end });
++    return gaps;
++  };
++  const plans: TargetPlan[] = files.map((file, rank) => {
++    const lines = file.content.replace(/\r\n/g, '\n').split('\n');
++    const targets: TargetUnit[] = [];
++    const ordinary: TargetUnit[] = [];
++    const seen = new Set<string>();
++    for (const node of file.nodes) {
++      if (node.startLine < 1 || node.endLine < node.startLine || node.endLine > lines.length) continue;
++      if (['file', 'import', 'export', 'namespace', 'parameter'].includes(node.kind)) continue;
++      const explicit = file.protectedNodeIds?.has(node.id) ?? false;
++      // Exact source targets outrank relevance/skeleton gates. Freshness is
++      // validated by the source loader before any file reaches this renderer.
++      const body = CALLABLES.has(node.kind) && !node.isDeclaration && (explicit || file.bodyAllowed(node));
++      const outline = CONTAINERS.has(node.kind) || (CALLABLES.has(node.kind) && !body);
++      const targetOutline: TargetUnit['outline'] = explicit && outline
++        ? CONTAINERS.has(node.kind) ? 'type' : node.isDeclaration ? 'declaration' : 'signature'
++        : undefined;
++      const unit: TargetUnit = { start: node.startLine, end: targetOutline ? node.endLine : outline ? node.startLine : node.endLine,
++        name: node.name, node, body, explicit, outline: targetOutline,
++        priority: body ? file.priority(node) : outline ? 10 : 5, connectivity: file.connectivity(node) };
++      const key = `${unit.start}:${unit.end}:${body}`;
++      // Explicit evidence wins if declaration aliases share a source range.
++      if (seen.has(key) && !explicit) continue;
++      seen.add(key);
++      if (explicit) targets.push(unit);
++      else if (!file.requestedRanges?.some(range => range.end > range.start)
++        && !file.requestedRanges?.some(range => range.start <= unit.end && range.end >= unit.start)) ordinary.push(unit);
++    }
++    for (const range of file.requestedRanges ?? []) {
++      if (!Number.isInteger(range.start) || !Number.isInteger(range.end) || range.start < 1 || range.end < range.start) continue;
++      targets.push({ ...range, name: 'requested source range', body: false, explicit: true, priority: -1, connectivity: 0 });
++    }
++    ordinary.sort((a, b) => a.priority - b.priority || b.connectivity - a.connectivity || a.start - b.start);
++    // A path-only request to an unindexed file still has useful source evidence.
++    if (file.pinned && !targets.length && !ordinary.length) targets.push({ start: 1, end: lines.length,
++      name: 'requested file', body: false, explicit: true, priority: 0, connectivity: 0 });
++    const admission = file.requestedRanges?.some(range => range.end > range.start) ? 0
++      : targets.some(unit => unit.body) ? 1 : targets.length ? 2 : file.pinned ? 3 : 4;
++    return { file, lines, rank, admission, targets, ordinary, selected: [] };
++  }).filter(plan => plan.targets.length || plan.ordinary.length);
++  plans.sort((a, b) => a.admission - b.admission
++    || (a.admission === 4 ? (a.ordinary[0]?.priority ?? 10) - (b.ordinary[0]?.priority ?? 10) : 0)
++    || a.rank - b.rank);
++  const admitted = plans.slice(0, Math.max(0, options.maxFiles));
++  const admittedSet = new Set(admitted);
++  const sourceText = (plan: TargetPlan, span: SourceSpan) => plan.lines.slice(span.start - 1, span.end)
++    .map((line, i) => options.lineNumbers ? `${span.start + i}\t${line}` : line).join('\n');
++  const section = (plan: TargetPlan, selection = plan.selected): string => {
++    if (!selection.length) return '';
++    const spans = merge(selection);
++    const represented = [...plan.targets, ...plan.ordinary].filter(unit => intersect(spans, unit).length);
++    const names = [...new Set(represented.map(unit => unit.name))].slice(0, options.headerSymbols).join(', ');
++    // Completeness is stated only in the range ledger, never inferred from a heading.
++    return `#### ${plan.file.path} — ${names} · focused source ranges (coverage below)\n\n\`\`\`${plan.file.nodes[0]?.language ?? ''}\n`
++      + spans.map(span => sourceText(plan, span)).join(GAP) + '\n```\n\n';
++  };
++  const formatSpans = (spans: SourceSpan[]) => spans.length ? spans.map(span => span.start === span.end
++    ? `${span.start}` : `${span.start}-${span.end}`).join(',') : 'none';
++  const ledgerLine = (plan: TargetPlan, unit: TargetUnit): string => {
++    const shown = intersect(plan.selected, unit);
++    const gaps = missing(plan.selected, unit);
++    const state = unit.outline === 'type' ? 'Outline only'
++      : unit.outline === 'declaration' ? 'Declaration only'
++      : unit.outline === 'signature' ? 'Signature only'
++      : gaps.length ? 'Omitted target' : 'Complete target';
++    const reason = !admittedSet.has(plan) ? '; file omitted by maxFiles' : '';
++    const bodyNote = unit.outline ? '; body not included' : '';
++    return `- ${state}: ${plan.file.path}:${unit.start}-${unit.end} ${unit.name}; shown ${formatSpans(shown)}; missing ${formatSpans(gaps)}${bodyNote}${reason}\n`;
++  };
++  const explicit = plans.flatMap(plan => plan.targets.map(unit => ({ plan, unit })));
++  const ledgerHeading = '> Explicit target coverage (source ranges actually emitted):\n';
++  // Reserve the target ledger before spending on source. Large query lists are
++  // summarized rather than allowing diagnostics to exceed the output contract.
++  const estimatedLedger = ledgerHeading.length + explicit.slice(0, 12)
++    .reduce((size, { plan, unit }) => size + ledgerLine(plan, unit).length + 24, 0) + 100;
++  const reserve = Math.min(Math.floor((limit - prefix.length) * 0.3), Math.max(300, estimatedLedger));
++  const pool = Math.max(0, limit - prefix.length - reserve);
++  let spent = 0;
++  const change = (plan: TargetPlan, span: SourceSpan, ceiling: number): boolean => {
++    const clipped = { start: Math.max(1, span.start), end: Math.min(plan.lines.length, span.end) };
++    if (clipped.start > clipped.end) return false;
++    const selected = merge([...plan.selected, clipped]);
++    const before = section(plan).length;
++    const after = section(plan, selected).length;
++    if (after > ceiling || spent + after - before > pool) return false;
++    plan.selected = selected;
++    spent += after - before;
++    return true;
++  };
++  const minimum = (plan: TargetPlan, unit: TargetUnit): SourceSpan => {
++    let end = unit.start;
++    if (unit.body && unit.end > unit.start) {
++      // Include executable body lines, not just a possibly multiline signature.
++      const opening = plan.lines.slice(unit.start - 1, unit.end).findIndex(line => line.includes('{'));
++      end = opening >= 0 ? unit.start + opening + 2 : unit.start + 5;
++    }
++    return { start: unit.start, end: Math.min(unit.end, plan.lines.length, end) };
++  };
++  const required = explicit.filter(({ plan }) => admittedSet.has(plan));
++  const selectable = (unit: TargetUnit): SourceSpan => ({ start: unit.start, end: unit.outline ? unit.start : unit.end });
++  const minima = required.map(({ plan, unit }) => ({ plan, unit, span: minimum(plan, unit) }));
++  const combinedMinimum = new Map<TargetPlan, SourceSpan[]>();
++  for (const { plan, span } of minima) combinedMinimum.set(plan, [...(combinedMinimum.get(plan) ?? []), span]);
++  const minimumCost = [...combinedMinimum].reduce((size, [plan, spans]) => size + section(plan, merge(spans)).length, 0);
++  if (minimumCost <= pool) {
++    for (const { plan, span } of minima) change(plan, span, pool);
++  } else {
++    const share = Math.floor(pool / Math.max(1, required.length));
++    for (const { plan, span } of minima) change(plan, span, section(plan).length + share);
++    // A long signature that cannot fit its equal share must not consume a later
++    // target's minimum. Reclaim only after every target has had its turn.
++    for (const { plan, span } of minima) change(plan, span, pool);
++  }
++  const byCost = [...required].sort((a, b) => section(a.plan, [...a.plan.selected, selectable(a.unit)]).length - section(a.plan).length
++    - (section(b.plan, [...b.plan.selected, selectable(b.unit)]).length - section(b.plan).length)
++    || a.plan.rank - b.plan.rank || a.unit.start - b.unit.start);
++  for (const { plan, unit } of byCost) change(plan, selectable(unit), options.maxCharsPerFile);
++  for (const { plan, unit } of byCost) change(plan, selectable(unit), pool);
++  // Extend incomplete explicit evidence even when another body in the same file
++  // is already complete. Every extension ends on a whole source line.
++  for (const { plan, unit } of required) {
++    if (unit.outline || !missing(plan.selected, unit).length) continue;
++    const first = minimum(plan, unit);
++    if (missing(plan.selected, first).length && !change(plan, first, options.maxCharsPerFile)) continue;
++    for (let end = first.end + 1; end <= Math.min(unit.end, plan.lines.length); end++) {
++      if (!change(plan, { start: unit.start, end }, options.maxCharsPerFile)) break;
++    }
++  }
++  // Path-only files get a compact unit before ordinary neighboring files. Exact
++  // targets have already reserved evidence and cannot be displaced by this pass.
++  for (const plan of admitted) {
++    if (plan.targets.length || (!plan.file.pinned && (plan.ordinary[0]?.priority ?? 10) > 2)) continue;
++    const best = plan.ordinary[0]?.priority;
++    for (const unit of plan.ordinary.filter(unit => unit.priority === best)
++      .sort((a, b) => section(plan, [a]).length - section(plan, [b]).length)) {
++      if (change(plan, unit, options.maxCharsPerFile)) break;
++    }
++    if (plan.file.pinned && !plan.selected.length) {
++      const unit = plan.ordinary.find(candidate => candidate.body);
++      if (!unit) continue;
++      const first = minimum(plan, unit);
++      if (!change(plan, first, options.maxCharsPerFile)) continue;
++      for (let end = first.end + 1; end <= unit.end; end++) {
++        if (!change(plan, { start: unit.start, end }, options.maxCharsPerFile)) break;
++      }
++    }
++  }
++  const ordinary = admitted.flatMap(plan => plan.ordinary.map(unit => ({ plan, unit })))
++    .sort((a, b) => a.unit.priority - b.unit.priority || b.unit.connectivity - a.unit.connectivity
++      || a.plan.rank - b.plan.rank || a.unit.start - b.unit.start);
++  for (const { plan, unit } of ordinary) change(plan, unit, options.maxCharsPerFile);
++  for (const { plan, unit } of ordinary) if (unit.body) change(plan, unit, pool);
++  let output = prefix + admitted.map(plan => section(plan)).join('');
++  const append = (text: string): boolean => {
++    if (output.length + text.length > limit) return false;
++    output += text; return true;
++  };
++  if (explicit.length) {
++    append(ledgerHeading);
++    // Omitted explicit targets come first, including files excluded by maxFiles.
++    const ordered = [...explicit].sort((a, b) => Number(!!missing(b.plan.selected, b.unit).length)
++      - Number(!!missing(a.plan.selected, a.unit).length) || a.plan.rank - b.plan.rank || a.unit.start - b.unit.start);
++    let listed = 0;
++    for (const { plan, unit } of ordered) {
++      if (!append(ledgerLine(plan, unit))) break;
++      listed++;
++    }
++    if (listed < explicit.length) append(`> ${explicit.length - listed} additional explicit targets are not listed; do not assume their coverage.\n`);
++  }
++  const ordinaryGaps = plans.flatMap(plan => plan.ordinary.filter(unit => unit.body && missing(plan.selected, unit).length)
++    .map(unit => ({ plan, unit })));
++  if (ordinaryGaps.length) {
++    append(`> ${ordinaryGaps.length} other candidate function bodies not fully shown; outlines and Flow are not body coverage.\n`);
++    for (const { plan, unit } of ordinaryGaps.slice(0, 8)) {
++      const line = `- Omitted body: ${plan.file.path}:${unit.start}-${unit.end} ${unit.name}; shown ${formatSpans(intersect(plan.selected, unit))}; missing ${formatSpans(missing(plan.selected, unit))}\n`;
++      if (!append(line)) break;
++    }
++  }
++  return output;
++}
+--- baseline/src/mcp/explore-semantic.ts
++++ candidate/src/mcp/explore-semantic.ts
+@@ -1,11 +1,9 @@
+ import type CodeGraph from '../index';
+ import type { Node } from '../types';
+-import { readFileSync } from 'fs';
+-import { createHash } from 'crypto';
+ import { CCppSourceScope } from '../extraction/c-cpp-source-scope';
+ import { maskCStyleCommentsAndLiterals } from '../extraction/grammars';
+ import { cppCallableParametersMatch, cppParameterKey } from '../resolution/cpp-signature';
+-import { validatePathWithinRoot } from '../utils';
++import { ExploreSourceSnapshots } from './explore-source';
+ 
+ export const EXPLORE_TYPES = new Set(['class', 'struct', 'interface', 'trait', 'protocol', 'enum']);
+ export const EXPLORE_CALLABLES = new Set(['method', 'function', 'component', 'constructor']);
+@@ -19,7 +17,7 @@
+   private canonical = new Map<string, Node>();
+   private owners = new Map<string, string | undefined>();
+   private aliases = new Map<string, Set<string>>();
+-  constructor(private cg: CodeGraph) {}
++  constructor(private cg: CodeGraph, private snapshots = new ExploreSourceSnapshots(cg)) {}
+ 
+   byName(name: string): Node[] {
+     if (!this.names.has(name)) this.names.set(name, this.cg.getNodesByName(name));
+@@ -31,14 +29,10 @@
+   }
+   private source(file: string) {
+     if (!this.sources.has(file)) {
+-      const abs = validatePathWithinRoot(this.cg.getProjectRoot(), file);
+       try {
+-        if (!abs) throw new Error('outside project');
+-        const text = readFileSync(abs, 'utf8');
+-        const tracked = this.cg.getFile(file);
+-        if (tracked && createHash('sha256').update(text).digest('hex') !== tracked.contentHash) {
+-          throw new Error('source changed since indexing');
+-        }
++        const snapshot = this.snapshots.get(file);
++        if (snapshot.status !== 'fresh' || snapshot.content === undefined) throw new Error('source is not verified');
++        const text = snapshot.content;
+         const offsets = [0];
+         for (let i = 0; i < text.length; i++) if (text[i] === '\n') offsets.push(i + 1);
+         this.sources.set(file, { text, masked: maskCStyleCommentsAndLiterals(text), offsets, scope: new CCppSourceScope(text) });
+--- baseline/src/mcp/explore-source.ts
++++ candidate/src/mcp/explore-source.ts
+@@ -0,0 +1,67 @@
++import type CodeGraph from '../index';
++import { createHash } from 'crypto';
++import { readFileSync } from 'fs';
++import * as path from 'path';
++import { validatePathWithinRoot } from '../utils';
++
++export interface ExploreSourceSnapshot {
++  /** Normalized project-relative path when the request is within the root. */
++  readonly path: string;
++  readonly status: 'fresh' | 'changed' | 'missing' | 'unverified';
++  /** Only verified, indexed bytes are exposed for line-based slicing. */
++  readonly content?: string;
++  readonly fingerprint?: string;
++  readonly reason?: string;
++}
++
++/**
++ * One read-only source snapshot per exploration. Semantic recovery, target
++ * lookup and rendering share these exact bytes, rather than verifying one
++ * read and subsequently slicing a different read at old indexed line numbers.
++ * A new exploration creates a new instance; no cross-query freshness cache.
++ */
++export class ExploreSourceSnapshots {
++  private snapshots = new Map<string, ExploreSourceSnapshot>();
++
++  constructor(private cg: CodeGraph) {}
++
++  get(file: string): ExploreSourceSnapshot {
++    let relative = file;
++    try {
++      const root = this.cg.getProjectRoot();
++      relative = path.relative(root, path.resolve(root, file)).split(path.sep).join('/');
++      const cached = this.snapshots.get(relative);
++      if (cached) return cached;
++      const absolute = validatePathWithinRoot(root, file);
++      if (!absolute) return this.store(relative, 'unverified', 'source path is outside the project or cannot be safely resolved');
++
++      // Hash the same UTF-8 string as extraction.hashContent; a stat match is
++      // not sufficient (same-size edits can retain a timestamp).
++      const content = readFileSync(absolute, 'utf8');
++      const tracked = this.cg.getFile(relative);
++      if (!tracked) return this.store(relative, 'unverified', 'indexed file metadata is missing');
++      // Unknown hash formats (including size-limit stamps) do not establish
++      // that indexed line ranges describe the bytes read from disk.
++      if (!/^[a-f0-9]{64}$/i.test(tracked.contentHash)) {
++        return this.store(relative, 'unverified', 'indexed content fingerprint is unavailable or unsupported');
++      }
++      const fingerprint = createHash('sha256').update(content).digest('hex');
++      if (fingerprint !== tracked.contentHash.toLowerCase()) {
++        return this.store(relative, 'changed', 'source content changed since indexing', fingerprint);
++      }
++      const snapshot: ExploreSourceSnapshot = Object.freeze({ path: relative, status: 'fresh', content, fingerprint });
++      this.snapshots.set(relative, snapshot);
++      return snapshot;
++    } catch (error) {
++      const code = (error as NodeJS.ErrnoException).code;
++      return this.store(relative, code === 'ENOENT' || code === 'ENOTDIR' ? 'missing' : 'unverified',
++        code === 'ENOENT' || code === 'ENOTDIR' ? 'source file is missing' : 'source or indexed metadata could not be read');
++    }
++  }
++
++  private store(file: string, status: ExploreSourceSnapshot['status'], reason: string, fingerprint?: string): ExploreSourceSnapshot {
++    const snapshot: ExploreSourceSnapshot = Object.freeze({ path: file, status, reason, ...(fingerprint ? { fingerprint } : {}) });
++    this.snapshots.set(file, snapshot);
++    return snapshot;
++  }
++}
+--- baseline/src/mcp/explore-targets.ts
++++ candidate/src/mcp/explore-targets.ts
+@@ -0,0 +1,225 @@
++import type CodeGraph from '../index';
++import type { Node, Subgraph } from '../types';
++import { statSync } from 'fs';
++import { isConfigLeafNode, validatePathWithinRoot } from '../utils';
++import { extractQueryPaths, queryMightContainPaths, type QueryPathExtraction } from '../search/query-paths';
++import { ExploreSemanticView, EXPLORE_CALLABLES, EXPLORE_TYPES } from './explore-semantic';
++import { ExploreSourceSnapshots } from './explore-source';
++
++export interface ExploreTargets {
++  pinnedFiles: string[];
++  /** Invalid explicit ranges must not fall back to whole-file rendering. */
++  blockedFiles: Set<string>;
++  /** A pure multi-line source request does not authorize graph exploration. */
++  rangeOnly: boolean;
++  exactNodeIds: Set<string>;
++  spans: Map<string, Array<{ start: number; end: number }>>;
++  issues: string[];
++  matchQuery: string;
++}
++
++interface TargetResolution {
++  targets: ExploreTargets;
++  nodes: Map<string, Node>;
++  fileNodes: Map<string, Node[]>;
++  qualifiedMatches: Map<string, Node[]>;
++}
++
++const MAX_QUALIFIED_CANDIDATES = 512;
++const MAX_EXACT_TARGETS = 128;
++const MAX_FILE_NODES = 300;
++const comparable = (name: string) => name.replace(/::/g, '.');
++const eligible = (node: Node) => EXPLORE_CALLABLES.has(node.kind) || EXPLORE_TYPES.has(node.kind);
++const qualifiedEligible = (node: Node) => !isConfigLeafNode(node)
++  && (eligible(node) || ['property', 'field', 'variable', 'constant', 'enum_member', 'type_alias'].includes(node.kind));
++
++/** Resolve explicit intent before tokenization. The upstream path recognizer is
++ * pure; this adapter adds our canonical C/C++ declaration/definition view and
++ * fresh-source validation. Pins are file intent, not a claim that every member
++ * was explicitly named. Qualified suffixes must identify one owner, never an
++ * arbitrary namespace with a similarly named class. */
++export function resolveExploreTargets(
++  cg: CodeGraph, query: string, view: ExploreSemanticView, sources: ExploreSourceSnapshots,
++  options: { maxFiles?: number } = {},
++): TargetResolution {
++  const issues: string[] = [];
++  const qualifiedMatches = new Map<string, Node[]>();
++  const nodes = new Map<string, Node>();
++  const exactNodeIds = new Set<string>();
++  const paths: QueryPathExtraction = queryMightContainPaths(query) ? extractQueryPaths(query, cg.getFiles().map(f => f.path), {
++    maxPins: Math.max(1, options.maxFiles ?? 8),
++    // A line number or bare file name must not silently bind to several files.
++    maxMatchesPerSpan: 1,
++    allowBasenameFallbackForRelativePaths: false,
++    existsOnDisk: file => {
++      try { const abs = validatePathWithinRoot(cg.getProjectRoot(), file); return !!abs && statSync(abs).isFile(); }
++      catch { return false; }
++    },
++    symbolFiles: symbol => cg.getNodesBySymbolExact(symbol).flatMap(n => [n.filePath, view.resolve(n).filePath]),
++  }) : { strippedQuery: query, pinnedFiles: [], unresolvedPathSpans: [], lineAnchors: [], setAsideMatches: [] };
++  issues.push(...paths.unresolvedPathSpans.map(p => `Path unresolved or ambiguous: ${p}; use a repository-relative path.`));
++  issues.push(...paths.setAsideMatches.map(p => `Path ${p.span}: set aside ${p.files.join(', ')} using the named symbol evidence.`));
++  if (paths.limitedPathSpanCount) issues.push(`${paths.limitedPathSpanCount} path target(s) exceed the file or path-scan limit: ${paths.limitedPathSpans?.join(', ')}. Their path fragments were not searched as symbols.`);
++  issues.push(...(paths.invalidLineReferences ?? []).slice(0, 4).map(r => `Invalid line target ${r.reference}: expected positive, bounded 1-based line numbers; no range was guessed.`));
++  issues.push(...(paths.normalizedLineReferences ?? []).map(r => `Reversed line target ${r} was normalized to ascending inclusive order.`));
++  const invalidRangeFiles = new Set((paths.invalidLineReferences ?? []).flatMap(r => r.file ? [r.file] : []));
++  // Validate requested source bounds before resolving members. Otherwise a
++  // failed line constraint could already have promoted a whole callable.
++  for (const anchor of paths.lineAnchors) {
++    const snapshot = sources.get(anchor.file);
++    if (snapshot.status !== 'fresh' || snapshot.content === undefined) continue;
++    if (anchor.end > snapshot.content.split(/\r?\n/).length) invalidRangeFiles.add(anchor.file);
++  }
++  const failedPathConstraint = paths.unresolvedPathSpans.length > 0 || !!paths.limitedPathSpanCount || invalidRangeFiles.size > 0;
++  const pinned = new Set(paths.pinnedFiles);
++  const canonicalTarget = (node: Node): Node => {
++    const canonical = view.resolve(node);
++    if ((node.language === 'cpp' || node.language === 'c') && !eligible(node)) {
++      const owner = view.owner(node);
++      if (owner) return { ...canonical, qualifiedName: owner + '::' + node.name };
++    }
++    return canonical;
++  };
++  // Operator declarators need a signature parser, not identifier fragments.
++  // Keep this stage bounded: report the unsupported whole spelling and offer
++  // the already-supported file/line route instead of selecting its owner.
++  const matchQuery = paths.strippedQuery.replace(/[A-Za-z_$][\w$]*(?:(?:::|\.)[\w$]+)*(?:::|\.)operator(?:\s+[A-Za-z_$][\w$]*(?:(?:::|\.)[\w$]+)*)?(?:[^\s,;]*)/g, token => {
++    issues.push(`Qualified operator target ${token} requires a file and line reference; its fragments were not searched as symbols.`);
++    return ' ';
++  }).trim();
++  const targetTokens = [...new Set(matchQuery.match(/[A-Za-z_$][\w$]*(?:(?:::|\.)~?[\w$]+)+/g) ?? [])];
++  const addExact = (matches: Node[], label: string) => {
++    const additions = matches.filter(n => !exactNodeIds.has(n.id));
++    if (exactNodeIds.size + additions.length > MAX_EXACT_TARGETS) {
++      issues.push(`Explicit target ${label} exceeds the ${MAX_EXACT_TARGETS}-node target limit; narrow the request.`);
++      return false;
++    }
++    for (const n of matches) { nodes.set(n.id, n); exactNodeIds.add(n.id); }
++    return true;
++  };
++  for (const token of targetTokens) {
++    if (failedPathConstraint) {
++      qualifiedMatches.set(token, []);
++      issues.push(`Qualified target ${token} was not widened to the whole repository because a path or line constraint could not be honored.`);
++      continue;
++    }
++    // Name-only lookup is deliberately bounded before expensive source-backed
++    // normalization. It repairs old qualified-name extraction without FTS.
++    const tail = token.split(/::|\./).at(-1)!;
++    const raw = new Map(cg.getNodesBySymbolExact(token).filter(qualifiedEligible).map(n => [n.id, n]));
++    const tailMatches = cg.getNodesByName(tail).filter(qualifiedEligible);
++    if (tailMatches.length <= MAX_QUALIFIED_CANDIDATES) for (const n of tailMatches) raw.set(n.id, n);
++    else if (raw.size === 0) issues.push(`Qualified target ${token}: tail-name lookup exceeds ${MAX_QUALIFIED_CANDIDATES} candidates; use its full qualification or a file path.`);
++    let matches = [...new Map([...raw.values()].map(n => { const canonical = canonicalTarget(n); return [canonical.id, canonical]; })).values()];
++    if (pinned.size) {
++      const scoped = matches.filter(n => pinned.has(n.filePath)
++        || view.endpoints(n).some(id => { const alias = cg.getNode(id); return !!alias && pinned.has(alias.filePath); }));
++      // Combining a path and a member is a scoped request, not two independent
++      // broad seeds. Do not silently fall back to an unrelated file.
++      matches = scoped;
++    }
++    const wanted = comparable(token);
++    const exact = matches.filter(n => comparable(n.qualifiedName) === wanted);
++    matches = exact.length ? exact : matches.filter(n => comparable(n.qualifiedName).endsWith('.' + wanted));
++    if (new Set(matches.map(n => comparable(n.qualifiedName))).size > 1) {
++      issues.push(`Qualified target ${token} is ambiguous across namespaces or owners; provide a full qualification or path.`);
++      matches = [];
++    }
++    if (matches.length === 0) issues.push(`No unambiguous indexed target for ${token}; this does not establish source absence.`);
++    // Keep every overload under the same qualified name. Never pick one by
++    // ordering when the request did not specify a signature.
++    if (!addExact(matches, token)) matches = [];
++    qualifiedMatches.set(token, matches);
++  }
++  const spans = new Map<string, Array<{ start: number; end: number }>>();
++  // A requested field/property has no callable body for the function selector.
++  // Preserve its actual declaration range as source, not only an outline name.
++  for (const node of nodes.values()) {
++    if (eligible(node)) continue;
++    const snapshot = sources.get(node.filePath);
++    if (snapshot.status !== 'fresh' || snapshot.content === undefined) continue;
++    const lineCount = snapshot.content.split(/\r?\n/).length;
++    if (node.startLine < 1 || node.endLine < node.startLine || node.endLine > lineCount) {
++      issues.push(`Indexed range for ${node.qualifiedName} is outside the current source; no range was guessed.`);
++      continue;
++    }
++    const existing = spans.get(node.filePath) ?? [];
++    if (!existing.some(s => s.start === node.startLine && s.end === node.endLine)) existing.push({ start: node.startLine, end: node.endLine });
++    spans.set(node.filePath, existing);
++  }
++  for (const anchor of paths.lineAnchors) {
++    const snapshot = sources.get(anchor.file);
++    if (snapshot.status !== 'fresh' || snapshot.content === undefined) {
++      issues.push(`Line target ${anchor.file}:${anchor.start}-${anchor.end} cannot be mapped safely: ${snapshot.reason ?? snapshot.status}.`);
++      continue;
++    }
++    const lineCount = snapshot.content.split(/\r?\n/).length;
++    if (anchor.end > lineCount) {
++      issues.push(`Line target ${anchor.file}:${anchor.start}-${anchor.end} exceeds ${lineCount} current source lines; no range was guessed.`);
++      invalidRangeFiles.add(anchor.file);
++      continue;
++    }
++    const existing = spans.get(anchor.file) ?? [];
++    existing.push({ start: anchor.start, end: anchor.end }); spans.set(anchor.file, existing);
++    if (anchor.start === anchor.end) {
++      const enclosing = view.inFile(anchor.file).filter(n => EXPLORE_CALLABLES.has(n.kind)
++        && n.startLine <= anchor.start && n.endLine >= anchor.end)
++        .sort((a, b) => (a.endLine - a.startLine) - (b.endLine - b.startLine)
++          || (b.startColumn - a.startColumn));
++      if (enclosing.length > 0) {
++        const width = enclosing[0]!.endLine - enclosing[0]!.startLine;
++        const nearest = enclosing.filter(n => n.endLine - n.startLine === width);
++        const canonical = [...new Map(nearest.map(n => { const c = view.resolve(n); return [c.id, c]; })).values()];
++        if (canonical.length === 1) addExact(canonical, `${anchor.file}:${anchor.start}`);
++        else issues.push(`Line target ${anchor.file}:${anchor.start} intersects multiple callable declarations; the line span is protected without guessing a function.`);
++      }
++    }
++  }
++  const rangeOnly = matchQuery.length === 0 && targetTokens.length === 0 && spans.size > 0
++    && [...spans.values()].every(list => list.every(span => span.start < span.end))
++    && paths.pinnedFiles.every(file => spans.has(file) || paths.lineAnchors.some(anchor => anchor.file === file)
++      || invalidRangeFiles.has(file));
++  const fileNodes = new Map<string, Node[]>();
++  for (const file of paths.pinnedFiles) {
++    if (invalidRangeFiles.has(file)) { fileNodes.set(file, []); continue; }
++    const requested = spans.get(file) ?? [];
++    const candidates = [...new Map(view.inFile(file).filter(n => rangeOnly
++      ? EXPLORE_CALLABLES.has(n.kind) && requested.some(span => n.startLine <= span.end && n.endLine >= span.start)
++      : eligible(n)).map(n => {
++        // Source coordinates, including header declarations, stay in the
++        // requested file. A pure range does not ask for its remote definition.
++        const c = rangeOnly ? view.normalize(n) : view.resolve(n); return [c.id, c];
++      })).values()];
++    candidates.sort((a, b) => Number(exactNodeIds.has(b.id)) - Number(exactNodeIds.has(a.id))
++      || Number(!!a.isDeclaration) - Number(!!b.isDeclaration) || a.startLine - b.startLine || a.id.localeCompare(b.id));
++    if (candidates.length > MAX_FILE_NODES) issues.push(`File target ${file}: ${candidates.length - MAX_FILE_NODES} indexed nodes exceed the ${MAX_FILE_NODES}-node file supplementation limit.`);
++    fileNodes.set(file, candidates.slice(0, MAX_FILE_NODES));
++  }
++  return { targets: { pinnedFiles: paths.pinnedFiles, blockedFiles: invalidRangeFiles, rangeOnly, exactNodeIds, spans, issues: [...new Set(issues)], matchQuery },
++    nodes, fileNodes, qualifiedMatches };
++}
++
++/** Explicit target supplementation follows the bounded base traversal, as in
++ * upstream explore. Add only canonical nodes and edges whose two endpoints are
++ * admitted; declaration aliases remain usable for the combined C/C++ graph. */
++export function supplementExploreTargets(
++  cg: CodeGraph, view: ExploreSemanticView, graph: Subgraph, resolved: TargetResolution,
++): { addedNodes: number; exactTargets: number; baseNodes: number } {
++  const baseNodes = graph.nodes.size;
++  const added = new Map<string, Node>(resolved.nodes);
++  for (const list of resolved.fileNodes.values()) for (const n of list) added.set(n.id, n);
++  for (const n of added.values()) graph.nodes.set(n.id, n);
++  for (const id of resolved.targets.exactNodeIds) if (!graph.roots.includes(id)) graph.roots.push(id);
++  const aliasToCanonical = new Map<string, string>();
++  for (const n of graph.nodes.values()) for (const id of view.endpoints(n)) aliasToCanonical.set(id, n.id);
++  const edgeKeys = new Set(graph.edges.map(e => JSON.stringify([e.source, e.target, e.kind, e.line, e.column])));
++  for (const n of added.values()) for (const endpoint of view.endpoints(n)) {
++    for (const edge of [...cg.getOutgoingEdges(endpoint), ...cg.getIncomingEdges(endpoint)]) {
++      const source = aliasToCanonical.get(edge.source), target = aliasToCanonical.get(edge.target);
++      if (!source || !target || source === target) continue;
++      const key = JSON.stringify([source, target, edge.kind, edge.line, edge.column]);
++      if (!edgeKeys.has(key)) { graph.edges.push({ ...edge, source, target }); edgeKeys.add(key); }
++    }
++  }
++  return { baseNodes, addedNodes: graph.nodes.size - baseNodes, exactTargets: resolved.targets.exactNodeIds.size };
++}
+--- baseline/src/mcp/tools.ts
++++ candidate/src/mcp/tools.ts
+@@ -3639,7 +3639,6 @@
+     // beneath it. The single-symbol search validator must not reject this input.
+ 
+     const cg = this.getCodeGraph(args.projectPath as string | undefined);
+-    const projectRoot = cg.getProjectRoot();
+ 
+     // Resolve adaptive output budget from project size. Falls back to the
+     // largest-tier defaults if stats aren't available, which preserves
+@@ -3652,11 +3651,18 @@
+     }
+     const maxFiles = clamp((args.maxFiles as number) || budget.defaultMaxFiles, 1, 20);
+ 
+-    const retrieval = await retrieveExploreContext(cg, query);
++    const retrieval = await retrieveExploreContext(cg, query, { maxFiles });
+     const subgraph = retrieval.graph;
+-    if (subgraph.nodes.size === 0) {
++    const targets = retrieval.targets;
++    const pinnedFiles = new Set(targets.pinnedFiles);
++    const exactFiles = new Set([...targets.exactNodeIds].flatMap(id => {
++      const node = subgraph.nodes.get(id); return node ? [node.filePath] : [];
++    }));
++    const protectedFile = (file: string) => pinnedFiles.has(file) || exactFiles.has(file) || targets.spans.has(file);
++    if (subgraph.nodes.size === 0 && pinnedFiles.size === 0) {
+       return this.textResult(capExploreResponse(
+-        `No query-supported symbol or callable source context admitted for "${query}".\n${retrieval.note}`,
++        `No query-supported symbol or callable source context admitted for "${query}".\n${retrieval.note}`
++          + (targets.issues.length ? '\n' + targets.issues.join('\n') : ''),
+         Math.min(Math.round(budget.maxOutputChars * 1.5), 25000),
+       ));
+     }
+@@ -3664,7 +3670,7 @@
+ 
+     // Step 2: Group nodes by file, score by relevance
+     const fileGroups = new Map<string, { nodes: Node[]; score: number }>();
+-    const entryNodeIds = new Set([...subgraph.roots, ...namedSeedIds]);
++    const entryNodeIds = new Set([...subgraph.roots, ...namedSeedIds, ...targets.exactNodeIds]);
+ 
+     // Build a set of nodes directly connected to entry points (depth 1)
+     const connectedToEntry = new Set<string>();
+@@ -3701,6 +3707,11 @@
+       }
+       fileGroups.set(node.filePath, group);
+     }
++    // A requested range can contain comments or module-level source with no AST
++    // node. Its file still participates in admission and source verification.
++    for (const file of pinnedFiles) {
++      if (!fileGroups.has(file)) fileGroups.set(file, { nodes: [], score: 0 });
++    }
+ 
+     // Type anchors concentrate random-walk mass in headers. Preserve direct
+     // callable neighbors of their proven members as well as definition files;
+@@ -3716,11 +3727,11 @@
+       }
+     }
+     // Only include files that have entry points or nodes directly connected to entry points
+-    let relevantFiles = [...fileGroups.entries()].filter(([fp, group]) => group.score >= 3
++    let relevantFiles = [...fileGroups.entries()].filter(([fp, group]) => protectedFile(fp) || group.score >= 3
+       || retrieval.definitionFiles.has(fp) || memberNeighborFiles.has(fp));
+ 
+     // Extract query terms for relevance checking
+-    const queryTerms = query.toLowerCase().split(/\s+/).filter(t => t.length >= 3);
++    const queryTerms = targets.matchQuery.toLowerCase().split(/\s+/).filter(t => t.length >= 3);
+ 
+     // Test/spec/icon/i18n file detector — used both for the pre-sort hard
+     // filter (tiny tier) and the comparator deprioritization (all tiers).
+@@ -3754,7 +3765,7 @@
+     {
+       const queryMentionsTests = /\b(test|tests|testing|spec|verify|verifies)\b/i.test(query);
+       if (!queryMentionsTests) {
+-        const nonLow = relevantFiles.filter(([p]) => !isLowValue(p));
++        const nonLow = relevantFiles.filter(([p]) => protectedFile(p) || !isLowValue(p));
+         if (nonLow.length >= 2) {
+           relevantFiles = nonLow;
+         }
+@@ -3831,7 +3842,7 @@
+     // never prunes below 2.
+     if (maxGraph > 0) {
+       const gated = relevantFiles.filter(([fp]) =>
+-        (fileGraphScore.get(fp) ?? 0) >= maxGraph * 0.06
++        protectedFile(fp) || (fileGraphScore.get(fp) ?? 0) >= maxGraph * 0.06
+         || centralFiles.has(fp)
+         || entryFiles.has(fp)
+         || retrieval.definitionFiles.has(fp)
+@@ -3857,6 +3868,10 @@
+     }
+ 
+     const sortedFiles = relevantFiles.sort((a, b) => {
++      const targetRank = (fp: string) => targets.spans.get(fp)?.some(r => r.start !== r.end) ? 0
++        : exactFiles.has(fp) ? 1 : targets.spans.has(fp) ? 2 : pinnedFiles.has(fp) ? 3 : 4;
++      const targetOrder = targetRank(a[0]) - targetRank(b[0]);
++      if (targetOrder) return targetOrder;
+       const aPath = a[0].toLowerCase();
+       const bPath = b[0].toLowerCase();
+ 
+@@ -3953,7 +3968,7 @@
+     // Compute the flow spine once — used both to prepend the Flow section (below)
+     // and to gate adaptive source sizing: files on the spine get full source,
+     // off-spine peers skeletonize.
+-    const flow = this.buildFlowFromNamedSymbols(cg, query, retrieval.lookup);
++    const flow = this.buildFlowFromNamedSymbols(cg, targets.matchQuery, retrieval.lookup);
+ 
+     // Polymorphic-sibling detector for adaptive sizing. A class that implements/
+     // extends a supertype shared by >= MIN_SIBLINGS classes is one of many
+@@ -4029,11 +4044,24 @@
+       memberConnectivity.set(e.target, (memberConnectivity.get(e.target) ?? 0) + 1);
+     }
+     const sources: ExploreSourceFile[] = [];
++    const sourceIssues: string[] = [];
+     for (const [filePath, group] of sortedFiles) {
+-      const absPath = validatePathWithinRoot(projectRoot, filePath);
+-      if (!absPath || !existsSync(absPath)) continue;
+-      let content: string;
+-      try { content = readFileSync(absPath, 'utf-8'); } catch { continue; }
++      if (targets.rangeOnly && !targets.spans.has(filePath)) continue;
++      // An invalid line constraint is not a plain file request. Keep its
++      // diagnostic, but do not let an empty pinned group render the whole file.
++      if (targets.blockedFiles.has(filePath)) continue;
++      // Share verified bytes with C++ semantic recovery and target resolution.
++      // Never check one read and slice another at potentially stale line ranges.
++      const snapshot = retrieval.sources.get(filePath);
++      if (snapshot.status !== 'fresh' || snapshot.content === undefined) {
++        sourceIssues.push(`Source omitted: ${filePath} — ${snapshot.reason ?? snapshot.status}. Indexed symbol/Flow locations may be stale; use current-file Read or refresh the index before relying on those ranges.`);
++        continue;
++      }
++      if (CONFIG_LEAF_LANGUAGES.has(cg.getFile(filePath)?.language ?? '')) {
++        if (protectedFile(filePath)) sourceIssues.push(`Source omitted: ${filePath} — this config index stores keys only; use Read for explicitly requested current values.`);
++        continue;
++      }
++      const content = snapshot.content;
+       const hasSpine = group.nodes.some(n => flow.pathNodeIds.has(n.id));
+       const family = definesPolymorphicSupertype(group.nodes);
+       const spared = group.nodes.some(n => flow.uniqueNamedNodeIds.has(n.id)) && !family;
+@@ -4054,7 +4082,9 @@
+         }
+       }
+       sources.push({ path: filePath, content, nodes: sourceNodes, skeleton,
+-        bodyAllowed: n => !skeleton || flow.pathNodeIds.has(n.id)
++        pinned: pinnedFiles.has(filePath), protectedNodeIds: targets.exactNodeIds,
++        requestedRanges: targets.spans.get(filePath),
++        bodyAllowed: n => targets.exactNodeIds.has(n.id) || !skeleton || flow.pathNodeIds.has(n.id)
+           || flow.uniqueNamedNodeIds.has(n.id) || (family && flow.namedNodeIds.has(n.id)),
+         priority: n => entryNodeIds.has(n.id) || flow.uniqueNamedNodeIds.has(n.id) ? 0
+           : flow.pathNodeIds.has(n.id) ? 1 : namedContractIds.has(n.id) ? 1.25
+@@ -4065,13 +4095,31 @@
+       });
+     }
+     let prefix = flow.text + lines.join('\n') + '\n';
++    // These are correctness notices, not optional relationship metadata. Keep
++    // them before the bounded map so truncation cannot erase a stale-range warning.
++    const issues = [...new Set([...sourceIssues, ...targets.issues])];
++    let notices = sourceIssues.length
++      ? `> Source freshness: ${sourceIssues.length} file(s) could not be verified for safe indexed slicing; their source is omitted. Indexed symbol/Flow locations for those files are not current source evidence.\n`
++      : '';
++    let shownIssues = 0;
++    for (const issue of issues) {
++      const compact = issue.replace(/[\r\n]+/g, ' ');
++      const line = `> ${compact.length > 600 ? compact.slice(0, 597) + '...' : compact}\n`;
++      if (notices.length + line.length > 1850) break;
++      notices += line;
++      shownIssues++;
++    }
++    if (shownIssues < issues.length) {
++      notices += `> ${issues.length - shownIssues} additional target/source notices omitted for size; omitted files are not verified source coverage.\n`;
++    }
+     // Bound metadata before selection, never slice a delivered source body.
+-    const metadataCap = Math.floor(budget.maxOutputChars * 0.25);
++    const metadataCap = Math.max(0, Math.floor(budget.maxOutputChars * 0.25) - notices.length);
+     if (prefix.length > metadataCap) {
+       const cut = prefix.slice(0, Math.max(0, metadataCap - 120));
+       prefix = cut.slice(0, Math.max(0, cut.lastIndexOf('\n')))
+         + '\n> Relationship metadata shortened; source coverage is listed below.\n\n### Source Code\n\n';
+     }
++    prefix = notices + prefix;
+     const output = renderExploreSources(prefix, sources, {
+       maxOutputChars: budget.maxOutputChars, maxCharsPerFile: budget.maxCharsPerFile,
+       maxFiles, lineNumbers: exploreLineNumbersEnabled(), headerSymbols: budget.maxSymbolsInFileHeader,
+--- baseline/src/search/query-paths.ts
++++ candidate/src/search/query-paths.ts
+@@ -0,0 +1,599 @@
++// Adapted from colbymchenry/codegraph v1.6.2, commit
++// 6560052a6f856855d3f71eee838fd66ccfa4285d (MIT). See repository LICENSE.
++// Local guards consume over-limit path spans and report invalid line references.
++/**
++ * File-path recognition for explore queries.
++ *
++ * Agents routinely name files by path in a `codegraph_explore` query —
++ * "the scroll logic in src/routes/m/projects/[id]/runs/[runId]/+page.svelte" —
++ * and until this module existed those spans were SHREDDED by the downstream
++ * tokenizers instead of being read as file references:
++ *
++ *   - the named-symbol seeder splits on `[\s,()[\]]+`, so SvelteKit/Next
++ *     bracketed segments (`[id]`, `[runId]`) and route groups (`(protected)`)
++ *     exploded the path into fragments; the identifier-shaped survivors
++ *     (`runId`, `scope`) then seeded as "symbols the agent named" and
++ *     headlined the blast radius;
++ *   - FTS saw the fragments (`page`, `chat`, `runs`) and admitted every
++ *     sibling `+page.svelte` in the repo, which ate the output envelope and
++ *     truncated the files the agent actually asked for.
++ *
++ * `extractQueryPaths` finds path-like spans — slashed paths, dotted basenames,
++ * and extension-less kebab basenames (`background-image-table`, the spelling
++ * import paths and prose actually use) — resolves them against the INDEXED
++ * file list (resolution IS the detector — `and/or`, `gen_server:call/2`,
++ * `non-blocking` and other path-shaped non-paths match nothing and are left
++ * alone), and returns the matches as pinned files plus the query with those
++ * spans removed.
++ * Callers treat pinned files as first-class: guaranteed admission, top rank,
++ * funded first. Pure string work — no DB, no fs — so it is trivially testable
++ * and safe inside the query-pool workers. The one question string shape cannot
++ * answer (is this dotless slashed span, `scripts/deploy`, a real file that is
++ * merely unindexed, or is it prose like `and/or`?) is delegated to an OPTIONAL
++ * `existsOnDisk` predicate the caller injects — the fs access stays at the call
++ * site, which owns the project root, and this module stays pure.
++ */
++
++export interface QueryPathExtraction {
++  limitedPathSpans?: string[];
++  limitedPathSpanCount?: number;
++  invalidLineReferences?: Array<{ file?: string; reference: string }>;
++  normalizedLineReferences?: string[];
++  /** The query with resolved/clearly-path spans removed, whitespace-joined. */
++  strippedQuery: string;
++  /** Indexed file paths the query named, appearance-ordered, deduped. */
++  pinnedFiles: string[];
++  /**
++   * Spans that are unambiguously path-shaped but resolved to nothing (stale
++   * path, unindexed file) or to too many files (bare `+page.svelte`). Stripped
++   * from the query — their fragments could only mint junk matches — and
++   * surfaced to the agent so the miss is visible instead of silent.
++   */
++  unresolvedPathSpans: string[];
++  /**
++   * Line spans the query anchored to a pinned file, 1-based and inclusive:
++   * `compiler.py:776`, `foo.ts:12-40`, `foo.ts#L88-L120`, or prose next to a
++   * path (`compiler.py lines 900-1003`, `L900-L1003 of compiler.py`). An agent
++   * writes these when it wants THOSE lines — typically the body a previous
++   * response elided — so a pin that drops them answers a different question
++   * (the file's most relevant clusters) than the one asked. Only a span whose
++   * path resolved to exactly one file is kept: a line number means nothing
++   * across two candidate files.
++   */
++  lineAnchors: QueryLineAnchor[];
++  /**
++   * Files a span matched but did NOT pin: the span named several files, some
++   * of which define a symbol the query also names, and these define none.
++   * Surfaced so a set-aside file is visible, not silently dropped.
++   */
++  setAsideMatches: QuerySetAsideMatch[];
++}
++
++export interface QuerySetAsideMatch {
++  /** The span as the query wrote it, normalized (`editorOptions.ts`). */
++  span: string;
++  files: string[];
++}
++
++export interface QueryLineAnchor {
++  file: string;
++  start: number;
++  end: number;
++}
++
++/**
++ * Cheap pre-gate so callers only fetch the indexed file list when the query
++ * could possibly contain a path: a slash, a dot-extension-shaped tail
++ * (`chat-manager.ts`), or a hyphen-joined word (`background-image-table` —
++ * kebab files are named WITHOUT their extension more often than with, so the
++ * shape must open the gate on its own). Extensions cap at 8 chars, which
++ * keeps `Class.method` spans (`app.isPackaged`) from qualifying; the kebab
++ * alternative requires clean non-word boundaries, which keeps `--flags` and
++ * snake_case-with-a-dash hybrids from firing it.
++ */
++export function queryMightContainPaths(query: string): boolean {
++  return /[/\\]/.test(query)
++    || /\.[A-Za-z][A-Za-z0-9]{0,7}(?=[\s,;:)\]'"`]|$)/.test(query)
++    || /(?:^|[^-\w])[A-Za-z0-9]+(?:-[A-Za-z0-9]+)+(?=[^-\w]|$)/.test(query);
++}
++
++/**
++ * Longest span→suffix walk tried per span. 8 covers an absolute macOS path
++ * (`/Users/<user>/dev/<repo>/…`) over a deeply nested repo-relative file;
++ * deeper prefixes buy nothing.
++ */
++const MAX_SUFFIX_TRIES = 8;
++/** Spans examined per query — a prose sentence is not 50 paths. */
++const MAX_CANDIDATE_SPANS = 8;
++
++/** `name.ext` shape with a plausible source extension (no slash required). */
++const DOTTED_BASENAME = /^[^\s/\\]+\.[A-Za-z][A-Za-z0-9]{0,7}$/;
++
++/**
++ * Extension-less kebab basename (`background-image-table`). Hyphens are
++ * illegal in identifiers, so consuming these tokens can never steal one from
++ * the named-symbol seeder; ≥2 segments keeps single words out.
++ */
++const KEBAB_BASENAME = /^[A-Za-z0-9]+(?:-[A-Za-z0-9]+)+$/;
++
++/** A basename's last dot-extension, same shape DOTTED_BASENAME accepts. */
++const LAST_EXTENSION = /\.[A-Za-z][A-Za-z0-9]{0,7}$/;
++
++/**
++ * A query token that names a symbol, in the shape explore's named-symbol
++ * seeder reads: `clampedInt`, `SQLCompiler.as_sql`, `Engine::ServeHTTP`.
++ */
++const SYMBOL_TOKEN = /^[A-Za-z_$][\w$]*(?:(?:::|\.)~?[\w$]+)*$/;
++/** Symbol tokens consulted per query — the seeder's cap. */
++const MAX_SYMBOL_TOKENS = 16;
++
++/**
++ * The seeder's NL-stopword test: camelCase, PascalCase, snake_case, `$` and
++ * qualified tokens are unmistakably code. A bare lowercase word (`options`,
++ * `render`) is also English, and a file defining one proves nothing about
++ * which same-named file the agent meant.
++ */
++function isPreciseSymbolToken(t: string): boolean {
++  return /[._$]|::/.test(t) || /[a-z][A-Z]/.test(t) || /^[A-Z]/.test(t);
++}
++
++/**
++ * The precise symbol tokens a query names, excluding the files it names
++ * (`editorOptions.ts` is identifier-shaped too). Split on the same brackets
++ * the seeder splits on, so `clampedInt()` still counts.
++ */
++function querySymbolTokens(tokens: readonly string[], indexedBasenames: ReadonlySet<string>): string[] {
++  const out = new Set<string>();
++  for (const raw of tokens) {
++    for (const part of raw.split(/[,()[\]{}]+/)) {
++      const t = part.replace(/^['"`<]+/, '').replace(/['"`>.,;:!?]+$/, '');
++      if (t.length < 3 || !SYMBOL_TOKEN.test(t) || !isPreciseSymbolToken(t)) continue;
++      if (indexedBasenames.has(t.toLowerCase())) continue;
++      out.add(t);
++      if (out.size >= MAX_SYMBOL_TOKENS) return [...out];
++    }
++  }
++  return [...out];
++}
++
++/**
++ * Lowercased basename stems of the hyphen-named indexed files, stem → paths.
++ * A stem drops only the LAST extension (`a-b.module.scss` → `a-b.module`), so
++ * a bare kebab token can't accidentally pin a same-named stylesheet or
++ * `.d.ts` sibling of the source file it names; an extension-less basename
++ * (`pre-commit`) is its own stem. Hyphen-free basenames are skipped — a
++ * KEBAB_BASENAME token can never equal one, and the filter keeps the map
++ * near-empty in repos that don't name files this way.
++ */
++function buildBasenameStems(indexedPaths: readonly string[]): Map<string, string[]> {
++  const stems = new Map<string, string[]>();
++  for (const p of indexedPaths) {
++    const basename = p.slice(Math.max(p.lastIndexOf('/'), p.lastIndexOf('\\')) + 1);
++    if (!basename.includes('-')) continue;
++    const stem = basename.replace(LAST_EXTENSION, '').toLowerCase();
++    if (!stem) continue;
++    const existing = stems.get(stem);
++    if (existing) existing.push(p);
++    else stems.set(stem, [p]);
++  }
++  return stems;
++}
++
++/**
++ * Line references that ride along in agent-written paths: `foo.ts:123`,
++ * `foo.ts:12-40`, `foo.ts#L88`, `foo.ts#L88-L120`.
++ */
++const LINE_REF_SUFFIX = /(?::(-?\d+)(?:-(-?\d+))?|#L(-?\d+)(?:-L?(-?\d+))?)$/;
++
++/**
++ * A standalone line-number token: `900`, `900-1003`, `900–1003`, `900..1003`,
++ * `L900`, `L900-L1003`. The `L` form is unambiguous on its own; a bare number
++ * only counts after a `line`/`lines` word or directly after a path.
++ */
++const LINE_NUMBER_TOKEN = /^(L?)(-?\d+)(?:(?:-|–|\.\.)L?(-?\d+))?$/;
++const LINE_WORD = /^lines?$/i;
++/** `lines 900 to 1003` — the connective between two bare numbers. */
++const RANGE_CONNECTIVE = /^(?:to|through|thru)$/i;
++/** Nothing real is this long; a larger number is a port, an id, a year typo. */
++const MAX_LINE_NUMBER = 1_000_000;
++
++function lineSpan(a: string | undefined, b: string | undefined): { start: number; end: number } | null {
++  const start = Number(a);
++  const end = b === undefined ? start : Number(b);
++  if (!Number.isInteger(start) || !Number.isInteger(end) || start < 1 || end < 1) return null;
++  if (start > MAX_LINE_NUMBER || end > MAX_LINE_NUMBER) return null;
++  return start <= end ? { start, end } : { start: end, end: start };
++}
++
++/** Prose punctuation a line-number token can carry: "lines 900-1003," / "(L88)". */
++function stripLineTokenPunctuation(token: string): string {
++  return token.replace(/^[('"`[]+/, '').replace(/[)'"`\].,;:!?]+$/, '');
++}
++
++/**
++ * Strip prose punctuation wrapped around a token without eating punctuation
++ * that is PART of the path: quotes/backticks always strip; a trailing `)`/`]`
++ * strips only when the token has no matching opener (so `(protected)` and
++ * `[id]` segments survive, while "…(see src/foo.ts)" loses its parenthesis);
++ * a leading `(`/`[` mirrors that. Trailing sentence punctuation strips last,
++ * so "src/foo.ts." resolves. A trailing line reference is split off and
++ * returned separately — the file is what resolves, the lines are what the
++ * agent wants from it.
++ */
++function stripWrapping(token: string): { path: string; lines: { start: number; end: number } | null; invalidLines?: boolean; reversedLines?: boolean } {
++  let s = token;
++  for (;;) {
++    const first = s[0];
++    if (!first) break;
++    if ('\'"`<'.includes(first)) { s = s.slice(1); continue; }
++    if (first === '(' && !s.includes(')')) { s = s.slice(1); continue; }
++    if (first === '[' && !s.includes(']')) { s = s.slice(1); continue; }
++    if (first === '{' && !s.includes('}')) { s = s.slice(1); continue; }
++    break;
++  }
++  for (;;) {
++    const last = s[s.length - 1];
++    if (!last) break;
++    if ('\'"`>.,;!?'.includes(last)) { s = s.slice(0, -1); continue; }
++    if (last === ')' && !s.includes('(')) { s = s.slice(0, -1); continue; }
++    if (last === ']' && !s.includes('[')) { s = s.slice(0, -1); continue; }
++    if (last === '}' && !s.includes('{')) { s = s.slice(0, -1); continue; }
++    break;
++  }
++  const ref = LINE_REF_SUFFIX.exec(s);
++  if (!ref) return { path: s, lines: null };
++  const a = ref[1] !== undefined ? ref[1] : ref[3];
++  const b = ref[1] !== undefined ? ref[2] : ref[4];
++  const lines = lineSpan(a, b);
++  return {
++    path: s.slice(0, ref.index),
++    lines,
++    invalidLines: !lines,
++    reversedLines: !!lines && b !== undefined && Number(a) > Number(b),
++  };
++}
++
++/** Normalize a span into the repo-relative shape the files table stores. */
++function normalizeSpan(span: string): string {
++  return span
++    .replace(/\\/g, '/')
++    .replace(/^(?:\.\/)+/, '')
++    .replace(/\/{2,}/g, '/')
++    .replace(/\/+$/, '');
++}
++
++/** Path-shaped beyond doubt: ≥2 segments and a dot-extension on the last. */
++function isClearlyPathShaped(normalized: string): boolean {
++  const slash = normalized.lastIndexOf('/');
++  if (slash <= 0) return false;
++  return DOTTED_BASENAME.test(normalized.slice(slash + 1));
++}
++
++/**
++ * Resolve one normalized span against the indexed paths: exact match first,
++ * then segment-aligned suffix matches, dropping leading segments one at a
++ * time (so an absolute path, or one prefixed with the repo directory name,
++ * still lands on the indexed repo-relative file). Suffixes only get shorter —
++ * and therefore only match MORE — so the walk stops at the first suffix that
++ * matches anything: within budget it resolves, over budget it is ambiguous.
++ */
++function resolveSpan(
++  normalizedLower: string,
++  lowerToOriginal: ReadonlyMap<string, string>,
++  maxMatches: number,
++  allowBasenameFallback = true,
++): { matches: string[]; ambiguous: boolean } {
++  const exact = lowerToOriginal.get(normalizedLower);
++  if (exact) return { matches: [exact], ambiguous: false };
++
++  const segments = normalizedLower.split('/').filter(Boolean);
++  const absolute = normalizedLower.startsWith('/') || /^[a-z]:\//.test(normalizedLower);
++  const tries = Math.min(segments.length, MAX_SUFFIX_TRIES,
++    !allowBasenameFallback && !absolute && segments.length > 1 ? segments.length - 1 : segments.length);
++  for (let drop = 0; drop < tries; drop++) {
++    const suffix = segments.slice(drop).join('/');
++    if (!suffix) break;
++    const withSlash = '/' + suffix;
++    const matches: string[] = [];
++    for (const [lower, original] of lowerToOriginal) {
++      if (lower === suffix || lower.endsWith(withSlash)) {
++        matches.push(original);
++        if (matches.length > maxMatches) return { matches: [], ambiguous: true };
++      }
++    }
++    if (matches.length > 0) return { matches, ambiguous: false };
++  }
++  return { matches: [], ambiguous: false };
++}
++
++export function extractQueryPaths(
++  query: string,
++  indexedPaths: readonly string[],
++  opts: {
++    maxPins?: number;
++    maxMatchesPerSpan?: number;
++    /** Preserve an explicit relative directory instead of silently falling
++     * back to an unrelated file sharing only its basename. */
++    allowBasenameFallbackForRelativePaths?: boolean;
++    /**
++     * Does this repo-relative span name a real FILE in the project? Optional,
++     * injected by the caller (see the module docstring): it is the only way to
++     * tell a dotless path the index simply doesn't hold (`scripts/deploy`)
++     * from slashed prose (`and/or`), and it must stay out of this module.
++     * Must not throw — the caller absorbs fs errors and returns false.
++     */
++    existsOnDisk?: (relPath: string) => boolean;
++    /**
++     * Which indexed files define a symbol spelled like this query token
++     * (`clampedInt`, `SQLCompiler.as_sql`)? Optional, injected by the caller
++     * for the same reason as `existsOnDisk`: the answer lives in the index,
++     * and this module stays DB-free. Consulted only when a span matches
++     * several files (a basename two directories share): the matches that
++     * define a symbol the query also names are pinned, the rest set aside.
++     * Must not throw — the caller absorbs lookup errors and returns nothing.
++     */
++    symbolFiles?: (symbol: string) => Iterable<string>;
++  } = {},
++): QueryPathExtraction {
++  const maxPins = Math.max(1, opts.maxPins ?? 8);
++  const maxMatchesPerSpan = Math.max(1, opts.maxMatchesPerSpan ?? 3);
++
++  const passthrough: QueryPathExtraction = {
++    strippedQuery: query,
++    pinnedFiles: [],
++    unresolvedPathSpans: [],
++    lineAnchors: [],
++    setAsideMatches: [],
++  };
++  if (!query.trim() || indexedPaths.length === 0) return passthrough;
++
++  // Lowercase view of the index, built once per call. Last writer wins on a
++  // case-colliding pair, which is the existing file-view behavior too.
++  const lowerToOriginal = new Map<string, string>();
++  for (const p of indexedPaths) lowerToOriginal.set(p.toLowerCase(), p);
++  const indexedBasenames = new Set(indexedPaths.map(p => p.slice(Math.max(p.lastIndexOf('/'), p.lastIndexOf('\\')) + 1).toLowerCase()));
++
++  const tokens = query.split(/\s+/).filter(Boolean);
++  const consumed = new Set<number>();
++  const pinned: string[] = [];
++  const pinnedSeen = new Set<string>();
++  const unresolved: string[] = [];
++  const anchors: QueryLineAnchor[] = [];
++  const setAside: QuerySetAsideMatch[] = [];
++  const limitedPathSpans: string[] = [];
++  let limitedPathSpanCount = 0;
++  const invalidLineReferences: Array<{ file?: string; reference: string }> = [];
++  const normalizedLineReferences: string[] = [];
++  const noteLimited = (span: string) => {
++    limitedPathSpanCount++;
++    if (limitedPathSpans.length < 4) limitedPathSpans.push(span);
++  };
++  /** Token index → the ONE file it pinned, for binding prose line ranges. */
++  const singleFileAt = new Map<number, string>();
++  const pathTokenAt = new Set<number>();
++  let candidatesExamined = 0;
++
++  // A bare basename two directories share (`editorOptions.ts` is both vscode's
++  // editor option registry and a workbench helper) used to pin EVERY match,
++  // and the matches split the pinned reservation — so a query that also named
++  // three functions in one of them got half the room for them it would have
++  // got without the path. When the query names symbols, the file it means is
++  // the one defining them: keep the matches that define at least one, set the
++  // rest aside. When no match defines one, or every match does, the symbols
++  // pick nothing out and the span resolves exactly as before.
++  //
++  // The same test lets a basename shared by more files than the ambiguity
++  // budget (django's 40 `models.py`) resolve after all — to the one defining
++  // the named class — so a span is collected past the budget only while
++  // narrowing is possible, and still reports as ambiguous if it doesn't
++  // narrow into the budget.
++  let symbolTokens: string[] | null = null;
++  const definersOf = new Map<string, ReadonlySet<string>>();
++  const narrowBySymbols = (matches: readonly string[]): string[] | null => {
++    if (!opts.symbolFiles || matches.length < 2) return null;
++    if (symbolTokens === null) {
++      const basenames = new Set<string>();
++      for (const p of indexedPaths) {
++        basenames.add(p.slice(Math.max(p.lastIndexOf('/'), p.lastIndexOf('\\')) + 1).toLowerCase());
++      }
++      symbolTokens = querySymbolTokens(tokens, basenames);
++    }
++    const candidates = new Set(matches);
++    const definers = new Set<string>();
++    for (const t of symbolTokens) {
++      let files = definersOf.get(t);
++      if (!files) {
++        files = new Set(opts.symbolFiles(t));
++        definersOf.set(t, files);
++      }
++      for (const f of files) if (candidates.has(f)) definers.add(f);
++    }
++    if (definers.size === 0 || definers.size === candidates.size) return null;
++    return matches.filter((m) => definers.has(m));
++  };
++  /** Narrow a span's matches, recording what was set aside; null = over budget. */
++  const pinnableMatches = (span: string, matches: string[]): string[] | null => {
++    const narrowed = matches.length > 1 ? narrowBySymbols(matches) : null;
++    if (narrowed && narrowed.length <= maxMatchesPerSpan) {
++      setAside.push({ span, files: matches.filter((m) => !narrowed.includes(m)) });
++      return narrowed;
++    }
++    return matches.length > maxMatchesPerSpan ? null : matches;
++  };
++  const collectLimit = opts.symbolFiles ? Number.POSITIVE_INFINITY : maxMatchesPerSpan;
++
++  for (let i = 0; i < tokens.length; i++) {
++    const { path: stripped, lines, invalidLines, reversedLines } = stripWrapping(tokens[i]!);
++    if (stripped.length < 4) continue;
++    const hasSlash = /[/\\]/.test(stripped);
++    if (!hasSlash && !DOTTED_BASENAME.test(stripped)) continue;
++
++    const normalized = normalizeSpan(stripped);
++    if (!normalized) continue;
++    if (pinned.length >= maxPins || candidatesExamined >= MAX_CANDIDATE_SPANS) {
++      // No more suffix scans or filesystem probes after either limit. Continue
++      // cheap lexical/O(1) consumption, so tail paths cannot become symbols.
++      if (isClearlyPathShaped(normalized) || lowerToOriginal.has(normalized.toLowerCase())
++          || indexedBasenames.has(normalized.toLowerCase())) {
++        consumed.add(i); pathTokenAt.add(i);
++        const existing = lowerToOriginal.get(normalized.toLowerCase());
++        if (existing && pinnedSeen.has(existing)) {
++          singleFileAt.set(i, existing);
++          if (lines) anchors.push({ file: existing, ...lines });
++          if (invalidLines) invalidLineReferences.push({ file: existing, reference: tokens[i]! });
++          if (reversedLines && normalizedLineReferences.length < 4) normalizedLineReferences.push(tokens[i]!);
++        } else noteLimited(normalized);
++      }
++      continue;
++    }
++    candidatesExamined++;
++
++    const resolved = resolveSpan(normalized.toLowerCase(), lowerToOriginal, collectLimit,
++      opts.allowBasenameFallbackForRelativePaths ?? true);
++    const pinnable = resolved.matches.length > 0 ? pinnableMatches(normalized, resolved.matches) : null;
++    const matches = pinnable ?? [];
++    const ambiguous = resolved.ambiguous || (resolved.matches.length > 0 && pinnable === null);
++    if (matches.length > 0) {
++      consumed.add(i);
++      pathTokenAt.add(i);
++      for (const m of matches) {
++        if (pinnedSeen.has(m) || pinned.length >= maxPins) continue;
++        pinnedSeen.add(m);
++        pinned.push(m);
++      }
++      if (matches.length === 1 && pinnedSeen.has(matches[0]!)) {
++        singleFileAt.set(i, matches[0]!);
++        if (lines) anchors.push({ file: matches[0]!, ...lines });
++        if (invalidLines) invalidLineReferences.push({ file: matches[0], reference: tokens[i]! });
++        if (reversedLines && normalizedLineReferences.length < 4) normalizedLineReferences.push(tokens[i]!);
++      }
++    } else if (
++      ambiguous
++      || isClearlyPathShaped(normalized)
++      || (normalized.includes('/') && opts.existsOnDisk?.(normalized) === true)
++    ) {
++      // A real path that didn't resolve to a usable set. Keeping it in the
++      // query is strictly worse — its fragments are what minted the junk
++      // matches this module exists to stop — so strip it and say so.
++      // The third arm covers the DOTLESS slashed span (`scripts/deploy`,
++      // `bin/build`): shape alone cannot tell it from `and/or` or
++      // `input/output`, so the file's existence on disk decides. Loosening the
++      // SHAPE test instead would strip that prose out of every query and mint a
++      // false "no indexed file matches `and/or`" caveat.
++      consumed.add(i);
++      pathTokenAt.add(i);
++      if (unresolved.length < 4) unresolved.push(normalized);
++    }
++    // Anything else (`and/or`, `call/2`, `foo.Bar`) is not a path reference:
++    // leave the token for the normal matching pipeline.
++  }
++
++  // Second pass — extension-less kebab basenames. `background-image-table`
++  // opens no door above (no slash, no dotted tail), the hyphens disqualify it
++  // from the named-symbol seeder downstream, and FTS shreds it into the most
++  // common words in a kebab-cased repo (`background`, `image`, `table`) —
++  // which admit look-alike SIBLINGS that crowd out the named file. Resolution
++  // stays the detector: a token pins only when its whole lowercased form is
++  // the stem of an indexed basename. Two deliberate asymmetries vs the first
++  // pass: prose that resolves to nothing (`non-blocking`, `cross-call`) is
++  // LEFT IN the query — unlike a slashed span it may be legitimate wording,
++  // so it keeps feeding FTS and is not reported as an unresolved path — and a
++  // stem hotter than maxMatchesPerSpan is likewise left alone (pinning half a
++  // monorepo off one hot name trades precision the wrong way; a directory
++  // segment, which the first pass handles, disambiguates). Runs after the
++  // slashed/dotted pass so explicit paths win the shared maxPins budget, and
++  // examines every remaining token: lookups are O(1) map hits, so the
++  // scan-cost rationale behind MAX_CANDIDATE_SPANS doesn't apply.
++  let basenameStems: Map<string, string[]> | null = null;
++  for (let i = 0; i < tokens.length; i++) {
++    if (consumed.has(i)) continue;
++    const { path: stripped, lines } = stripWrapping(tokens[i]!);
++    if (stripped.length < 4 || !KEBAB_BASENAME.test(stripped)) continue;
++    basenameStems ??= buildBasenameStems(indexedPaths);
++    const stemMatches = basenameStems.get(stripped.toLowerCase());
++    if (pinned.length >= maxPins) {
++      if (stemMatches) { consumed.add(i); pathTokenAt.add(i); noteLimited(stripped); }
++      continue;
++    }
++    const matches = stemMatches ? pinnableMatches(stripped, stemMatches) : null;
++    if (!matches) continue;
++    consumed.add(i);
++    pathTokenAt.add(i);
++    for (const m of matches) {
++      if (pinnedSeen.has(m) || pinned.length >= maxPins) continue;
++      pinnedSeen.add(m);
++      pinned.push(m);
++    }
++    if (matches.length === 1 && pinnedSeen.has(matches[0]!)) {
++      singleFileAt.set(i, matches[0]!);
++      if (lines) anchors.push({ file: matches[0]!, ...lines });
++    }
++  }
++
++  // Third pass — prose line ranges (`lines 900-1003`, `line 42`, `L88-L120`,
++  // `lines 900 to 1003`) bound to the NEAREST single-file path token. These
++  // are what an agent writes when a previous response elided a body and it
++  // asks for the rest; left in the query, the numbers match nothing and
++  // `lines` feeds FTS a word every file contains. A range with no path to
++  // bind to says nothing about which file, so it is left alone.
++  if (singleFileAt.size > 0) {
++    const pathIdx = [...pathTokenAt];
++    const nearestFile = (i: number): string | undefined => {
++      let best = pathIdx[0]!;
++      for (const p of pathIdx) if (Math.abs(p - i) < Math.abs(best - i)) best = p;
++      return singleFileAt.get(best);
++    };
++    for (let i = 0; i < tokens.length; i++) {
++      if (consumed.has(i)) continue;
++      const tok = stripLineTokenPunctuation(tokens[i]!);
++      const afterWord = i > 0 && !consumed.has(i - 1) && LINE_WORD.test(stripLineTokenPunctuation(tokens[i - 1]!));
++      const afterPath = singleFileAt.has(i - 1);
++      const m = LINE_NUMBER_TOKEN.exec(tok);
++      if (!m) continue;
++      // A bare number is a line number only in a line context; `L900` is one
++      // on its own.
++      if (!m[1] && !afterWord && !afterPath) continue;
++      let span = lineSpan(m[2], m[3]);
++      const used = [i];
++      // `lines 900 to 1003`
++      if (span && m[3] === undefined && i + 2 < tokens.length
++          && RANGE_CONNECTIVE.test(stripLineTokenPunctuation(tokens[i + 1]!))) {
++        const tail = LINE_NUMBER_TOKEN.exec(stripLineTokenPunctuation(tokens[i + 2]!));
++        if (tail && tail[3] === undefined) {
++          span = lineSpan(m[2], tail[2]);
++          used.push(i + 1, i + 2);
++        }
++      }
++      const file = nearestFile(i);
++      if (!span) invalidLineReferences.push({ file, reference: used.map(u => tokens[u]).join(' ') });
++      else if (file) {
++        anchors.push({ file, ...span });
++        if (m[3] !== undefined && Number(m[2]) > Number(m[3]) && normalizedLineReferences.length < 4) normalizedLineReferences.push(tokens[i]!);
++      }
++      for (const u of used) consumed.add(u);
++      if (afterWord) consumed.add(i - 1);
++    }
++  }
++
++  if (consumed.size === 0) return passthrough;
++  const seenAnchor = new Set<string>();
++  return {
++    ...(limitedPathSpanCount ? { limitedPathSpans, limitedPathSpanCount } : {}),
++    ...(invalidLineReferences.length ? { invalidLineReferences } : {}),
++    ...(normalizedLineReferences.length ? { normalizedLineReferences } : {}),
++    strippedQuery: tokens.filter((_, i) => !consumed.has(i)).join(' '),
++    pinnedFiles: pinned,
++    unresolvedPathSpans: unresolved,
++    lineAnchors: anchors.filter((a) => {
++      const key = `${a.file}:${a.start}-${a.end}`;
++      if (seenAnchor.has(key)) return false;
++      seenAnchor.add(key);
++      return true;
++    }),
++    // A file another span pinned outright (the agent also wrote its full path)
++    // was not set aside after all.
++    setAsideMatches: setAside
++      .map((s) => ({ span: s.span, files: s.files.filter((f) => !pinnedSeen.has(f)) }))
++      .filter((s) => s.files.length > 0),
++  };
++}
+--- baseline/__tests__/explore-explicit-targets.test.ts
++++ candidate/__tests__/explore-explicit-targets.test.ts
+@@ -0,0 +1,236 @@
++import { afterAll, beforeAll, describe, expect, it } from 'vitest';
++import * as fs from 'node:fs';
++import * as path from 'node:path';
++import * as os from 'node:os';
++import CodeGraph from '../src/index';
++import { retrieveExploreContext } from '../src/mcp/explore-retrieval';
++
++describe('explicit explore targets on real C++ and TypeScript indexes', () => {
++  let root: string, cg: CodeGraph;
++  beforeAll(async () => {
++    root = fs.mkdtempSync(path.join(os.tmpdir(), 'cg-targets-p2-'));
++    for (const folder of ['left', 'right']) fs.mkdirSync(path.join(root, folder));
++    fs.writeFileSync(path.join(root, 'left', 'worker.h'), `namespace alpha {
++class PacketWorker {
++public:
++  int run(int value);
++  int run(double value);
++  int save();
++  int capacity;
++  ~PacketWorker();
++};
++}
++`);
++    fs.writeFileSync(path.join(root, 'left', 'worker.cpp'), `#include "worker.h"
++namespace alpha {
++int PacketWorker::run(int value) {
++  return save() + value;
++}
++int PacketWorker::run(double value) {
++  return 7;
++}
++int PacketWorker::save() { return 91; }
++PacketWorker::~PacketWorker() { }
++}
++`);
++    fs.writeFileSync(path.join(root, 'right', 'worker.h'), `namespace beta {
++class PacketWorker { public: int run(int value); };
++}
++`);
++    fs.writeFileSync(path.join(root, 'right', 'worker.cpp'), `#include "worker.h"
++namespace beta {
++int PacketWorker::run(int value) { return value; }
++}
++`);
++    fs.writeFileSync(path.join(root, 'plain.ts'), '// no callable on this line\nexport const MAX_SIZE = 5;\n');
++    fs.writeFileSync(path.join(root, 'limits.ts'), 'export class QueueLimits {\n  threshold = 17;\n}\n');
++    fs.writeFileSync(path.join(root, 'global.cpp'), 'class ScopedWorker { public: int run(int value) { return value; } };\n');
++    fs.writeFileSync(path.join(root, 'left', 'scoped.cpp'), 'namespace alpha { class ScopedWorker { public: int run(int value) { return value; } }; }\n');
++    fs.writeFileSync(path.join(root, 'incidental.ts'), 'export class FakeAnchor { run() { return 1; } }\n');
++    fs.mkdirSync(path.join(root, 'FakeAnchor'));
++    fs.writeFileSync(path.join(root, 'FakeAnchor', 'other.cpp'), 'int isolated_path_target() { return 19; }\n');
++    fs.writeFileSync(path.join(root, 'callee.ts'), 'export function externalStep() { return 13; }\n');
++    fs.writeFileSync(path.join(root, 'range.ts'), `import { externalStep } from './callee';
++export function requestedBody() {
++  return externalStep();
++}
++export function unrelatedSibling() { return externalStep(); }
++`);
++    fs.writeFileSync(path.join(root, 'many.cpp'), `namespace stress {
++${Array.from({ length: 40 }, (_, i) => `int task${i}(){ return ${i}; }`).join('\n')}
++}
++`);
++    cg = CodeGraph.initSync(root, { config: { include: ['**/*.ts', '**/*.cpp', '**/*.h'], exclude: [] } });
++    await cg.indexAll();
++  });
++  afterAll(() => { cg?.close(); fs.rmSync(root, { recursive: true, force: true }); });
++  const exact = (r: Awaited<ReturnType<typeof retrieveExploreContext>>) => [...r.targets.exactNodeIds].map(id => r.graph.nodes.get(id)!);
++
++  it('removes whole path spans before identifier seeding and does not name every member', async () => {
++    const r = await retrieveExploreContext(cg, 'left/worker.cpp');
++    expect(r.targets.pinnedFiles).toEqual(['left/worker.cpp']);
++    expect(r.targets.matchQuery).toBe('');
++    expect(r.targets.exactNodeIds.size).toBe(0);
++    expect(r.namedNodeIds.size).toBe(0);
++    expect(r.diagnostics.seeds.every(s => s.kind === 'path')).toBe(true);
++    expect([...r.graph.nodes.values()].some(n => n.qualifiedName === 'alpha::PacketWorker::run')).toBe(true);
++  });
++  it.each(['left/worker.cpp:4', 'left/worker.cpp#L4', 'left/worker.cpp line 4', 'L4 of left/worker.cpp'])('maps a line to the innermost callable: %s', async query => {
++    const r = await retrieveExploreContext(cg, query);
++    expect(r.targets.spans.get('left/worker.cpp')).toEqual([{ start: 4, end: 4 }]);
++    expect(exact(r)).toHaveLength(1);
++    expect(exact(r)[0]!.qualifiedName).toBe('alpha::PacketWorker::run');
++    expect(exact(r)[0]!.signature).toContain('int value');
++  });
++  it('canonicalizes a declaration line to the matching overload definition', async () => {
++    const r = await retrieveExploreContext(cg, 'left/worker.h:5');
++    expect(exact(r)).toHaveLength(1);
++    expect(exact(r)[0]!.isDeclaration).toBeFalsy();
++    expect(exact(r)[0]!.filePath).toBe('left/worker.cpp');
++    expect(exact(r)[0]!.signature).toContain('double value');
++    expect(r.targets.pinnedFiles).toEqual(['left/worker.h']);
++  });
++  it('protects multi-line ranges and non-callable source without inventing a function', async () => {
++    const r = await retrieveExploreContext(cg, 'left/worker.cpp#L4-L8 plain.ts:1-2');
++    expect(r.targets.spans.get('left/worker.cpp')).toEqual([{ start: 4, end: 8 }]);
++    expect(r.targets.spans.get('plain.ts')).toEqual([{ start: 1, end: 2 }]);
++    expect(r.targets.exactNodeIds.size).toBe(0);
++  });
++  it('resolves Windows absolute paths without seeding drive or directory words', async () => {
++    const r = await retrieveExploreContext(cg, 'C:\\checkout\\left\\worker.cpp:4');
++    expect(r.targets.pinnedFiles).toEqual(['left/worker.cpp']);
++    expect(r.targets.matchQuery).toBe('');
++    expect(exact(r)).toHaveLength(1);
++  });
++  it('reports ambiguous basenames and invalid ranges without selecting an arbitrary file', async () => {
++    const ambiguous = await retrieveExploreContext(cg, 'worker.cpp:4');
++    expect(ambiguous.targets.pinnedFiles).toEqual([]);
++    expect(ambiguous.targets.issues.join(' ')).toContain('ambiguous');
++    expect(ambiguous.targets.matchQuery).toBe('');
++    const outside = await retrieveExploreContext(cg, 'left/worker.cpp:900-999');
++    expect(outside.targets.spans.size).toBe(0);
++    expect(outside.targets.issues.join(' ')).toContain('exceeds');
++  });
++  it('keeps every overload but rejects an owner suffix shared across namespaces', async () => {
++    const qualified = await retrieveExploreContext(cg, 'alpha::PacketWorker::run');
++    expect(exact(qualified)).toHaveLength(2);
++    expect(exact(qualified).every(n => n.filePath === 'left/worker.cpp' && !n.isDeclaration)).toBe(true);
++    const ambiguous = await retrieveExploreContext(cg, 'PacketWorker::run');
++    expect(exact(ambiguous)).toEqual([]);
++    expect(ambiguous.graph.nodes.size).toBe(0);
++    expect(ambiguous.targets.issues.join(' ')).toContain('ambiguous across namespaces');
++    const scoped = await retrieveExploreContext(cg, 'left/worker.h PacketWorker::run');
++    expect(exact(scoped)).toHaveLength(2);
++    expect(exact(scoped).every(n => n.filePath === 'left/worker.cpp')).toBe(true);
++  });
++  it('lets a qualified symbol disambiguate a shared basename', async () => {
++    const r = await retrieveExploreContext(cg, 'worker.cpp alpha::PacketWorker::run');
++    expect(r.targets.pinnedFiles).toEqual(['left/worker.cpp']);
++    expect(exact(r)).toHaveLength(2);
++    expect(r.targets.issues.join(' ')).toContain('set aside right/worker.cpp');
++  });
++  it('protects qualified C++ fields and TypeScript properties using their indexed source range', async () => {
++    const field = await retrieveExploreContext(cg, 'alpha::PacketWorker::capacity');
++    expect(exact(field)).toHaveLength(1);
++    expect(exact(field)[0]!.qualifiedName).toBe('alpha::PacketWorker::capacity');
++    expect(field.targets.spans.get('left/worker.h')).toEqual([{ start: 7, end: 7 }]);
++    const property = await retrieveExploreContext(cg, 'QueueLimits.threshold');
++    expect(exact(property)).toHaveLength(1);
++    // This indexer represents this TypeScript property as a one-line method;
++    // it already enters complete-body selection through the exact-node set.
++    expect(exact(property)[0]!.filePath).toBe('limits.ts');
++    expect(exact(property)[0]!.startLine).toBe(2);
++    expect(exact(property)[0]!.endLine).toBe(2);
++  });
++  it('retains explicit targets after the 32-root base limit and admits no dangling edges', async () => {
++    const r = await retrieveExploreContext(cg, Array.from({ length: 40 }, (_, i) => `stress::task${i}`).join(' '));
++    expect(exact(r)).toHaveLength(40);
++    expect(r.diagnostics.targets.baseNodes).toBeLessThanOrEqual(200);
++    expect(r.diagnostics.targets.addedNodes).toBeGreaterThanOrEqual(8);
++    expect(r.graph.edges.every(e => r.graph.nodes.has(e.source) && r.graph.nodes.has(e.target))).toBe(true);
++  });
++  it('does not map index coordinates after source drift', async () => {
++    const file = path.join(root, 'plain.ts');
++    const saved = fs.readFileSync(file, 'utf8');
++    try {
++      fs.writeFileSync(file, '// inserted\n' + saved);
++      const r = await retrieveExploreContext(cg, 'plain.ts:2');
++      expect(r.sources.get('plain.ts').status).toBe('changed');
++      expect(r.targets.spans.size).toBe(0);
++      expect(r.targets.issues.join(' ')).toContain('cannot be mapped safely');
++    } finally { fs.writeFileSync(file, saved); }
++  });
++  it('does not seed path fragments after the pin or path-scan limit', async () => {
++    const capped = await retrieveExploreContext(cg, 'plain.ts FakeAnchor/other.cpp line 1', { maxFiles: 1 });
++    expect(capped.targets.matchQuery).toBe('');
++    expect(capped.targets.pinnedFiles).toEqual(['plain.ts']);
++    expect(capped.targets.spans.size).toBe(0);
++    expect(capped.targets.issues.join(' ')).toContain('path-scan limit');
++    expect([...capped.graph.nodes.values()].some(n => n.name === 'FakeAnchor')).toBe(false);
++    const scan = await retrieveExploreContext(cg, `${Array.from({ length: 8 }, (_, i) => `abs${i}/missing.cpp`).join(' ')} FakeAnchor/other.cpp`, { maxFiles: 12 });
++    expect(scan.targets.matchQuery).toBe('');
++    expect(scan.graph.nodes.size).toBe(0);
++    expect(scan.targets.issues.join(' ')).toContain('path-scan limit');
++  });
++  it('does not silently release an unresolved scoped path to a whole-repository member target', async () => {
++    const r = await retrieveExploreContext(cg, 'missing/worker.cpp alpha::PacketWorker::run');
++    expect(exact(r)).toEqual([]);
++    expect(r.graph.nodes.size).toBe(0);
++    expect(r.targets.issues.join(' ')).toContain('not widened to the whole repository');
++  });
++  it('applies file scope before preferring an exact global qualified name', async () => {
++    const r = await retrieveExploreContext(cg, 'left/scoped.cpp ScopedWorker::run');
++    expect(exact(r)).toHaveLength(1);
++    expect(exact(r).every(n => n.qualifiedName === 'alpha::ScopedWorker::run')).toBe(true);
++  });
++  it('does not promote a callable before detecting an out-of-bounds line constraint', async () => {
++    const r = await retrieveExploreContext(cg, 'left/worker.cpp:999 alpha::PacketWorker::run');
++    expect(exact(r)).toEqual([]);
++    expect(r.graph.nodes.size).toBe(0);
++    expect(r.targets.issues.join(' ')).toContain('exceeds');
++  });
++  it.each(['left/worker.cpp:0', 'left/worker.cpp:-2', 'left/worker.cpp lines 0-4', 'left/worker.cpp#L1000001'])('reports invalid lines without converting them to a whole-file answer: %s', async query => {
++    const r = await retrieveExploreContext(cg, query);
++    expect(r.targets.spans.size).toBe(0);
++    expect(r.graph.nodes.size).toBe(0);
++    expect(r.targets.issues.join(' ')).toContain('Invalid line target');
++  });
++  it('reports the upstream reversed-range normalization explicitly', async () => {
++    const r = await retrieveExploreContext(cg, 'left/worker.cpp:8-4');
++    expect(r.targets.spans.get('left/worker.cpp')).toEqual([{ start: 4, end: 8 }]);
++    expect(r.targets.issues.join(' ')).toContain('normalized to ascending');
++  });
++  it('treats a qualified destructor as one member target, not constructor or class fragments', async () => {
++    const r = await retrieveExploreContext(cg, 'alpha::PacketWorker::~PacketWorker');
++    expect(exact(r)).toHaveLength(1);
++    expect(exact(r)[0]!.name).toBe('~PacketWorker');
++    expect(exact(r)[0]!.isDeclaration).toBeFalsy();
++    expect(r.diagnostics.seeds.map(s => s.token)).toEqual(['alpha::PacketWorker::~PacketWorker']);
++  });
++  it('reports unsupported qualified operators without seeding owner fragments', async () => {
++    const r = await retrieveExploreContext(cg, 'alpha::PacketWorker::operator<<');
++    expect(r.targets.matchQuery).toBe('');
++    expect(r.graph.nodes.size).toBe(0);
++    expect(r.targets.issues.join(' ')).toContain('requires a file and line reference');
++  });
++  it('does not expand a pure multi-line source range into siblings or cross-file callees', async () => {
++    const r = await retrieveExploreContext(cg, 'range.ts:2-4');
++    expect(r.targets.rangeOnly).toBe(true);
++    expect(r.targets.spans.get('range.ts')).toEqual([{ start: 2, end: 4 }]);
++    expect(r.diagnostics.targets.baseNodes).toBe(0);
++    expect([...r.graph.nodes.values()].map(n => n.name)).toEqual(['requestedBody']);
++    expect([...r.graph.nodes.values()].every(n => n.filePath === 'range.ts')).toBe(true);
++    expect(r.graph.roots).toEqual([]);
++    const header = await retrieveExploreContext(cg, 'left/worker.h:4-5');
++    expect(header.targets.rangeOnly).toBe(true);
++    expect([...header.graph.nodes.values()].every(n => n.filePath === 'left/worker.h' && !!n.isDeclaration)).toBe(true);
++    const nonCallable = await retrieveExploreContext(cg, 'plain.ts:1-2');
++    expect(nonCallable.targets.rangeOnly).toBe(true);
++    expect(nonCallable.graph.nodes.size).toBe(0);
++    expect(nonCallable.targets.spans.get('plain.ts')).toEqual([{ start: 1, end: 2 }]);
++    expect((await retrieveExploreContext(cg, 'range.ts')).targets.rangeOnly).toBe(false);
++    expect((await retrieveExploreContext(cg, 'range.ts:3')).targets.rangeOnly).toBe(false);
++    expect((await retrieveExploreContext(cg, 'range.ts:2-4 requestedBody')).targets.rangeOnly).toBe(false);
++    expect((await retrieveExploreContext(cg, 'range.ts:2-4 plain.ts')).targets.rangeOnly).toBe(false);
++  });
++});
+--- baseline/__tests__/explore-source-snapshot.test.ts
++++ candidate/__tests__/explore-source-snapshot.test.ts
+@@ -0,0 +1,108 @@
++import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
++import * as fs from 'node:fs';
++import * as os from 'node:os';
++import * as path from 'node:path';
++import CodeGraph from '../src/index';
++import { ExploreSourceSnapshots } from '../src/mcp/explore-source';
++import { ExploreSemanticView } from '../src/mcp/explore-semantic';
++
++describe('explore source snapshots against an extracted C++ index', () => {
++  let root: string, outside: string, cg: CodeGraph;
++  const original = 'namespace sample {\nint perform() {\n  return 17;\n}\n}\n';
++  beforeAll(async () => {
++    root = fs.mkdtempSync(path.join(os.tmpdir(), 'cg-explore-snapshot-'));
++    outside = fs.mkdtempSync(path.join(os.tmpdir(), 'cg-explore-outside-'));
++    fs.writeFileSync(path.join(root, 'worker.cpp'), original);
++    cg = CodeGraph.initSync(root, { config: { include: ['**/*.cpp'], exclude: [] } });
++    await cg.indexAll();
++  });
++  afterEach(() => {
++    vi.restoreAllMocks();
++    fs.writeFileSync(path.join(root, 'worker.cpp'), original);
++  });
++  afterAll(() => {
++    cg?.close();
++    fs.rmSync(root, { recursive: true, force: true });
++    fs.rmSync(outside, { recursive: true, force: true });
++  });
++
++  it('exposes verified bytes and normalizes equivalent in-root paths', () => {
++    const sources = new ExploreSourceSnapshots(cg);
++    const snapshot = sources.get('worker.cpp');
++    expect(snapshot.status).toBe('fresh');
++    expect(snapshot.content).toBe(original);
++    expect(snapshot.fingerprint).toBe(cg.getFile('worker.cpp')!.contentHash);
++    expect(sources.get(path.join(root, 'worker.cpp'))).toBe(snapshot);
++    expect(sources.get('./worker.cpp')).toBe(snapshot);
++  });
++
++  it('does not trust old line numbers after inserted lines', () => {
++    fs.writeFileSync(path.join(root, 'worker.cpp'), 'int unrelated() { return 88; }\n\n' + original);
++    const sources = new ExploreSourceSnapshots(cg);
++    expect(sources.get('worker.cpp')).toMatchObject({ status: 'changed' });
++    expect(sources.get('worker.cpp').content).toBeUndefined();
++    expect(new ExploreSemanticView(cg, sources).enclosingBody('worker.cpp', 3)).toBeUndefined();
++  });
++
++  it('detects same-size edits even when their timestamp is restored', () => {
++    const file = path.join(root, 'worker.cpp');
++    const stat = fs.statSync(file);
++    fs.writeFileSync(file, original.replace('17', '92'));
++    fs.utimesSync(file, stat.atime, stat.mtime);
++    expect(new ExploreSourceSnapshots(cg).get('worker.cpp').status).toBe('changed');
++  });
++
++  it('treats a timestamp-only rewrite as fresh', () => {
++    const later = new Date(Date.now() + 60000);
++    fs.utimesSync(path.join(root, 'worker.cpp'), later, later);
++    expect(new ExploreSourceSnapshots(cg).get('worker.cpp')).toMatchObject({ status: 'fresh', content: original });
++  });
++
++  it('shares immutable query bytes with semantic recovery and refreshes next query', () => {
++    const sources = new ExploreSourceSnapshots(cg);
++    const first = sources.get('worker.cpp');
++    fs.writeFileSync(path.join(root, 'worker.cpp'), '\n\n' + original);
++    expect(sources.get('worker.cpp')).toBe(first);
++    expect(sources.get('worker.cpp').content).toBe(original);
++    expect(new ExploreSemanticView(cg, sources).enclosingBody('worker.cpp', 3)?.name).toBe('perform');
++    expect(new ExploreSourceSnapshots(cg).get('worker.cpp').status).toBe('changed');
++  });
++
++  it('reports a deleted indexed source as missing without exposing content', () => {
++    fs.unlinkSync(path.join(root, 'worker.cpp'));
++    const snapshot = new ExploreSourceSnapshots(cg).get('worker.cpp');
++    expect(snapshot.status).toBe('missing');
++    expect(snapshot.content).toBeUndefined();
++  });
++
++  it('does not use unindexed source bytes as evidence for old graph ranges', () => {
++    fs.writeFileSync(path.join(root, 'unindexed.cpp'), 'int fresh() { return 1; }\n');
++    expect(new ExploreSourceSnapshots(cg).get('unindexed.cpp')).toMatchObject({ status: 'unverified' });
++    expect(new ExploreSourceSnapshots(cg).get('unindexed.cpp').content).toBeUndefined();
++  });
++
++  it.each(['', 'size-limit:1000:2000'])('fails closed for unsupported index fingerprints: %s', fingerprint => {
++    const stored = cg.getFile('worker.cpp')!;
++    vi.spyOn(cg, 'getFile').mockReturnValue({ ...stored, contentHash: fingerprint });
++    const snapshot = new ExploreSourceSnapshots(cg).get('worker.cpp');
++    expect(snapshot.status).toBe('unverified');
++    expect(snapshot.content).toBeUndefined();
++  });
++
++  it('fails closed if indexed metadata cannot be read', () => {
++    vi.spyOn(cg, 'getFile').mockImplementation(() => { throw new Error('database unavailable'); });
++    expect(new ExploreSourceSnapshots(cg).get('worker.cpp').status).toBe('unverified');
++  });
++
++  it('rejects lexical escapes and directory symlinks that escape the project', () => {
++    fs.writeFileSync(path.join(outside, 'secret.cpp'), 'int secret() { return 999; }\n');
++    const sources = new ExploreSourceSnapshots(cg);
++    expect(sources.get(path.join(outside, 'secret.cpp'))).toMatchObject({ status: 'unverified' });
++    const link = path.join(root, 'outside-link');
++    fs.symlinkSync(outside, link, process.platform === 'win32' ? 'junction' : 'dir');
++    const snapshot = sources.get('outside-link/secret.cpp');
++    expect(snapshot.status).toBe('unverified');
++    expect(snapshot.content).toBeUndefined();
++    expect(snapshot.reason).toContain('outside the project');
++  });
++});
+--- baseline/__tests__/explore-target-selection.test.ts
++++ candidate/__tests__/explore-target-selection.test.ts
+@@ -0,0 +1,162 @@
++import { describe, expect, it } from 'vitest';
++import type { Node } from '../src/types';
++import { renderExploreSources, type ExploreSourceFile } from '../src/mcp/explore-selection';
++
++const node = (name: string, startLine: number, endLine: number, kind = 'function') =>
++  ({ id: name, name, startLine, endLine, kind, language: 'cpp' } as Node);
++const body = (name: string, length: number) => [`int ${name}() {`,
++  ...Array.from({ length }, (_, i) => `  consume_${name}(${i});`), `} // FINISH_${name}`].join('\n');
++const source = (path: string, content: string, nodes: Node[], ids: string[] = []): ExploreSourceFile => ({
++  path, content, nodes, priority: () => 0, connectivity: () => 1, skeleton: false, bodyAllowed: () => true,
++  protectedNodeIds: new Set(ids),
++});
++const render = (files: ExploreSourceFile[], total = 2400, perFile = 700, maxFiles = 8) =>
++  renderExploreSources('### Source Code\n\n', files, { maxOutputChars: total, maxCharsPerFile: perFile,
++    maxFiles, lineNumbers: true, headerSymbols: 8 });
++
++describe('Explicit explore target selection', () => {
++  it('protects two independent exact bodies before a large ordinary neighbor', () => {
++    const out = render([
++      source('neighbor.cpp', body('noise', 160), [node('noise', 1, 162)]),
++      source('first.cpp', body('save', 8), [node('save', 1, 10)], ['save']),
++      source('second.cpp', body('restore', 8), [node('restore', 1, 10)], ['restore']),
++    ], 1700, 700, 2);
++    expect(out).toContain('FINISH_save'); expect(out).toContain('FINISH_restore');
++    expect(out).not.toContain('FINISH_noise'); expect(out.match(/^#### /gm)).toHaveLength(2);
++    expect(out.length).toBeLessThanOrEqual(1700);
++  });
++  it('returns executable evidence for a large exact body after a small body in the same file', () => {
++    const f = source('worker.cpp', body('small', 2) + '\n' + body('long_target', 140),
++      [node('small', 1, 4), node('long_target', 5, 146)], ['small', 'long_target']);
++    const out = render([f], 1500, 650);
++    expect(out).toContain('FINISH_small'); expect(out).toContain('consume_long_target(0)');
++    expect(out).not.toContain('FINISH_long_target');
++    expect(out).toMatch(/Omitted target: worker\.cpp:5-146 long_target; shown 5-\d+; missing \d+-146/);
++    expect(out).not.toContain('complete selected bodies'); expect(out.length).toBeLessThanOrEqual(1500);
++  });
++  it('starts a requested tail range at its actual location and never expands to the enclosing function', () => {
++    const f = source('ending.cpp', body('container', 98), [node('container', 1, 100)]);
++    f.requestedRanges = [{ start: 90, end: 94 }];
++    const out = render([f]);
++    expect(out).toContain('90\t  consume_container(88)');
++    expect(out).toContain('94\t  consume_container(92)');
++    expect(out).not.toContain('1\tint container'); expect(out).not.toContain('FINISH_container');
++    expect(out).toContain('ending.cpp:90-94 requested source range; shown 90-94; missing none');
++  });
++  it('renders an oversized range without AST nodes and reports its exact remaining interval', () => {
++    const content = Array.from({ length: 300 }, (_, i) => `line_${i + 1}_with_source_payload();`).join('\n');
++    const f = source('unindexed.inc', content, []);
++    f.requestedRanges = [{ start: 200, end: 290 }];
++    const out = render([f], 1250, 600);
++    expect(out).toContain('200\tline_200_with_source_payload();');
++    expect(out).not.toContain('1\tline_1_'); expect(out).not.toContain('290\t');
++    expect(out).toMatch(/unindexed\.inc:200-290 requested source range; shown 200-\d+; missing \d+-290/);
++    expect(out.length).toBeLessThanOrEqual(1250);
++  });
++  it('keeps an explicit multiline span free of unrequested preceding and following functions', () => {
++    const f = source('ranges.cpp', 'int before() {\n return 11;\n}\n// requested A\n// requested B\n// requested C\nint after() {\n return 22;\n}',
++      [node('before', 1, 3), node('after', 7, 9)]);
++    f.requestedRanges = [{ start: 4, end: 6 }];
++    const out = render([f]);
++    expect(out).toContain('4\t// requested A'); expect(out).toContain('6\t// requested C');
++    expect(out).not.toContain('int before'); expect(out).not.toContain('int after');
++    f.protectedNodeIds = new Set(['after']);
++    expect(render([f])).toContain('return 22');
++  });
++  it('protects explicit spans before pinned files while respecting maxFiles', () => {
++    const pin = source('pinned.cpp', body('hint', 2), [node('hint', 1, 4)]); pin.pinned = true;
++    const range = source('span.txt', 'one\ntwo\nthree\nfour', []); range.requestedRanges = [{ start: 2, end: 3 }];
++    const exact = source('exact.cpp', body('target', 2), [node('target', 1, 4)], ['target']);
++    const out = render([pin, exact, range], 2000, 700, 1);
++    expect(out.match(/^#### /gm)).toHaveLength(1); expect(out).toContain('#### span.txt');
++    expect(out).not.toContain('FINISH_target');
++    expect(out).toContain('exact.cpp:1-4 target; shown none; missing 1-4; file omitted by maxFiles');
++  });
++  it('does not let a pinned declaration outline displace its canonical exact definition', () => {
++    const declaration = source('thing.h', 'class Thing {\n  int act();\n};',
++      [node('Thing', 1, 3, 'class'), { ...node('declaration', 2, 2, 'method'), isDeclaration: true }]);
++    declaration.pinned = true; declaration.requestedRanges = [{ start: 2, end: 2 }];
++    const definition = source('thing.cpp', body('act', 3), [node('act', 1, 5)], ['act']);
++    const out = render([declaration, definition], 2000, 700, 1);
++    expect(out).toContain('FINISH_act'); expect(out).not.toContain('#### thing.h');
++  });
++  it('gives a path-only unindexed file bounded source with truthful coverage', () => {
++    const f = source('config.inc', Array.from({ length: 100 }, (_, i) => `SETTING_${i} = value_${i};`).join('\n'), []);
++    f.pinned = true;
++    const out = render([f], 1000, 500);
++    expect(out).toContain('1\tSETTING_0'); expect(out).not.toContain('SETTING_99');
++    expect(out).toContain('config.inc:1-100 requested file'); expect(out).toContain('missing ');
++    expect(out.length).toBeLessThanOrEqual(1000);
++  });
++  it('still gives a pinned file useful source when its only indexed body is oversized', () => {
++    const f = source('large.cpp', body('large', 200), [node('large', 1, 202)]); f.pinned = true;
++    const out = render([f], 1400, 600);
++    expect(out).toContain('consume_large(0)'); expect(out).not.toContain('FINISH_large');
++    expect(out).toMatch(/Omitted body: large\.cpp:1-202 large; shown 1-\d+; missing \d+-202/);
++    expect(out.length).toBeLessThanOrEqual(1400);
++  });
++  it('does not claim an out-of-bounds requested range was emitted', () => {
++    const f = source('short.txt', 'a\nb\nc', []); f.requestedRanges = [{ start: 2, end: 7 }];
++    const out = render([f]);
++    expect(out).toContain('short.txt:2-7 requested source range; shown 2-3; missing 4-7');
++    expect(out).not.toContain('Complete target');
++  });
++  it('accounts for long paths, fences, line numbers and ledger without slicing source lines', () => {
++    const f = source('nested/'.repeat(20) + 'budget.cpp', body('bounded', 80), [node('bounded', 1, 82)], ['bounded']);
++    for (const total of [250, 500, 900, 1600]) {
++      const out = render([f], total, 600);
++      expect(out.length).toBeLessThanOrEqual(total);
++      expect((out.match(/^```/gm) ?? []).length % 2).toBe(0);
++      for (const line of out.split('\n').filter(line => /^\d+\t/.test(line))) {
++        expect(line).toMatch(/\{\s*$|\);\s*$|FINISH_bounded$/);
++      }
++    }
++  });
++  it('does not invoke target selection for unrelated IDs in a shared protected set', () => {
++    const f = source('normal.cpp', body('normal', 2), [node('normal', 1, 4)]);
++    const old = render([f]);
++    f.protectedNodeIds = new Set(['other-file-target']);
++    expect(render([f])).toBe(old);
++  });
++  it('treats fields as source targets without expanding the whole owner type', () => {
++    const f = source('record.h', 'struct Record {\n  int slot =\n    42;\n};',
++      [node('Record', 1, 4, 'struct'), node('slot', 2, 3, 'variable')], ['slot']);
++    const out = render([f]);
++    expect(out).toContain('3\t    42;');
++    expect(out).toContain('record.h:2-3 slot; shown 2-3; missing none');
++  });
++  it('does not let a relevance skeleton gate suppress an exact callable body', () => {
++    const f = source('sibling.cpp', body('chosen', 4), [node('chosen', 1, 6)], ['chosen']);
++    f.skeleton = true; f.bodyAllowed = () => false;
++    const out = render([f]);
++    expect(out).toContain('FINISH_chosen');
++    expect(out).toContain('sibling.cpp:1-6 chosen; shown 1-6; missing none');
++  });
++  it('reports an exact type as an outline with the original missing range, never a complete class body', () => {
++    const content = ['class Worker {', ...Array.from({ length: 90 }, (_, i) => `  int slot_${i};`), '};'].join('\n');
++    const f = source('worker.h', content, [node('Worker', 1, 92, 'class')], ['Worker']);
++    const out = render([f], 2000, 700);
++    expect(out).toContain('1\tclass Worker {'); expect(out).not.toContain('slot_0');
++    expect(out).toContain('Outline only: worker.h:1-92 Worker; shown 1; missing 2-92');
++    expect(out).not.toContain('Complete target: worker.h');
++    expect(out).not.toContain('worker.h:1-1 Worker');
++    expect(out.length).toBeLessThanOrEqual(2000);
++  });
++  it('labels an unresolved exact method declaration as declaration evidence, never a complete implementation', () => {
++    // The implementation may have been omitted by the freshness guard, leaving
++    // this independently fresh declaration as the only safe indexed evidence.
++    const f = source('worker.h', 'class Worker {\n  int commit();\n};',
++      [{ ...node('commit', 2, 2, 'method'), isDeclaration: true }], ['commit']);
++    const out = render([f]);
++    expect(out).toContain('2\t  int commit();');
++    expect(out).toContain('Declaration only: worker.h:2-2 commit; shown 2; missing none; body not included');
++    expect(out).not.toContain('Complete target');
++  });
++  it('keeps the original multiline declaration range when only its signature outline is shown', () => {
++    const f = source('api.h', 'int dispatch(\n  int first,\n  int second);',
++      [{ ...node('dispatch', 1, 3), isDeclaration: true }], ['dispatch']);
++    const out = render([f]);
++    expect(out).toContain('Declaration only: api.h:1-3 dispatch; shown 1; missing 2-3; body not included');
++    expect(out).not.toContain('Complete target');
++  });
++});
+--- baseline/__tests__/explore-targets-integration.test.ts
++++ candidate/__tests__/explore-targets-integration.test.ts
+@@ -0,0 +1,125 @@
++import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
++import * as fs from 'node:fs';
++import * as path from 'node:path';
++import * as os from 'node:os';
++import CodeGraph from '../src/index';
++import { ToolHandler } from '../src/mcp/tools';
++
++describe('explicit targets and freshness through the actual explore tool', () => {
++  let root: string, cg: CodeGraph, handler: ToolHandler;
++  const implementation = '#include "worker.h"\nnamespace harbor {\nint LedgerWriter::commit() {\n  const int verified_implementation = 813;\n  return verified_implementation;\n}\n}\n';
++  const module = 'export function neighbor() {\n  return "outside_requested_range";\n}\n// range_first\n// range_middle\n// range_last\nexport function useful() {\n  return 42;\n}\n';
++  beforeAll(async () => {
++    vi.stubEnv('CODEGRAPH_ENABLE_EXPLORE', '1');
++    vi.stubEnv('CODEGRAPH_EXPLORE_LINENUMS', '1');
++    root = fs.mkdtempSync(path.join(os.tmpdir(), 'cg-target-integration-'));
++    fs.writeFileSync(path.join(root, 'worker.h'), 'namespace harbor {\nclass LedgerWriter { public:\n  int commit();\n};\n}\n');
++    fs.writeFileSync(path.join(root, 'worker.cpp'), implementation);
++    fs.writeFileSync(path.join(root, 'ranges.ts'), module);
++    fs.writeFileSync(path.join(root, 'notes.cpp'), '// comments_only_first\n// comments_only_second\n');
++    for (const dir of ['left', 'right']) {
++      fs.mkdirSync(path.join(root, dir));
++      fs.writeFileSync(path.join(root, dir, 'peer.ts'), `export function ${dir}Peer() { return 1; }\n`);
++    }
++    fs.writeFileSync(path.join(root, 'range-caller.ts'), 'import { leftPeer } from "./left/peer";\nexport function fetchValue() {\n  return leftPeer();\n}\n');
++    cg = CodeGraph.initSync(root, { config: { include: ['**/*.ts', '**/*.cpp', '**/*.h'], exclude: [] } });
++    await cg.indexAll();
++    handler = new ToolHandler(cg);
++  });
++  afterAll(() => {
++    cg?.close();
++    const relative = path.relative(os.tmpdir(), root);
++    if (!relative.startsWith('cg-target-integration-') || relative.includes(path.sep)) throw new Error('unsafe fixture cleanup');
++    fs.rmSync(root, { recursive: true, force: true });
++    vi.unstubAllEnvs();
++  });
++  const ask = async (query: string, maxFiles = 1) => {
++    const result = await handler.execute('explore', { query, maxFiles });
++    expect(result.isError, JSON.stringify(result.content)).not.toBe(true);
++    return result.content.filter(c => c.type === 'text').map(c => (c as { text: string }).text).join('\n');
++  };
++  const body = (text: string) => [...text.matchAll(/```[^\n]*\n([\s\S]*?)\n```/g)].map(m => m[1]).join('\n');
++
++  it('delivers a qualified out-of-line C++ definition', async () => {
++    const text = await ask('harbor::LedgerWriter::commit');
++    expect(body(text)).toContain('verified_implementation = 813');
++    expect(body(text)).toContain('return verified_implementation');
++    expect(text.match(/^#### /gm)).toHaveLength(1);
++  });
++  it('does not let a pinned declaration displace its exact implementation at maxFiles=1', async () => {
++    const text = await ask('worker.h:3');
++    expect(text).toContain('#### worker.cpp');
++    expect(body(text)).toContain('return verified_implementation');
++    expect(text.match(/^#### /gm)).toHaveLength(1);
++  });
++  it('delivers an explicit multiline range as that range', async () => {
++    const text = await ask('ranges.ts:4-6');
++    expect(body(text)).toContain('4\t// range_first');
++    expect(body(text)).toContain('6\t// range_last');
++    expect(body(text)).not.toContain('outside_requested_range');
++  });
++  it('retains indexed source without callable nodes for a path and a range', async () => {
++    expect(cg.getFile('notes.cpp')).toBeTruthy();
++    expect(body(await ask('notes.cpp:1-2'))).toContain('comments_only_second');
++    expect(body(await ask('notes.cpp'))).toContain('comments_only_first');
++  });
++  it('does not expand a pure line-range request through cross-file calls', async () => {
++    const text = await ask('range-caller.ts:3-4', 12);
++    expect(body(text)).toContain('3\t  return leftPeer();');
++    expect(text).not.toContain('#### left/peer.ts');
++    expect(text.match(/^#### /gm)).toHaveLength(1);
++  });
++  it('reports ambiguous basenames rather than choosing a sibling', async () => {
++    const text = await ask('peer.ts:1');
++    expect(text).toMatch(/ambiguous|unresolved/i);
++    expect(body(text)).not.toContain('leftPeer');
++    expect(body(text)).not.toContain('rightPeer');
++  });
++  it('does not reuse verified bytes across queries after a same-size edit', async () => {
++    expect(body(await ask('harbor::LedgerWriter::commit'))).toContain('813');
++    const file = path.join(root, 'worker.cpp');
++    const stamp = fs.statSync(file);
++    try {
++      fs.writeFileSync(file, implementation.replace('813', '927'));
++      fs.utimesSync(file, stamp.atime, stamp.mtime);
++      const text = await ask('harbor::LedgerWriter::commit');
++      expect(text).toContain('Source omitted: worker.cpp');
++      expect(text).toContain('changed since indexing');
++      expect(body(text)).not.toContain('813');
++      expect(body(text)).not.toContain('927');
++      expect(text).not.toMatch(/Complete target: worker\.h:[^\n]*commit/);
++      expect(text).toContain('Declaration only');
++    } finally { fs.writeFileSync(file, implementation); }
++  });
++  it('never slices a shifted body at old indexed line numbers', async () => {
++    const file = path.join(root, 'worker.cpp');
++    try {
++      fs.writeFileSync(file, 'int unrelated_shifted_body() { return 999; }\n\n' + implementation);
++      const text = await ask('worker.cpp:3-6');
++      expect(text).toMatch(/cannot be mapped safely|Source omitted/);
++      expect(body(text)).not.toContain('unrelated_shifted_body');
++      expect(body(text)).not.toContain('verified_implementation');
++    } finally { fs.writeFileSync(file, implementation); }
++  });
++  it('reports a missing explicit source instead of silently succeeding with a body', async () => {
++    const file = path.join(root, 'worker.cpp');
++    try {
++      fs.unlinkSync(file);
++      const text = await ask('harbor::LedgerWriter::commit');
++      expect(text).toContain('source file is missing');
++      expect(body(text)).not.toContain('verified_implementation');
++    } finally { fs.writeFileSync(file, implementation); }
++  });
++  it('reports an out-of-bounds range without fabricating source lines', async () => {
++    const text = await ask('ranges.ts:400-405');
++    expect(text).toContain('exceeds');
++    expect(body(text)).not.toMatch(/^40[0-5]\t/m);
++    expect(body(text)).toBe('');
++    expect(text.length).toBeLessThanOrEqual(13000);
++  });
++  it.each(['ranges.ts:0', 'ranges.ts:-2'])('does not widen invalid range %s into the whole file', async query => {
++    const text = await ask(query);
++    expect(text).toMatch(/Invalid line target/i);
++    expect(body(text)).toBe('');
++  });
++});
+--- baseline/__tests__/query-paths.test.ts
++++ candidate/__tests__/query-paths.test.ts
+@@ -0,0 +1,506 @@
++/**
++ * File-path recognition in explore queries (src/search/query-paths.ts).
++ *
++ * The originating bug: an agent named two SvelteKit route files by exact path
++ * (`src/routes/m/projects/[id]/runs/[runId]/+page.svelte`) and the explore
++ * pipeline shredded them — the seeding tokenizer splits on brackets, so the
++ * fragments `runId`/`scope` seeded as "named symbols" and headlined the blast
++ * radius, while FTS admitted every sibling `+page.svelte` off the `page`/`runs`
++ * fragments. These tests pin the module that stops that: path spans resolve
++ * against the indexed file list, matching files pin, and the spans leave the
++ * query. Resolution IS the detector — slash-bearing non-paths stay untouched.
++ */
++import { describe, it, expect } from 'vitest';
++import { extractQueryPaths, queryMightContainPaths } from '../src/search/query-paths';
++
++const INDEX = [
++  'src/routes/m/projects/[id]/runs/[runId]/+page.svelte',
++  'src/routes/m/projects/[id]/chat/[scope]/+page.svelte',
++  'src/routes/m/projects/[id]/+page.svelte',
++  'src/routes/(protected)/chat-window/+page.svelte',
++  'src/lib/chat-manager.ts',
++  'src/lib/task-runner-manager.ts',
++  'src/lib/stores/sqlite-store.ts',
++  'src/lib/stores/postgresql-store.ts',
++  // Kebab-case frontend shapes (the amnisphere extension-less-basename bug):
++  'src/components/training-set-page/training-set-page.tsx',
++  'src/components/training-set-page/training-set-page-background-images.tsx',
++  'src/components/training-set-page/training-set-page.module.scss',
++  'src/components/training-set-page/background-image-table.tsx',
++  'src/components/modal/add-to-training-set/add-to-training-set.tsx',
++  'src/pages/library-page-layout.tsx',
++  'src/api/job-manager/backgrounds.ts',
++  'src/x/generic-modal.tsx',
++  'src/y/generic-modal.tsx',
++  'scripts/pre-commit',
++  'src/a/user-profile.tsx',
++  'src/b/user-profile.tsx',
++  'src/c/user-profile.tsx',
++  'src/d/user-profile.tsx',
++];
++
++describe('queryMightContainPaths — the cheap pre-gate', () => {
++  it('fires on slashes and dotted basenames', () => {
++    expect(queryMightContainPaths('look at src/lib/chat-manager.ts')).toBe(true);
++    expect(queryMightContainPaths('look at chat-manager.ts please')).toBe(true);
++  });
++
++  it('stays quiet on plain prose and Class.method spans', () => {
++    expect(queryMightContainPaths('how does the scroll pinning work')).toBe(false);
++    // `.isPackaged` is 10 chars — past the 8-char extension cap.
++    expect(queryMightContainPaths('what reads app.isPackaged here')).toBe(false);
++  });
++
++  it('fires on extension-less kebab basenames — with or without wrapping', () => {
++    expect(queryMightContainPaths('background-image-table Source column')).toBe(true);
++    expect(queryMightContainPaths('the `library-page-layout` wrapper')).toBe(true);
++    expect(queryMightContainPaths('usage, add-to-training-set.')).toBe(true);
++  });
++
++  it('stays quiet on flags, snake_case, and snake-with-a-dash hybrids', () => {
++    expect(queryMightContainPaths('run it with --no-cache maybe')).toBe(false);
++    expect(queryMightContainPaths('where is background_image_table used')).toBe(false);
++    expect(queryMightContainPaths('the foo_bar-baz helper')).toBe(false);
++  });
++});
++
++describe('extractQueryPaths — resolution and stripping', () => {
++  it('resolves a bracketed SvelteKit path and strips it from the query', () => {
++    const q = 'auto-scroll logic in src/routes/m/projects/[id]/runs/[runId]/+page.svelte — atBottom tracking';
++    const out = extractQueryPaths(q, INDEX);
++    expect(out.pinnedFiles).toEqual(['src/routes/m/projects/[id]/runs/[runId]/+page.svelte']);
++    expect(out.strippedQuery).not.toContain('+page.svelte');
++    expect(out.strippedQuery).not.toContain('runId');
++    expect(out.strippedQuery).toContain('atBottom tracking');
++    expect(out.unresolvedPathSpans).toEqual([]);
++  });
++
++  it('pins multiple named files in appearance order', () => {
++    const q = 'compare src/routes/m/projects/[id]/chat/[scope]/+page.svelte and src/routes/m/projects/[id]/runs/[runId]/+page.svelte';
++    const out = extractQueryPaths(q, INDEX);
++    expect(out.pinnedFiles).toEqual([
++      'src/routes/m/projects/[id]/chat/[scope]/+page.svelte',
++      'src/routes/m/projects/[id]/runs/[runId]/+page.svelte',
++    ]);
++  });
++
++  it('resolves a (protected) route-group path — parens are path characters', () => {
++    const out = extractQueryPaths('read src/routes/(protected)/chat-window/+page.svelte', INDEX);
++    expect(out.pinnedFiles).toEqual(['src/routes/(protected)/chat-window/+page.svelte']);
++  });
++
++  it('resolves an absolute path by walking suffixes to the indexed relative path', () => {
++    const q = 'fix /Users/colby/dev/beads-live-dashboard/src/lib/chat-manager.ts';
++    const out = extractQueryPaths(q, INDEX);
++    expect(out.pinnedFiles).toEqual(['src/lib/chat-manager.ts']);
++  });
++
++  it('resolves a unique basename and a partial path', () => {
++    expect(extractQueryPaths('see chat-manager.ts', INDEX).pinnedFiles)
++      .toEqual(['src/lib/chat-manager.ts']);
++    expect(extractQueryPaths('see stores/sqlite-store.ts', INDEX).pinnedFiles)
++      .toEqual(['src/lib/stores/sqlite-store.ts']);
++  });
++
++  it('strips wrapping punctuation and line references', () => {
++    const out = extractQueryPaths('the bug (see `src/lib/chat-manager.ts:243`).', INDEX);
++    expect(out.pinnedFiles).toEqual(['src/lib/chat-manager.ts']);
++    const hash = extractQueryPaths('regression at src/lib/task-runner-manager.ts#L88-L120', INDEX);
++    expect(hash.pinnedFiles).toEqual(['src/lib/task-runner-manager.ts']);
++  });
++
++  it('treats an over-ambiguous basename as unresolved — stripped and reported', () => {
++    const out = extractQueryPaths('why do all +page.svelte files flash', INDEX);
++    expect(out.pinnedFiles).toEqual([]);
++    expect(out.unresolvedPathSpans).toEqual(['+page.svelte']);
++    expect(out.strippedQuery).toBe('why do all files flash');
++  });
++
++  it('strips and reports a clearly-path-shaped span that matches nothing', () => {
++    const out = extractQueryPaths('crash in src/routes/gone/missing-page.svelte on load', INDEX);
++    expect(out.pinnedFiles).toEqual([]);
++    expect(out.unresolvedPathSpans).toEqual(['src/routes/gone/missing-page.svelte']);
++    expect(out.strippedQuery).toBe('crash in on load');
++  });
++
++  it('leaves slash-bearing non-paths alone', () => {
++    const q = 'does gen_server:call/2 block and/or timeout';
++    const out = extractQueryPaths(q, INDEX);
++    expect(out.pinnedFiles).toEqual([]);
++    expect(out.unresolvedPathSpans).toEqual([]);
++    expect(out.strippedQuery).toBe(q);
++  });
++
++  it('dedupes a path named twice and honors maxPins', () => {
++    const twice = extractQueryPaths(
++      'src/lib/chat-manager.ts wraps src/lib/chat-manager.ts', INDEX,
++    );
++    expect(twice.pinnedFiles).toEqual(['src/lib/chat-manager.ts']);
++
++    const capped = extractQueryPaths(
++      'src/lib/chat-manager.ts src/lib/task-runner-manager.ts', INDEX, { maxPins: 1 },
++    );
++    expect(capped.pinnedFiles).toEqual(['src/lib/chat-manager.ts']);
++  });
++
++  it('matches case-insensitively but returns the indexed spelling', () => {
++    const out = extractQueryPaths('SRC/LIB/CHAT-MANAGER.TS', INDEX);
++    expect(out.pinnedFiles).toEqual(['src/lib/chat-manager.ts']);
++  });
++
++  it('passes through untouched when nothing resolves', () => {
++    const q = 'plain prose question about scrolling';
++    const out = extractQueryPaths(q, INDEX);
++    expect(out).toEqual({ strippedQuery: q, pinnedFiles: [], unresolvedPathSpans: [], lineAnchors: [], setAsideMatches: [] });
++  });
++});
++
++describe('extractQueryPaths — extension-less kebab basenames', () => {
++  it('pins the file a bare kebab basename names and consumes the token', () => {
++    const out = extractQueryPaths('background-image-table Source column', INDEX);
++    expect(out.pinnedFiles)
++      .toEqual(['src/components/training-set-page/background-image-table.tsx']);
++    expect(out.strippedQuery).toBe('Source column');
++    expect(out.unresolvedPathSpans).toEqual([]);
++  });
++
++  it('resolves with no slash or extension anywhere in the query (session-4 shape)', () => {
++    const out = extractQueryPaths(
++      'TrainingSetPage train modal library-page-layout AddToTrainingSetModal usage', INDEX,
++    );
++    expect(out.pinnedFiles).toEqual(['src/pages/library-page-layout.tsx']);
++    // Identifier-shaped tokens stay for the named-symbol seeder.
++    expect(out.strippedQuery).toBe('TrainingSetPage train modal AddToTrainingSetModal usage');
++  });
++
++  it('pins every named file in a mixed dotted + kebab query (session-1 shape)', () => {
++    const out = extractQueryPaths(
++      'add-to-training-set training-set-page-background-images backgrounds.ts background-image-table Source column',
++      INDEX,
++    );
++    expect(out.pinnedFiles).toEqual([
++      // The dotted pass runs first, so the explicit basename pins ahead of the kebabs.
++      'src/api/job-manager/backgrounds.ts',
++      'src/components/modal/add-to-training-set/add-to-training-set.tsx',
++      'src/components/training-set-page/training-set-page-background-images.tsx',
++      'src/components/training-set-page/background-image-table.tsx',
++    ]);
++    expect(out.strippedQuery).toBe('Source column');
++  });
++
++  it('leaves kebab prose that names no indexed file untouched — and unreported', () => {
++    const q = 'how does cross-call dedup make explore non-blocking';
++    const out = extractQueryPaths(q, INDEX);
++    expect(out).toEqual({ strippedQuery: q, pinnedFiles: [], unresolvedPathSpans: [], lineAnchors: [], setAsideMatches: [] });
++  });
++
++  it('leaves a stem shared by too many files alone — one hot name must not pin half the repo', () => {
++    const q = 'refactor the user-profile rendering';
++    const out = extractQueryPaths(q, INDEX);
++    expect(out).toEqual({ strippedQuery: q, pinnedFiles: [], unresolvedPathSpans: [], lineAnchors: [], setAsideMatches: [] });
++  });
++
++  it('pins all files sharing a stem when within the ambiguity budget', () => {
++    const out = extractQueryPaths('generic-modal close behavior', INDEX);
++    expect(out.pinnedFiles).toEqual(['src/x/generic-modal.tsx', 'src/y/generic-modal.tsx']);
++  });
++
++  it('matches case-insensitively and through wrapping punctuation', () => {
++    expect(extractQueryPaths('see `Background-Image-Table`.', INDEX).pinnedFiles)
++      .toEqual(['src/components/training-set-page/background-image-table.tsx']);
++  });
++
++  it('stems drop only the last extension — a kebab token cannot pin a .module.scss sibling', () => {
++    const out = extractQueryPaths('training-set-page props flow', INDEX);
++    expect(out.pinnedFiles)
++      .toEqual(['src/components/training-set-page/training-set-page.tsx']);
++  });
++
++  it('pins an extension-less indexed file by its exact name', () => {
++    expect(extractQueryPaths('what does the pre-commit hook run', INDEX).pinnedFiles)
++      .toEqual(['scripts/pre-commit']);
++  });
++
++  it('skips tokens the dotted pass consumed and dedupes a file named both ways', () => {
++    const out = extractQueryPaths('src/lib/chat-manager.ts vs chat-manager internals', INDEX);
++    expect(out.pinnedFiles).toEqual(['src/lib/chat-manager.ts']);
++    expect(out.strippedQuery).toBe('vs internals');
++  });
++
++  it('explicit paths win the shared maxPins budget over kebab tokens', () => {
++    const out = extractQueryPaths(
++      'background-image-table then src/lib/chat-manager.ts', INDEX, { maxPins: 1 },
++    );
++    expect(out.pinnedFiles).toEqual(['src/lib/chat-manager.ts']);
++    // The kebab token was not consumed once the budget was spent — it stays for FTS.
++    // Local guard: the over-budget path is consumed, not fed back to symbols.
++    expect(out.strippedQuery).toBe('then');
++    expect(out.limitedPathSpans).toEqual(['background-image-table']);
++  });
++});
++
++/**
++ * Dotless slashed spans (#1830). `scripts/deploy` names a real file that the
++ * index does not hold (no recognized extension), but the shape test demands a
++ * dot-extension on the last segment — so the span was neither pinned NOR
++ * reported, and its fragments (`scripts`, `deploy`) went on to feed FTS. The
++ * agent got a pile of unrelated source with no hint that the file it named was
++ * never consulted. Shape alone cannot decide this (`and/or` is the same shape),
++ * so the caller injects an `existsOnDisk` predicate and the file's existence
++ * decides. These tests also pin that the predicate is genuinely CONSULTED —
++ * a predicate that is never called would make the whole arm vacuous.
++ */
++describe('extractQueryPaths — dotless slashed spans, decided on disk', () => {
++  /** Records every span the predicate is asked about. */
++  const probe = (onDisk: readonly string[]) => {
++    const asked: string[] = [];
++    return {
++      asked,
++      existsOnDisk: (rel: string) => { asked.push(rel); return onDisk.includes(rel); },
++    };
++  };
++
++  it('reports a dotless path that exists on disk but is not indexed', () => {
++    const p = probe(['scripts/deploy']);
++    const out = extractQueryPaths(
++      'why does scripts/deploy fail on release', INDEX, { existsOnDisk: p.existsOnDisk },
++    );
++    expect(out.pinnedFiles).toEqual([]);
++    expect(out.unresolvedPathSpans).toEqual(['scripts/deploy']);
++    expect(out.strippedQuery).toBe('why does fail on release');
++    // Vacuity guard: the verdict came from the predicate, not from some other arm.
++    expect(p.asked).toContain('scripts/deploy');
++  });
++
++  it('leaves the same span alone when no predicate is injected', () => {
++    const q = 'why does scripts/deploy fail on release';
++    const out = extractQueryPaths(q, INDEX);
++    expect(out.unresolvedPathSpans).toEqual([]);
++    expect(out.strippedQuery).toBe(q);
++  });
++
++  it('leaves `and/or` prose alone even though a predicate is injected', () => {
++    const p = probe(['scripts/deploy']);
++    const q = 'does gen_server:call/2 block and/or timeout';
++    const out = extractQueryPaths(q, INDEX, { existsOnDisk: p.existsOnDisk });
++    expect(out.pinnedFiles).toEqual([]);
++    expect(out.unresolvedPathSpans).toEqual([]);
++    expect(out.strippedQuery).toBe(q);
++    // Consulted and refused — not skipped by shape.
++    expect(p.asked).toContain('and/or');
++  });
++
++  it('leaves a slashed word pair that is not a file on disk alone', () => {
++    const p = probe(['scripts/deploy']);
++    const q = 'trace the input/output buffering path';
++    const out = extractQueryPaths(q, INDEX, { existsOnDisk: p.existsOnDisk });
++    expect(out.unresolvedPathSpans).toEqual([]);
++    expect(out.strippedQuery).toBe(q);
++    expect(p.asked).toContain('input/output');
++  });
++
++  it('still reports a dotted span that matches nothing and is not on disk', () => {
++    const p = probe([]);
++    const out = extractQueryPaths(
++      'crash in src/routes/gone/missing-page.svelte on load', INDEX,
++      { existsOnDisk: p.existsOnDisk },
++    );
++    expect(out.unresolvedPathSpans).toEqual(['src/routes/gone/missing-page.svelte']);
++    expect(out.strippedQuery).toBe('crash in on load');
++  });
++
++  it('pins an indexed dotless path by resolution, never asking about it', () => {
++    const p = probe(['scripts/pre-commit']);
++    const out = extractQueryPaths(
++      'what does scripts/pre-commit run', INDEX, { existsOnDisk: p.existsOnDisk },
++    );
++    expect(out.pinnedFiles).toEqual(['scripts/pre-commit']);
++    expect(out.unresolvedPathSpans).toEqual([]);
++    expect(p.asked).not.toContain('scripts/pre-commit');
++  });
++});
++
++describe('extractQueryPaths — line anchors', () => {
++  // The django follow-ups that went unanswered: an agent handed a signature for
++  // a 226-line method asks for the body by line, and explore used to pin the
++  // file but drop the lines — answering "the file's most relevant clusters"
++  // instead of the span it named.
++  const CHAT = 'src/lib/chat-manager.ts';
++
++  it('keeps a :line / :start-end / #L suffix as an anchor on the pinned file', () => {
++    expect(extractQueryPaths(`body of ${CHAT}:776`, INDEX).lineAnchors)
++      .toEqual([{ file: CHAT, start: 776, end: 776 }]);
++    expect(extractQueryPaths(`see ${CHAT}:12-40`, INDEX).lineAnchors)
++      .toEqual([{ file: CHAT, start: 12, end: 40 }]);
++    expect(extractQueryPaths('regression at src/lib/task-runner-manager.ts#L88-L120', INDEX).lineAnchors)
++      .toEqual([{ file: 'src/lib/task-runner-manager.ts', start: 88, end: 120 }]);
++  });
++
++  it('binds a prose line range to the path it sits next to and removes it from the query', () => {
++    const out = extractQueryPaths(`${CHAT} lines 900-1003 flushQueue tail`, INDEX);
++    expect(out.lineAnchors).toEqual([{ file: CHAT, start: 900, end: 1003 }]);
++    // `lines` would feed FTS a word every file holds; the numbers match nothing.
++    expect(out.strippedQuery).toBe('flushQueue tail');
++  });
++
++  it('accepts the other spellings agents write', () => {
++    const anchor = (q: string) => extractQueryPaths(q, INDEX).lineAnchors;
++    expect(anchor(`lines 900 to 1003 of ${CHAT}`)).toEqual([{ file: CHAT, start: 900, end: 1003 }]);
++    expect(anchor(`L900-L1003 in ${CHAT}`)).toEqual([{ file: CHAT, start: 900, end: 1003 }]);
++    expect(anchor(`${CHAT} line 42`)).toEqual([{ file: CHAT, start: 42, end: 42 }]);
++    expect(anchor(`${CHAT} 900-1003`)).toEqual([{ file: CHAT, start: 900, end: 1003 }]);
++    expect(anchor(`${CHAT} (lines 1003-900)`)).toEqual([{ file: CHAT, start: 900, end: 1003 }]);
++  });
++
++  it('binds each range to its NEAREST path when the query names two files', () => {
++    const out = extractQueryPaths(
++      `${CHAT} lines 10-20 and src/lib/task-runner-manager.ts lines 30-40`, INDEX,
++    );
++    expect(out.lineAnchors).toEqual([
++      { file: CHAT, start: 10, end: 20 },
++      { file: 'src/lib/task-runner-manager.ts', start: 30, end: 40 },
++    ]);
++  });
++
++  it('leaves line numbers alone when there is no path, or the path is ambiguous', () => {
++    const noPath = extractQueryPaths('flushQueue lines 900-1003', INDEX);
++    expect(noPath.lineAnchors).toEqual([]);
++    // A bare number with no line context is not a line number either.
++    expect(extractQueryPaths(`${CHAT} retries 3 times`, INDEX).lineAnchors).toEqual([]);
++    // `generic-modal` pins two files; a line number means nothing across both.
++    const twoFiles = extractQueryPaths('generic-modal.tsx:40', INDEX);
++    expect(twoFiles.pinnedFiles).toHaveLength(2);
++    expect(twoFiles.lineAnchors).toEqual([]);
++  });
++});
++
++/**
++ * A span that matches several files, narrowed by the symbols the query names.
++ *
++ * vscode has two `editorOptions.ts`; `editorOptions.ts clampedInt
++ * cursorStyleToString` pinned both, and the pins split the reservation, so the
++ * file holding the named functions got half the room it got WITHOUT the path.
++ * The caller injects `symbolFiles` (the index lookup; this module stays
++ * DB-free) and the matches defining a named symbol are the ones pinned.
++ */
++describe('extractQueryPaths — same-named files, narrowed by named symbols', () => {
++  const REGISTRY = 'src/editor/config/editorOptions.ts';
++  const HELPER = 'src/workbench/editor/editorOptions.ts';
++  const SHARED = [...INDEX, REGISTRY, HELPER];
++  /** Records every symbol the lookup is asked about. */
++  const lookup = (defs: Record<string, string[]>) => {
++    const asked: string[] = [];
++    return {
++      asked,
++      symbolFiles: (symbol: string) => { asked.push(symbol); return defs[symbol] ?? []; },
++    };
++  };
++
++  it('pins only the match defining a named symbol and reports the one set aside', () => {
++    const l = lookup({ clampedInt: [REGISTRY], cursorStyleToString: [REGISTRY] });
++    const out = extractQueryPaths(
++      'editorOptions.ts clampedInt cursorStyleToString', SHARED, { symbolFiles: l.symbolFiles },
++    );
++    expect(out.pinnedFiles).toEqual([REGISTRY]);
++    expect(out.setAsideMatches).toEqual([{ span: 'editorOptions.ts', files: [HELPER] }]);
++    expect(out.strippedQuery).toBe('clampedInt cursorStyleToString');
++    // The span itself is a file name, not a symbol to look up.
++    expect(l.asked).toEqual(['clampedInt', 'cursorStyleToString']);
++  });
++
++  it('narrows a shared kebab stem the same way', () => {
++    const l = lookup({ GenericModalFooter: ['src/y/generic-modal.tsx'] });
++    const out = extractQueryPaths('generic-modal GenericModalFooter', SHARED, { symbolFiles: l.symbolFiles });
++    expect(out.pinnedFiles).toEqual(['src/y/generic-modal.tsx']);
++    expect(out.setAsideMatches).toEqual([{ span: 'generic-modal', files: ['src/x/generic-modal.tsx'] }]);
++  });
++
++  it('pins every match when none defines a named symbol, or every one does', () => {
++    const none = lookup({ clampedInt: ['src/lib/chat-manager.ts'] });
++    const noneOut = extractQueryPaths('editorOptions.ts clampedInt', SHARED, { symbolFiles: none.symbolFiles });
++    expect(noneOut.pinnedFiles).toEqual([REGISTRY, HELPER]);
++    expect(noneOut.setAsideMatches).toEqual([]);
++    // Consulted and found nothing — not skipped.
++    expect(none.asked).toEqual(['clampedInt']);
++
++    const both = lookup({ EditorOptions: [HELPER, REGISTRY] });
++    const bothOut = extractQueryPaths('editorOptions.ts EditorOptions', SHARED, { symbolFiles: both.symbolFiles });
++    expect(bothOut.pinnedFiles).toEqual([REGISTRY, HELPER]);
++    expect(bothOut.setAsideMatches).toEqual([]);
++  });
++
++  it('does not let a bare English word pick a file', () => {
++    // `options` and `close` are words as much as names: a file defining one
++    // says nothing about which same-named file the agent meant.
++    const l = lookup({ options: [HELPER], close: ['src/x/generic-modal.tsx'] });
++    expect(extractQueryPaths('editorOptions.ts options', SHARED, { symbolFiles: l.symbolFiles }).pinnedFiles)
++      .toEqual([REGISTRY, HELPER]);
++    expect(extractQueryPaths('generic-modal close behavior', SHARED, { symbolFiles: l.symbolFiles }).pinnedFiles)
++      .toEqual(['src/x/generic-modal.tsx', 'src/y/generic-modal.tsx']);
++    expect(l.asked).toEqual([]);
++  });
++
++  it('looks a qualified token up as written, and reads `name()` as the name', () => {
++    const l = lookup({ 'EditorIntOption.clampedInt': [REGISTRY], cursorStyleFromString: [REGISTRY] });
++    const out = extractQueryPaths(
++      'editorOptions.ts EditorIntOption.clampedInt `cursorStyleFromString()`', SHARED,
++      { symbolFiles: l.symbolFiles },
++    );
++    expect(out.pinnedFiles).toEqual([REGISTRY]);
++    expect(l.asked).toEqual(['EditorIntOption.clampedInt', 'cursorStyleFromString']);
++  });
++
++  it('resolves a basename shared past the ambiguity budget when one match defines the named symbol', () => {
++    const l = lookup({ UserProfileCard: ['src/c/user-profile.tsx'] });
++    const out = extractQueryPaths('user-profile UserProfileCard', SHARED, { symbolFiles: l.symbolFiles });
++    expect(out.pinnedFiles).toEqual(['src/c/user-profile.tsx']);
++    expect(out.setAsideMatches).toEqual([{
++      span: 'user-profile',
++      files: ['src/a/user-profile.tsx', 'src/b/user-profile.tsx', 'src/d/user-profile.tsx'],
++    }]);
++
++    const dotted = extractQueryPaths('+page.svelte ChatScroller', SHARED, {
++      symbolFiles: lookup({ ChatScroller: ['src/routes/(protected)/chat-window/+page.svelte'] }).symbolFiles,
++    });
++    expect(dotted.pinnedFiles).toEqual(['src/routes/(protected)/chat-window/+page.svelte']);
++    expect(dotted.unresolvedPathSpans).toEqual([]);
++  });
++
++  it('keeps an over-budget span ambiguous when the symbols do not narrow it into budget', () => {
++    const l = lookup({ PageHeader: [
++      'src/routes/m/projects/[id]/runs/[runId]/+page.svelte',
++      'src/routes/m/projects/[id]/chat/[scope]/+page.svelte',
++      'src/routes/m/projects/[id]/+page.svelte',
++      'src/routes/(protected)/chat-window/+page.svelte',
++    ] });
++    const out = extractQueryPaths('why do all +page.svelte PageHeader files flash', SHARED, { symbolFiles: l.symbolFiles });
++    expect(out.pinnedFiles).toEqual([]);
++    expect(out.unresolvedPathSpans).toEqual(['+page.svelte']);
++    expect(out.setAsideMatches).toEqual([]);
++
++    const kebab = extractQueryPaths('refactor the user-profile rendering', SHARED, { symbolFiles: l.symbolFiles });
++    expect(kebab.pinnedFiles).toEqual([]);
++    expect(kebab.strippedQuery).toBe('refactor the user-profile rendering');
++  });
++
++  it('binds a line anchor once the span narrows to one file', () => {
++    const l = lookup({ clampedInt: [REGISTRY] });
++    const out = extractQueryPaths('editorOptions.ts:1291 clampedInt', SHARED, { symbolFiles: l.symbolFiles });
++    expect(out.pinnedFiles).toEqual([REGISTRY]);
++    expect(out.lineAnchors).toEqual([{ file: REGISTRY, start: 1291, end: 1291 }]);
++  });
++
++  it('does not report a file the query also named by its full path', () => {
++    const l = lookup({ clampedInt: [REGISTRY] });
++    const out = extractQueryPaths(`editorOptions.ts clampedInt ${HELPER}`, SHARED, { symbolFiles: l.symbolFiles });
++    expect(out.pinnedFiles).toEqual([REGISTRY, HELPER]);
++    expect(out.setAsideMatches).toEqual([]);
++  });
++
++  it('never looks anything up for a span that matches one file', () => {
++    const l = lookup({ ChatManager: ['src/lib/chat-manager.ts'] });
++    const out = extractQueryPaths('chat-manager.ts ChatManager', SHARED, { symbolFiles: l.symbolFiles });
++    expect(out.pinnedFiles).toEqual(['src/lib/chat-manager.ts']);
++    expect(l.asked).toEqual([]);
++  });
++});

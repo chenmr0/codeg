@@ -1,0 +1,26 @@
+> Source freshness: 1 file(s) could not be verified for safe indexed slicing; their source is omitted. Indexed symbol/Flow locations for those files are not current source evidence.
+> Source omitted: worker.cpp — source content changed since indexing. Indexed symbol/Flow locations may be stale; use current-file Read or refresh the index before relying on those ranges.
+## Exploration: harbor::LedgerWriter::commit
+
+Found 5 symbols across 2 files.
+
+
+Exact symbol/path anchors and identifier text evidence; weak word matches are disabled.
+### Source Code
+
+> Source excerpts below are read from current files. Only shown source ranges are covered; signatures, outlines and omitted regions are not complete function bodies or complete files.
+
+#### worker.h — commit, LedgerWriter · focused source ranges (coverage below)
+
+```cpp
+2	class LedgerWriter {
+
+... (gap) ...
+
+4	  int commit(int value);
+5	  int commit(double value);
+```
+
+> Explicit target coverage (source ranges actually emitted):
+- Declaration only: worker.h:4-4 commit; shown 4; missing none; body not included
+- Declaration only: worker.h:5-5 commit; shown 5; missing none; body not included

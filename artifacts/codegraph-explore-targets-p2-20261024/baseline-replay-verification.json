@@ -1,0 +1,58 @@
+[
+  {
+    "id": "ttl-seed-bag",
+    "historical_baseline_exact": false,
+    "historical_baseline_locations_normalized": true,
+    "candidate_exact": false,
+    "candidate_locations_normalized": true
+  },
+  {
+    "id": "ttl-mixed-bag",
+    "historical_baseline_exact": true,
+    "historical_baseline_locations_normalized": true,
+    "candidate_exact": false,
+    "candidate_locations_normalized": true
+  },
+  {
+    "id": "ttl-task-single",
+    "historical_baseline_exact": true,
+    "historical_baseline_locations_normalized": true,
+    "candidate_exact": true,
+    "candidate_locations_normalized": true
+  },
+  {
+    "id": "ttl-throttler-single",
+    "historical_baseline_exact": true,
+    "historical_baseline_locations_normalized": true,
+    "candidate_exact": true,
+    "candidate_locations_normalized": true
+  },
+  {
+    "id": "ttl-throttler-methods",
+    "historical_baseline_exact": true,
+    "historical_baseline_locations_normalized": true,
+    "candidate_exact": true,
+    "candidate_locations_normalized": true
+  },
+  {
+    "id": "ttl-task-methods",
+    "historical_baseline_exact": true,
+    "historical_baseline_locations_normalized": true,
+    "candidate_exact": true,
+    "candidate_locations_normalized": true
+  },
+  {
+    "id": "dtl-seed-bag",
+    "historical_baseline_exact": true,
+    "historical_baseline_locations_normalized": true,
+    "candidate_exact": true,
+    "candidate_locations_normalized": true
+  },
+  {
+    "id": "dtl-methods",
+    "historical_baseline_exact": true,
+    "historical_baseline_locations_normalized": true,
+    "candidate_exact": true,
+    "candidate_locations_normalized": true
+  }
+]

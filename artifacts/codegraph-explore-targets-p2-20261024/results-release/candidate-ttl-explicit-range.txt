@@ -1,0 +1,152 @@
+## Exploration: src/observer/table/ttl/ob_table_ttl_task.cpp:1075-1209
+
+Found 1 symbols across 1 files.
+
+
+Exact symbol/path anchors and identifier text evidence; weak word matches are disabled.
+### Source Code
+
+> Source excerpts below are read from current files. Only shown source ranges are covered; signatures, outlines and omitted regions are not complete function bodies or complete files.
+
+#### src/observer/table/ttl/ob_table_ttl_task.cpp — requested source range · focused source ranges (coverage below)
+
+```cpp
+1075	int ObTableTTLDeleteTask::execute_ttl_delete(ObKvSchemaCacheGuard &schema_cache_guard,
+1076	                                             ObTableTTLRowIterator &ttl_row_iter,
+1077	                                             ObTableTTLOperationResult &result,
+1078	                                             transaction::ObTxDesc *trans_desc,
+1079	                                             transaction::ObTxReadSnapshot &snapshot)
+1080	{
+1081	  int ret = OB_SUCCESS;
+1082	  int64_t affected_rows = 0;
+1083	  bool is_index_scan = !ObTTLUtil::is_default_scan_index(scan_index_);
+1084	  while (OB_SUCC(ret)) {
+1085	    ObNewRow *row = nullptr;
+1086	    if (OB_FAIL(ttl_row_iter.get_next_row(row))) {
+1087	      if (OB_ITER_END != ret) {
+1088	        LOG_WARN("fail to get next row", K(ret));
+1089	      }
+1090	    } else {
+1091	      int64_t tmp_affect_rows = 0;
+1092	      if (OB_FAIL(construct_delete_entity(ttl_row_iter.column_pairs_, *row, delete_entity_))) {
+1093	        LOG_WARN("fail to construct delete entity", KR(ret));
+1094	      } else if (OB_FAIL(process_ttl_delete(schema_cache_guard, delete_entity_, tmp_affect_rows, trans_desc, snapshot, !is_index_scan))) {
+1095	        LOG_WARN("fail to execute table delete", K(ret));
+1096	      } else {
+1097	        int tmp_ret = OB_SUCCESS;
+1098	        affected_rows += tmp_affect_rows;
+1099	        if (OB_TMP_FAIL(delete_rate_throttler_.check_and_try_throttle(get_timeout_ts()))) {
+1100	          if (OB_ITER_END != tmp_ret) {
+1101	            LOG_WARN("fail to limit delete rate", KR(tmp_ret));
+1102	          }
+1103	        }
+1104	      }
+1105	      if (REACH_TIME_INTERVAL(30 * 1000 * 1000)) { // 30s
+1106	        delete_rate_throttler_.print_throttle_info();
+1107	      }
+1108	      LOG_DEBUG("[TTL Task] execute ttl delete", K(is_index_scan), KPC(row), K(delete_entity_));
+1109	    }
+1110	    delete_entity_.reset();
+1111	  }
+1112	
+1113	  if (OB_ITER_END == ret) {
+1114	    ret = OB_SUCCESS;
+1115	  }
+1116	
+1117	  if (OB_SUCC(ret)) {
+1118	    uint64_t iter_ttl_cnt = ttl_row_iter.ttl_cnt_;
+1119	    uint64_t iter_max_version_cnt = ttl_row_iter.max_version_cnt_;
+1120	    uint64_t iter_return_cnt = iter_ttl_cnt + iter_max_version_cnt;
+1121	    if (OB_UNLIKELY(affected_rows != iter_return_cnt)) {
+1122	      ret = OB_ERR_UNEXPECTED;
+1123	      LOG_ERROR("unexpected affect rows", K(ret), K(affected_rows), K(iter_return_cnt), K(iter_ttl_cnt));
+1124	    } else {
+1125	      result.ttl_del_rows_ = iter_ttl_cnt;
+1126	      result.max_version_del_rows_ = iter_max_version_cnt;
+1127	      result.scan_rows_ = ttl_row_iter.scan_cnt_;
+1128	      result.iter_end_ts_ = ttl_row_iter.iter_end_ts_;
+1129	    }
+1130	  }
+1131	
+1132	  if (OB_SUCC(ret)) {
+1133	    int64_t rowkey_cnt = ttl_row_iter.rowkey_cnt_;
+1134	    if (OB_NOT_NULL(ttl_row_iter.last_row_)) {
+1135	      int64_t row_cell_cnt = ttl_row_iter.last_row_->get_count();
+1136	      if (row_cell_cnt < rowkey_cnt) {
+1137	        ret = OB_ERR_UNEXPECTED;
+1138	        LOG_WARN("unexpected rowkey column count", KR(ret), K(row_cell_cnt), K(rowkey_cnt));
+1139	      } else {
+1140	        rowkey_.reset();
+1141	        rowkey_allocator_.reuse();
+1142	        ObObj *rowkey_buf = nullptr;
+1143	        if (OB_ISNULL(rowkey_buf = static_cast<ObObj*>(rowkey_allocator_.alloc(sizeof(ObObj) * rowkey_cnt)))) {
+1144	          ret = OB_ALLOCATE_MEMORY_FAILED;
+1145	          LOG_WARN("fail to alloc cells buffer", K(ret), K(rowkey_cnt));
+1146	        } else {
+1147	          for (int64_t i = 0; OB_SUCC(ret) && i < ttl_row_iter.column_pairs_.count(); i++) {
+1148	            ObTableTTLRowIterator::ColumnPair &pair = ttl_row_iter.column_pairs_.at(i);
+1149	            if (!pair.is_rowkey_column_) {
+1150	              // do nothing
+1151	            } else {
+1152	              int64_t cell_idx = pair.cell_idx_;
+1153	              int64_t rowkey_pos_idx = pair.rowkey_pos_idx_ - 1;
+1154	              if (cell_idx >= row_cell_cnt || cell_idx < 0 || rowkey_pos_idx >= rowkey_cnt || rowkey_pos_idx < 0) {
+1155	                ret = OB_ERR_UNEXPECTED;
+1156	                LOG_WARN("unexpected cell ids", KR(ret), K(cell_idx), K(row_cell_cnt), K(rowkey_pos_idx), K(rowkey_cnt));
+1157	              } else if (OB_FAIL(ob_write_obj(rowkey_allocator_, ttl_row_iter.last_row_->cells_[cell_idx], rowkey_buf[rowkey_pos_idx]))) {
+1158	                LOG_WARN("fail to copy obj", KR(ret), K(cell_idx), KPC(ttl_row_iter.last_row_->cells_));
+1159	              }
+1160	            }
+1161	          }
+1162	
+1163	          if (OB_SUCC(ret)) {
+1164	            rowkey_.assign(rowkey_buf, rowkey_cnt);
+1165	            hbase_cur_version_ = ttl_row_iter.cur_version_;
+1166	          }
+1167	        }
+1168	      }
+1169	    }
+1170	
+1171	    if (OB_SUCC(ret) && rowkey_.is_valid()) {
+1172	      // if ITER_END in ttl_row_iter, rowkey_ will not be assigned by last_row_ in this round
+1173	      ObRowkey saved_rowkey = rowkey_;
+1174	      if (param_.is_htable_) {
+1175	        // for hbase table, only k,q is saved, set t to min, cuz we do not remember version in sys table
+1176	        const int hbase_rowkey_size = 3;
+1177	        ObObj *hbase_rowkey_objs = nullptr;
+1178	        if (rowkey_.get_obj_cnt() < hbase_rowkey_size) {
+1179	          ret = OB_INVALID_ARGUMENT;
+1180	          LOG_WARN("invalid argument", KR(ret), K_(rowkey));
+1181	        } else if (OB_ISNULL(hbase_rowkey_objs =
+1182	            static_cast<ObObj*>(allocator_.alloc(sizeof(ObObj) * hbase_rowkey_size)))) {
+1183	          ret = OB_ALLOCATE_MEMORY_FAILED;
+1184	          LOG_WARN("fail to alloc", K(ret), K(hbase_rowkey_size));
+1185	        } else {
+1186	          ObObj *raw_obj_ptr = const_cast<ObObj *>(rowkey_.get_obj_ptr());
+1187	          hbase_rowkey_objs[ObHTableConstants::COL_IDX_K] = raw_obj_ptr[ObHTableConstants::COL_IDX_K];
+1188	          hbase_rowkey_objs[ObHTableConstants::COL_IDX_Q] = raw_obj_ptr[ObHTableConstants::COL_IDX_Q];
+1189	          hbase_rowkey_objs[ObHTableConstants::COL_IDX_T].set_min_value();
+1190	          saved_rowkey.assign(hbase_rowkey_objs, hbase_rowkey_size);
+1191	        }
+1192	      }
+1193	
+1194	      if (OB_SUCC(ret)) {
+1195	        uint64_t buf_len = saved_rowkey.get_serialize_size();
+1196	        char *buf = static_cast<char *>(allocator_.alloc(buf_len));
+1197	        int64_t pos = 0;
+1198	        if (OB_FAIL(saved_rowkey.serialize(buf, buf_len, pos))) {
+1199	          LOG_WARN("fail to serialize", K(ret), K(buf_len), K(pos), K_(rowkey));
+1200	        } else {
+1201	          result.end_rowkey_.assign_ptr(buf, buf_len);
+1202	        }
+1203	      }
+1204	      LOG_DEBUG("save end rowkey", KR(ret), K(saved_rowkey), KPC(ttl_row_iter.last_row_));
+1205	    }
+1206	  }
+1207	  LOG_DEBUG("execute ttl delete", K(ret), K(result));
+1208	  return ret;
+1209	}
+```
+
+> Explicit target coverage (source ranges actually emitted):
+- Complete target: src/observer/table/ttl/ob_table_ttl_task.cpp:1075-1209 requested source range; shown 1075-1209; missing none

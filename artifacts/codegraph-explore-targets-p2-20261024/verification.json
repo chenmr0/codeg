@@ -1,0 +1,47 @@
+{
+  "protected_files": 7301,
+  "protected_changed": [],
+  "head": "87ae5a74c421ddb67bbf3b66ab6c4a8edcceb38a",
+  "git_index_unchanged": true,
+  "candidate_runtime_matches_verified_build": true,
+  "changed_files": [
+    "src/mcp/explore-retrieval.ts",
+    "src/mcp/explore-selection.ts",
+    "src/mcp/explore-semantic.ts",
+    "src/mcp/explore-source.ts",
+    "src/mcp/explore-targets.ts",
+    "src/mcp/tools.ts",
+    "src/search/query-paths.ts",
+    "__tests__/explore-explicit-targets.test.ts",
+    "__tests__/explore-source-snapshot.test.ts",
+    "__tests__/explore-target-selection.test.ts",
+    "__tests__/explore-targets-integration.test.ts",
+    "__tests__/query-paths.test.ts"
+  ],
+  "queries_byte_identical": true,
+  "repositories": {
+    "baseline": {
+      "source_files": 16317,
+      "source_hashes_unchanged": true,
+      "counts": {
+        "nodes": 890562,
+        "edges": 5676237,
+        "files": 14258
+      }
+    },
+    "candidate": {
+      "source_files": 16317,
+      "source_hashes_unchanged": true,
+      "counts": {
+        "nodes": 890562,
+        "edges": 5676237,
+        "files": 14258
+      }
+    }
+  },
+  "tests_passed": 229,
+  "test_files": 15,
+  "model_calls": 0,
+  "oceanbase_reindexed": false,
+  "official_community_oceanbase_reindexed": false
+}

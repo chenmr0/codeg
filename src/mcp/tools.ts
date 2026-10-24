@@ -3639,7 +3639,6 @@ export class ToolHandler {
     // beneath it. The single-symbol search validator must not reject this input.
 
     const cg = this.getCodeGraph(args.projectPath as string | undefined);
-    const projectRoot = cg.getProjectRoot();
 
     // Resolve adaptive output budget from project size. Falls back to the
     // largest-tier defaults if stats aren't available, which preserves
@@ -3652,11 +3651,18 @@ export class ToolHandler {
     }
     const maxFiles = clamp((args.maxFiles as number) || budget.defaultMaxFiles, 1, 20);
 
-    const retrieval = await retrieveExploreContext(cg, query);
+    const retrieval = await retrieveExploreContext(cg, query, { maxFiles });
     const subgraph = retrieval.graph;
-    if (subgraph.nodes.size === 0) {
+    const targets = retrieval.targets;
+    const pinnedFiles = new Set(targets.pinnedFiles);
+    const exactFiles = new Set([...targets.exactNodeIds].flatMap(id => {
+      const node = subgraph.nodes.get(id); return node ? [node.filePath] : [];
+    }));
+    const protectedFile = (file: string) => pinnedFiles.has(file) || exactFiles.has(file) || targets.spans.has(file);
+    if (subgraph.nodes.size === 0 && pinnedFiles.size === 0) {
       return this.textResult(capExploreResponse(
-        `No query-supported symbol or callable source context admitted for "${query}".\n${retrieval.note}`,
+        `No query-supported symbol or callable source context admitted for "${query}".\n${retrieval.note}`
+          + (targets.issues.length ? '\n' + targets.issues.join('\n') : ''),
         Math.min(Math.round(budget.maxOutputChars * 1.5), 25000),
       ));
     }
@@ -3664,7 +3670,7 @@ export class ToolHandler {
 
     // Step 2: Group nodes by file, score by relevance
     const fileGroups = new Map<string, { nodes: Node[]; score: number }>();
-    const entryNodeIds = new Set([...subgraph.roots, ...namedSeedIds]);
+    const entryNodeIds = new Set([...subgraph.roots, ...namedSeedIds, ...targets.exactNodeIds]);
 
     // Build a set of nodes directly connected to entry points (depth 1)
     const connectedToEntry = new Set<string>();
@@ -3701,6 +3707,11 @@ export class ToolHandler {
       }
       fileGroups.set(node.filePath, group);
     }
+    // A requested range can contain comments or module-level source with no AST
+    // node. Its file still participates in admission and source verification.
+    for (const file of pinnedFiles) {
+      if (!fileGroups.has(file)) fileGroups.set(file, { nodes: [], score: 0 });
+    }
 
     // Type anchors concentrate random-walk mass in headers. Preserve direct
     // callable neighbors of their proven members as well as definition files;
@@ -3716,11 +3727,11 @@ export class ToolHandler {
       }
     }
     // Only include files that have entry points or nodes directly connected to entry points
-    let relevantFiles = [...fileGroups.entries()].filter(([fp, group]) => group.score >= 3
+    let relevantFiles = [...fileGroups.entries()].filter(([fp, group]) => protectedFile(fp) || group.score >= 3
       || retrieval.definitionFiles.has(fp) || memberNeighborFiles.has(fp));
 
     // Extract query terms for relevance checking
-    const queryTerms = query.toLowerCase().split(/\s+/).filter(t => t.length >= 3);
+    const queryTerms = targets.matchQuery.toLowerCase().split(/\s+/).filter(t => t.length >= 3);
 
     // Test/spec/icon/i18n file detector — used both for the pre-sort hard
     // filter (tiny tier) and the comparator deprioritization (all tiers).
@@ -3754,7 +3765,7 @@ export class ToolHandler {
     {
       const queryMentionsTests = /\b(test|tests|testing|spec|verify|verifies)\b/i.test(query);
       if (!queryMentionsTests) {
-        const nonLow = relevantFiles.filter(([p]) => !isLowValue(p));
+        const nonLow = relevantFiles.filter(([p]) => protectedFile(p) || !isLowValue(p));
         if (nonLow.length >= 2) {
           relevantFiles = nonLow;
         }
@@ -3831,7 +3842,7 @@ export class ToolHandler {
     // never prunes below 2.
     if (maxGraph > 0) {
       const gated = relevantFiles.filter(([fp]) =>
-        (fileGraphScore.get(fp) ?? 0) >= maxGraph * 0.06
+        protectedFile(fp) || (fileGraphScore.get(fp) ?? 0) >= maxGraph * 0.06
         || centralFiles.has(fp)
         || entryFiles.has(fp)
         || retrieval.definitionFiles.has(fp)
@@ -3857,6 +3868,10 @@ export class ToolHandler {
     }
 
     const sortedFiles = relevantFiles.sort((a, b) => {
+      const targetRank = (fp: string) => targets.spans.get(fp)?.some(r => r.start !== r.end) ? 0
+        : exactFiles.has(fp) ? 1 : targets.spans.has(fp) ? 2 : pinnedFiles.has(fp) ? 3 : 4;
+      const targetOrder = targetRank(a[0]) - targetRank(b[0]);
+      if (targetOrder) return targetOrder;
       const aPath = a[0].toLowerCase();
       const bPath = b[0].toLowerCase();
 
@@ -3953,7 +3968,7 @@ export class ToolHandler {
     // Compute the flow spine once — used both to prepend the Flow section (below)
     // and to gate adaptive source sizing: files on the spine get full source,
     // off-spine peers skeletonize.
-    const flow = this.buildFlowFromNamedSymbols(cg, query, retrieval.lookup);
+    const flow = this.buildFlowFromNamedSymbols(cg, targets.matchQuery, retrieval.lookup);
 
     // Polymorphic-sibling detector for adaptive sizing. A class that implements/
     // extends a supertype shared by >= MIN_SIBLINGS classes is one of many
@@ -4029,11 +4044,24 @@ export class ToolHandler {
       memberConnectivity.set(e.target, (memberConnectivity.get(e.target) ?? 0) + 1);
     }
     const sources: ExploreSourceFile[] = [];
+    const sourceIssues: string[] = [];
     for (const [filePath, group] of sortedFiles) {
-      const absPath = validatePathWithinRoot(projectRoot, filePath);
-      if (!absPath || !existsSync(absPath)) continue;
-      let content: string;
-      try { content = readFileSync(absPath, 'utf-8'); } catch { continue; }
+      if (targets.rangeOnly && !targets.spans.has(filePath)) continue;
+      // An invalid line constraint is not a plain file request. Keep its
+      // diagnostic, but do not let an empty pinned group render the whole file.
+      if (targets.blockedFiles.has(filePath)) continue;
+      // Share verified bytes with C++ semantic recovery and target resolution.
+      // Never check one read and slice another at potentially stale line ranges.
+      const snapshot = retrieval.sources.get(filePath);
+      if (snapshot.status !== 'fresh' || snapshot.content === undefined) {
+        sourceIssues.push(`Source omitted: ${filePath} — ${snapshot.reason ?? snapshot.status}. Indexed symbol/Flow locations may be stale; use current-file Read or refresh the index before relying on those ranges.`);
+        continue;
+      }
+      if (CONFIG_LEAF_LANGUAGES.has(cg.getFile(filePath)?.language ?? '')) {
+        if (protectedFile(filePath)) sourceIssues.push(`Source omitted: ${filePath} — this config index stores keys only; use Read for explicitly requested current values.`);
+        continue;
+      }
+      const content = snapshot.content;
       const hasSpine = group.nodes.some(n => flow.pathNodeIds.has(n.id));
       const family = definesPolymorphicSupertype(group.nodes);
       const spared = group.nodes.some(n => flow.uniqueNamedNodeIds.has(n.id)) && !family;
@@ -4054,7 +4082,9 @@ export class ToolHandler {
         }
       }
       sources.push({ path: filePath, content, nodes: sourceNodes, skeleton,
-        bodyAllowed: n => !skeleton || flow.pathNodeIds.has(n.id)
+        pinned: pinnedFiles.has(filePath), protectedNodeIds: targets.exactNodeIds,
+        requestedRanges: targets.spans.get(filePath),
+        bodyAllowed: n => targets.exactNodeIds.has(n.id) || !skeleton || flow.pathNodeIds.has(n.id)
           || flow.uniqueNamedNodeIds.has(n.id) || (family && flow.namedNodeIds.has(n.id)),
         priority: n => entryNodeIds.has(n.id) || flow.uniqueNamedNodeIds.has(n.id) ? 0
           : flow.pathNodeIds.has(n.id) ? 1 : namedContractIds.has(n.id) ? 1.25
@@ -4065,13 +4095,31 @@ export class ToolHandler {
       });
     }
     let prefix = flow.text + lines.join('\n') + '\n';
+    // These are correctness notices, not optional relationship metadata. Keep
+    // them before the bounded map so truncation cannot erase a stale-range warning.
+    const issues = [...new Set([...sourceIssues, ...targets.issues])];
+    let notices = sourceIssues.length
+      ? `> Source freshness: ${sourceIssues.length} file(s) could not be verified for safe indexed slicing; their source is omitted. Indexed symbol/Flow locations for those files are not current source evidence.\n`
+      : '';
+    let shownIssues = 0;
+    for (const issue of issues) {
+      const compact = issue.replace(/[\r\n]+/g, ' ');
+      const line = `> ${compact.length > 600 ? compact.slice(0, 597) + '...' : compact}\n`;
+      if (notices.length + line.length > 1850) break;
+      notices += line;
+      shownIssues++;
+    }
+    if (shownIssues < issues.length) {
+      notices += `> ${issues.length - shownIssues} additional target/source notices omitted for size; omitted files are not verified source coverage.\n`;
+    }
     // Bound metadata before selection, never slice a delivered source body.
-    const metadataCap = Math.floor(budget.maxOutputChars * 0.25);
+    const metadataCap = Math.max(0, Math.floor(budget.maxOutputChars * 0.25) - notices.length);
     if (prefix.length > metadataCap) {
       const cut = prefix.slice(0, Math.max(0, metadataCap - 120));
       prefix = cut.slice(0, Math.max(0, cut.lastIndexOf('\n')))
         + '\n> Relationship metadata shortened; source coverage is listed below.\n\n### Source Code\n\n';
     }
+    prefix = notices + prefix;
     const output = renderExploreSources(prefix, sources, {
       maxOutputChars: budget.maxOutputChars, maxCharsPerFile: budget.maxCharsPerFile,
       maxFiles, lineNumbers: exploreLineNumbersEnabled(), headerSymbols: budget.maxSymbolsInFileHeader,

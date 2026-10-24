@@ -1,0 +1,13 @@
+{
+  "status": "complete",
+  "model_calls": 0,
+  "logged_tool_replays": {
+    "oceanbase": 44,
+    "fixture": 45
+  },
+  "final_pair_count": 12,
+  "invalid_source_lines": 0,
+  "invalid_gaps": 0,
+  "invalid_target_gaps": 0,
+  "report_sha256": "0c4eed25d8234f2968d5a0d7e21e439404babe169bdc2fdd90098999aa8d4a55"
+}

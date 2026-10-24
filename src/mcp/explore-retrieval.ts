@@ -6,6 +6,8 @@ import { scanRawSourceEvidence } from './raw-source-evidence';
 import type { RawEvidenceReport } from './raw-source-types';
 import { ExploreSemanticView, EXPLORE_CALLABLES, EXPLORE_TYPES } from './explore-semantic';
 import { admitExploreGraph, type AdmissionAudit } from './explore-admission';
+import { ExploreSourceSnapshots } from './explore-source';
+import { resolveExploreTargets, supplementExploreTargets, type ExploreTargets } from './explore-targets';
 
 export type ExploreSeedKind = 'qualified' | 'identifier' | 'owner-member' | 'co-named' | 'symbol-bag' | 'single-symbol' | 'path' | 'literal';
 interface SeedDecision {
@@ -16,6 +18,8 @@ interface SeedDecision {
 }
 
 export interface ExploreRetrieval {
+  sources: ExploreSourceSnapshots;
+  targets: ExploreTargets;
   graph: Subgraph;
   lookup: (token: string) => Node[];
   evidence?: RawEvidenceReport;
@@ -27,6 +31,7 @@ export interface ExploreRetrieval {
   /** Explicit query names/paths, distinct from bodies recovered by literal hits. */
   namedNodeIds: Set<string>;
   diagnostics: {
+    targets: { addedNodes: number; exactTargets: number; baseNodes: number };
     seeds: SeedDecision[];
     admission: AdmissionAudit;
     omittedSeedIds: string[];
@@ -36,12 +41,16 @@ export interface ExploreRetrieval {
 }
 
 /** Exact names/paths and literal evidence only; no FTS, substring or split-word seeds. */
-export async function retrieveExploreContext(cg: CodeGraph, query: string): Promise<ExploreRetrieval> {
-  const view = new ExploreSemanticView(cg);
-  const words = [...new Set(query.match(/[A-Za-z_$][\w$]*(?:(?:::|\.)[\w$]+)*/g) ?? [])].slice(0, 32);
+export async function retrieveExploreContext(cg: CodeGraph, query: string, options: { maxFiles?: number } = {}): Promise<ExploreRetrieval> {
+  const sources = new ExploreSourceSnapshots(cg);
+  const view = new ExploreSemanticView(cg, sources);
+  const resolvedTargets = resolveExploreTargets(cg, query, view, sources, options);
+  const { targets } = resolvedTargets;
+  const words = [...new Set(targets.matchQuery.match(/[A-Za-z_$][\w$]*(?:(?:::|\.)~?[\w$]+)*/g) ?? [])].slice(0, 32);
   const distinctive = words.filter(w => isDistinctiveIdentifier(w) || /[.:]/.test(w) || /^[A-Z]/.test(w));
   const exactCache = new Map<string, Node[]>();
   const exact = (word: string) => {
+    if (resolvedTargets.qualifiedMatches.has(word)) return resolvedTargets.qualifiedMatches.get(word)!;
     if (!exactCache.has(word)) exactCache.set(word, cg.getNodesBySymbolExact(word).filter(n =>
       !['import', 'export', 'namespace', 'file', 'parameter'].includes(n.kind) && !isConfigLeafNode(n)));
     return exactCache.get(word)!;
@@ -123,21 +132,17 @@ export async function retrieveExploreContext(cg: CodeGraph, query: string): Prom
         }
       }
     }
-    else if (exact(word).length === 0 && !STOP_WORDS.has(word.toLowerCase())
+    else if (!resolvedTargets.qualifiedMatches.has(word) && exact(word).length === 0 && !STOP_WORDS.has(word.toLowerCase())
       && ((distinctive.includes(word) && word.length >= 4) || words.length === 1)) unresolved.push(word);
   }
-  // Paths stay literal too: a basename must match a whole basename, never a fragment.
-  const paths = query.split(/[\s,;]+/).map(s => s.replace(/^[`'"]|[`'"]$/g, '').replace(/\\/g, '/'))
-    .filter(s => /\.[A-Za-z0-9]+$/.test(s));
-  if (paths.length > 0) {
-    for (const file of cg.getFiles()) {
-      if (!paths.some(p => p === file.path || (!p.includes('/') && file.path.split('/').at(-1) === p))) continue;
-      const matches = view.inFile(file.path).filter(n => EXPLORE_CALLABLES.has(n.kind) || EXPLORE_TYPES.has(n.kind))
-        .map(n => view.resolve(n));
-      groups.push(matches);
-      decisions.set(file.path, { token: file.path, kind: 'path', candidateIds: matches.map(n => n.id) });
-      for (const n of matches) { corroborate(n, file.path); namedCandidates.add(n.id); }
-    }
+  for (const [file, matches] of resolvedTargets.fileNodes) {
+    // A pure source-range request needs target span nodes for coverage, but
+    // does not request a traversal through siblings and cross-file callees.
+    if (!targets.rangeOnly) groups.push(matches);
+    decisions.set(file, { token: file, kind: 'path', candidateIds: matches.map(n => n.id) });
+    // A file pin supplies scoped evidence without pretending every member was
+    // explicitly requested. Only line-owned/qualified nodes become exact.
+    for (const n of matches) corroborate(n, file);
   }
   let evidence: RawEvidenceReport | undefined;
   if (unresolved.length > 0) {
@@ -228,6 +233,8 @@ export async function retrieveExploreContext(cg: CodeGraph, query: string): Prom
   // Ordinary neighbors keep their first-pass allocation, without automatically
   // turning every spare node slot into more peripheral context.
   }, 200, 3, node => memberNodeIds.has(node.id));
+  const targetAudit = supplementExploreTargets(cg, view, graph, resolvedTargets);
+  for (const id of targets.exactNodeIds) namedNodeIds.add(id);
   const parts = ['Exact symbol/path anchors and identifier text evidence; weak word matches are disabled.'];
   if (graph.nodes.size === 0) {
     const rejected = [...decisions.values()].filter(d => d.kind === 'uncorroborated');
@@ -249,8 +256,8 @@ export async function retrieveExploreContext(cg: CodeGraph, query: string): Prom
   }
   const fileEvidence = new Map([...fileTerms].map(([file, terms]) => [file, terms.size]));
   const omitted = new Set(audit.omittedNodeIds);
-  return { graph, lookup, evidence, note: parts.join('\n'), fileEvidence, definitionFiles, memberNodeIds, contractMemberIds, namedNodeIds,
-    diagnostics: { seeds: [...decisions.values()], admission: audit,
+  return { sources, targets, graph, lookup, evidence, note: parts.join('\n'), fileEvidence, definitionFiles, memberNodeIds, contractMemberIds, namedNodeIds,
+    diagnostics: { targets: targetAudit, seeds: [...decisions.values()], admission: audit,
       omittedSeedIds: [...new Set(groups.flat().map(n => n.id))].filter(id => !entries.has(id)),
       members: [...knownMembers].map(([nodeId, value]) => ({ ownerId: value.ownerId, nodeId,
         admitted: graph.nodes.has(nodeId), reason: graph.nodes.has(nodeId) ? 'admitted'

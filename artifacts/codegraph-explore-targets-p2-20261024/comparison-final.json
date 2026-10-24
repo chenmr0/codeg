@@ -1,0 +1,1919 @@
+{
+  "method": "Exact source-line verification; old candidate arm is frozen admission-P1 baseline. Fresh baseline replay listed separately. No model runs.",
+  "rows": [
+    {
+      "arm": "baseline",
+      "id": "dtl-methods",
+      "query": "ObDtlBasicChannel wait_unblocking ObDtlFlowControl need_block can_unblock",
+      "maxFiles": 12,
+      "chars": 16867,
+      "seconds": 47.15017759999999,
+      "complete": 4,
+      "total": 5,
+      "coverage": {
+        "need_block": {
+          "complete": true,
+          "lines": 13,
+          "total": 13
+        },
+        "can_unblock": {
+          "complete": true,
+          "lines": 13,
+          "total": 13
+        },
+        "wait_unblocking": {
+          "complete": true,
+          "lines": 91,
+          "total": 91
+        },
+        "wait_unblocking_if_blocked": {
+          "complete": true,
+          "lines": 32,
+          "total": 32
+        },
+        "inner_close": {
+          "complete": false,
+          "lines": 0,
+          "total": 36
+        }
+      },
+      "files": [
+        "src/sql/dtl/ob_dtl_flow_control.h",
+        "src/sql/dtl/ob_dtl_basic_channel.cpp",
+        "src/sql/dtl/ob_dtl_basic_channel.h",
+        "src/sql/dtl/ob_dtl_channel.h",
+        "src/sql/dtl/ob_dtl_fc_server.h",
+        "deps/oblib/src/lib/time/ob_time_utility.cpp",
+        "src/sql/dtl/ob_dtl_fc_server.cpp",
+        "src/sql/dtl/ob_dtl_channel_loop.h",
+        "unittest/sql/engine/px/test_merge_sort_receive.cpp",
+        "src/sql/dtl/ob_dtl_channel_loop.cpp",
+        "src/sql/engine/px/ob_px_worker.cpp",
+        "src/sql/engine/px/ob_px_util.cpp"
+      ],
+      "gaps": [],
+      "target_gaps": [],
+      "invalid_source_lines": [],
+      "is_error": false,
+      "log": "results\\baseline-dtl-methods.json"
+    },
+    {
+      "arm": "baseline",
+      "id": "dtl-seed-bag",
+      "query": "ObDtlBasicChannel ObDtlFlowControl ObPxTransmitOp DTL_BLOCKING_TIME",
+      "maxFiles": 12,
+      "chars": 23885,
+      "seconds": 1.3794181000000099,
+      "complete": 2,
+      "total": 5,
+      "coverage": {
+        "need_block": {
+          "complete": true,
+          "lines": 13,
+          "total": 13
+        },
+        "can_unblock": {
+          "complete": true,
+          "lines": 13,
+          "total": 13
+        },
+        "wait_unblocking": {
+          "complete": false,
+          "lines": 0,
+          "total": 91
+        },
+        "wait_unblocking_if_blocked": {
+          "complete": false,
+          "lines": 0,
+          "total": 32
+        },
+        "inner_close": {
+          "complete": false,
+          "lines": 0,
+          "total": 36
+        }
+      },
+      "files": [
+        "src/sql/dtl/ob_dtl_basic_channel.h",
+        "src/sql/engine/px/exchange/ob_px_transmit_op.cpp",
+        "src/sql/dtl/ob_dtl_basic_channel.cpp",
+        "src/sql/dtl/ob_dtl_flow_control.h",
+        "src/sql/engine/px/exchange/ob_px_transmit_op.h",
+        "src/sql/dtl/ob_dtl_flow_control.cpp"
+      ],
+      "gaps": [
+        {
+          "file": "src/sql/dtl/ob_dtl_basic_channel.cpp",
+          "symbol": "send",
+          "accurate": true
+        },
+        {
+          "file": "src/sql/engine/px/exchange/ob_px_transmit_op.cpp",
+          "symbol": "destroy",
+          "accurate": true
+        },
+        {
+          "file": "src/sql/engine/px/exchange/ob_px_transmit_op.cpp",
+          "symbol": "inner_get_next_row",
+          "accurate": true
+        },
+        {
+          "file": "src/sql/engine/px/exchange/ob_px_transmit_op.cpp",
+          "symbol": "inner_close",
+          "accurate": true
+        },
+        {
+          "file": "src/sql/dtl/ob_dtl_basic_channel.cpp",
+          "symbol": "init",
+          "accurate": true
+        },
+        {
+          "file": "src/sql/dtl/ob_dtl_basic_channel.cpp",
+          "symbol": "send1",
+          "accurate": true
+        },
+        {
+          "file": "src/sql/engine/px/exchange/ob_px_transmit_op.cpp",
+          "symbol": "inner_rescan",
+          "accurate": true
+        }
+      ],
+      "target_gaps": [],
+      "invalid_source_lines": [],
+      "is_error": false,
+      "log": "results\\baseline-dtl-seed-bag.json"
+    },
+    {
+      "arm": "baseline",
+      "id": "ttl-mixed-bag",
+      "query": "kv_ttl_delete_max_ops ObTableTTLDeleteTask ttl_thread_score TTL delete task limit rate",
+      "maxFiles": 12,
+      "chars": 23922,
+      "seconds": 41.830204200000004,
+      "complete": 7,
+      "total": 8,
+      "coverage": {
+        "rate_init": {
+          "complete": true,
+          "lines": 34,
+          "total": 34
+        },
+        "throttle_in_transaction": {
+          "complete": true,
+          "lines": 22,
+          "total": 22
+        },
+        "throttle_after_transaction": {
+          "complete": true,
+          "lines": 20,
+          "total": 20
+        },
+        "wait_calculation": {
+          "complete": true,
+          "lines": 16,
+          "total": 16
+        },
+        "early_commit_test": {
+          "complete": true,
+          "lines": 9,
+          "total": 9
+        },
+        "task_loop": {
+          "complete": true,
+          "lines": 38,
+          "total": 38
+        },
+        "transaction_batch": {
+          "complete": true,
+          "lines": 136,
+          "total": 136
+        },
+        "delete_loop_and_resume": {
+          "complete": false,
+          "lines": 0,
+          "total": 135
+        }
+      },
+      "files": [
+        "src/share/table/ob_ttl_util.cpp",
+        "src/share/scheduler/ob_tenant_dag_scheduler.cpp",
+        "src/observer/table/ttl/ob_table_ttl_task.cpp",
+        "src/observer/table/ttl/ob_table_ttl_task.h",
+        "src/share/scheduler/ob_tenant_dag_scheduler.h",
+        "src/share/table/ob_ttl_util.h"
+      ],
+      "gaps": [
+        {
+          "file": "src/observer/table/ttl/ob_table_ttl_task.cpp",
+          "symbol": "execute_ttl_delete",
+          "accurate": true
+        },
+        {
+          "file": "src/observer/table/ttl/ob_table_ttl_task.cpp",
+          "symbol": "init",
+          "accurate": true
+        },
+        {
+          "file": "src/observer/table/ttl/ob_table_ttl_task.cpp",
+          "symbol": "get_timeout_ts",
+          "accurate": true
+        },
+        {
+          "file": "src/observer/table/ttl/ob_table_ttl_task.cpp",
+          "symbol": "process_ttl_delete",
+          "accurate": true
+        },
+        {
+          "file": "src/observer/table/ttl/ob_table_ttl_task.cpp",
+          "symbol": "init_tb_ctx",
+          "accurate": true
+        },
+        {
+          "file": "src/share/scheduler/ob_tenant_dag_scheduler.cpp",
+          "symbol": "init",
+          "accurate": true
+        },
+        {
+          "file": "src/share/scheduler/ob_tenant_dag_scheduler.cpp",
+          "symbol": "mtl_init",
+          "accurate": true
+        }
+      ],
+      "target_gaps": [],
+      "invalid_source_lines": [],
+      "is_error": false,
+      "log": "results\\baseline-ttl-mixed-bag.json"
+    },
+    {
+      "arm": "baseline",
+      "id": "ttl-seed-bag",
+      "query": "ObTableTTLDeleteTask kv_ttl_delete_max_ops ttl_thread_score",
+      "maxFiles": 12,
+      "chars": 23999,
+      "seconds": 82.548974,
+      "complete": 7,
+      "total": 8,
+      "coverage": {
+        "rate_init": {
+          "complete": true,
+          "lines": 34,
+          "total": 34
+        },
+        "throttle_in_transaction": {
+          "complete": true,
+          "lines": 22,
+          "total": 22
+        },
+        "throttle_after_transaction": {
+          "complete": true,
+          "lines": 20,
+          "total": 20
+        },
+        "wait_calculation": {
+          "complete": true,
+          "lines": 16,
+          "total": 16
+        },
+        "early_commit_test": {
+          "complete": true,
+          "lines": 9,
+          "total": 9
+        },
+        "task_loop": {
+          "complete": true,
+          "lines": 38,
+          "total": 38
+        },
+        "transaction_batch": {
+          "complete": true,
+          "lines": 136,
+          "total": 136
+        },
+        "delete_loop_and_resume": {
+          "complete": false,
+          "lines": 0,
+          "total": 135
+        }
+      },
+      "files": [
+        "src/share/table/ob_ttl_util.cpp",
+        "src/share/scheduler/ob_tenant_dag_scheduler.cpp",
+        "src/observer/table/ttl/ob_table_ttl_task.cpp",
+        "src/observer/table/ttl/ob_table_ttl_task.h",
+        "src/share/scheduler/ob_tenant_dag_scheduler.h",
+        "src/share/table/ob_ttl_util.h"
+      ],
+      "gaps": [
+        {
+          "file": "src/observer/table/ttl/ob_table_ttl_task.cpp",
+          "symbol": "execute_ttl_delete",
+          "accurate": true
+        },
+        {
+          "file": "src/observer/table/ttl/ob_table_ttl_task.cpp",
+          "symbol": "init_scan_tb_ctx",
+          "accurate": true
+        },
+        {
+          "file": "src/observer/table/ttl/ob_table_ttl_task.cpp",
+          "symbol": "init",
+          "accurate": true
+        },
+        {
+          "file": "src/observer/table/ttl/ob_table_ttl_task.cpp",
+          "symbol": "process_ttl_delete",
+          "accurate": true
+        },
+        {
+          "file": "src/observer/table/ttl/ob_table_ttl_task.cpp",
+          "symbol": "init_tb_ctx",
+          "accurate": true
+        },
+        {
+          "file": "src/observer/table/ttl/ob_table_ttl_task.cpp",
+          "symbol": "init_sess_info",
+          "accurate": true
+        },
+        {
+          "file": "src/observer/table/ttl/ob_table_ttl_task.cpp",
+          "symbol": "init_schema_info",
+          "accurate": true
+        },
+        {
+          "file": "src/observer/table/ttl/ob_table_ttl_task.cpp",
+          "symbol": "init_kv_schema_guard",
+          "accurate": true
+        }
+      ],
+      "target_gaps": [],
+      "invalid_source_lines": [],
+      "is_error": false,
+      "log": "results\\baseline-ttl-seed-bag.json"
+    },
+    {
+      "arm": "baseline",
+      "id": "ttl-task-methods",
+      "query": "ObTableTTLDeleteTask process process_one execute_ttl_delete",
+      "maxFiles": 12,
+      "chars": 23945,
+      "seconds": 48.45259119999999,
+      "complete": 4,
+      "total": 8,
+      "coverage": {
+        "rate_init": {
+          "complete": false,
+          "lines": 0,
+          "total": 34
+        },
+        "throttle_in_transaction": {
+          "complete": true,
+          "lines": 22,
+          "total": 22
+        },
+        "throttle_after_transaction": {
+          "complete": false,
+          "lines": 0,
+          "total": 20
+        },
+        "wait_calculation": {
+          "complete": false,
+          "lines": 0,
+          "total": 16
+        },
+        "early_commit_test": {
+          "complete": false,
+          "lines": 0,
+          "total": 9
+        },
+        "task_loop": {
+          "complete": true,
+          "lines": 38,
+          "total": 38
+        },
+        "transaction_batch": {
+          "complete": true,
+          "lines": 136,
+          "total": 136
+        },
+        "delete_loop_and_resume": {
+          "complete": true,
+          "lines": 135,
+          "total": 135
+        }
+      },
+      "files": [
+        "src/observer/table/ttl/ob_table_ttl_task.cpp",
+        "deps/oblib/src/common/rowkey/ob_rowkey.h",
+        "src/share/table/ob_ttl_util.cpp",
+        "deps/oblib/src/lib/time/ob_time_utility.cpp",
+        "src/share/table/ob_table.h",
+        "deps/oblib/src/lib/rc/context.h",
+        "deps/oblib/src/lib/allocator/page_arena.h",
+        "deps/oblib/src/common/rowkey/ob_rowkey.cpp",
+        "src/observer/table/ob_table_context.cpp"
+      ],
+      "gaps": [
+        {
+          "file": "src/observer/table/ttl/ob_table_ttl_task.cpp",
+          "symbol": "get_timeout_ts",
+          "accurate": true
+        },
+        {
+          "file": "src/observer/table/ttl/ob_table_ttl_task.cpp",
+          "symbol": "init",
+          "accurate": true
+        },
+        {
+          "file": "src/observer/table/ttl/ob_table_ttl_task.cpp",
+          "symbol": "init_kv_schema_guard",
+          "accurate": true
+        },
+        {
+          "file": "src/observer/table/ttl/ob_table_ttl_task.cpp",
+          "symbol": "decide_and_check_scan_index",
+          "accurate": true
+        },
+        {
+          "file": "src/observer/table/ttl/ob_table_ttl_task.cpp",
+          "symbol": "init_ob_table_query",
+          "accurate": true
+        },
+        {
+          "file": "src/observer/table/ttl/ob_table_ttl_task.cpp",
+          "symbol": "init_scan_tb_ctx",
+          "accurate": true
+        },
+        {
+          "file": "src/observer/table/ttl/ob_table_ttl_task.cpp",
+          "symbol": "process_ttl_delete",
+          "accurate": true
+        }
+      ],
+      "target_gaps": [],
+      "invalid_source_lines": [],
+      "is_error": false,
+      "log": "results\\baseline-ttl-task-methods.json"
+    },
+    {
+      "arm": "baseline",
+      "id": "ttl-task-single",
+      "query": "ObTableTTLDeleteTask",
+      "maxFiles": 12,
+      "chars": 23942,
+      "seconds": 52.902261499999994,
+      "complete": 3,
+      "total": 8,
+      "coverage": {
+        "rate_init": {
+          "complete": false,
+          "lines": 0,
+          "total": 34
+        },
+        "throttle_in_transaction": {
+          "complete": false,
+          "lines": 0,
+          "total": 22
+        },
+        "throttle_after_transaction": {
+          "complete": false,
+          "lines": 0,
+          "total": 20
+        },
+        "wait_calculation": {
+          "complete": false,
+          "lines": 0,
+          "total": 16
+        },
+        "early_commit_test": {
+          "complete": false,
+          "lines": 0,
+          "total": 9
+        },
+        "task_loop": {
+          "complete": true,
+          "lines": 38,
+          "total": 38
+        },
+        "transaction_batch": {
+          "complete": true,
+          "lines": 136,
+          "total": 136
+        },
+        "delete_loop_and_resume": {
+          "complete": true,
+          "lines": 135,
+          "total": 135
+        }
+      },
+      "files": [
+        "src/observer/table/ttl/ob_table_ttl_task.cpp",
+        "src/observer/table/ttl/ob_table_ttl_task.h"
+      ],
+      "gaps": [
+        {
+          "file": "src/observer/table/ttl/ob_table_ttl_task.cpp",
+          "symbol": "process_ttl_delete",
+          "accurate": true
+        },
+        {
+          "file": "src/observer/table/ttl/ob_table_ttl_task.cpp",
+          "symbol": "init_tb_ctx",
+          "accurate": true
+        },
+        {
+          "file": "src/observer/table/ttl/ob_table_ttl_task.cpp",
+          "symbol": "init_schema_info",
+          "accurate": true
+        },
+        {
+          "file": "src/observer/table/ttl/ob_table_ttl_task.cpp",
+          "symbol": "init_kv_schema_guard",
+          "accurate": true
+        },
+        {
+          "file": "src/observer/table/ttl/ob_table_ttl_task.cpp",
+          "symbol": "init_credential",
+          "accurate": true
+        },
+        {
+          "file": "src/observer/table/ttl/ob_table_ttl_task.cpp",
+          "symbol": "decide_and_check_scan_index",
+          "accurate": true
+        },
+        {
+          "file": "src/observer/table/ttl/ob_table_ttl_task.cpp",
+          "symbol": "init_ob_table_query",
+          "accurate": true
+        }
+      ],
+      "target_gaps": [],
+      "invalid_source_lines": [],
+      "is_error": false,
+      "log": "results\\baseline-ttl-task-single.json"
+    },
+    {
+      "arm": "baseline",
+      "id": "ttl-throttler-methods",
+      "query": "ObTTLDeleteRateThrottler init check_and_try_throttle calculate_wait_time need_commit_trans_early",
+      "maxFiles": 12,
+      "chars": 22979,
+      "seconds": 37.69316159999999,
+      "complete": 8,
+      "total": 8,
+      "coverage": {
+        "rate_init": {
+          "complete": true,
+          "lines": 34,
+          "total": 34
+        },
+        "throttle_in_transaction": {
+          "complete": true,
+          "lines": 22,
+          "total": 22
+        },
+        "throttle_after_transaction": {
+          "complete": true,
+          "lines": 20,
+          "total": 20
+        },
+        "wait_calculation": {
+          "complete": true,
+          "lines": 16,
+          "total": 16
+        },
+        "early_commit_test": {
+          "complete": true,
+          "lines": 9,
+          "total": 9
+        },
+        "task_loop": {
+          "complete": true,
+          "lines": 38,
+          "total": 38
+        },
+        "transaction_batch": {
+          "complete": true,
+          "lines": 136,
+          "total": 136
+        },
+        "delete_loop_and_resume": {
+          "complete": true,
+          "lines": 135,
+          "total": 135
+        }
+      },
+      "files": [
+        "src/share/table/ob_ttl_util.cpp",
+        "deps/oblib/src/lib/time/ob_time_utility.cpp",
+        "src/observer/table/ttl/ob_table_ttl_task.cpp",
+        "deps/oblib/src/lib/thread/ob_tenant_hook.cpp",
+        "src/observer/omt/ob_tenant_config_mgr.h",
+        "deps/oblib/src/lib/oblog/ob_log_module.h",
+        "src/share/table/ob_ttl_util.h"
+      ],
+      "gaps": [],
+      "target_gaps": [],
+      "invalid_source_lines": [],
+      "is_error": false,
+      "log": "results\\baseline-ttl-throttler-methods.json"
+    },
+    {
+      "arm": "baseline",
+      "id": "ttl-throttler-single",
+      "query": "ObTTLDeleteRateThrottler",
+      "maxFiles": 12,
+      "chars": 20045,
+      "seconds": 38.72385499999998,
+      "complete": 7,
+      "total": 8,
+      "coverage": {
+        "rate_init": {
+          "complete": true,
+          "lines": 34,
+          "total": 34
+        },
+        "throttle_in_transaction": {
+          "complete": true,
+          "lines": 22,
+          "total": 22
+        },
+        "throttle_after_transaction": {
+          "complete": true,
+          "lines": 20,
+          "total": 20
+        },
+        "wait_calculation": {
+          "complete": true,
+          "lines": 16,
+          "total": 16
+        },
+        "early_commit_test": {
+          "complete": true,
+          "lines": 9,
+          "total": 9
+        },
+        "task_loop": {
+          "complete": true,
+          "lines": 38,
+          "total": 38
+        },
+        "transaction_batch": {
+          "complete": true,
+          "lines": 136,
+          "total": 136
+        },
+        "delete_loop_and_resume": {
+          "complete": false,
+          "lines": 0,
+          "total": 135
+        }
+      },
+      "files": [
+        "src/share/table/ob_ttl_util.h",
+        "src/share/table/ob_ttl_util.cpp",
+        "deps/oblib/src/lib/time/ob_time_utility.cpp",
+        "src/observer/table/ttl/ob_table_ttl_task.cpp",
+        "src/observer/omt/ob_tenant_config_mgr.h",
+        "deps/oblib/src/lib/thread/ob_tenant_hook.cpp"
+      ],
+      "gaps": [
+        {
+          "file": "src/observer/table/ttl/ob_table_ttl_task.cpp",
+          "symbol": "execute_ttl_delete",
+          "accurate": true
+        }
+      ],
+      "target_gaps": [],
+      "invalid_source_lines": [],
+      "is_error": false,
+      "log": "results\\baseline-ttl-throttler-single.json"
+    },
+    {
+      "arm": "candidate",
+      "id": "dtl-methods",
+      "query": "ObDtlBasicChannel wait_unblocking ObDtlFlowControl need_block can_unblock",
+      "maxFiles": 12,
+      "chars": 16867,
+      "seconds": 46.9361519,
+      "complete": 4,
+      "total": 5,
+      "coverage": {
+        "need_block": {
+          "complete": true,
+          "lines": 13,
+          "total": 13
+        },
+        "can_unblock": {
+          "complete": true,
+          "lines": 13,
+          "total": 13
+        },
+        "wait_unblocking": {
+          "complete": true,
+          "lines": 91,
+          "total": 91
+        },
+        "wait_unblocking_if_blocked": {
+          "complete": true,
+          "lines": 32,
+          "total": 32
+        },
+        "inner_close": {
+          "complete": false,
+          "lines": 0,
+          "total": 36
+        }
+      },
+      "files": [
+        "src/sql/dtl/ob_dtl_flow_control.h",
+        "src/sql/dtl/ob_dtl_basic_channel.cpp",
+        "src/sql/dtl/ob_dtl_basic_channel.h",
+        "src/sql/dtl/ob_dtl_channel.h",
+        "src/sql/dtl/ob_dtl_fc_server.h",
+        "deps/oblib/src/lib/time/ob_time_utility.cpp",
+        "src/sql/dtl/ob_dtl_fc_server.cpp",
+        "src/sql/dtl/ob_dtl_channel_loop.h",
+        "unittest/sql/engine/px/test_merge_sort_receive.cpp",
+        "src/sql/dtl/ob_dtl_channel_loop.cpp",
+        "src/sql/engine/px/ob_px_worker.cpp",
+        "src/sql/engine/px/ob_px_util.cpp"
+      ],
+      "gaps": [],
+      "target_gaps": [],
+      "invalid_source_lines": [],
+      "is_error": false,
+      "log": "results-release\\candidate-dtl-methods.json"
+    },
+    {
+      "arm": "candidate",
+      "id": "dtl-seed-bag",
+      "query": "ObDtlBasicChannel ObDtlFlowControl ObPxTransmitOp DTL_BLOCKING_TIME",
+      "maxFiles": 12,
+      "chars": 23885,
+      "seconds": 1.0640746999999975,
+      "complete": 2,
+      "total": 5,
+      "coverage": {
+        "need_block": {
+          "complete": true,
+          "lines": 13,
+          "total": 13
+        },
+        "can_unblock": {
+          "complete": true,
+          "lines": 13,
+          "total": 13
+        },
+        "wait_unblocking": {
+          "complete": false,
+          "lines": 0,
+          "total": 91
+        },
+        "wait_unblocking_if_blocked": {
+          "complete": false,
+          "lines": 0,
+          "total": 32
+        },
+        "inner_close": {
+          "complete": false,
+          "lines": 0,
+          "total": 36
+        }
+      },
+      "files": [
+        "src/sql/dtl/ob_dtl_basic_channel.h",
+        "src/sql/engine/px/exchange/ob_px_transmit_op.cpp",
+        "src/sql/dtl/ob_dtl_basic_channel.cpp",
+        "src/sql/dtl/ob_dtl_flow_control.h",
+        "src/sql/engine/px/exchange/ob_px_transmit_op.h",
+        "src/sql/dtl/ob_dtl_flow_control.cpp"
+      ],
+      "gaps": [
+        {
+          "file": "src/sql/dtl/ob_dtl_basic_channel.cpp",
+          "symbol": "send",
+          "accurate": true
+        },
+        {
+          "file": "src/sql/engine/px/exchange/ob_px_transmit_op.cpp",
+          "symbol": "destroy",
+          "accurate": true
+        },
+        {
+          "file": "src/sql/engine/px/exchange/ob_px_transmit_op.cpp",
+          "symbol": "inner_get_next_row",
+          "accurate": true
+        },
+        {
+          "file": "src/sql/engine/px/exchange/ob_px_transmit_op.cpp",
+          "symbol": "inner_close",
+          "accurate": true
+        },
+        {
+          "file": "src/sql/dtl/ob_dtl_basic_channel.cpp",
+          "symbol": "init",
+          "accurate": true
+        },
+        {
+          "file": "src/sql/dtl/ob_dtl_basic_channel.cpp",
+          "symbol": "send1",
+          "accurate": true
+        },
+        {
+          "file": "src/sql/engine/px/exchange/ob_px_transmit_op.cpp",
+          "symbol": "inner_rescan",
+          "accurate": true
+        }
+      ],
+      "target_gaps": [],
+      "invalid_source_lines": [],
+      "is_error": false,
+      "log": "results-release\\candidate-dtl-seed-bag.json"
+    },
+    {
+      "arm": "candidate",
+      "id": "ttl-mixed-bag",
+      "query": "kv_ttl_delete_max_ops ObTableTTLDeleteTask ttl_thread_score TTL delete task limit rate",
+      "maxFiles": 12,
+      "chars": 23922,
+      "seconds": 39.4517608,
+      "complete": 7,
+      "total": 8,
+      "coverage": {
+        "rate_init": {
+          "complete": true,
+          "lines": 34,
+          "total": 34
+        },
+        "throttle_in_transaction": {
+          "complete": true,
+          "lines": 22,
+          "total": 22
+        },
+        "throttle_after_transaction": {
+          "complete": true,
+          "lines": 20,
+          "total": 20
+        },
+        "wait_calculation": {
+          "complete": true,
+          "lines": 16,
+          "total": 16
+        },
+        "early_commit_test": {
+          "complete": true,
+          "lines": 9,
+          "total": 9
+        },
+        "task_loop": {
+          "complete": true,
+          "lines": 38,
+          "total": 38
+        },
+        "transaction_batch": {
+          "complete": true,
+          "lines": 136,
+          "total": 136
+        },
+        "delete_loop_and_resume": {
+          "complete": false,
+          "lines": 0,
+          "total": 135
+        }
+      },
+      "files": [
+        "src/share/table/ob_ttl_util.cpp",
+        "src/share/scheduler/ob_tenant_dag_scheduler.cpp",
+        "src/observer/table/ttl/ob_table_ttl_task.cpp",
+        "src/observer/table/ttl/ob_table_ttl_task.h",
+        "src/share/scheduler/ob_tenant_dag_scheduler.h",
+        "src/share/table/ob_ttl_util.h"
+      ],
+      "gaps": [
+        {
+          "file": "src/observer/table/ttl/ob_table_ttl_task.cpp",
+          "symbol": "execute_ttl_delete",
+          "accurate": true
+        },
+        {
+          "file": "src/observer/table/ttl/ob_table_ttl_task.cpp",
+          "symbol": "init",
+          "accurate": true
+        },
+        {
+          "file": "src/observer/table/ttl/ob_table_ttl_task.cpp",
+          "symbol": "get_timeout_ts",
+          "accurate": true
+        },
+        {
+          "file": "src/observer/table/ttl/ob_table_ttl_task.cpp",
+          "symbol": "process_ttl_delete",
+          "accurate": true
+        },
+        {
+          "file": "src/observer/table/ttl/ob_table_ttl_task.cpp",
+          "symbol": "init_tb_ctx",
+          "accurate": true
+        },
+        {
+          "file": "src/share/scheduler/ob_tenant_dag_scheduler.cpp",
+          "symbol": "init",
+          "accurate": true
+        },
+        {
+          "file": "src/share/scheduler/ob_tenant_dag_scheduler.cpp",
+          "symbol": "mtl_init",
+          "accurate": true
+        }
+      ],
+      "target_gaps": [],
+      "invalid_source_lines": [],
+      "is_error": false,
+      "log": "results-release\\candidate-ttl-mixed-bag.json"
+    },
+    {
+      "arm": "candidate",
+      "id": "ttl-seed-bag",
+      "query": "ObTableTTLDeleteTask kv_ttl_delete_max_ops ttl_thread_score",
+      "maxFiles": 12,
+      "chars": 23999,
+      "seconds": 58.456397100000004,
+      "complete": 7,
+      "total": 8,
+      "coverage": {
+        "rate_init": {
+          "complete": true,
+          "lines": 34,
+          "total": 34
+        },
+        "throttle_in_transaction": {
+          "complete": true,
+          "lines": 22,
+          "total": 22
+        },
+        "throttle_after_transaction": {
+          "complete": true,
+          "lines": 20,
+          "total": 20
+        },
+        "wait_calculation": {
+          "complete": true,
+          "lines": 16,
+          "total": 16
+        },
+        "early_commit_test": {
+          "complete": true,
+          "lines": 9,
+          "total": 9
+        },
+        "task_loop": {
+          "complete": true,
+          "lines": 38,
+          "total": 38
+        },
+        "transaction_batch": {
+          "complete": true,
+          "lines": 136,
+          "total": 136
+        },
+        "delete_loop_and_resume": {
+          "complete": false,
+          "lines": 0,
+          "total": 135
+        }
+      },
+      "files": [
+        "src/share/table/ob_ttl_util.cpp",
+        "src/share/scheduler/ob_tenant_dag_scheduler.cpp",
+        "src/observer/table/ttl/ob_table_ttl_task.cpp",
+        "src/observer/table/ttl/ob_table_ttl_task.h",
+        "src/share/scheduler/ob_tenant_dag_scheduler.h",
+        "src/share/table/ob_ttl_util.h"
+      ],
+      "gaps": [
+        {
+          "file": "src/observer/table/ttl/ob_table_ttl_task.cpp",
+          "symbol": "execute_ttl_delete",
+          "accurate": true
+        },
+        {
+          "file": "src/observer/table/ttl/ob_table_ttl_task.cpp",
+          "symbol": "init_scan_tb_ctx",
+          "accurate": true
+        },
+        {
+          "file": "src/observer/table/ttl/ob_table_ttl_task.cpp",
+          "symbol": "init",
+          "accurate": true
+        },
+        {
+          "file": "src/observer/table/ttl/ob_table_ttl_task.cpp",
+          "symbol": "process_ttl_delete",
+          "accurate": true
+        },
+        {
+          "file": "src/observer/table/ttl/ob_table_ttl_task.cpp",
+          "symbol": "init_tb_ctx",
+          "accurate": true
+        },
+        {
+          "file": "src/observer/table/ttl/ob_table_ttl_task.cpp",
+          "symbol": "init_sess_info",
+          "accurate": true
+        },
+        {
+          "file": "src/observer/table/ttl/ob_table_ttl_task.cpp",
+          "symbol": "init_schema_info",
+          "accurate": true
+        },
+        {
+          "file": "src/observer/table/ttl/ob_table_ttl_task.cpp",
+          "symbol": "init_kv_schema_guard",
+          "accurate": true
+        }
+      ],
+      "target_gaps": [],
+      "invalid_source_lines": [],
+      "is_error": false,
+      "log": "results-release\\candidate-ttl-seed-bag.json"
+    },
+    {
+      "arm": "candidate",
+      "id": "ttl-task-methods",
+      "query": "ObTableTTLDeleteTask process process_one execute_ttl_delete",
+      "maxFiles": 12,
+      "chars": 23945,
+      "seconds": 47.13528380000003,
+      "complete": 4,
+      "total": 8,
+      "coverage": {
+        "rate_init": {
+          "complete": false,
+          "lines": 0,
+          "total": 34
+        },
+        "throttle_in_transaction": {
+          "complete": true,
+          "lines": 22,
+          "total": 22
+        },
+        "throttle_after_transaction": {
+          "complete": false,
+          "lines": 0,
+          "total": 20
+        },
+        "wait_calculation": {
+          "complete": false,
+          "lines": 0,
+          "total": 16
+        },
+        "early_commit_test": {
+          "complete": false,
+          "lines": 0,
+          "total": 9
+        },
+        "task_loop": {
+          "complete": true,
+          "lines": 38,
+          "total": 38
+        },
+        "transaction_batch": {
+          "complete": true,
+          "lines": 136,
+          "total": 136
+        },
+        "delete_loop_and_resume": {
+          "complete": true,
+          "lines": 135,
+          "total": 135
+        }
+      },
+      "files": [
+        "src/observer/table/ttl/ob_table_ttl_task.cpp",
+        "deps/oblib/src/common/rowkey/ob_rowkey.h",
+        "src/share/table/ob_ttl_util.cpp",
+        "deps/oblib/src/lib/time/ob_time_utility.cpp",
+        "src/share/table/ob_table.h",
+        "deps/oblib/src/lib/rc/context.h",
+        "deps/oblib/src/lib/allocator/page_arena.h",
+        "deps/oblib/src/common/rowkey/ob_rowkey.cpp",
+        "src/observer/table/ob_table_context.cpp"
+      ],
+      "gaps": [
+        {
+          "file": "src/observer/table/ttl/ob_table_ttl_task.cpp",
+          "symbol": "get_timeout_ts",
+          "accurate": true
+        },
+        {
+          "file": "src/observer/table/ttl/ob_table_ttl_task.cpp",
+          "symbol": "init",
+          "accurate": true
+        },
+        {
+          "file": "src/observer/table/ttl/ob_table_ttl_task.cpp",
+          "symbol": "init_kv_schema_guard",
+          "accurate": true
+        },
+        {
+          "file": "src/observer/table/ttl/ob_table_ttl_task.cpp",
+          "symbol": "decide_and_check_scan_index",
+          "accurate": true
+        },
+        {
+          "file": "src/observer/table/ttl/ob_table_ttl_task.cpp",
+          "symbol": "init_ob_table_query",
+          "accurate": true
+        },
+        {
+          "file": "src/observer/table/ttl/ob_table_ttl_task.cpp",
+          "symbol": "init_scan_tb_ctx",
+          "accurate": true
+        },
+        {
+          "file": "src/observer/table/ttl/ob_table_ttl_task.cpp",
+          "symbol": "process_ttl_delete",
+          "accurate": true
+        }
+      ],
+      "target_gaps": [],
+      "invalid_source_lines": [],
+      "is_error": false,
+      "log": "results-release\\candidate-ttl-task-methods.json"
+    },
+    {
+      "arm": "candidate",
+      "id": "ttl-task-single",
+      "query": "ObTableTTLDeleteTask",
+      "maxFiles": 12,
+      "chars": 23942,
+      "seconds": 51.841483600000004,
+      "complete": 3,
+      "total": 8,
+      "coverage": {
+        "rate_init": {
+          "complete": false,
+          "lines": 0,
+          "total": 34
+        },
+        "throttle_in_transaction": {
+          "complete": false,
+          "lines": 0,
+          "total": 22
+        },
+        "throttle_after_transaction": {
+          "complete": false,
+          "lines": 0,
+          "total": 20
+        },
+        "wait_calculation": {
+          "complete": false,
+          "lines": 0,
+          "total": 16
+        },
+        "early_commit_test": {
+          "complete": false,
+          "lines": 0,
+          "total": 9
+        },
+        "task_loop": {
+          "complete": true,
+          "lines": 38,
+          "total": 38
+        },
+        "transaction_batch": {
+          "complete": true,
+          "lines": 136,
+          "total": 136
+        },
+        "delete_loop_and_resume": {
+          "complete": true,
+          "lines": 135,
+          "total": 135
+        }
+      },
+      "files": [
+        "src/observer/table/ttl/ob_table_ttl_task.cpp",
+        "src/observer/table/ttl/ob_table_ttl_task.h"
+      ],
+      "gaps": [
+        {
+          "file": "src/observer/table/ttl/ob_table_ttl_task.cpp",
+          "symbol": "process_ttl_delete",
+          "accurate": true
+        },
+        {
+          "file": "src/observer/table/ttl/ob_table_ttl_task.cpp",
+          "symbol": "init_tb_ctx",
+          "accurate": true
+        },
+        {
+          "file": "src/observer/table/ttl/ob_table_ttl_task.cpp",
+          "symbol": "init_schema_info",
+          "accurate": true
+        },
+        {
+          "file": "src/observer/table/ttl/ob_table_ttl_task.cpp",
+          "symbol": "init_kv_schema_guard",
+          "accurate": true
+        },
+        {
+          "file": "src/observer/table/ttl/ob_table_ttl_task.cpp",
+          "symbol": "init_credential",
+          "accurate": true
+        },
+        {
+          "file": "src/observer/table/ttl/ob_table_ttl_task.cpp",
+          "symbol": "decide_and_check_scan_index",
+          "accurate": true
+        },
+        {
+          "file": "src/observer/table/ttl/ob_table_ttl_task.cpp",
+          "symbol": "init_ob_table_query",
+          "accurate": true
+        }
+      ],
+      "target_gaps": [],
+      "invalid_source_lines": [],
+      "is_error": false,
+      "log": "results-release\\candidate-ttl-task-single.json"
+    },
+    {
+      "arm": "candidate",
+      "id": "ttl-throttler-methods",
+      "query": "ObTTLDeleteRateThrottler init check_and_try_throttle calculate_wait_time need_commit_trans_early",
+      "maxFiles": 12,
+      "chars": 22979,
+      "seconds": 37.145239700000005,
+      "complete": 8,
+      "total": 8,
+      "coverage": {
+        "rate_init": {
+          "complete": true,
+          "lines": 34,
+          "total": 34
+        },
+        "throttle_in_transaction": {
+          "complete": true,
+          "lines": 22,
+          "total": 22
+        },
+        "throttle_after_transaction": {
+          "complete": true,
+          "lines": 20,
+          "total": 20
+        },
+        "wait_calculation": {
+          "complete": true,
+          "lines": 16,
+          "total": 16
+        },
+        "early_commit_test": {
+          "complete": true,
+          "lines": 9,
+          "total": 9
+        },
+        "task_loop": {
+          "complete": true,
+          "lines": 38,
+          "total": 38
+        },
+        "transaction_batch": {
+          "complete": true,
+          "lines": 136,
+          "total": 136
+        },
+        "delete_loop_and_resume": {
+          "complete": true,
+          "lines": 135,
+          "total": 135
+        }
+      },
+      "files": [
+        "src/share/table/ob_ttl_util.cpp",
+        "deps/oblib/src/lib/time/ob_time_utility.cpp",
+        "src/observer/table/ttl/ob_table_ttl_task.cpp",
+        "deps/oblib/src/lib/thread/ob_tenant_hook.cpp",
+        "src/observer/omt/ob_tenant_config_mgr.h",
+        "deps/oblib/src/lib/oblog/ob_log_module.h",
+        "src/share/table/ob_ttl_util.h"
+      ],
+      "gaps": [],
+      "target_gaps": [],
+      "invalid_source_lines": [],
+      "is_error": false,
+      "log": "results-release\\candidate-ttl-throttler-methods.json"
+    },
+    {
+      "arm": "candidate",
+      "id": "ttl-throttler-single",
+      "query": "ObTTLDeleteRateThrottler",
+      "maxFiles": 12,
+      "chars": 20045,
+      "seconds": 37.70781090000001,
+      "complete": 7,
+      "total": 8,
+      "coverage": {
+        "rate_init": {
+          "complete": true,
+          "lines": 34,
+          "total": 34
+        },
+        "throttle_in_transaction": {
+          "complete": true,
+          "lines": 22,
+          "total": 22
+        },
+        "throttle_after_transaction": {
+          "complete": true,
+          "lines": 20,
+          "total": 20
+        },
+        "wait_calculation": {
+          "complete": true,
+          "lines": 16,
+          "total": 16
+        },
+        "early_commit_test": {
+          "complete": true,
+          "lines": 9,
+          "total": 9
+        },
+        "task_loop": {
+          "complete": true,
+          "lines": 38,
+          "total": 38
+        },
+        "transaction_batch": {
+          "complete": true,
+          "lines": 136,
+          "total": 136
+        },
+        "delete_loop_and_resume": {
+          "complete": false,
+          "lines": 0,
+          "total": 135
+        }
+      },
+      "files": [
+        "src/share/table/ob_ttl_util.h",
+        "src/share/table/ob_ttl_util.cpp",
+        "deps/oblib/src/lib/time/ob_time_utility.cpp",
+        "src/observer/table/ttl/ob_table_ttl_task.cpp",
+        "src/observer/omt/ob_tenant_config_mgr.h",
+        "deps/oblib/src/lib/thread/ob_tenant_hook.cpp"
+      ],
+      "gaps": [
+        {
+          "file": "src/observer/table/ttl/ob_table_ttl_task.cpp",
+          "symbol": "execute_ttl_delete",
+          "accurate": true
+        }
+      ],
+      "target_gaps": [],
+      "invalid_source_lines": [],
+      "is_error": false,
+      "log": "results-release\\candidate-ttl-throttler-single.json"
+    },
+    {
+      "arm": "baseline",
+      "id": "dtl-explicit-range",
+      "query": "src/sql/dtl/ob_dtl_basic_channel.cpp:801-891",
+      "maxFiles": 12,
+      "chars": 393,
+      "seconds": 1.3275372999999964,
+      "complete": 0,
+      "total": 5,
+      "coverage": {
+        "need_block": {
+          "complete": false,
+          "lines": 0,
+          "total": 13
+        },
+        "can_unblock": {
+          "complete": false,
+          "lines": 0,
+          "total": 13
+        },
+        "wait_unblocking": {
+          "complete": false,
+          "lines": 0,
+          "total": 91
+        },
+        "wait_unblocking_if_blocked": {
+          "complete": false,
+          "lines": 0,
+          "total": 32
+        },
+        "inner_close": {
+          "complete": false,
+          "lines": 0,
+          "total": 36
+        }
+      },
+      "files": [],
+      "gaps": [],
+      "target_gaps": [],
+      "invalid_source_lines": [],
+      "is_error": false,
+      "log": "results-targets\\baseline-dtl-explicit-range.json"
+    },
+    {
+      "arm": "baseline",
+      "id": "dtl-qualified-member",
+      "query": "ObDtlBasicChannel::wait_unblocking",
+      "maxFiles": 12,
+      "chars": 13621,
+      "seconds": 50.4753414,
+      "complete": 2,
+      "total": 5,
+      "coverage": {
+        "need_block": {
+          "complete": false,
+          "lines": 0,
+          "total": 13
+        },
+        "can_unblock": {
+          "complete": false,
+          "lines": 0,
+          "total": 13
+        },
+        "wait_unblocking": {
+          "complete": true,
+          "lines": 91,
+          "total": 91
+        },
+        "wait_unblocking_if_blocked": {
+          "complete": true,
+          "lines": 32,
+          "total": 32
+        },
+        "inner_close": {
+          "complete": false,
+          "lines": 0,
+          "total": 36
+        }
+      },
+      "files": [
+        "src/sql/dtl/ob_dtl_basic_channel.cpp",
+        "deps/oblib/src/lib/time/ob_time_utility.cpp",
+        "src/sql/dtl/ob_dtl_basic_channel.h",
+        "src/sql/dtl/ob_dtl_fc_server.cpp",
+        "src/sql/dtl/ob_dtl_channel.h",
+        "src/sql/dtl/ob_dtl_channel_loop.h",
+        "unittest/sql/engine/px/test_merge_sort_receive.cpp",
+        "src/sql/dtl/ob_dtl_channel_loop.cpp",
+        "src/sql/engine/px/ob_px_worker.cpp",
+        "src/sql/engine/px/ob_px_util.cpp",
+        "deps/oblib/src/lib/oblog/ob_log_module.h",
+        "deps/oblib/src/lib/utility/ob_macro_utils.h"
+      ],
+      "gaps": [],
+      "target_gaps": [],
+      "invalid_source_lines": [],
+      "is_error": false,
+      "log": "results-targets\\baseline-dtl-qualified-member.json"
+    },
+    {
+      "arm": "baseline",
+      "id": "ttl-explicit-range",
+      "query": "src/observer/table/ttl/ob_table_ttl_task.cpp:1075-1209",
+      "maxFiles": 12,
+      "chars": 415,
+      "seconds": 1.4525755000000002,
+      "complete": 0,
+      "total": 8,
+      "coverage": {
+        "rate_init": {
+          "complete": false,
+          "lines": 0,
+          "total": 34
+        },
+        "throttle_in_transaction": {
+          "complete": false,
+          "lines": 0,
+          "total": 22
+        },
+        "throttle_after_transaction": {
+          "complete": false,
+          "lines": 0,
+          "total": 20
+        },
+        "wait_calculation": {
+          "complete": false,
+          "lines": 0,
+          "total": 16
+        },
+        "early_commit_test": {
+          "complete": false,
+          "lines": 0,
+          "total": 9
+        },
+        "task_loop": {
+          "complete": false,
+          "lines": 0,
+          "total": 38
+        },
+        "transaction_batch": {
+          "complete": false,
+          "lines": 0,
+          "total": 136
+        },
+        "delete_loop_and_resume": {
+          "complete": false,
+          "lines": 0,
+          "total": 135
+        }
+      },
+      "files": [],
+      "gaps": [],
+      "target_gaps": [],
+      "invalid_source_lines": [],
+      "is_error": false,
+      "log": "results-targets\\baseline-ttl-explicit-range.json"
+    },
+    {
+      "arm": "baseline",
+      "id": "ttl-qualified-member",
+      "query": "ObTableTTLDeleteTask::execute_ttl_delete",
+      "maxFiles": 12,
+      "chars": 23653,
+      "seconds": 59.285050600000005,
+      "complete": 2,
+      "total": 8,
+      "coverage": {
+        "rate_init": {
+          "complete": false,
+          "lines": 0,
+          "total": 34
+        },
+        "throttle_in_transaction": {
+          "complete": true,
+          "lines": 22,
+          "total": 22
+        },
+        "throttle_after_transaction": {
+          "complete": false,
+          "lines": 0,
+          "total": 20
+        },
+        "wait_calculation": {
+          "complete": false,
+          "lines": 0,
+          "total": 16
+        },
+        "early_commit_test": {
+          "complete": false,
+          "lines": 0,
+          "total": 9
+        },
+        "task_loop": {
+          "complete": false,
+          "lines": 0,
+          "total": 38
+        },
+        "transaction_batch": {
+          "complete": false,
+          "lines": 0,
+          "total": 136
+        },
+        "delete_loop_and_resume": {
+          "complete": true,
+          "lines": 135,
+          "total": 135
+        }
+      },
+      "files": [
+        "src/observer/table/ttl/ob_table_ttl_task.cpp",
+        "deps/oblib/src/common/rowkey/ob_rowkey.h",
+        "src/share/table/ob_ttl_util.cpp",
+        "deps/oblib/src/lib/allocator/page_arena.h",
+        "deps/oblib/src/common/rowkey/ob_rowkey.cpp",
+        "src/observer/table/ob_table_scan_executor.cpp",
+        "src/share/table/ob_table.cpp",
+        "src/sql/engine/recursive_cte/ob_search_method_op.h",
+        "deps/oblib/src/common/object/ob_object.h"
+      ],
+      "gaps": [
+        {
+          "file": "src/observer/table/ttl/ob_table_ttl_task.cpp",
+          "symbol": "process_one",
+          "accurate": true
+        },
+        {
+          "file": "src/observer/table/ttl/ob_table_ttl_task.cpp",
+          "symbol": "init",
+          "accurate": true
+        },
+        {
+          "file": "src/observer/table/ttl/ob_table_ttl_task.cpp",
+          "symbol": "get_scan_ranges",
+          "accurate": true
+        },
+        {
+          "file": "deps/oblib/src/common/rowkey/ob_rowkey.h",
+          "symbol": "operator<<",
+          "accurate": true
+        },
+        {
+          "file": "deps/oblib/src/common/rowkey/ob_rowkey.cpp",
+          "symbol": "get_common_prefix_length",
+          "accurate": true
+        }
+      ],
+      "target_gaps": [],
+      "invalid_source_lines": [],
+      "is_error": false,
+      "log": "results-targets\\baseline-ttl-qualified-member.json"
+    },
+    {
+      "arm": "candidate",
+      "id": "dtl-explicit-range",
+      "query": "src/sql/dtl/ob_dtl_basic_channel.cpp:801-891",
+      "maxFiles": 12,
+      "chars": 5013,
+      "seconds": 0.36318859999999403,
+      "complete": 1,
+      "total": 5,
+      "coverage": {
+        "need_block": {
+          "complete": false,
+          "lines": 0,
+          "total": 13
+        },
+        "can_unblock": {
+          "complete": false,
+          "lines": 0,
+          "total": 13
+        },
+        "wait_unblocking": {
+          "complete": true,
+          "lines": 91,
+          "total": 91
+        },
+        "wait_unblocking_if_blocked": {
+          "complete": false,
+          "lines": 0,
+          "total": 32
+        },
+        "inner_close": {
+          "complete": false,
+          "lines": 0,
+          "total": 36
+        }
+      },
+      "files": [
+        "src/sql/dtl/ob_dtl_basic_channel.cpp"
+      ],
+      "gaps": [],
+      "target_gaps": [
+        {
+          "file": "src/sql/dtl/ob_dtl_basic_channel.cpp",
+          "symbol": "requested source range",
+          "state": "Complete target",
+          "accurate": true
+        }
+      ],
+      "invalid_source_lines": [],
+      "is_error": false,
+      "log": "results-release\\candidate-dtl-explicit-range.json"
+    },
+    {
+      "arm": "candidate",
+      "id": "dtl-qualified-member",
+      "query": "ObDtlBasicChannel::wait_unblocking",
+      "maxFiles": 12,
+      "chars": 13383,
+      "seconds": 46.31313919999997,
+      "complete": 2,
+      "total": 5,
+      "coverage": {
+        "need_block": {
+          "complete": false,
+          "lines": 0,
+          "total": 13
+        },
+        "can_unblock": {
+          "complete": false,
+          "lines": 0,
+          "total": 13
+        },
+        "wait_unblocking": {
+          "complete": true,
+          "lines": 91,
+          "total": 91
+        },
+        "wait_unblocking_if_blocked": {
+          "complete": true,
+          "lines": 32,
+          "total": 32
+        },
+        "inner_close": {
+          "complete": false,
+          "lines": 0,
+          "total": 36
+        }
+      },
+      "files": [
+        "src/sql/dtl/ob_dtl_basic_channel.cpp",
+        "deps/oblib/src/lib/time/ob_time_utility.cpp",
+        "src/sql/dtl/ob_dtl_basic_channel.h",
+        "src/sql/dtl/ob_dtl_fc_server.cpp",
+        "src/sql/dtl/ob_dtl_channel.h",
+        "src/sql/dtl/ob_dtl_channel_loop.h",
+        "unittest/sql/engine/px/test_merge_sort_receive.cpp",
+        "src/sql/dtl/ob_dtl_channel_loop.cpp",
+        "src/sql/engine/px/ob_px_worker.cpp",
+        "src/sql/engine/px/ob_px_util.cpp",
+        "deps/oblib/src/lib/oblog/ob_log_module.h",
+        "deps/oblib/src/lib/utility/ob_macro_utils.h"
+      ],
+      "gaps": [],
+      "target_gaps": [
+        {
+          "file": "src/sql/dtl/ob_dtl_basic_channel.cpp",
+          "symbol": "wait_unblocking",
+          "state": "Complete target",
+          "accurate": true
+        }
+      ],
+      "invalid_source_lines": [],
+      "is_error": false,
+      "log": "results-release\\candidate-dtl-qualified-member.json"
+    },
+    {
+      "arm": "candidate",
+      "id": "ttl-explicit-range",
+      "query": "src/observer/table/ttl/ob_table_ttl_task.cpp:1075-1209",
+      "maxFiles": 12,
+      "chars": 7482,
+      "seconds": 0.3579451999999583,
+      "complete": 1,
+      "total": 8,
+      "coverage": {
+        "rate_init": {
+          "complete": false,
+          "lines": 0,
+          "total": 34
+        },
+        "throttle_in_transaction": {
+          "complete": false,
+          "lines": 0,
+          "total": 22
+        },
+        "throttle_after_transaction": {
+          "complete": false,
+          "lines": 0,
+          "total": 20
+        },
+        "wait_calculation": {
+          "complete": false,
+          "lines": 0,
+          "total": 16
+        },
+        "early_commit_test": {
+          "complete": false,
+          "lines": 0,
+          "total": 9
+        },
+        "task_loop": {
+          "complete": false,
+          "lines": 0,
+          "total": 38
+        },
+        "transaction_batch": {
+          "complete": false,
+          "lines": 0,
+          "total": 136
+        },
+        "delete_loop_and_resume": {
+          "complete": true,
+          "lines": 135,
+          "total": 135
+        }
+      },
+      "files": [
+        "src/observer/table/ttl/ob_table_ttl_task.cpp"
+      ],
+      "gaps": [],
+      "target_gaps": [
+        {
+          "file": "src/observer/table/ttl/ob_table_ttl_task.cpp",
+          "symbol": "requested source range",
+          "state": "Complete target",
+          "accurate": true
+        }
+      ],
+      "invalid_source_lines": [],
+      "is_error": false,
+      "log": "results-release\\candidate-ttl-explicit-range.json"
+    },
+    {
+      "arm": "candidate",
+      "id": "ttl-qualified-member",
+      "query": "ObTableTTLDeleteTask::execute_ttl_delete",
+      "maxFiles": 12,
+      "chars": 23498,
+      "seconds": 47.530653899999976,
+      "complete": 2,
+      "total": 8,
+      "coverage": {
+        "rate_init": {
+          "complete": false,
+          "lines": 0,
+          "total": 34
+        },
+        "throttle_in_transaction": {
+          "complete": true,
+          "lines": 22,
+          "total": 22
+        },
+        "throttle_after_transaction": {
+          "complete": false,
+          "lines": 0,
+          "total": 20
+        },
+        "wait_calculation": {
+          "complete": false,
+          "lines": 0,
+          "total": 16
+        },
+        "early_commit_test": {
+          "complete": false,
+          "lines": 0,
+          "total": 9
+        },
+        "task_loop": {
+          "complete": false,
+          "lines": 0,
+          "total": 38
+        },
+        "transaction_batch": {
+          "complete": false,
+          "lines": 0,
+          "total": 136
+        },
+        "delete_loop_and_resume": {
+          "complete": true,
+          "lines": 135,
+          "total": 135
+        }
+      },
+      "files": [
+        "src/observer/table/ttl/ob_table_ttl_task.cpp",
+        "deps/oblib/src/common/rowkey/ob_rowkey.h",
+        "src/share/table/ob_ttl_util.cpp",
+        "deps/oblib/src/lib/allocator/page_arena.h",
+        "deps/oblib/src/common/rowkey/ob_rowkey.cpp",
+        "src/observer/table/ob_table_scan_executor.cpp",
+        "src/share/table/ob_table.cpp",
+        "src/sql/engine/recursive_cte/ob_search_method_op.h",
+        "deps/oblib/src/common/object/ob_object.h",
+        "deps/oblib/src/lib/oblog/ob_log_module.h",
+        "deps/oblib/src/lib/utility/ob_macro_utils.h"
+      ],
+      "gaps": [
+        {
+          "file": "src/observer/table/ttl/ob_table_ttl_task.cpp",
+          "symbol": "process_one",
+          "accurate": true
+        },
+        {
+          "file": "src/observer/table/ttl/ob_table_ttl_task.cpp",
+          "symbol": "process_ttl_delete",
+          "accurate": true
+        },
+        {
+          "file": "src/observer/table/ttl/ob_table_ttl_task.cpp",
+          "symbol": "construct_delete_entity",
+          "accurate": true
+        },
+        {
+          "file": "src/observer/table/ttl/ob_table_ttl_task.cpp",
+          "symbol": "init",
+          "accurate": true
+        },
+        {
+          "file": "src/observer/table/ttl/ob_table_ttl_task.cpp",
+          "symbol": "get_scan_ranges",
+          "accurate": true
+        }
+      ],
+      "target_gaps": [
+        {
+          "file": "src/observer/table/ttl/ob_table_ttl_task.cpp",
+          "symbol": "execute_ttl_delete",
+          "state": "Complete target",
+          "accurate": true
+        }
+      ],
+      "invalid_source_lines": [],
+      "is_error": false,
+      "log": "results-release\\candidate-ttl-qualified-member.json"
+    }
+  ],
+  "regressions": [],
+  "invalid_source_lines": 0,
+  "invalid_target_gaps": 0,
+  "invalid_gaps": 0
+}

@@ -1,0 +1,20 @@
+## Exploration: worker.cpp:4-6
+
+Found 1 symbols across 1 files.
+
+
+Exact symbol/path anchors and identifier text evidence; weak word matches are disabled.
+### Source Code
+
+> Source excerpts below are read from current files. Only shown source ranges are covered; signatures, outlines and omitted regions are not complete function bodies or complete files.
+
+#### worker.cpp — requested source range · focused source ranges (coverage below)
+
+```cpp
+4	  const int integer_marker = 813;
+5	  return integer_marker + value;
+6	}
+```
+
+> Explicit target coverage (source ranges actually emitted):
+- Complete target: worker.cpp:4-6 requested source range; shown 4-6; missing none

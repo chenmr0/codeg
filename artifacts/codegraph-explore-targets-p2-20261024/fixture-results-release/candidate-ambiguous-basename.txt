@@ -1,0 +1,3 @@
+No query-supported symbol or callable source context admitted for "peer.ts:1".
+Exact symbol/path anchors and identifier text evidence; weak word matches are disabled.
+No unambiguous indexed target for peer.ts; this does not establish source absence.

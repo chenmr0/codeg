@@ -1,0 +1,596 @@
+## Exploration: ObTableTTLDeleteTask::execute_ttl_delete
+
+Found 200 symbols across 117 files.
+
+
+Exact symbol/path anchors and identifier text evidence; weak word matches are disabled.
+### Blast radius — what depends on these (update/verify before editing)
+
+- `execute_ttl_delete` (src/observer/table/ttl/ob_table_ttl_task.cpp:1075) — 1 caller in `src/observer/table/ttl/ob_table_ttl_task.cpp`; ⚠️ no covering tests found
+
+### Relationships
+
+**calls:**
+- execute_ttl_delete → reset
+- execute_ttl_delete → get_obj_cnt
+- execute_ttl_delete → get_obj_ptr
+- execute_ttl_delete → is_valid
+- execute_ttl_delete → assign
+- execute_ttl_delete → assign
+- execute_ttl_delete → get_timeout_ts
+- execute_ttl_delete → count
+- process_one → execute_ttl_delete
+- execute_ttl_delete → reset
+- execute_ttl_delete → serialize
+- execute_ttl_delete → get_serialize_size
+- execute_ttl_delete → process_ttl_delete
+- execute_ttl_delete → get_next_row
+- execute_ttl_delete → construct_delete_entity
+- ... and 4139 more
+
+**extends:**
+- ObTableTTLDeleteTask → ObITask
+- ObTableHRowKeyTTLDelTask → ObTableTTLDeleteTask
+
+### Source Code
+
+> Source excerpts below are read from current files. Only shown source ranges are covered; signatures, outlines and omitted regions are not complete function bodies or complete files.
+
+#### src/observer/table/ttl/ob_table_ttl_task.cpp — execute_ttl_delete, get_timeout_ts · focused source ranges (coverage below)
+
+```cpp
+109	int64_t ObTableTTLDeleteTask::get_timeout_ts()
+110	{
+111	  if (timeout_ts_ == 0) {
+112	    timeout_ts_ = ONE_TASK_TIMEOUT + ObTimeUtility::current_time();
+113	  }
+114	  return timeout_ts_;
+115	}
+
+... (gap) ...
+
+1075	int ObTableTTLDeleteTask::execute_ttl_delete(ObKvSchemaCacheGuard &schema_cache_guard,
+1076	                                             ObTableTTLRowIterator &ttl_row_iter,
+1077	                                             ObTableTTLOperationResult &result,
+1078	                                             transaction::ObTxDesc *trans_desc,
+1079	                                             transaction::ObTxReadSnapshot &snapshot)
+1080	{
+1081	  int ret = OB_SUCCESS;
+1082	  int64_t affected_rows = 0;
+1083	  bool is_index_scan = !ObTTLUtil::is_default_scan_index(scan_index_);
+1084	  while (OB_SUCC(ret)) {
+1085	    ObNewRow *row = nullptr;
+1086	    if (OB_FAIL(ttl_row_iter.get_next_row(row))) {
+1087	      if (OB_ITER_END != ret) {
+1088	        LOG_WARN("fail to get next row", K(ret));
+1089	      }
+1090	    } else {
+1091	      int64_t tmp_affect_rows = 0;
+1092	      if (OB_FAIL(construct_delete_entity(ttl_row_iter.column_pairs_, *row, delete_entity_))) {
+1093	        LOG_WARN("fail to construct delete entity", KR(ret));
+1094	      } else if (OB_FAIL(process_ttl_delete(schema_cache_guard, delete_entity_, tmp_affect_rows, trans_desc, snapshot, !is_index_scan))) {
+1095	        LOG_WARN("fail to execute table delete", K(ret));
+1096	      } else {
+1097	        int tmp_ret = OB_SUCCESS;
+1098	        affected_rows += tmp_affect_rows;
+1099	        if (OB_TMP_FAIL(delete_rate_throttler_.check_and_try_throttle(get_timeout_ts()))) {
+1100	          if (OB_ITER_END != tmp_ret) {
+1101	            LOG_WARN("fail to limit delete rate", KR(tmp_ret));
+1102	          }
+1103	        }
+1104	      }
+1105	      if (REACH_TIME_INTERVAL(30 * 1000 * 1000)) { // 30s
+1106	        delete_rate_throttler_.print_throttle_info();
+1107	      }
+1108	      LOG_DEBUG("[TTL Task] execute ttl delete", K(is_index_scan), KPC(row), K(delete_entity_));
+1109	    }
+1110	    delete_entity_.reset();
+1111	  }
+1112	
+1113	  if (OB_ITER_END == ret) {
+1114	    ret = OB_SUCCESS;
+1115	  }
+1116	
+1117	  if (OB_SUCC(ret)) {
+1118	    uint64_t iter_ttl_cnt = ttl_row_iter.ttl_cnt_;
+1119	    uint64_t iter_max_version_cnt = ttl_row_iter.max_version_cnt_;
+1120	    uint64_t iter_return_cnt = iter_ttl_cnt + iter_max_version_cnt;
+1121	    if (OB_UNLIKELY(affected_rows != iter_return_cnt)) {
+1122	      ret = OB_ERR_UNEXPECTED;
+1123	      LOG_ERROR("unexpected affect rows", K(ret), K(affected_rows), K(iter_return_cnt), K(iter_ttl_cnt));
+1124	    } else {
+1125	      result.ttl_del_rows_ = iter_ttl_cnt;
+1126	      result.max_version_del_rows_ = iter_max_version_cnt;
+1127	      result.scan_rows_ = ttl_row_iter.scan_cnt_;
+1128	      result.iter_end_ts_ = ttl_row_iter.iter_end_ts_;
+1129	    }
+1130	  }
+1131	
+1132	  if (OB_SUCC(ret)) {
+1133	    int64_t rowkey_cnt = ttl_row_iter.rowkey_cnt_;
+1134	    if (OB_NOT_NULL(ttl_row_iter.last_row_)) {
+1135	      int64_t row_cell_cnt = ttl_row_iter.last_row_->get_count();
+1136	      if (row_cell_cnt < rowkey_cnt) {
+1137	        ret = OB_ERR_UNEXPECTED;
+1138	        LOG_WARN("unexpected rowkey column count", KR(ret), K(row_cell_cnt), K(rowkey_cnt));
+1139	      } else {
+1140	        rowkey_.reset();
+1141	        rowkey_allocator_.reuse();
+1142	        ObObj *rowkey_buf = nullptr;
+1143	        if (OB_ISNULL(rowkey_buf = static_cast<ObObj*>(rowkey_allocator_.alloc(sizeof(ObObj) * rowkey_cnt)))) {
+1144	          ret = OB_ALLOCATE_MEMORY_FAILED;
+1145	          LOG_WARN("fail to alloc cells buffer", K(ret), K(rowkey_cnt));
+1146	        } else {
+1147	          for (int64_t i = 0; OB_SUCC(ret) && i < ttl_row_iter.column_pairs_.count(); i++) {
+1148	            ObTableTTLRowIterator::ColumnPair &pair = ttl_row_iter.column_pairs_.at(i);
+1149	            if (!pair.is_rowkey_column_) {
+1150	              // do nothing
+1151	            } else {
+1152	              int64_t cell_idx = pair.cell_idx_;
+1153	              int64_t rowkey_pos_idx = pair.rowkey_pos_idx_ - 1;
+1154	              if (cell_idx >= row_cell_cnt || cell_idx < 0 || rowkey_pos_idx >= rowkey_cnt || rowkey_pos_idx < 0) {
+1155	                ret = OB_ERR_UNEXPECTED;
+1156	                LOG_WARN("unexpected cell ids", KR(ret), K(cell_idx), K(row_cell_cnt), K(rowkey_pos_idx), K(rowkey_cnt));
+1157	              } else if (OB_FAIL(ob_write_obj(rowkey_allocator_, ttl_row_iter.last_row_->cells_[cell_idx], rowkey_buf[rowkey_pos_idx]))) {
+1158	                LOG_WARN("fail to copy obj", KR(ret), K(cell_idx), KPC(ttl_row_iter.last_row_->cells_));
+1159	              }
+1160	            }
+1161	          }
+1162	
+1163	          if (OB_SUCC(ret)) {
+1164	            rowkey_.assign(rowkey_buf, rowkey_cnt);
+1165	            hbase_cur_version_ = ttl_row_iter.cur_version_;
+1166	          }
+1167	        }
+1168	      }
+1169	    }
+1170	
+1171	    if (OB_SUCC(ret) && rowkey_.is_valid()) {
+1172	      // if ITER_END in ttl_row_iter, rowkey_ will not be assigned by last_row_ in this round
+1173	      ObRowkey saved_rowkey = rowkey_;
+1174	      if (param_.is_htable_) {
+1175	        // for hbase table, only k,q is saved, set t to min, cuz we do not remember version in sys table
+1176	        const int hbase_rowkey_size = 3;
+1177	        ObObj *hbase_rowkey_objs = nullptr;
+1178	        if (rowkey_.get_obj_cnt() < hbase_rowkey_size) {
+1179	          ret = OB_INVALID_ARGUMENT;
+1180	          LOG_WARN("invalid argument", KR(ret), K_(rowkey));
+1181	        } else if (OB_ISNULL(hbase_rowkey_objs =
+1182	            static_cast<ObObj*>(allocator_.alloc(sizeof(ObObj) * hbase_rowkey_size)))) {
+1183	          ret = OB_ALLOCATE_MEMORY_FAILED;
+1184	          LOG_WARN("fail to alloc", K(ret), K(hbase_rowkey_size));
+1185	        } else {
+1186	          ObObj *raw_obj_ptr = const_cast<ObObj *>(rowkey_.get_obj_ptr());
+1187	          hbase_rowkey_objs[ObHTableConstants::COL_IDX_K] = raw_obj_ptr[ObHTableConstants::COL_IDX_K];
+1188	          hbase_rowkey_objs[ObHTableConstants::COL_IDX_Q] = raw_obj_ptr[ObHTableConstants::COL_IDX_Q];
+1189	          hbase_rowkey_objs[ObHTableConstants::COL_IDX_T].set_min_value();
+1190	          saved_rowkey.assign(hbase_rowkey_objs, hbase_rowkey_size);
+1191	        }
+1192	      }
+1193	
+1194	      if (OB_SUCC(ret)) {
+1195	        uint64_t buf_len = saved_rowkey.get_serialize_size();
+1196	        char *buf = static_cast<char *>(allocator_.alloc(buf_len));
+1197	        int64_t pos = 0;
+1198	        if (OB_FAIL(saved_rowkey.serialize(buf, buf_len, pos))) {
+1199	          LOG_WARN("fail to serialize", K(ret), K(buf_len), K(pos), K_(rowkey));
+1200	        } else {
+1201	          result.end_rowkey_.assign_ptr(buf, buf_len);
+1202	        }
+1203	      }
+1204	      LOG_DEBUG("save end rowkey", KR(ret), K(saved_rowkey), KPC(ttl_row_iter.last_row_));
+1205	    }
+1206	  }
+1207	  LOG_DEBUG("execute ttl delete", K(ret), K(result));
+1208	  return ret;
+1209	}
+```
+
+#### deps/oblib/src/common/rowkey/ob_rowkey.h — reset, get_obj_cnt, get_obj_ptr, is_valid, assign, deep_copy, operator<<, ObRowkey · focused source ranges (coverage below)
+
+```cpp
+31	class ObRowkey
+
+... (gap) ...
+
+39	  void reset() {obj_ptr_ = NULL; obj_cnt_ = 0; }
+
+... (gap) ...
+
+41	  inline int64_t get_obj_cnt() const { return obj_cnt_; }
+42	  inline const ObObj *get_obj_ptr() const { return obj_ptr_; }
+
+... (gap) ...
+
+48	  inline bool is_valid() const { return NULL != obj_ptr_ && obj_cnt_ > 0; }
+
+... (gap) ...
+
+83	  inline void assign(ObObj *ptr, const int64_t cnt)
+84	  {
+85	    obj_ptr_ = ptr;
+86	    obj_cnt_ = cnt;
+87	  }
+
+... (gap) ...
+
+400	OB_INLINE int ObRowkey::deep_copy(ObRowkey &rhs, char *ptr, int64_t total_len) const
+401	{
+402	  int ret = OB_SUCCESS;
+403	  rhs.reset();
+404	
+405	  if (OB_UNLIKELY(!is_legal())) {
+406	      ret = OB_INVALID_DATA;
+407	      COMMON_LOG(WARN, "illegal rowkey.",
+408	               KP_(obj_ptr), K_(obj_cnt), K(ret));
+409	  } else if (obj_cnt_ > 0 && NULL != obj_ptr_) {
+410	    if (OB_FAIL(deep_copy(ptr, total_len))) {
+411	      COMMON_LOG(WARN, "deep copy rowkey failed.",
+412	                 KP_(obj_ptr), KP_(obj_cnt), K(ret));
+413	    } else {
+414	      rhs.assign(reinterpret_cast<ObObj *>(ptr), obj_cnt_);
+415	    }
+416	  } else {
+417	    rhs.assign(NULL, 0);
+418	  }
+419	  return ret;
+420	}
+
+... (gap) ...
+
+504	inline std::ostream &operator<<(std::ostream &os, const ObRowkey &key)  // for google test
+505	{
+506	  os << " len=" << key.get_obj_cnt();
+507	  return os;
+508	}
+```
+
+#### src/share/table/ob_ttl_util.cpp — is_default_scan_index, check_and_try_throttle, print_throttle_info · focused source ranges (coverage below)
+
+```cpp
+2343	bool ObTTLUtil::is_default_scan_index(const ObString &scan_index)
+2344	{
+2345	  return scan_index.empty() || scan_index.case_compare(ObTTLTaskConstant::TTL_SCAN_INDEX_DEFAULT_VALUE) == 0;
+2346	}
+
+... (gap) ...
+
+2642	int ObTTLDeleteRateThrottler::check_and_try_throttle(int64_t trans_timeout_ts)
+2643	{
+2644	  int ret = OB_SUCCESS;
+2645	  if (!is_inited_) {
+2646	    ret = OB_NOT_INIT;
+2647	    LOG_WARN("delete rate throttler is not initialized", K(ret));
+2648	  } else if (max_rows_per_second_ == 0) {
+2649	    // do nothing
+2650	  } else if (need_commit_trans_early(trans_timeout_ts)) {
+2651	    ret = OB_ITER_END;
+2652	  } else {
+2653	    int64_t wait_time = calculate_wait_time();
+2654	    if (wait_time > 0) {
+2655	      ob_usleep(wait_time);
+2656	    }
+2657	  }
+2658	  cur_del_row_count_++;
+2659	  prev_delete_time_ = ObTimeUtility::current_time();
+2660	  throttle_info_.cur_time_ = prev_delete_time_;
+2661	  throttle_info_.total_del_row_count_++;
+2662	  return ret;
+2663	}
+
+... (gap) ...
+
+2713	void ObTTLDeleteRateThrottler::print_throttle_info()
+2714	{
+2715	  int64_t avg_delete_ops = 0;
+2716	  if (throttle_info_.cur_time_ - throttle_info_.start_time_ > 0) {
+2717	    avg_delete_ops = throttle_info_.total_del_row_count_ * 1000000L / (throttle_info_.cur_time_ - throttle_info_.start_time_);
+2718	  }
+2719	  LOG_INFO("[TTL TASK DELETE RATE] print ttl delete rate throttle info", K(throttle_info_), "avg delete ops", avg_delete_ops);
+2720	}
+```
+
+#### deps/oblib/src/lib/allocator/page_arena.h — alloc, reuse · focused source ranges (coverage below)
+
+```cpp
+1051	  virtual void *alloc(const int64_t sz) { return arena_.alloc_aligned(sz); }
+
+... (gap) ...
+
+1067	  void reuse() override { arena_.reuse(); }
+```
+
+#### deps/oblib/src/common/rowkey/ob_rowkey.cpp — serialize, get_serialize_size, get_common_prefix_length · focused source ranges (coverage below)
+
+```cpp
+314	int ObRowkey::serialize(char *buf, const int64_t buf_len, int64_t &pos) const
+315	{
+316	  int ret = OB_SUCCESS;
+317	  if (NULL == buf || buf_len <= 0) {
+318	    ret = OB_INVALID_ARGUMENT;
+319	    COMMON_LOG(WARN, "invalid arguments.",
+320	               KP(buf), K(buf_len), K(ret));
+321	  } else if (OB_UNLIKELY(!is_legal())) {
+322	    ret = OB_INVALID_DATA;
+323	    COMMON_LOG(WARN, "illegal rowkey.",
+324	               KP_(obj_ptr), K_(obj_cnt), K(ret));
+325	  } else if (OB_FAIL(serialization::encode_vi64(buf, buf_len, pos, obj_cnt_))) {
+326	    COMMON_LOG(WARN, "encode object count failed.",
+327	               KP(buf), K(buf_len), K(pos), K_(obj_cnt), K(ret));
+328	  } else if (OB_FAIL(serialize_objs(buf, buf_len, pos))) {
+329	    COMMON_LOG(WARN, "serialize objects failed.",
+330	               KP(buf), K(buf_len), K(pos), K_(obj_cnt), K(ret));
+331	  }
+332	  return ret;
+333	}
+
+... (gap) ...
+
+380	int64_t ObRowkey::get_serialize_size(void) const
+381	{
+382	  int64_t size = serialization::encoded_length_vi64(obj_cnt_);
+383	  size += get_serialize_objs_size();
+384	  return size;
+385	}
+
+... (gap) ...
+
+633	int ObRowkey::get_common_prefix_length(
+634	    const ObRowkey &lhs, const ObRowkey &rhs, int64_t &prefix_len)
+635	{
+636	  int ret = OB_SUCCESS;
+637	  const ObObj *lhs_obj = NULL;
+638	  const ObObj *rhs_obj = NULL;
+639	  int64_t min_obj_cnt = 0;
+640	  prefix_len = 0;
+641	
+642	  if (!lhs.is_valid() || !rhs.is_valid()) {
+643	    ret = OB_INVALID_ARGUMENT;
+644	    STORAGE_LOG(WARN, "invalid argument", K(ret), K(lhs), K(rhs));
+645	  }
+646	
+647	  min_obj_cnt = std::min(lhs.get_obj_cnt(), rhs.get_obj_cnt());
+648	  for (int64_t i = 0; OB_SUCC(ret) && i < min_obj_cnt; ++i) {
+649	    lhs_obj = &(lhs.get_obj_ptr()[i]);
+650	    rhs_obj = &(rhs.get_obj_ptr()[i]);
+651	    if (!lhs_obj->is_max_value() && !lhs_obj->is_min_value()
+652	        && !rhs_obj->is_max_value() && !rhs_obj->is_min_value()
+653	        && *lhs_obj == *rhs_obj) {
+654	      ++prefix_len;
+655	    } else {
+656	      break;
+657	    }
+658	  }
+659	
+660	  return ret;
+661	}
+```
+
+#### src/observer/table/ob_table_scan_executor.cpp — get_next_row · focused source ranges (coverage below)
+
+```cpp
+732	int ObTableApiScanRowIterator::get_next_row(ObNewRow *&row)
+733	{
+734	  int ret = OB_SUCCESS;
+735	  ObNewRow *tmp_row = nullptr;
+736	  char *row_buf = nullptr;
+737	  ObObj *cells = nullptr;
+738	  const ObTableCtx &tb_ctx = scan_executor_->get_table_ctx();
+739	  const ObTableApiScanCtDef &ctdef = scan_executor_->get_spec().get_ctdef();
+740	  const ExprFixedArray &output_exprs = ctdef.output_exprs_;
+741	  const ExprFixedArray &aggr_exprs = ctdef.scan_ctdef_.pd_expr_spec_.pd_storage_aggregate_output_;
+742	  const ObIArray<uint64_t> &query_col_ids = tb_ctx.get_query_col_ids();
+743	  const int64_t cells_cnt = tb_ctx.is_scan() ? query_col_ids.count() : output_exprs.count();
+744	  row_allocator_.reuse();
+745	
+746	  if (OB_ISNULL(scan_executor_)) {
+747	    ret = OB_ERR_UNEXPECTED;
+748	    LOG_WARN("scan executor is null", K(ret));
+749	  } else if (OB_FAIL(scan_executor_->get_next_row())) {
+750	    if (OB_ITER_END != ret) {
+751	      LOG_WARN("fail to get next row by scan executor", K(ret));
+752	    }
+753	  } else if (OB_ISNULL(row_buf = static_cast<char*>(row_allocator_.alloc(sizeof(ObNewRow))))) {
+754	    ret = OB_ALLOCATE_MEMORY_FAILED;
+755	    LOG_WARN("fail to alloc ObNewRow buffer", K(ret));
+756	  } else if (OB_ISNULL(cells = static_cast<ObObj*>(row_allocator_.alloc(sizeof(ObObj) * cells_cnt)))) {
+757	    ret = OB_ALLOCATE_MEMORY_FAILED;
+758	    LOG_WARN("fail to alloc cells buffer", K(ret), K(cells_cnt));
+759	  } else {
+760	    // 循环select_exprs,eval获取datum，并将datum转ObObj，最后组成ObNewRow
+761	    tmp_row = new(row_buf)ObNewRow(cells, cells_cnt);
+762	    ObObj tmp_obj;
+763	    ObDatum *datum = nullptr;
+764	    ObEvalCtx &eval_ctx = scan_executor_->get_eval_ctx();
+765	    if (tb_ctx.is_scan()) { // 转为用户select的顺序
+766	      const ObIArray<uint64_t> &select_col_ids = tb_ctx.get_select_col_ids();
+767	      for (int64_t i = 0; OB_SUCC(ret) && i < query_col_ids.count(); i++) {
+768	        uint64_t col_id = query_col_ids.at(i);
+769	        int64_t idx = -1;
+770	        if (!has_exist_in_array(select_col_ids, col_id, &idx)) {
+771	          ret = OB_ERR_COLUMN_NOT_FOUND;
+772	          LOG_WARN("query column id not found", K(ret), K(select_col_ids), K(col_id), K(query_col_ids));
+773	        } else if (tb_ctx.is_count_all()) {
+774	          if (OB_FAIL(aggr_exprs.at(0)->eval(eval_ctx, datum))) {
+775	            LOG_WARN("fail to eval datum", K(ret));
+776	          } else if (OB_FAIL(datum->to_obj(tmp_obj, aggr_exprs.at(0)->obj_meta_))) {
+777	            LOG_WARN("fail to datum to obj", K(ret), K(aggr_exprs.at(0)->obj_meta_), K(i), K(idx));
+778	          } else if (OB_FAIL(adjust_output_obj_type(tmp_obj))) {
+779	            LOG_WARN("fail to adjust output obj type", K(ret));
+780	          }
+781	        } else {
+782	          if (OB_FAIL(output_exprs.at(idx)->eval(eval_ctx, datum))) {
+783	            LOG_WARN("fail to eval datum", K(ret));
+784	          } else if (OB_FAIL(datum->to_obj(tmp_obj, output_exprs.at(idx)->obj_meta_))) {
+785	            LOG_WARN("fail to datum to obj", K(ret), K(output_exprs.at(idx)->obj_meta_), K(i), K(idx));
+786	          } else if (OB_FAIL(adjust_output_obj_type(tmp_obj))) {
+787	            LOG_WARN("fail to adjust output obj type", K(ret));
+788	          }
+789	        }
+790	
+791	        cells[i] = tmp_obj;
+792	      }
+793	    } else {
+794	      for (int64_t i = 0; OB_SUCC(ret) && i < cells_cnt; i++) {
+795	        if (OB_FAIL(output_exprs.at(i)->eval(eval_ctx, datum))) {
+796	          LOG_WARN("fail to eval datum", K(ret));
+797	        } else if (OB_FAIL(datum->to_obj(tmp_obj, output_exprs.at(i)->obj_meta_))) {
+798	          LOG_WARN("fail to datum to obj", K(ret), K(output_exprs.at(i)->obj_meta_));
+799	        } else if (OB_FAIL(adjust_output_obj_type(tmp_obj))) {
+800	          LOG_WARN("fail to adjust output obj type", K(ret));
+801	        } else {
+802	          cells[i] = tmp_obj;
+803	        }
+804	      }
+805	    }
+806	  }
+807	
+808	  if (OB_SUCC(ret)) {
+809	    row = tmp_row;
+810	  }
+811	
+812	  return ret;
+813	}
+```
+
+#### src/share/table/ob_table.cpp — reset, set_rowkey · focused source ranges (coverage below)
+
+```cpp
+291	void ObTableEntity::reset()
+292	{
+293	  rowkey_.reset();
+294	  properties_names_.reset();
+295	  properties_values_.reset();
+296	  tablet_id_.reset();
+297	  is_user_specific_T_ = true;
+298	}
+
+... (gap) ...
+
+382	int ObTableEntity::set_rowkey(const ObRowkey &rowkey)
+383	{
+384	  int ret = OB_SUCCESS;
+385	  rowkey_.reset();
+386	  const int64_t N = rowkey.get_obj_cnt();
+387	  for (int64_t i = 0; OB_SUCCESS == ret && i < N; ++i)
+388	  {
+389	    if (OB_FAIL(rowkey_.push_back(rowkey.ptr()[i]))) {
+390	      LOG_WARN("failed to push back rowkey", K(ret), K(i));
+391	    }
+392	  } // end for
+393	  return ret;
+394	}
+
+... (gap) ...
+
+4143	int ObHCell::set_rowkey(const ObRowkey &rowkey)
+4144	{
+4145	  int ret = OB_SUCCESS;
+4146	  if (rowkey.get_obj_cnt() != ObHTableConstants::HTABLE_ROWKEY_SIZE) {
+4147	    ret = OB_ERR_UNEXPECTED;
+4148	    LOG_WARN("rowkey size is not equal to CELL_OBJS_SIZE", K(ret), K(rowkey.get_obj_cnt()));
+4149	  } else {
+4150	    for (int64_t i = 0; i < ObHTableConstants::HTABLE_ROWKEY_SIZE; ++i) {
+4151	      objs_[i] = rowkey.get_obj_ptr()[i];
+4152	    }
+4153	  }
+4154	  return ret;
+4155	}
+```
+
+#### src/sql/engine/recursive_cte/ob_search_method_op.h — count · focused source ranges (coverage below)
+
+```cpp
+200	  int64_t count() { return input_rows_.count(); }
+```
+
+#### deps/oblib/src/common/object/ob_object.h — ob_write_obj · focused source ranges (coverage below)
+
+```cpp
+4105	    int ob_write_obj(AllocatorT &allocator, const ObObj &src, ObObj &dst)
+4106	{
+4107	  int ret = OB_SUCCESS;
+4108	  if (OB_UNLIKELY(src.need_deep_copy())) {
+4109	    int64_t deep_copy_size = src.get_deep_copy_size();
+4110	    char *buf = static_cast<char*>(allocator.alloc(deep_copy_size));
+4111	    int64_t pos = 0;
+4112	    if (OB_ISNULL(buf)) {
+4113	      ret = OB_ALLOCATE_MEMORY_FAILED;
+4114	      LIB_LOG(WARN, "allocate memory failed", K(ret), K(deep_copy_size));
+4115	    } else if (OB_FAIL(dst.deep_copy(src, buf, deep_copy_size, pos))) {
+4116	      LIB_LOG(WARN, "deep copy src obj failed", K(ret), K(deep_copy_size), K(pos));
+4117	    }
+4118	  } else {
+4119	    dst = src;
+4120	  }
+4121	  return ret;
+4122	}
+```
+
+#### deps/oblib/src/lib/oblog/ob_log_module.h — LOG_ERROR, LOG_WARN, LOG_DEBUG, KR, KPC · focused source ranges (coverage below)
+
+```cpp
+1390	#define LOG_ERROR(args...) LOG_MACRO_JOIN(USING_LOG_PREFIX, _LOG) (ERROR, ##args)
+1391	#define LOG_ERROR_RET(args...) LOG_MACRO_JOIN(USING_LOG_PREFIX, _LOG_RET) (ERROR, ##args)
+
+... (gap) ...
+
+1394	#define LOG_WARN(args...) LOG_MACRO_JOIN(USING_LOG_PREFIX, _LOG) (WARN, ##args)
+1395	#define LOG_WARN_RET(args...) LOG_MACRO_JOIN(USING_LOG_PREFIX, _LOG_RET) (WARN, ##args)
+
+... (gap) ...
+
+1402	#define LOG_DEBUG(args...) LOG_MACRO_JOIN(USING_LOG_PREFIX, _LOG) (DEBUG, ##args)
+1403	#define _LOG_DEBUG(args...) _LOG_MACRO_JOIN(USING_LOG_PREFIX, _LOG) (DEBUG, ##args)
+
+... (gap) ...
+
+1420	#define KR(x) #x, x, #x, common::ob_error_name(x)
+1421	#define GETK(obj, member) #member, (obj).get_##member()
+
+... (gap) ...
+
+1457	#define KPC(x) #x, ::oceanbase::common::ObLogPrintPointerCnt<__typeof__(x)>(x)
+1458	#define KPC_(x) #x, ::oceanbase::common::ObLogPrintPointerCnt<__typeof__(x##_)>(x##_)
+```
+
+#### deps/oblib/src/lib/utility/ob_macro_utils.h — OB_SUCC, OB_FAIL, OB_TMP_FAIL, OB_ISNULL, OB_NOT_NULL, REACH_TIME_INTERVAL · focused source ranges (coverage below)
+
+```cpp
+714	#define OB_SUCC(statement) (OB_LIKELY(::oceanbase::common::OB_SUCCESS == (ret = (statement))))
+715	#define OB_FAIL(statement) (OB_UNLIKELY(::oceanbase::common::OB_SUCCESS != (ret = (statement))))
+716	#define OB_TMP_FAIL(statement) (OB_UNLIKELY(::oceanbase::common::OB_SUCCESS != (tmp_ret = (statement))))
+717	#define COVER_SUCC(errcode) (OB_SUCCESS == ret ? errcode : ret)
+
+... (gap) ...
+
+720	#define OB_ISNULL(statement) (OB_UNLIKELY(NULL == (statement)))
+721	#define OB_NOT_NULL(statement) (OB_LIKELY(NULL != (statement)))
+722	#define IS_NOT_INIT (OB_UNLIKELY(!is_inited_))
+
+... (gap) ...
+
+859	#define REACH_TIME_INTERVAL(i) \
+860	  ({ \
+861	    bool bret = false; \
+862	    static volatile int64_t last_time = 0; \
+863	    int64_t cur_time = ObClockGenerator::getClock(); \
+864	    int64_t old_time = last_time; \
+865	    if (OB_UNLIKELY((i + last_time) < cur_time) \
+866	        && old_time == ATOMIC_CAS(&last_time, old_time, cur_time)) \
+867	    { \
+868	      bret = true; \
+869	    } \
+870	    bret; \
+871	  })
+872	
+```
+
+> Explicit target coverage (source ranges actually emitted):
+- Complete target: src/observer/table/ttl/ob_table_ttl_task.cpp:1075-1209 execute_ttl_delete; shown 1075-1209; missing none
+> 5 other candidate function bodies not fully shown; outlines and Flow are not body coverage.
+- Omitted body: src/observer/table/ttl/ob_table_ttl_task.cpp:289-424 process_one; shown none; missing 289-424
+- Omitted body: src/observer/table/ttl/ob_table_ttl_task.cpp:581-606 process_ttl_delete; shown none; missing 581-606
+- Omitted body: src/observer/table/ttl/ob_table_ttl_task.cpp:1037-1073 construct_delete_entity; shown none; missing 1037-1073
+- Omitted body: src/observer/table/ttl/ob_table_ttl_task.cpp:117-159 init; shown none; missing 117-159
+- Omitted body: src/observer/table/ttl/ob_table_ttl_task.cpp:676-760 get_scan_ranges; shown none; missing 676-760
