@@ -1,0 +1,42 @@
+{
+  "protected_files_unchanged": 5928,
+  "main_head_and_index_unchanged": true,
+  "source_files_verified_per_copy": 16317,
+  "index_counts_unchanged": {
+    "baseline": {
+      "nodes": 890562,
+      "edges": 5676237,
+      "files": 14258
+    },
+    "candidate": {
+      "nodes": 890562,
+      "edges": 5676237,
+      "files": 14258
+    }
+  },
+  "same_queries_and_output_budgets": true,
+  "selection_and_instructions_unchanged": true,
+  "tests_passed": 115,
+  "complete_body_regressions": [],
+  "invalid_gap_hints": 0,
+  "new_oceanbase_queries": 26,
+  "fresh_baseline_queries": 8,
+  "final_candidate_queries": 8,
+  "retained_diagnostic_queries": 10,
+  "model_calls": 0,
+  "community_stable_query_replays": 0,
+  "stable_reference_commit": "6560052a6f856855d3f71eee838fd66ccfa4285d",
+  "changed_product_and_test_files": [
+    "src/mcp/explore-admission.ts",
+    "src/mcp/explore-retrieval.ts",
+    "src/mcp/tools.ts",
+    "__tests__/explore-admission-p1.test.ts",
+    "__tests__/explore-seed-evidence-p1.test.ts"
+  ],
+  "candidate_runtime_files": 1192,
+  "limitations": [
+    "No model-token or quality inference",
+    "Stable community full reindex/comparison deferred",
+    "Runtime timings overlap and are not a latency benchmark"
+  ]
+}

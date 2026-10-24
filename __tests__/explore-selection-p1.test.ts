@@ -8,6 +8,7 @@ import { ToolHandler } from '../src/mcp/tools';
 import { retrieveExploreContext } from '../src/mcp/explore-retrieval';
 import type { Node } from '../src/types';
 import { renderExploreSources, type ExploreSourceFile } from '../src/mcp/explore-selection';
+import { findEntryProcessingNodes } from '../src/mcp/explore-entry-chain';
 
 const node = (name: string, startLine: number, endLine: number, kind = 'function') =>
   ({ id: name, name, qualifiedName: name, startLine, endLine, kind, language: 'typescript' } as Node);
@@ -132,6 +133,14 @@ describe('P1 on real C++ declarations and out-of-line definitions', () => {
     const r = await retrieveExploreContext(cg, 'ArchiveJob');
     const run = [...r.graph.nodes.values()].find(n => n.name === 'run' && n.filePath === 'job.cpp')!;
     expect(run).toBeDefined(); expect(r.contractMemberIds.has(run.id)).toBe(true);
+  });
+  it('follows a merged virtual entry to its out-of-line processing member', async () => {
+    const r = await retrieveExploreContext(cg, 'ArchiveJob');
+    const processing = findEntryProcessingNodes(r.graph, r.memberNodeIds, r.contractMemberIds);
+    const stage = [...r.graph.nodes.values()].find(n => n.name === 'stage' && n.filePath === 'job.cpp')!;
+    const spare = [...r.graph.nodes.values()].find(n => n.name === 'spare' && n.filePath === 'job.cpp')!;
+    expect(processing.has(stage.id)).toBe(true);
+    expect(processing.has(spare.id)).toBe(false);
   });
   it('does not prune source-proven member definitions with low random-walk mass', async () => {
     const handler = new ToolHandler(cg);

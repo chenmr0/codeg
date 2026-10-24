@@ -8,7 +8,7 @@ export interface ExploreSourceFile {
   path: string;
   content: string;
   nodes: Node[];
-  /** Lower is better: explicit callable, named type member, connected, peripheral. */
+  /** Lower is better: explicit/flow, contract/entry processing, member, neighbor. */
   priority: (node: Node) => number;
   /** Structural tie breaker within a tier, never a domain-specific symbol list. */
   connectivity: (node: Node) => number;
@@ -56,7 +56,7 @@ export function renderExploreSources(prefix: string, files: ExploreSourceFile[],
   // Definitions beat declaration-only files, even when the named type is in a header.
   plans.sort((a, b) => a.units[0]!.priority - b.units[0]!.priority || a.rank - b.rank);
   const admitted = plans.slice(0, options.maxFiles);
-  const ranges = (units: Unit[]) => {
+  const ranges = (units: ReadonlyArray<Pick<Unit, 'start' | 'end'>>) => {
     const result: Array<{ start: number; end: number }> = [];
     for (const u of [...units].sort((a, b) => a.start - b.start || b.end - a.end)) {
       const prev = result.at(-1);
@@ -102,6 +102,14 @@ export function renderExploreSources(prefix: string, files: ExploreSourceFile[],
       if (add(p, u, options.maxCharsPerFile)) break;
     }
   }
+  // Keep compact anchored mechanisms together before large entry chains borrow
+  // globally. Otherwise a broad query can gain one task body by losing several
+  // already affordable bodies belonging to another independent query anchor.
+  for (const p of admitted) {
+    const anchored = p.units.filter(u => u.full && u.priority <= 2);
+    if (!anchored.length || section(p, anchored).length > options.maxCharsPerFile) continue;
+    for (const u of anchored) add(p, u, options.maxCharsPerFile);
+  }
   const candidates = admitted.flatMap(p => p.units.map(u => ({ p, u })))
     .sort((a, b) => a.u.priority - b.u.priority || b.u.connectivity - a.u.connectivity
       || a.p.rank - b.p.rank || a.u.start - b.u.start);
@@ -110,6 +118,13 @@ export function renderExploreSources(prefix: string, files: ExploreSourceFile[],
   // Other files' funded first units remain protected throughout.
   for (const priority of [...new Set(candidates.map(c => c.u.priority))]) {
     const tier = candidates.filter(c => c.u.priority === priority);
+    // An entry's processing chain must get a chance to fit as complete bodies
+    // before smaller helpers in that chain spend the remaining capacity.
+    // Other anchored files retain their funded first units.
+    if (priority > 1 && priority < 2) {
+      for (const { p, u } of tier) add(p, u, pool);
+      continue;
+    }
     const demands = new Map(admitted.map(p => [p,
       section(p, [...p.selected, ...p.units.filter(u => u.priority === priority)]).length]));
     // Compact member groups get their ordinary allowance before large groups
@@ -151,15 +166,30 @@ export function renderExploreSources(prefix: string, files: ExploreSourceFile[],
   // Coverage is derived from emitted ranges. A parent body can cover an inner
   // function, but an outline, Flow mention or partial body cannot establish it.
   const missing = plans.flatMap(p => {
-    const shown = ranges(p.selected);
-    return p.units.filter(u => u.full && !shown.some(r => r.start <= u.start && r.end >= u.end))
-      .map(u => `${p.file.path}:${u.start}-${u.end} ${u.node.name}`);
-  });
+    const partial = partials.get(p);
+    const shown = ranges([...p.selected, ...(partial ? [{ start: partial.start, end: partial.end }] : [])]);
+    return p.units.filter(u => u.full).flatMap(u => {
+      const covered = shown.map(r => ({ start: Math.max(r.start, u.start), end: Math.min(r.end, u.end) }))
+        .filter(r => r.start <= r.end);
+      const gaps: Array<{ start: number; end: number }> = [];
+      let next = u.start;
+      for (const r of covered) {
+        if (next < r.start) gaps.push({ start: next, end: r.start - 1 });
+        next = r.end + 1;
+      }
+      if (next <= u.end) gaps.push({ start: next, end: u.end });
+      return gaps.length ? [{ p, u, covered, gaps }] : [];
+    });
+  }).sort((a, b) => a.u.priority - b.u.priority || b.u.connectivity - a.u.connectivity
+    || a.p.rank - b.p.rank || a.u.start - b.u.start);
   if (missing.length) {
-    const lead = `> ${missing.length} candidate function bodies not fully shown; outlines and Flow are not body coverage.\n`;
+    const lead = `> ${missing.length} candidate function bodies not fully shown; highest-priority gaps below (not exhaustive). Outlines and Flow are not body coverage.\n`;
     if (output.length + lead.length <= options.maxOutputChars) output += lead;
-    for (const target of missing.slice(0, 8)) {
-      const line = `- Omitted body: ${target}\n`;
+    const spans = (rs: Array<{ start: number; end: number }>) => rs.length
+      ? rs.slice(0, 3).map(r => r.start === r.end ? `${r.start}` : `${r.start}-${r.end}`).join(',')
+        + (rs.length > 3 ? `,... (+${rs.length - 3} ranges)` : '') : 'none';
+    for (const { p, u, covered, gaps } of missing.slice(0, 8)) {
+      const line = `- Omitted body: ${p.file.path}:${u.start}-${u.end} ${u.node.name}; shown ${spans(covered)}; missing ${spans(gaps)}\n`;
       if (output.length + line.length > options.maxOutputChars) break;
       output += line;
     }

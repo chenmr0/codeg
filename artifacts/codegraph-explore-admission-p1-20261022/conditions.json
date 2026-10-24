@@ -1,0 +1,15 @@
+{
+  "baseline": "D:\\python_code\\codegraph\\artifacts\\codegraph-explore-p1-followup-20261022\\candidate",
+  "stable_reference_commit": "6560052a6f856855d3f71eee838fd66ccfa4285d",
+  "maxFiles": 12,
+  "maxOutputChars": 24000,
+  "maxCharsPerFile": 7000,
+  "hardCeiling": 25000,
+  "maxNodes": 200,
+  "traversalDepth": 3,
+  "maxRoots": 32,
+  "source_queries": 8,
+  "scope": "Seed evidence and graph admission only. Selection algorithm, output budgets, instructions and index extraction unchanged.",
+  "model_calls": 0,
+  "community_reindexed": false
+}

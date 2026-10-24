@@ -1,0 +1,10 @@
+[
+  {"id":"ttl-seed-bag","area":"ttl","query":"ObTableTTLDeleteTask kv_ttl_delete_max_ops ttl_thread_score","maxFiles":12},
+  {"id":"ttl-mixed-bag","area":"ttl","query":"kv_ttl_delete_max_ops ObTableTTLDeleteTask ttl_thread_score TTL delete task limit rate","maxFiles":12},
+  {"id":"ttl-task-single","area":"ttl","query":"ObTableTTLDeleteTask","maxFiles":12},
+  {"id":"ttl-throttler-single","area":"ttl","query":"ObTTLDeleteRateThrottler","maxFiles":12},
+  {"id":"ttl-throttler-methods","area":"ttl","query":"ObTTLDeleteRateThrottler init check_and_try_throttle calculate_wait_time need_commit_trans_early","maxFiles":12},
+  {"id":"ttl-task-methods","area":"ttl","query":"ObTableTTLDeleteTask process process_one execute_ttl_delete","maxFiles":12},
+  {"id":"dtl-seed-bag","area":"dtl","query":"ObDtlBasicChannel ObDtlFlowControl ObPxTransmitOp DTL_BLOCKING_TIME","maxFiles":12},
+  {"id":"dtl-methods","area":"dtl","query":"ObDtlBasicChannel wait_unblocking ObDtlFlowControl need_block can_unblock","maxFiles":12}
+]

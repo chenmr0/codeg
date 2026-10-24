@@ -1,4 +1,5 @@
 import { renderExploreSources, type ExploreSourceFile } from './explore-selection';
+import { findEntryProcessingNodes } from './explore-entry-chain';
 /**
  * MCP Tool Definitions
  *
@@ -3655,11 +3656,11 @@ export class ToolHandler {
     const subgraph = retrieval.graph;
     if (subgraph.nodes.size === 0) {
       return this.textResult(capExploreResponse(
-        `No exact symbol or callable source evidence found for "${query}".\n${retrieval.note}`,
+        `No query-supported symbol or callable source context admitted for "${query}".\n${retrieval.note}`,
         Math.min(Math.round(budget.maxOutputChars * 1.5), 25000),
       ));
     }
-    const namedSeedIds = new Set(subgraph.roots);
+    const namedSeedIds = retrieval.namedNodeIds;
 
     // Step 2: Group nodes by file, score by relevance
     const fileGroups = new Map<string, { nodes: Node[]; score: number }>();
@@ -4011,6 +4012,12 @@ export class ToolHandler {
     lines.push('> Source excerpts below are read from current files. Only shown source ranges are covered; signatures, outlines and omitted regions are not complete function bodies or complete files.');
     lines.push('');
 
+    // A literal hit in a framework method is not a request to prioritize every
+    // virtual lifecycle hook in that framework. Promote contracts of named
+    // types and explicitly named callable entries only.
+    const namedContractIds = new Set(subgraph.edges.filter(e => e.kind === 'contains'
+      && namedSeedIds.has(e.source) && retrieval.contractMemberIds.has(e.target)).map(e => e.target));
+    const processingNodeIds = findEntryProcessingNodes(subgraph, retrieval.memberNodeIds, namedContractIds, flow.namedNodeIds);
     const memberConnectivity = new Map<string, number>();
     const memberPairs = new Set<string>();
     for (const e of subgraph.edges) {
@@ -4050,7 +4057,8 @@ export class ToolHandler {
         bodyAllowed: n => !skeleton || flow.pathNodeIds.has(n.id)
           || flow.uniqueNamedNodeIds.has(n.id) || (family && flow.namedNodeIds.has(n.id)),
         priority: n => entryNodeIds.has(n.id) || flow.uniqueNamedNodeIds.has(n.id) ? 0
-          : flow.pathNodeIds.has(n.id) ? 1 : retrieval.memberNodeIds.has(n.id) ? 2
+          : flow.pathNodeIds.has(n.id) ? 1 : namedContractIds.has(n.id) ? 1.25
+          : processingNodeIds.has(n.id) ? 1.5 : retrieval.memberNodeIds.has(n.id) ? 2
           : connectedToEntry.has(n.id) ? 3 : 4,
         connectivity: n => (memberConnectivity.get(n.id) ?? 0)
           + (retrieval.contractMemberIds.has(n.id) ? subgraph.nodes.size * 3 : 0),
