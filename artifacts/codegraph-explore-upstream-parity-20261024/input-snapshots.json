@@ -1,0 +1,26 @@
+[
+  {
+    "arm": "candidate",
+    "source": "D:\\python_code\\codegraph\\artifacts\\codegraph-explore-budget-p3-20261024\\repo-candidate",
+    "root": "D:\\python_code\\codegraph\\artifacts\\codegraph-explore-upstream-parity-20261024\\inputs\\candidate\\oceanbase",
+    "counts": {
+      "nodes": 890562,
+      "edges": 5676237,
+      "files": 14258
+    },
+    "source_files": 16317,
+    "seconds": 20.000563621520996
+  },
+  {
+    "arm": "community",
+    "source": "D:\\python_code\\codegraph\\artifacts\\oceanbase-ttl-20261021-explore-only\\repos\\community",
+    "root": "D:\\python_code\\codegraph\\artifacts\\codegraph-explore-upstream-parity-20261024\\inputs\\community\\oceanbase",
+    "counts": {
+      "nodes": 388727,
+      "edges": 2510241,
+      "files": 14247
+    },
+    "source_files": 16317,
+    "seconds": 9.554837226867676
+  }
+]

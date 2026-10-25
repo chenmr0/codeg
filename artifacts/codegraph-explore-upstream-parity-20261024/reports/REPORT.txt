@@ -1,0 +1,84 @@
+官方 v1.6.2 Explore 完整移植与差分验收
+
+结论：独立候选已接入官方完整 Explore 查询流水线。相同图数据、相同输入和预算下，本次差分输出逐字一致。
+这项结论不等于原生索引的端到端结果已经与社区完全相同。原生索引运行上游 389 条 Explore 断言，379 条通过、10 条失败；失败及证据完整保留，未放宽断言或跳过失败。
+
+1. 冻结与版本
+新候选：D:\python_code\codegraph\artifacts\codegraph-explore-upstream-parity-20261024\candidate
+旧候选及记录归档：D:\python_code\codegraph\artifacts\codegraph-explore-upstream-parity-20261024\frozen-p3-candidate-and-records.tar.gz
+上游固定为官方 v1.6.2，提交 6560052a6f856855d3f71eee838fd66ccfa4285d。不是此前 d90f6ab 的分支快照。
+主工作区未切换分支、未重置、未提交。旧 P3 与旧日志不作覆写。完整性结果见 integrity-final.json。
+本阶段没有调用 Claude 或其他模型，没有运行正式实验，也没有重建 OceanBase 索引。
+
+2. 本次移植边界
+移入官方召回、名字分段补种、路径/行号/限定成员保护、BFS、Flow、动态派发边界、相关性、逐文件预算、关键源码窗口、完整性说明、漂移检查、会话状态与可选跨调用去重。
+生产模块不依赖外部官方安装目录。相关 WASM 与 MIT 许可证已放入候选，npm run build 包含资产复制。
+39 个上游 TypeScript 模块/接入文件中，31 个文件按字节保持原样。21 个上游类成员（含 handleExplore 等核心方法）逐项源码一致。其余 8 个文件的区别是依赖裁切、宿主接口、类型扩展或原样抽取函数，见 source-parity-audit.json。
+宿主 tools.ts 只有 getTools、execute、handleExplore 的已有方法体发生变化；旧版 Explore 专用的 3 个私有帮助函数被移除。search/node/context/text_search 及其他批量读取方法体保持不变。
+C/C++ 底层抽取、解析、数据库目录分别 67、42、6 个文件，均与冻结 P3 逐字相同。声明、定义、defines 边、macro 节点、isDeclaration 元数据继续可用。
+原生数据模型的 macro/defines/isDeclaration 经类型和读取适配保留；没有把它们转换成不存在的官方节点种类。
+这里保留的是原生 C/C++ 索引能力和精确/批量工具。旧 P3 定制 Explore 的声明定义归并视图、额外召回、严格字符截断和自定义缺口文案没有叠加到官方流水线；原实现及记录仍在冻结候选中。本阶段借此得到可归因的上游基线，不能将其描述为全部旧 Explore 策略也被保留。
+原生 Explore 的启用开关与批量工具表保留。评测显式设 CODEGRAPH_ENABLE_EXPLORE=1、CODEGRAPH_MCP_TOOLS=explore。主工具名仍是 explore，上游内部名称为 codegraph_explore；会话状态通过原生取消/就绪机制传入。
+原生库没有上游名字分段词表，适配层用同一分段算法建立连接级 TEMP 词表；未给旧库做持久迁移。另有同连接更新/外部提交的变化检测。只读数据库字节不变、词表失效重建、C++ 标记/关系、会话元数据不泄露均有新增集成断言。
+原生 files 表没有 generated 列；适配层使用官方同一检测器，在源码指纹一致时重建标记。路径列表上的该标记延迟求值，不为列举路径主动读取全仓源码。官方直接写 files.generated 的内部数据库测试因此与原生 schema 不兼容。
+工具描述与动态提示使用官方措辞：调用次数只是建议，不是限额。为对齐官方，本轮未再改写上游正文提示或新增优化。
+
+3. 差分条件与证据分层
+OceanBase：逐字复用 12 组 query，maxFiles=12，目标预算 24,000 字符，硬上限 25,000 字符。
+四个小夹具：逐字复用原源码和 query，maxFiles=3，目标预算 13,000 字符，官方硬上限 19,500 字符。14,394 字符输出符合这个原有软/硬预算关系，并非把配置调大。
+行号开启，跨调用去重关闭，各次单点比较不注入历史会话；所有版本使用相同 Node 运行时和配置。
+OceanBase 源码两边均由同一 16,317 文件清单验证。沿用冻结的历史数据库：社区 388,727 节点 / 2,510,241 边 / 14,247 文件；原生 890,562 节点 / 5,676,237 边 / 14,258 文件。
+历史数据库不是本轮用 v1.6.2 重新提取的结果，不能把其差异全部归于当前提取器。小夹具及上游回归的临时项目分别新建索引；同图差分专门控制数据库差异。
+（a）官方索引 + 官方 handler，对比同一索引 + 移植的完整 QueryBuilder/ContextBuilder/遍历/handler：12/12 响应 SHA-256 一致。
+（b）原生索引经相同兼容查询 API，交给官方 handler 与候选宿主 handler：12/12 响应 SHA-256 一致。
+（c）各自索引的输出差异另列，不把它们混同为移植算法偏差。
+逐行核验要求行号和源码内容同时匹配；仅允许 CRLF 的 CR 在显示中被规范化。实质源码错配 0，换行差异单独计数，见 comparison-final.json。
+
+4. 用户关注的四个差距已对齐（行数为 routeEnvelope 主体覆盖；括号内为响应字符数）
+场景 | 官方 v1.6.2 | 冻结 P3 | 新候选
+大函数 + 调用目标 | 85 (9,826) | 41 (5,236) | 85 (9,826)
+同文件小函数 + 大函数 | 8 (2,402) | 40 (5,074) | 8 (2,402)
+跨文件调用与短机制 | 65 (7,922) | 41 (5,346) | 65 (7,922)
+明确指定大范围 | 142 (14,394) | 39 (4,248) | 142 (14,394)
+四项不只是行数相等：候选使用自身新索引、以及移植流水线使用官方新索引，两种对照的响应正文均与官方逐字一致。
+这同时说明“对齐”不会让每个指标都增加：第二项从旧 P3 的 40 行回到官方的 8 行，两个尾部调用行的显示行为也跟随官方。没有为了让表格看起来更好而保留旧策略。
+
+5. OceanBase 各自索引结果（完整主体数不是需求定位质量评分）
+query ID | 官方字符 | 候选字符 | 官方完整主体 | 候选完整主体
+ttl-seed-bag | 24,632 | 24,975 | 0/8 | 0/8
+ttl-mixed-bag | 24,982 | 24,952 | 0/8 | 0/8
+ttl-task-single | 24,994 | 24,855 | 0/8 | 0/8
+ttl-throttler-single | 24,768 | 24,979 | 0/8 | 0/8
+ttl-throttler-methods | 22,194 | 24,940 | 5/8 | 5/8
+ttl-task-methods | 24,956 | 24,921 | 2/8 | 1/8
+dtl-seed-bag | 24,877 | 24,930 | 0/5 | 0/5
+dtl-methods | 24,985 | 24,980 | 3/5 | 3/5
+ttl-explicit-range | 24,707 | 24,749 | 3/8 | 2/8
+ttl-qualified-member | 24,960 | 23,411 | 1/8 | 0/8
+dtl-explicit-range | 24,691 | 24,746 | 1/5 | 1/5
+dtl-qualified-member | 24,946 | 24,870 | 2/5 | 1/5
+该分母沿用 TTL 的 8 个主体、DTL 的 5 个主体。单个限定成员查询本就不要求一次读齐全部需求主体；0 个完整主体也不等于没有返回任何相关源码。逐主体已显示行、缺口和文件列表见 COVERAGE_DETAILS.txt。
+四项完整主体差距：ttl-task-methods 与 ttl-explicit-range 均少完整 process_one；ttl-qualified-member 的 execute_ttl_delete 为 126/135，而社区为 135/135；dtl-qualified-member 的 wait_unblocking 本身两边都是 91/91，但候选对 wait_unblocking_if_blocked 为 2/32，社区为 32/32。
+这些差异不能解释为“没有移植社区选区器”：将原生图交给未修改的官方 handler，差异逐字复现。
+具体索引证据：社区 execute_ttl_delete 只有 .cpp 定义；原生多出 .h 第 131–135 行声明。process_one 同名候选从 6 个定义增加到 13 个声明/定义；wait_unblocking_if_blocked 多出 .h 第 703 行声明。定义本体行范围在两库一致。声明、成员及调用边改变候选集合与预算竞争，而官方流水线不等价于旧 P3 的 C++ 归并视图。
+以上证明差异的来源层级及若干具体输入差异，不声称仅“删除声明”就能解释全部分配变化。完整节点/边证据保存在 differential/oceanbase-index-evidence.json；本轮未修改这些索引或另做特例。
+
+6. 测试与剩余 10 条失败逐项归因
+官方完整查询流水线 + 官方图：42 个回归文件、633 条断言通过。
+原有 C/C++ 与批量/工具暴露保留性：10 个文件、290 条断言通过。另有 4 条新增原生兼容集成断言通过（不重复累计复跑）。npm run build 通过。
+原生索引 + 官方 Explore：389 条中 379 通过，10 条失败，分为 7 类：
+1）Go 工作流 1 条：httpapi/RunCycle 第 49 行，官方调用边指向 usecase/RunCycle；原生边指回 httpapi/RunCycle 自身。属于原生解析/连接差异。
+2）ETag 预算用例 3 条：不是缺了官方预算算法。原生缺少 4 个 docstring，且将 headers、etagSetting、routes 三个属性记成 method。固定官方算法、只替换临时图里的 docstring，即使不修 kind，目标文件输出也从 521 恢复到 9,214 字符；同时替换 docstring 与 kind 后，完整输出与官方图一致。见 differential/cg21-counterfactual.json。
+3）声明文件接口成员 1 条：原生缺失上游能提取的 TS 接口 method/property。声明文件判断器已原样迁入，输入成员缺失仍会导致夹具前置条件失败。
+4）多文件保留额度 2 条：pipeline/types.ts 在原生少 14 个接口 property；夹具要求的每个阶段文件集合不再相同。一个失败是图形状前置断言，一个是后续交付断言。未为了通过它而给该文件加权。
+5）docstring-only 诊断 1 条：同一源码 “/** with */ export function frobnicate...” 在原生没有 docstring，官方有 “with”；诊断输入不同。
+6）generated 列直接更新 1 条：测试直接 SQL UPDATE files.generated；原生 schema 没有该列。候选读取层已重建相同生成标记，但不伪装支持官方私有数据库写法。保留失败，未改成跳过。
+7）RTK thunk 派发 1 条：官方存在 outerThunk→innerThunk 的 heuristic 调用边，原生没有 outerThunk 的对应出边，因此动态派发说明缺失。属于索引边差异。
+上述快照、边端点与原始失败信息分别在 differential/index-difference-evidence.json、differential/*-capture/、logs/native-pipeline-release-results.json 中。
+
+7. 验收判定与后续边界
+本阶段“官方 Explore 算法移植、相同图数据差分”通过；“原生索引全面满足官方端到端回归”未通过，不能宣布所有能力/实际效果已经完全等同。
+本轮没有为 TTL/DTL 加条件、没有调排名权重或放大预算，也没有去修 TS/Go/RTK 提取器。原生索引差异与旧 P3 定制 Explore 归并策略是否重新接入，应在这个基线之上单独设计下一阶段。
+仍保留官方本身的局限：大函数未必完整、字面自然语言召回没有向量语义、软预算可能超出目标但不能超出硬上限、上游正文与源码漂移策略有其既有行为。对齐行为不代表每个上游选择都是最优。
+本报告只测工具能力与差分，不提供新的模型 token、模型轮次或需求定位评分，也不推断已经节省 token。工具耗时受首次词表构建、缓存和执行次序影响，不作为性能优劣结论。
+复现配置与关键命令见 REPRODUCE.txt。所有中间失败日志亦保留，最终验收以明确列出的最终日志为准。

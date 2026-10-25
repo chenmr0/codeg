@@ -1,0 +1,409 @@
+{
+  "upstream_revision": "6560052a6f856855d3f71eee838fd66ccfa4285d",
+  "algorithm_methods": [
+    {
+      "name": "handleExplore",
+      "identical": true,
+      "sha256": "9bf94a8d980b99309f2717dc162c904e811edd6c125811095942766c19345a7a"
+    },
+    {
+      "name": "withSessionView",
+      "identical": true,
+      "sha256": "fd9c1aecd8f26a97a009c625570b3137d43f277c76c45a4eb34f913fccf88293"
+    },
+    {
+      "name": "takeExploreEmission",
+      "identical": true,
+      "sha256": "0a8fd1ace58b41cb19101725a3bdcf2b996d81363e735b4728159524595ff6ad"
+    },
+    {
+      "name": "validateOptionalPath",
+      "identical": true,
+      "sha256": "e303c8027b774027d210f62277b8f103ba2d917a77d8ce37e617601ab4ce800f"
+    },
+    {
+      "name": "validateString",
+      "identical": true,
+      "sha256": "d76fad2dea9996074984716185fb513d32359c95898e2d51c20ac1c29a3005f3"
+    },
+    {
+      "name": "textResult",
+      "identical": true,
+      "sha256": "8bb0d4ff50cd0dd91ef2dc13c2a3e20b90d37f9dc2765ecd7c3dc83dec8e7862"
+    },
+    {
+      "name": "findAllSymbols",
+      "identical": true,
+      "sha256": "16cd2a98dcdf4769e11edf03228d1278a9f58b5f790fb6398ec2057e12f86cf1"
+    },
+    {
+      "name": "computeGraphRelevance",
+      "identical": true,
+      "sha256": "be203f8d44cd2b01b4151997364f417cb3b12d7564a876f4074aa0d6c2fdf36a"
+    },
+    {
+      "name": "buildBlastRadiusSection",
+      "identical": true,
+      "sha256": "fc8418d2a1ce5be0bd84ea09c88546c26ea58bb0ef83c6bd190f2256e83fe5c8"
+    },
+    {
+      "name": "buildFlowFromNamedSymbols",
+      "identical": true,
+      "sha256": "7243b80df54363f6bb4f878eac7b51d4091aa5ffd3f22e93e4d593b87fa3564d"
+    },
+    {
+      "name": "isFileStaleOnDisk",
+      "identical": true,
+      "sha256": "e1e96344c7d7fc9f14a29642c051d0314ad351c6ebf382ca2031b202ca8cdf82"
+    },
+    {
+      "name": "answerResult",
+      "identical": true,
+      "sha256": "008d88d8cace622cd4b54838298c3b6ebb885ff94ff2ed7da6806deb406ee9e4"
+    },
+    {
+      "name": "errorResult",
+      "identical": true,
+      "sha256": "7ed311ab00d404545b09bbdab24548f07ecbdc5ef1ca18c3fc6568d938d0ef08"
+    },
+    {
+      "name": "indirectTestNote",
+      "identical": true,
+      "sha256": "bec7110b723cd44fa204a7b756e17e9dbd4103b5445223828638cd5f5eb6cf46"
+    },
+    {
+      "name": "synthEdgeNote",
+      "identical": true,
+      "sha256": "180b51a3093dc7652df591de40a127d9fe5f307daf09203c6721aada0435d3ff"
+    },
+    {
+      "name": "buildDynamicBoundaries",
+      "identical": true,
+      "sha256": "61d74502bfadfcebd960f3f43336148da7e20cb882da48af01ad8c1996d43a04"
+    },
+    {
+      "name": "buildPolymorphicBoundaries",
+      "identical": true,
+      "sha256": "05fa88ee41d75622cb234112a93077470b3217449e5ed9c2fa7c912aa05247e2"
+    },
+    {
+      "name": "whenLabel",
+      "identical": true,
+      "sha256": "c96320c72735510527634adf25605ee2ac1db1811275f53a8e56f2cb7833f484"
+    },
+    {
+      "name": "driftCache",
+      "identical": true,
+      "sha256": "779aba81b3756dbc3bbc488ff6fdd5852b38de0b12b5f1757f75c85200651fa9"
+    },
+    {
+      "name": "DRIFT_TTL_MS",
+      "identical": true,
+      "sha256": "e610e47d9b33505a4ef0fb8297ea5117748ca83e42c06403e0a216731ba7b348"
+    },
+    {
+      "name": "boundaryCandidates",
+      "identical": true,
+      "sha256": "8c41ce6d30b0753f33fc748758c1848771f03bb18594dbb4fe7108a228791df5"
+    }
+  ],
+  "files": [
+    {
+      "path": "directory.ts",
+      "sha256": "8e93662c3cba5af9a9371325d62ada54b711eb92ab6fe9045a6d861f634a400c",
+      "upstream_exists": true,
+      "byte_identical": true,
+      "text_identical": true
+    },
+    {
+      "path": "errors.ts",
+      "sha256": "e1c3497d8e894402f62d33523448a71d1579a90d15d0841650b1ee4aa7e09301",
+      "upstream_exists": true,
+      "byte_identical": true,
+      "text_identical": true
+    },
+    {
+      "path": "file-limits.ts",
+      "sha256": "6192902dbbbf152bf5e64fb2f98437560c794688044d73e2ee4065ea0603cce7",
+      "upstream_exists": true,
+      "byte_identical": true,
+      "text_identical": true
+    },
+    {
+      "path": "index-methods.ts",
+      "sha256": "adf4cb6481c9fd0356d56d807bf56b17114b2f99a5686fc85a89af11b461d7f7",
+      "upstream_exists": false,
+      "byte_identical": false,
+      "text_identical": false
+    },
+    {
+      "path": "index.ts",
+      "sha256": "746450f370203522d69a211beaa6705c9c9150998d06f8b38c330649ed47ae07",
+      "upstream_exists": true,
+      "byte_identical": false,
+      "text_identical": false
+    },
+    {
+      "path": "project-config.ts",
+      "sha256": "2257fdcd55e2971b9b7e6dc1931d94d581d0faf99f20d0f750ed91a00c88715a",
+      "upstream_exists": true,
+      "byte_identical": true,
+      "text_identical": true
+    },
+    {
+      "path": "types.ts",
+      "sha256": "15aa255df3f74d8716370df2f73eab1893b3cdfaa07d7f3d5f922bb704633362",
+      "upstream_exists": true,
+      "byte_identical": false,
+      "text_identical": false
+    },
+    {
+      "path": "utils.ts",
+      "sha256": "6b4eb25fd9ae8925aa1e80a9c3b3a96db62c10d0a150f83596dc8225d2bc9973",
+      "upstream_exists": true,
+      "byte_identical": true,
+      "text_identical": true
+    },
+    {
+      "path": "context/formatter.ts",
+      "sha256": "91a8ab80fed68e548d5b2aaf64b601ba4352a88ef5d5c13f4c66c1e2de9d4083",
+      "upstream_exists": true,
+      "byte_identical": true,
+      "text_identical": true
+    },
+    {
+      "path": "context/index.ts",
+      "sha256": "fd3497e999d17234f8bdc18f1b5ac4d9161ef4fd1e42ec524c249661ad752179",
+      "upstream_exists": true,
+      "byte_identical": true,
+      "text_identical": true
+    },
+    {
+      "path": "context/markers.ts",
+      "sha256": "78914262dea5355a85caa7adf810646dedf1ba0901d09aff934770d097a9077a",
+      "upstream_exists": true,
+      "byte_identical": true,
+      "text_identical": true
+    },
+    {
+      "path": "db/queries.ts",
+      "sha256": "262deca694f311fad9da421649cb9e83ce79a422f7a97495730d7b4fe5e49b39",
+      "upstream_exists": true,
+      "byte_identical": false,
+      "text_identical": false
+    },
+    {
+      "path": "db/sqlite-adapter.ts",
+      "sha256": "e36d5ea6dbf27ed078fba09f499525b593c4417a8a249319fdf3ddf0f40dc419",
+      "upstream_exists": true,
+      "byte_identical": true,
+      "text_identical": true
+    },
+    {
+      "path": "db/wsl-shared-index.ts",
+      "sha256": "739a963a0a377bafe0216a8f299b2d24481173ecb29b6cb00f68d92c7e31d17a",
+      "upstream_exists": true,
+      "byte_identical": true,
+      "text_identical": true
+    },
+    {
+      "path": "extraction/generated-detection.ts",
+      "sha256": "5a4a4ba90920b184944f7a87ae0c0af67a41ca19497655be4a84e3e9631de52a",
+      "upstream_exists": true,
+      "byte_identical": true,
+      "text_identical": true
+    },
+    {
+      "path": "extraction/grammars.ts",
+      "sha256": "76fe4b2a3350e8b0beeac715abfa6da54ff783a2a2383d77a1b28c4eb0ba3556",
+      "upstream_exists": true,
+      "byte_identical": true,
+      "text_identical": true
+    },
+    {
+      "path": "extraction/parse-budget.ts",
+      "sha256": "9283bac7869e0287b1e1cc9d973e8c9549f85537a01921ec59bb1a94332cdfd0",
+      "upstream_exists": true,
+      "byte_identical": true,
+      "text_identical": true
+    },
+    {
+      "path": "graph/branch-guards.ts",
+      "sha256": "a00c8c254d8e32cd7922b18d39634a7625915bdfdba87b29245eb654bf1596eb",
+      "upstream_exists": true,
+      "byte_identical": true,
+      "text_identical": true
+    },
+    {
+      "path": "graph/dynamic-boundary-report.ts",
+      "sha256": "0c984bc41c74c4546c605be18e6026a9512ac38cf52ef2076d6fe6be637e7839",
+      "upstream_exists": true,
+      "byte_identical": true,
+      "text_identical": true
+    },
+    {
+      "path": "graph/index.ts",
+      "sha256": "a3dd0867bfb572876d9584f130c3288bc1daee7d206273edfa36ccd7404026b6",
+      "upstream_exists": true,
+      "byte_identical": false,
+      "text_identical": false
+    },
+    {
+      "path": "graph/named-symbol-flow.ts",
+      "sha256": "e043988ddfe5200de00f5b69e558f4b473a8b024cc6d170023993285a7921b2a",
+      "upstream_exists": true,
+      "byte_identical": true,
+      "text_identical": true
+    },
+    {
+      "path": "graph/queries.ts",
+      "sha256": "c18a4ac64e91dfe86cb7f86582e0a2b4c3b4105a2483273b8bd78c7a8c31731d",
+      "upstream_exists": true,
+      "byte_identical": true,
+      "text_identical": true
+    },
+    {
+      "path": "graph/symbol-lookup.ts",
+      "sha256": "f1459839ce32cbf3a7eacfe08cc3d9079560791cbd753dab295a48e2d7bcba19",
+      "upstream_exists": true,
+      "byte_identical": true,
+      "text_identical": true
+    },
+    {
+      "path": "graph/traversal.ts",
+      "sha256": "67056636381c6d20fa49f2eaa2860f60e6c530b069a682ee263ba3b859ce5dd7",
+      "upstream_exists": true,
+      "byte_identical": true,
+      "text_identical": true
+    },
+    {
+      "path": "graph/type-hierarchy.ts",
+      "sha256": "c29cd993cb49e997c22a97e8dc780df6003956f9bc5a05dc5f52a8eb217df3c0",
+      "upstream_exists": true,
+      "byte_identical": true,
+      "text_identical": true
+    },
+    {
+      "path": "mcp/answer-freshness.ts",
+      "sha256": "efdede20e6908cc7bc88f6ff26f0f15cdd543b6787cb78277111837b147a5ef0",
+      "upstream_exists": true,
+      "byte_identical": true,
+      "text_identical": true
+    },
+    {
+      "path": "mcp/budget-policy.ts",
+      "sha256": "9301dc1bdc780bd8091141a383c61a5f9a8b1e7f13bca615d58adc4aa1db2319",
+      "upstream_exists": false,
+      "byte_identical": false,
+      "text_identical": false
+    },
+    {
+      "path": "mcp/dynamic-boundaries.ts",
+      "sha256": "538a25bdf589d5b19db293449e5c2683183c42a4b8e68eb0fbb641811084bc6d",
+      "upstream_exists": true,
+      "byte_identical": true,
+      "text_identical": true
+    },
+    {
+      "path": "mcp/explore-dedup.ts",
+      "sha256": "abaf30dc0dabd3ed1e8950dab35a9439c6004076be54d9fa8a821151e86615a9",
+      "upstream_exists": true,
+      "byte_identical": true,
+      "text_identical": true
+    },
+    {
+      "path": "mcp/explore-diagnostics.ts",
+      "sha256": "82a6a79d2e5743442eaca8d2f17721230a26e1cbfc37d3a2fd89f9c58e11819b",
+      "upstream_exists": true,
+      "byte_identical": true,
+      "text_identical": true
+    },
+    {
+      "path": "mcp/explore-session-state.ts",
+      "sha256": "84ce087255a854c99cf5426d0302f25cfdefb348f770b8d75ade396cb363ba24",
+      "upstream_exists": true,
+      "byte_identical": true,
+      "text_identical": true
+    },
+    {
+      "path": "mcp/tools.ts",
+      "sha256": "31268f6835d814bbcf314ca2f62780fc9e0227e9a785d9cf9f7c6165254ce697",
+      "upstream_exists": true,
+      "byte_identical": false,
+      "text_identical": false
+    },
+    {
+      "path": "resolution/strip-comments.ts",
+      "sha256": "4a1599f02c5545d241ee1bac51130b68f4bba862e6d9db8dc7eda904890e2373",
+      "upstream_exists": true,
+      "byte_identical": true,
+      "text_identical": true
+    },
+    {
+      "path": "search/identifier-segments.ts",
+      "sha256": "0ed5d2e0054836884e1a805aff0f83459a3c902bc25b9a7c29b4bac6f2285557",
+      "upstream_exists": true,
+      "byte_identical": true,
+      "text_identical": true
+    },
+    {
+      "path": "search/query-parser.ts",
+      "sha256": "77fc631789116d37f0b64ccac63083d467fe10a232c702d08bcf12b147dd568e",
+      "upstream_exists": true,
+      "byte_identical": true,
+      "text_identical": true
+    },
+    {
+      "path": "search/query-paths.ts",
+      "sha256": "ac4a5c74b9a1e828a309017e3999e13176e5f64615a5db4b06bd9a6829897b5f",
+      "upstream_exists": true,
+      "byte_identical": true,
+      "text_identical": true
+    },
+    {
+      "path": "search/query-utils.ts",
+      "sha256": "1ea5922cf155e2523a2e8b918e3d3ffaa658c2245fb0336e51fbb101e11dac53",
+      "upstream_exists": true,
+      "byte_identical": true,
+      "text_identical": true
+    },
+    {
+      "path": "sync/index.ts",
+      "sha256": "51b4aae370530f34a43af59c33a46808abedbc17f9df6768587fd3c6b34789cb",
+      "upstream_exists": true,
+      "byte_identical": false,
+      "text_identical": false
+    },
+    {
+      "path": "sync/watch-policy.ts",
+      "sha256": "e95f39b2dc8f873e7ccb03b4e9298596dd5cf421062e322b3023a0225aa9421b",
+      "upstream_exists": true,
+      "byte_identical": true,
+      "text_identical": true
+    }
+  ],
+  "native_methods_changed": [
+    "getTools",
+    "execute",
+    "handleExplore"
+  ],
+  "native_methods_removed": [
+    "buildFlowFromNamedSymbols",
+    "buildBlastRadiusSection",
+    "computeGraphRelevance"
+  ],
+  "native_core": {
+    "extraction": {
+      "files": 67,
+      "changed": []
+    },
+    "resolution": {
+      "files": 42,
+      "changed": []
+    },
+    "db": {
+      "files": 6,
+      "changed": []
+    }
+  }
+}

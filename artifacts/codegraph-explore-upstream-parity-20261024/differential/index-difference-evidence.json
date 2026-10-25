@@ -1,0 +1,2141 @@
+{
+  "go_workflow": {
+    "upstream": [
+      {
+        "source": "RunCycle",
+        "sourceFile": "internal/transport/httpapi/payroll_handler.go",
+        "target": "writeJSON",
+        "targetFile": "internal/transport/httpapi/payroll_handler.go",
+        "kind": "calls",
+        "provenance": null,
+        "line": 62
+      },
+      {
+        "source": "RunCycle",
+        "sourceFile": "internal/transport/httpapi/payroll_handler.go",
+        "target": "httpError",
+        "targetFile": "internal/transport/httpapi/payroll_handler.go",
+        "kind": "calls",
+        "provenance": null,
+        "line": 37
+      },
+      {
+        "source": "RunCycle",
+        "sourceFile": "internal/transport/httpapi/payroll_handler.go",
+        "target": "httpError",
+        "targetFile": "internal/transport/httpapi/payroll_handler.go",
+        "kind": "calls",
+        "provenance": null,
+        "line": 44
+      },
+      {
+        "source": "RunCycle",
+        "sourceFile": "internal/transport/httpapi/payroll_handler.go",
+        "target": "httpError",
+        "targetFile": "internal/transport/httpapi/payroll_handler.go",
+        "kind": "calls",
+        "provenance": null,
+        "line": 55
+      },
+      {
+        "source": "RunCycle",
+        "sourceFile": "internal/transport/httpapi/payroll_handler.go",
+        "target": "httpError",
+        "targetFile": "internal/transport/httpapi/payroll_handler.go",
+        "kind": "calls",
+        "provenance": null,
+        "line": 58
+      },
+      {
+        "source": "RunCycle",
+        "sourceFile": "internal/transport/httpapi/payroll_handler.go",
+        "target": "RunCycle",
+        "targetFile": "internal/usecase/payroll/cycle.go",
+        "kind": "calls",
+        "provenance": null,
+        "line": 49
+      },
+      {
+        "source": "RunCycle",
+        "sourceFile": "internal/transport/httpapi/payroll_handler.go",
+        "target": "RunOptions",
+        "targetFile": "internal/usecase/payroll/cycle.go",
+        "kind": "instantiates",
+        "provenance": null,
+        "line": 49
+      },
+      {
+        "source": "RunCycle",
+        "sourceFile": "internal/transport/httpapi/payroll_handler.go",
+        "target": "runCycleResponse",
+        "targetFile": "internal/transport/httpapi/payroll_handler.go",
+        "kind": "instantiates",
+        "provenance": null,
+        "line": 62
+      }
+    ],
+    "native": [
+      {
+        "source": "RunCycle",
+        "sourceFile": "internal/transport/httpapi/payroll_handler.go",
+        "target": "httpError",
+        "targetFile": "internal/transport/httpapi/payroll_handler.go",
+        "kind": "calls",
+        "provenance": null,
+        "line": 37
+      },
+      {
+        "source": "RunCycle",
+        "sourceFile": "internal/transport/httpapi/payroll_handler.go",
+        "target": "httpError",
+        "targetFile": "internal/transport/httpapi/payroll_handler.go",
+        "kind": "calls",
+        "provenance": null,
+        "line": 44
+      },
+      {
+        "source": "RunCycle",
+        "sourceFile": "internal/transport/httpapi/payroll_handler.go",
+        "target": "RunCycle",
+        "targetFile": "internal/transport/httpapi/payroll_handler.go",
+        "kind": "calls",
+        "provenance": null,
+        "line": 49
+      },
+      {
+        "source": "RunCycle",
+        "sourceFile": "internal/transport/httpapi/payroll_handler.go",
+        "target": "httpError",
+        "targetFile": "internal/transport/httpapi/payroll_handler.go",
+        "kind": "calls",
+        "provenance": null,
+        "line": 55
+      },
+      {
+        "source": "RunCycle",
+        "sourceFile": "internal/transport/httpapi/payroll_handler.go",
+        "target": "httpError",
+        "targetFile": "internal/transport/httpapi/payroll_handler.go",
+        "kind": "calls",
+        "provenance": null,
+        "line": 58
+      },
+      {
+        "source": "RunCycle",
+        "sourceFile": "internal/transport/httpapi/payroll_handler.go",
+        "target": "writeJSON",
+        "targetFile": "internal/transport/httpapi/payroll_handler.go",
+        "kind": "calls",
+        "provenance": null,
+        "line": 62
+      },
+      {
+        "source": "RunCycle",
+        "sourceFile": "internal/transport/httpapi/payroll_handler.go",
+        "target": "RunOptions",
+        "targetFile": "internal/usecase/payroll/cycle.go",
+        "kind": "instantiates",
+        "provenance": null,
+        "line": 49
+      },
+      {
+        "source": "RunCycle",
+        "sourceFile": "internal/transport/httpapi/payroll_handler.go",
+        "target": "runCycleResponse",
+        "targetFile": "internal/transport/httpapi/payroll_handler.go",
+        "kind": "instantiates",
+        "provenance": null,
+        "line": 62
+      }
+    ]
+  },
+  "thunk_dispatch": {
+    "upstream": [
+      {
+        "source": "outerThunk",
+        "sourceFile": "thunks.ts",
+        "target": "innerThunk",
+        "targetFile": "thunks.ts",
+        "kind": "calls",
+        "provenance": "heuristic",
+        "line": 10
+      },
+      {
+        "source": "outerThunk",
+        "sourceFile": "thunks.ts",
+        "target": "innerThunk",
+        "targetFile": "thunks.ts",
+        "kind": "calls",
+        "provenance": null,
+        "line": 10
+      },
+      {
+        "source": "outerThunk",
+        "sourceFile": "thunks.ts",
+        "target": "innerThunk",
+        "targetFile": "thunks.ts",
+        "kind": "references",
+        "provenance": null,
+        "line": null
+      }
+    ],
+    "native": []
+  },
+  "interface_pipeline": {
+    "source_key": "74d152a643ed3833e37cfbf9c5b2d967112a160a7e69ce67d0d7f08c2595a0ac",
+    "upstream": [
+      {
+        "id": "file:src/pipeline/types.ts",
+        "kind": "file",
+        "name": "types.ts",
+        "qualifiedName": "src/pipeline/types.ts",
+        "filePath": "src/pipeline/types.ts",
+        "language": "typescript",
+        "startLine": 1,
+        "endLine": 26,
+        "startColumn": 0,
+        "endColumn": 0,
+        "visibility": null,
+        "isExported": false,
+        "isAsync": false,
+        "isStatic": false,
+        "isAbstract": false,
+        "updatedAt": 1792858514984
+      },
+      {
+        "id": "interface:84829c6a1347259337e7ac0363a06067",
+        "kind": "interface",
+        "name": "RawRecord",
+        "qualifiedName": "RawRecord",
+        "filePath": "src/pipeline/types.ts",
+        "language": "typescript",
+        "startLine": 2,
+        "endLine": 7,
+        "startColumn": 7,
+        "endColumn": 1,
+        "docstring": "One raw record as it arrives from the upstream feed.",
+        "visibility": null,
+        "isExported": true,
+        "isAsync": false,
+        "isStatic": false,
+        "isAbstract": false,
+        "updatedAt": 1792858514985
+      },
+      {
+        "id": "property:4de17de06b8bd2a316b151dfa011b326",
+        "kind": "property",
+        "name": "id",
+        "qualifiedName": "RawRecord::id",
+        "filePath": "src/pipeline/types.ts",
+        "language": "typescript",
+        "startLine": 3,
+        "endLine": 3,
+        "startColumn": 2,
+        "endColumn": 12,
+        "signature": "string id",
+        "visibility": null,
+        "isExported": false,
+        "isAsync": false,
+        "isStatic": false,
+        "isAbstract": false,
+        "updatedAt": 1792858514985
+      },
+      {
+        "id": "property:dd062c8eace2f60ef7f386f3630fc288",
+        "kind": "property",
+        "name": "source",
+        "qualifiedName": "RawRecord::source",
+        "filePath": "src/pipeline/types.ts",
+        "language": "typescript",
+        "startLine": 4,
+        "endLine": 4,
+        "startColumn": 2,
+        "endColumn": 16,
+        "signature": "string source",
+        "visibility": null,
+        "isExported": false,
+        "isAsync": false,
+        "isStatic": false,
+        "isAbstract": false,
+        "updatedAt": 1792858514986
+      },
+      {
+        "id": "property:8c59bdd9cedda60317846a0a85b3e468",
+        "kind": "property",
+        "name": "payload",
+        "qualifiedName": "RawRecord::payload",
+        "filePath": "src/pipeline/types.ts",
+        "language": "typescript",
+        "startLine": 5,
+        "endLine": 5,
+        "startColumn": 2,
+        "endColumn": 49,
+        "signature": "Record<string, string | number | null> payload",
+        "visibility": null,
+        "isExported": false,
+        "isAsync": false,
+        "isStatic": false,
+        "isAbstract": false,
+        "updatedAt": 1792858514986
+      },
+      {
+        "id": "property:e0c3f4bacc54eff4c0524e481707ac7f",
+        "kind": "property",
+        "name": "receivedAt",
+        "qualifiedName": "RawRecord::receivedAt",
+        "filePath": "src/pipeline/types.ts",
+        "language": "typescript",
+        "startLine": 6,
+        "endLine": 6,
+        "startColumn": 2,
+        "endColumn": 20,
+        "signature": "number receivedAt",
+        "visibility": null,
+        "isExported": false,
+        "isAsync": false,
+        "isStatic": false,
+        "isAbstract": false,
+        "updatedAt": 1792858514986
+      },
+      {
+        "id": "interface:d3aeb1fb6a310ffbf97cef72c7bb470a",
+        "kind": "interface",
+        "name": "PipelineRecord",
+        "qualifiedName": "PipelineRecord",
+        "filePath": "src/pipeline/types.ts",
+        "language": "typescript",
+        "startLine": 10,
+        "endLine": 17,
+        "startColumn": 7,
+        "endColumn": 1,
+        "docstring": "A record after the pipeline has cleaned and annotated it.",
+        "visibility": null,
+        "isExported": true,
+        "isAsync": false,
+        "isStatic": false,
+        "isAbstract": false,
+        "updatedAt": 1792858514986
+      },
+      {
+        "id": "property:72eeebcee4b546cc700f6b1bcf85c2f8",
+        "kind": "property",
+        "name": "id",
+        "qualifiedName": "PipelineRecord::id",
+        "filePath": "src/pipeline/types.ts",
+        "language": "typescript",
+        "startLine": 11,
+        "endLine": 11,
+        "startColumn": 2,
+        "endColumn": 12,
+        "signature": "string id",
+        "visibility": null,
+        "isExported": false,
+        "isAsync": false,
+        "isStatic": false,
+        "isAbstract": false,
+        "updatedAt": 1792858514986
+      },
+      {
+        "id": "property:cc90044721b5fca95c97e0927c6d4334",
+        "kind": "property",
+        "name": "source",
+        "qualifiedName": "PipelineRecord::source",
+        "filePath": "src/pipeline/types.ts",
+        "language": "typescript",
+        "startLine": 12,
+        "endLine": 12,
+        "startColumn": 2,
+        "endColumn": 16,
+        "signature": "string source",
+        "visibility": null,
+        "isExported": false,
+        "isAsync": false,
+        "isStatic": false,
+        "isAbstract": false,
+        "updatedAt": 1792858514986
+      },
+      {
+        "id": "property:a0944f840bdc7ff51f1906dba9e6f562",
+        "kind": "property",
+        "name": "kind",
+        "qualifiedName": "PipelineRecord::kind",
+        "filePath": "src/pipeline/types.ts",
+        "language": "typescript",
+        "startLine": 13,
+        "endLine": 13,
+        "startColumn": 2,
+        "endColumn": 14,
+        "signature": "string kind",
+        "visibility": null,
+        "isExported": false,
+        "isAsync": false,
+        "isStatic": false,
+        "isAbstract": false,
+        "updatedAt": 1792858514986
+      },
+      {
+        "id": "property:84b024d20e618dca1646162e1f6fae65",
+        "kind": "property",
+        "name": "value",
+        "qualifiedName": "PipelineRecord::value",
+        "filePath": "src/pipeline/types.ts",
+        "language": "typescript",
+        "startLine": 14,
+        "endLine": 14,
+        "startColumn": 2,
+        "endColumn": 15,
+        "signature": "number value",
+        "visibility": null,
+        "isExported": false,
+        "isAsync": false,
+        "isStatic": false,
+        "isAbstract": false,
+        "updatedAt": 1792858514986
+      },
+      {
+        "id": "property:bab9c7c7309c5d163138a6d7bec16750",
+        "kind": "property",
+        "name": "tags",
+        "qualifiedName": "PipelineRecord::tags",
+        "filePath": "src/pipeline/types.ts",
+        "language": "typescript",
+        "startLine": 15,
+        "endLine": 15,
+        "startColumn": 2,
+        "endColumn": 16,
+        "signature": "string[] tags",
+        "visibility": null,
+        "isExported": false,
+        "isAsync": false,
+        "isStatic": false,
+        "isAbstract": false,
+        "updatedAt": 1792858514986
+      },
+      {
+        "id": "property:8cb57068bc893be3e51475d5fa347d66",
+        "kind": "property",
+        "name": "warnings",
+        "qualifiedName": "PipelineRecord::warnings",
+        "filePath": "src/pipeline/types.ts",
+        "language": "typescript",
+        "startLine": 16,
+        "endLine": 16,
+        "startColumn": 2,
+        "endColumn": 20,
+        "signature": "string[] warnings",
+        "visibility": null,
+        "isExported": false,
+        "isAsync": false,
+        "isStatic": false,
+        "isAbstract": false,
+        "updatedAt": 1792858514986
+      },
+      {
+        "id": "interface:e58d278f398ac21641d62421cde0f632",
+        "kind": "interface",
+        "name": "PipelineOptions",
+        "qualifiedName": "PipelineOptions",
+        "filePath": "src/pipeline/types.ts",
+        "language": "typescript",
+        "startLine": 20,
+        "endLine": 25,
+        "startColumn": 7,
+        "endColumn": 1,
+        "docstring": "Per-run knobs shared by every pipeline stage.",
+        "visibility": null,
+        "isExported": true,
+        "isAsync": false,
+        "isStatic": false,
+        "isAbstract": false,
+        "updatedAt": 1792858514986
+      },
+      {
+        "id": "property:56a52ac9de71d49999218ab0cb8c1b16",
+        "kind": "property",
+        "name": "strict",
+        "qualifiedName": "PipelineOptions::strict",
+        "filePath": "src/pipeline/types.ts",
+        "language": "typescript",
+        "startLine": 21,
+        "endLine": 21,
+        "startColumn": 2,
+        "endColumn": 17,
+        "signature": "boolean strict",
+        "visibility": null,
+        "isExported": false,
+        "isAsync": false,
+        "isStatic": false,
+        "isAbstract": false,
+        "updatedAt": 1792858514986
+      },
+      {
+        "id": "property:08ed377f5d779f63bc5973a2ba6bbb85",
+        "kind": "property",
+        "name": "dropEmpty",
+        "qualifiedName": "PipelineOptions::dropEmpty",
+        "filePath": "src/pipeline/types.ts",
+        "language": "typescript",
+        "startLine": 22,
+        "endLine": 22,
+        "startColumn": 2,
+        "endColumn": 20,
+        "signature": "boolean dropEmpty",
+        "visibility": null,
+        "isExported": false,
+        "isAsync": false,
+        "isStatic": false,
+        "isAbstract": false,
+        "updatedAt": 1792858514986
+      },
+      {
+        "id": "property:39ffa7a531160998e7d598a7e887acb6",
+        "kind": "property",
+        "name": "defaultKind",
+        "qualifiedName": "PipelineOptions::defaultKind",
+        "filePath": "src/pipeline/types.ts",
+        "language": "typescript",
+        "startLine": 23,
+        "endLine": 23,
+        "startColumn": 2,
+        "endColumn": 21,
+        "signature": "string defaultKind",
+        "visibility": null,
+        "isExported": false,
+        "isAsync": false,
+        "isStatic": false,
+        "isAbstract": false,
+        "updatedAt": 1792858514986
+      },
+      {
+        "id": "property:46f97f746b35a156f68ced4764a82b95",
+        "kind": "property",
+        "name": "maxTags",
+        "qualifiedName": "PipelineOptions::maxTags",
+        "filePath": "src/pipeline/types.ts",
+        "language": "typescript",
+        "startLine": 24,
+        "endLine": 24,
+        "startColumn": 2,
+        "endColumn": 17,
+        "signature": "number maxTags",
+        "visibility": null,
+        "isExported": false,
+        "isAsync": false,
+        "isStatic": false,
+        "isAbstract": false,
+        "updatedAt": 1792858514986
+      }
+    ],
+    "native": [
+      {
+        "id": "file:src/pipeline/types.ts",
+        "kind": "file",
+        "name": "types.ts",
+        "qualifiedName": "src/pipeline/types.ts",
+        "filePath": "src/pipeline/types.ts",
+        "language": "typescript",
+        "startLine": 1,
+        "endLine": 26,
+        "startColumn": 0,
+        "endColumn": 0,
+        "visibility": null,
+        "isExported": false,
+        "isAsync": false,
+        "isStatic": false,
+        "isAbstract": false,
+        "isDeclaration": false,
+        "updatedAt": 1792858509602
+      },
+      {
+        "id": "interface:84829c6a1347259337e7ac0363a06067",
+        "kind": "interface",
+        "name": "RawRecord",
+        "qualifiedName": "RawRecord",
+        "filePath": "src/pipeline/types.ts",
+        "language": "typescript",
+        "startLine": 2,
+        "endLine": 7,
+        "startColumn": 7,
+        "endColumn": 1,
+        "visibility": null,
+        "isExported": true,
+        "isAsync": false,
+        "isStatic": false,
+        "isAbstract": false,
+        "isDeclaration": false,
+        "updatedAt": 1792858509602
+      },
+      {
+        "id": "interface:d3aeb1fb6a310ffbf97cef72c7bb470a",
+        "kind": "interface",
+        "name": "PipelineRecord",
+        "qualifiedName": "PipelineRecord",
+        "filePath": "src/pipeline/types.ts",
+        "language": "typescript",
+        "startLine": 10,
+        "endLine": 17,
+        "startColumn": 7,
+        "endColumn": 1,
+        "visibility": null,
+        "isExported": true,
+        "isAsync": false,
+        "isStatic": false,
+        "isAbstract": false,
+        "isDeclaration": false,
+        "updatedAt": 1792858509603
+      },
+      {
+        "id": "interface:e58d278f398ac21641d62421cde0f632",
+        "kind": "interface",
+        "name": "PipelineOptions",
+        "qualifiedName": "PipelineOptions",
+        "filePath": "src/pipeline/types.ts",
+        "language": "typescript",
+        "startLine": 20,
+        "endLine": 25,
+        "startColumn": 7,
+        "endColumn": 1,
+        "visibility": null,
+        "isExported": true,
+        "isAsync": false,
+        "isStatic": false,
+        "isAbstract": false,
+        "isDeclaration": false,
+        "updatedAt": 1792858509603
+      }
+    ]
+  },
+  "ambient_interface": {
+    "source_key": "a18d71662ceff8fc52a154cacc2a10c814b58e55b0eda50637ea164996d6d9be",
+    "upstream": [
+      [
+        "src/lib/bucket.ts",
+        "key",
+        "property"
+      ],
+      [
+        "src/lib/bucket.ts",
+        "body",
+        "property"
+      ],
+      [
+        "src/lib/bucket.ts",
+        "size",
+        "property"
+      ],
+      [
+        "src/lib/bucket.ts",
+        "put",
+        "method"
+      ],
+      [
+        "src/lib/bucket.ts",
+        "get",
+        "method"
+      ],
+      [
+        "src/lib/bucket.ts",
+        "put",
+        "method"
+      ],
+      [
+        "src/lib/bucket.ts",
+        "get",
+        "method"
+      ],
+      [
+        "src/lib/queue.ts",
+        "key",
+        "property"
+      ],
+      [
+        "src/lib/queue.ts",
+        "metadataId",
+        "property"
+      ],
+      [
+        "src/lib/queue.ts",
+        "contentType",
+        "property"
+      ],
+      [
+        "src/lib/queue.ts",
+        "send",
+        "method"
+      ],
+      [
+        "src/lib/request.ts",
+        "ok",
+        "property"
+      ],
+      [
+        "src/lib/request.ts",
+        "key",
+        "property"
+      ],
+      [
+        "src/lib/request.ts",
+        "body",
+        "property"
+      ],
+      [
+        "src/lib/request.ts",
+        "contentType",
+        "property"
+      ],
+      [
+        "src/lib/request.ts",
+        "width",
+        "property"
+      ],
+      [
+        "src/lib/request.ts",
+        "height",
+        "property"
+      ],
+      [
+        "src/lib/request.ts",
+        "format",
+        "property"
+      ],
+      [
+        "src/lib/request.ts",
+        "ok",
+        "property"
+      ],
+      [
+        "src/lib/request.ts",
+        "error",
+        "property"
+      ],
+      [
+        "src/routes/upload.ts",
+        "key",
+        "property"
+      ],
+      [
+        "src/routes/upload.ts",
+        "bytes",
+        "property"
+      ],
+      [
+        "src/routes/upload.ts",
+        "contentType",
+        "property"
+      ],
+      [
+        "src/storage/metadata.ts",
+        "width",
+        "property"
+      ],
+      [
+        "src/storage/metadata.ts",
+        "height",
+        "property"
+      ],
+      [
+        "src/storage/metadata.ts",
+        "format",
+        "property"
+      ],
+      [
+        "src/storage/metadata.ts",
+        "bytes",
+        "property"
+      ],
+      [
+        "src/storage/metadata.ts",
+        "id",
+        "property"
+      ],
+      [
+        "src/storage/metadata.ts",
+        "key",
+        "property"
+      ],
+      [
+        "src/storage/metadata.ts",
+        "recordedAt",
+        "property"
+      ],
+      [
+        "src/storage/stream.ts",
+        "key",
+        "property"
+      ],
+      [
+        "src/storage/stream.ts",
+        "bytes",
+        "property"
+      ],
+      [
+        "src/storage/stream.ts",
+        "contentType",
+        "property"
+      ],
+      [
+        "src/storage/types.ts",
+        "key",
+        "property"
+      ],
+      [
+        "src/storage/types.ts",
+        "bytes",
+        "property"
+      ],
+      [
+        "src/storage/types.ts",
+        "durationMs",
+        "property"
+      ],
+      [
+        "src/storage/types.ts",
+        "retries",
+        "property"
+      ],
+      [
+        "src/storage/types.ts",
+        "key",
+        "property"
+      ],
+      [
+        "src/storage/types.ts",
+        "stage",
+        "property"
+      ],
+      [
+        "src/storage/types.ts",
+        "message",
+        "property"
+      ],
+      [
+        "types/platform-shims.d.ts",
+        "put",
+        "method"
+      ],
+      [
+        "types/platform-shims.d.ts",
+        "get",
+        "method"
+      ],
+      [
+        "types/platform-shims.d.ts",
+        "head",
+        "method"
+      ],
+      [
+        "types/platform-shims.d.ts",
+        "delete",
+        "method"
+      ],
+      [
+        "types/platform-shims.d.ts",
+        "list",
+        "method"
+      ],
+      [
+        "types/platform-shims.d.ts",
+        "key",
+        "property"
+      ],
+      [
+        "types/platform-shims.d.ts",
+        "size",
+        "property"
+      ],
+      [
+        "types/platform-shims.d.ts",
+        "etag",
+        "property"
+      ],
+      [
+        "types/platform-shims.d.ts",
+        "uploaded",
+        "property"
+      ],
+      [
+        "types/platform-shims.d.ts",
+        "body",
+        "property"
+      ],
+      [
+        "types/platform-shims.d.ts",
+        "contentType",
+        "property"
+      ],
+      [
+        "types/platform-shims.d.ts",
+        "metadata",
+        "property"
+      ],
+      [
+        "types/platform-shims.d.ts",
+        "arrayBuffer",
+        "method"
+      ],
+      [
+        "types/platform-shims.d.ts",
+        "text",
+        "method"
+      ],
+      [
+        "types/platform-shims.d.ts",
+        "json",
+        "method"
+      ],
+      [
+        "types/platform-shims.d.ts",
+        "key",
+        "property"
+      ],
+      [
+        "types/platform-shims.d.ts",
+        "size",
+        "property"
+      ],
+      [
+        "types/platform-shims.d.ts",
+        "etag",
+        "property"
+      ],
+      [
+        "types/platform-shims.d.ts",
+        "uploaded",
+        "property"
+      ],
+      [
+        "types/platform-shims.d.ts",
+        "contentType",
+        "property"
+      ],
+      [
+        "types/platform-shims.d.ts",
+        "contentType",
+        "property"
+      ],
+      [
+        "types/platform-shims.d.ts",
+        "cacheControl",
+        "property"
+      ],
+      [
+        "types/platform-shims.d.ts",
+        "customMetadata",
+        "property"
+      ],
+      [
+        "types/platform-shims.d.ts",
+        "checksum",
+        "property"
+      ],
+      [
+        "types/platform-shims.d.ts",
+        "storageClass",
+        "property"
+      ],
+      [
+        "types/platform-shims.d.ts",
+        "prefix",
+        "property"
+      ],
+      [
+        "types/platform-shims.d.ts",
+        "cursor",
+        "property"
+      ],
+      [
+        "types/platform-shims.d.ts",
+        "limit",
+        "property"
+      ],
+      [
+        "types/platform-shims.d.ts",
+        "delimiter",
+        "property"
+      ],
+      [
+        "types/platform-shims.d.ts",
+        "include",
+        "property"
+      ],
+      [
+        "types/platform-shims.d.ts",
+        "objects",
+        "property"
+      ],
+      [
+        "types/platform-shims.d.ts",
+        "truncated",
+        "property"
+      ],
+      [
+        "types/platform-shims.d.ts",
+        "cursor",
+        "property"
+      ],
+      [
+        "types/platform-shims.d.ts",
+        "prefixes",
+        "property"
+      ],
+      [
+        "types/platform-shims.d.ts",
+        "format",
+        "property"
+      ],
+      [
+        "types/platform-shims.d.ts",
+        "fileSize",
+        "property"
+      ],
+      [
+        "types/platform-shims.d.ts",
+        "width",
+        "property"
+      ],
+      [
+        "types/platform-shims.d.ts",
+        "height",
+        "property"
+      ],
+      [
+        "types/platform-shims.d.ts",
+        "orientation",
+        "property"
+      ],
+      [
+        "types/platform-shims.d.ts",
+        "colorSpace",
+        "property"
+      ],
+      [
+        "types/platform-shims.d.ts",
+        "id",
+        "property"
+      ],
+      [
+        "types/platform-shims.d.ts",
+        "key",
+        "property"
+      ],
+      [
+        "types/platform-shims.d.ts",
+        "recordedAt",
+        "property"
+      ],
+      [
+        "types/platform-shims.d.ts",
+        "format",
+        "property"
+      ],
+      [
+        "types/platform-shims.d.ts",
+        "bytes",
+        "property"
+      ],
+      [
+        "types/platform-shims.d.ts",
+        "width",
+        "property"
+      ],
+      [
+        "types/platform-shims.d.ts",
+        "height",
+        "property"
+      ],
+      [
+        "types/platform-shims.d.ts",
+        "put",
+        "method"
+      ],
+      [
+        "types/platform-shims.d.ts",
+        "get",
+        "method"
+      ],
+      [
+        "types/platform-shims.d.ts",
+        "getWithMetadata",
+        "method"
+      ],
+      [
+        "types/platform-shims.d.ts",
+        "delete",
+        "method"
+      ],
+      [
+        "types/platform-shims.d.ts",
+        "list",
+        "method"
+      ],
+      [
+        "types/platform-shims.d.ts",
+        "expiration",
+        "property"
+      ],
+      [
+        "types/platform-shims.d.ts",
+        "expirationTtl",
+        "property"
+      ],
+      [
+        "types/platform-shims.d.ts",
+        "metadata",
+        "property"
+      ],
+      [
+        "types/platform-shims.d.ts",
+        "prefix",
+        "property"
+      ],
+      [
+        "types/platform-shims.d.ts",
+        "cursor",
+        "property"
+      ],
+      [
+        "types/platform-shims.d.ts",
+        "limit",
+        "property"
+      ],
+      [
+        "types/platform-shims.d.ts",
+        "keys",
+        "property"
+      ],
+      [
+        "types/platform-shims.d.ts",
+        "list_complete",
+        "property"
+      ],
+      [
+        "types/platform-shims.d.ts",
+        "cursor",
+        "property"
+      ],
+      [
+        "types/platform-shims.d.ts",
+        "send",
+        "method"
+      ],
+      [
+        "types/platform-shims.d.ts",
+        "sendBatch",
+        "method"
+      ],
+      [
+        "types/platform-shims.d.ts",
+        "contentType",
+        "property"
+      ],
+      [
+        "types/platform-shims.d.ts",
+        "delaySeconds",
+        "property"
+      ],
+      [
+        "types/platform-shims.d.ts",
+        "body",
+        "property"
+      ],
+      [
+        "types/platform-shims.d.ts",
+        "options",
+        "property"
+      ],
+      [
+        "types/platform-shims.d.ts",
+        "id",
+        "property"
+      ],
+      [
+        "types/platform-shims.d.ts",
+        "timestamp",
+        "property"
+      ],
+      [
+        "types/platform-shims.d.ts",
+        "body",
+        "property"
+      ],
+      [
+        "types/platform-shims.d.ts",
+        "attempts",
+        "property"
+      ],
+      [
+        "types/platform-shims.d.ts",
+        "retry",
+        "method"
+      ],
+      [
+        "types/platform-shims.d.ts",
+        "ack",
+        "method"
+      ],
+      [
+        "types/platform-shims.d.ts",
+        "delaySeconds",
+        "property"
+      ],
+      [
+        "types/platform-shims.d.ts",
+        "messages",
+        "property"
+      ],
+      [
+        "types/platform-shims.d.ts",
+        "queue",
+        "property"
+      ],
+      [
+        "types/platform-shims.d.ts",
+        "retryAll",
+        "method"
+      ],
+      [
+        "types/platform-shims.d.ts",
+        "ackAll",
+        "method"
+      ],
+      [
+        "types/platform-shims.d.ts",
+        "preventClose",
+        "property"
+      ],
+      [
+        "types/platform-shims.d.ts",
+        "preventAbort",
+        "property"
+      ],
+      [
+        "types/platform-shims.d.ts",
+        "preventCancel",
+        "property"
+      ],
+      [
+        "types/platform-shims.d.ts",
+        "signal",
+        "property"
+      ],
+      [
+        "types/platform-shims.d.ts",
+        "transform",
+        "property"
+      ],
+      [
+        "types/platform-shims.d.ts",
+        "total",
+        "method"
+      ],
+      [
+        "types/platform-shims.d.ts",
+        "limit",
+        "property"
+      ],
+      [
+        "types/platform-shims.d.ts",
+        "seen",
+        "property"
+      ],
+      [
+        "types/platform-shims.d.ts",
+        "exceeded",
+        "method"
+      ],
+      [
+        "types/platform-shims.d.ts",
+        "body",
+        "property"
+      ],
+      [
+        "types/platform-shims.d.ts",
+        "bodyUsed",
+        "property"
+      ],
+      [
+        "types/platform-shims.d.ts",
+        "headers",
+        "property"
+      ],
+      [
+        "types/platform-shims.d.ts",
+        "url",
+        "property"
+      ],
+      [
+        "types/platform-shims.d.ts",
+        "arrayBuffer",
+        "method"
+      ],
+      [
+        "types/platform-shims.d.ts",
+        "formData",
+        "method"
+      ],
+      [
+        "types/platform-shims.d.ts",
+        "blob",
+        "method"
+      ],
+      [
+        "types/platform-shims.d.ts",
+        "key",
+        "property"
+      ],
+      [
+        "types/platform-shims.d.ts",
+        "contentType",
+        "property"
+      ],
+      [
+        "types/platform-shims.d.ts",
+        "width",
+        "property"
+      ],
+      [
+        "types/platform-shims.d.ts",
+        "height",
+        "property"
+      ],
+      [
+        "types/platform-shims.d.ts",
+        "format",
+        "property"
+      ],
+      [
+        "types/platform-shims.d.ts",
+        "transform",
+        "method"
+      ],
+      [
+        "types/platform-shims.d.ts",
+        "output",
+        "method"
+      ],
+      [
+        "types/platform-shims.d.ts",
+        "width",
+        "property"
+      ],
+      [
+        "types/platform-shims.d.ts",
+        "height",
+        "property"
+      ],
+      [
+        "types/platform-shims.d.ts",
+        "fit",
+        "property"
+      ],
+      [
+        "types/platform-shims.d.ts",
+        "rotate",
+        "property"
+      ],
+      [
+        "types/platform-shims.d.ts",
+        "format",
+        "property"
+      ],
+      [
+        "types/platform-shims.d.ts",
+        "quality",
+        "property"
+      ],
+      [
+        "types/platform-shims.d.ts",
+        "background",
+        "property"
+      ],
+      [
+        "types/platform-shims.d.ts",
+        "contentType",
+        "method"
+      ],
+      [
+        "types/platform-shims.d.ts",
+        "image",
+        "method"
+      ],
+      [
+        "types/platform-shims.d.ts",
+        "response",
+        "method"
+      ],
+      [
+        "types/platform-shims.d.ts",
+        "UPLOADS",
+        "property"
+      ],
+      [
+        "types/platform-shims.d.ts",
+        "METADATA",
+        "property"
+      ],
+      [
+        "types/platform-shims.d.ts",
+        "UPLOAD_QUEUE",
+        "property"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "UPLOADS",
+        "property"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "METADATA",
+        "property"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "UPLOAD_QUEUE",
+        "property"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "IMAGES",
+        "property"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "key",
+        "property"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "metadataId",
+        "property"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "contentType",
+        "property"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "head",
+        "method"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "get",
+        "method"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "put",
+        "method"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "delete",
+        "method"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "list",
+        "method"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "createMultipartUpload",
+        "method"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "resumeMultipartUpload",
+        "method"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "key",
+        "property"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "version",
+        "property"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "size",
+        "property"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "etag",
+        "property"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "httpEtag",
+        "property"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "checksums",
+        "property"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "uploaded",
+        "property"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "httpMetadata",
+        "property"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "customMetadata",
+        "property"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "range",
+        "property"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "storageClass",
+        "property"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "writeHttpMetadata",
+        "method"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "body",
+        "method"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "bodyUsed",
+        "method"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "arrayBuffer",
+        "method"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "text",
+        "method"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "json",
+        "method"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "blob",
+        "method"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "bytes",
+        "method"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "onlyIf",
+        "property"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "range",
+        "property"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "ssecKey",
+        "property"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "onlyIf",
+        "property"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "httpMetadata",
+        "property"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "customMetadata",
+        "property"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "md5",
+        "property"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "sha1",
+        "property"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "sha256",
+        "property"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "storageClass",
+        "property"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "ssecKey",
+        "property"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "limit",
+        "property"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "prefix",
+        "property"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "cursor",
+        "property"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "delimiter",
+        "property"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "startAfter",
+        "property"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "include",
+        "property"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "objects",
+        "property"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "truncated",
+        "property"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "cursor",
+        "property"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "delimitedPrefixes",
+        "property"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "httpMetadata",
+        "property"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "customMetadata",
+        "property"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "storageClass",
+        "property"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "key",
+        "property"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "uploadId",
+        "property"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "uploadPart",
+        "method"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "abort",
+        "method"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "complete",
+        "method"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "partNumber",
+        "property"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "etag",
+        "property"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "contentType",
+        "property"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "contentLanguage",
+        "property"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "contentDisposition",
+        "property"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "contentEncoding",
+        "property"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "cacheControl",
+        "property"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "cacheExpiry",
+        "property"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "md5",
+        "property"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "sha1",
+        "property"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "sha256",
+        "property"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "toJSON",
+        "method"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "md5",
+        "property"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "sha1",
+        "property"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "sha256",
+        "property"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "etagMatches",
+        "property"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "etagDoesNotMatch",
+        "property"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "uploadedBefore",
+        "property"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "uploadedAfter",
+        "property"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "secondsGranularity",
+        "property"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "offset",
+        "property"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "length",
+        "property"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "suffix",
+        "property"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "get",
+        "method"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "getWithMetadata",
+        "method"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "put",
+        "method"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "delete",
+        "method"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "list",
+        "method"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "type",
+        "property"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "cacheTtl",
+        "property"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "expiration",
+        "property"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "expirationTtl",
+        "property"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "metadata",
+        "property"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "limit",
+        "property"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "prefix",
+        "property"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "cursor",
+        "property"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "keys",
+        "property"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "list_complete",
+        "property"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "cursor",
+        "property"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "name",
+        "property"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "expiration",
+        "property"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "metadata",
+        "property"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "value",
+        "property"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "metadata",
+        "property"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "cacheStatus",
+        "property"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "send",
+        "method"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "sendBatch",
+        "method"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "contentType",
+        "property"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "delaySeconds",
+        "property"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "body",
+        "property"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "options",
+        "property"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "id",
+        "property"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "timestamp",
+        "property"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "body",
+        "property"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "attempts",
+        "property"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "retry",
+        "method"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "ack",
+        "method"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "delaySeconds",
+        "property"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "messages",
+        "property"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "queue",
+        "property"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "retryAll",
+        "method"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "ackAll",
+        "method"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "info",
+        "method"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "input",
+        "method"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "format",
+        "property"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "fileSize",
+        "property"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "width",
+        "property"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "height",
+        "property"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "transform",
+        "method"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "output",
+        "method"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "width",
+        "property"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "height",
+        "property"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "fit",
+        "property"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "rotate",
+        "property"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "format",
+        "property"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "quality",
+        "property"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "background",
+        "property"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "contentType",
+        "method"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "image",
+        "method"
+      ],
+      [
+        "types/worker-configuration.d.ts",
+        "response",
+        "method"
+      ]
+    ],
+    "native": []
+  },
+  "docstring": {
+    "source_key": "388860682b2bacc41f8ecca0bdd3587e9a91d7002528e1eb34c6f140473080d2",
+    "upstream": [
+      {
+        "id": "function:99cadd82fa586181309f6bde334ab060",
+        "kind": "function",
+        "name": "frobnicate",
+        "qualifiedName": "frobnicate",
+        "filePath": "logic.ts",
+        "language": "typescript",
+        "startLine": 2,
+        "endLine": 2,
+        "startColumn": 7,
+        "endColumn": 42,
+        "docstring": "with",
+        "signature": "()",
+        "visibility": null,
+        "isExported": true,
+        "isAsync": false,
+        "isStatic": false,
+        "isAbstract": false,
+        "updatedAt": 1792858535501
+      }
+    ],
+    "native": [
+      {
+        "id": "function:99cadd82fa586181309f6bde334ab060",
+        "kind": "function",
+        "name": "frobnicate",
+        "qualifiedName": "frobnicate",
+        "filePath": "logic.ts",
+        "language": "typescript",
+        "startLine": 2,
+        "endLine": 2,
+        "startColumn": 7,
+        "endColumn": 42,
+        "signature": "()",
+        "visibility": null,
+        "isExported": true,
+        "isAsync": false,
+        "isStatic": false,
+        "isAbstract": false,
+        "isDeclaration": false,
+        "updatedAt": 1792858522037
+      }
+    ]
+  }
+}

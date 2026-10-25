@@ -8,6 +8,7 @@ import { ExploreSemanticView, EXPLORE_CALLABLES, EXPLORE_TYPES } from './explore
 import { admitExploreGraph, type AdmissionAudit } from './explore-admission';
 import { ExploreSourceSnapshots } from './explore-source';
 import { resolveExploreTargets, supplementExploreTargets, type ExploreTargets } from './explore-targets';
+import { preserveExploreCallOrigin } from './explore-focus';
 
 export type ExploreSeedKind = 'qualified' | 'identifier' | 'owner-member' | 'co-named' | 'symbol-bag' | 'single-symbol' | 'path' | 'literal';
 interface SeedDecision {
@@ -220,7 +221,7 @@ export async function retrieveExploreContext(cg: CodeGraph, query: string, optio
         if (next.id === node.id) continue;
         if (isType && e.kind === 'contains' && endpointIds.has(e.source)
           && (!expandMembers || (selectedMembers && !selectedMembers.has(next.id)))) continue;
-        neighbors.push({ node: next, edge: { ...e,
+        neighbors.push({ node: next, edge: { ...(e.kind === 'calls' ? preserveExploreCallOrigin(e, cg.getNode(e.source)) : e),
           source: endpointIds.has(e.source) ? node.id : next.id,
           target: endpointIds.has(e.target) ? node.id : next.id } });
       }

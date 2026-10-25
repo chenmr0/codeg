@@ -5,6 +5,7 @@ import { isConfigLeafNode, validatePathWithinRoot } from '../utils';
 import { extractQueryPaths, queryMightContainPaths, type QueryPathExtraction } from '../search/query-paths';
 import { ExploreSemanticView, EXPLORE_CALLABLES, EXPLORE_TYPES } from './explore-semantic';
 import { ExploreSourceSnapshots } from './explore-source';
+import { preserveExploreCallOrigin } from './explore-focus';
 
 export interface ExploreTargets {
   pinnedFiles: string[];
@@ -218,7 +219,7 @@ export function supplementExploreTargets(
       const source = aliasToCanonical.get(edge.source), target = aliasToCanonical.get(edge.target);
       if (!source || !target || source === target) continue;
       const key = JSON.stringify([source, target, edge.kind, edge.line, edge.column]);
-      if (!edgeKeys.has(key)) { graph.edges.push({ ...edge, source, target }); edgeKeys.add(key); }
+      if (!edgeKeys.has(key)) { graph.edges.push({ ...(edge.kind === 'calls' ? preserveExploreCallOrigin(edge, cg.getNode(edge.source)) : edge), source, target }); edgeKeys.add(key); }
     }
   }
   return { baseNodes, addedNodes: graph.nodes.size - baseNodes, exactTargets: resolved.targets.exactNodeIds.size };

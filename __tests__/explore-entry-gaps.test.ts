@@ -59,6 +59,28 @@ const source = (path: string, content: string, nodes: Node[], priorities: Record
 });
 const render = (files: ExploreSourceFile[], maxOutputChars = 1800, maxCharsPerFile = 450, maxFiles = 12) =>
   renderExploreSources('', files, { maxOutputChars, maxCharsPerFile, maxFiles, lineNumbers: true, headerSymbols: 8 });
+/** Check the ledger against emitted code lines, independently of selection size. */
+function expectActualCoverage(out: string, path: string, name: string, start: number, end: number): number[] {
+  const section = out.split('#### ').find(part => part.startsWith(`${path} — `)) ?? '';
+  const shown = [...new Set([...section.matchAll(/^(\d+)\t/gm)].map(match => Number(match[1])))]
+    .filter(line => line >= start && line <= end).sort((a, b) => a - b);
+  const format = (values: number[]) => {
+    const spans: Array<{ start: number; end: number }> = [];
+    for (const value of values) {
+      const previous = spans.at(-1);
+      if (previous && previous.end + 1 === value) previous.end = value;
+      else spans.push({ start: value, end: value });
+    }
+    return spans.length ? spans.slice(0, 3).map(span => span.start === span.end
+      ? String(span.start) : `${span.start}-${span.end}`).join(',')
+      + (spans.length > 3 ? `,... (+${spans.length - 3} ranges)` : '') : 'none';
+  };
+  const missing = Array.from({ length: end - start + 1 }, (_, index) => start + index)
+    .filter(line => !shown.includes(line));
+  expect(out).toContain(`${path}:${start}-${end} ${name}; shown ${format(shown)}; missing ${format(missing)}`);
+  return shown;
+}
+
 describe('budgeted source gaps and entry-chain allocation', () => {
   it('keeps an affordable anchored mechanism before funding a large entry chain', () => {
     const mechanism = source('mechanism.ts', [body('initialize', 8), body('calculate', 8), body('check', 8)].join('\n'),
@@ -67,7 +89,8 @@ describe('budgeted source gaps and entry-chain allocation', () => {
       [n('dispatch', 'method', 1, 5), n('execute', 'method', 6, 55)], { dispatch: 1.25, execute: 1.5 });
     const out = render([task, mechanism], 2100, 1000);
     for (const name of ['initialize', 'calculate', 'check', 'dispatch']) expect(out).toContain(`END_${name}`);
-    expect(out).toContain('worker.ts:6-55 execute; shown none; missing 6-55');
+    const shown = expectActualCoverage(out, 'worker.ts', 'execute', 6, 55);
+    expect(shown.length).toBeGreaterThan(0); expect(shown.length).toBeLessThan(50);
     expect(out.length).toBeLessThanOrEqual(2100);
   });
   it('funds a large processing body ahead of small helpers while protecting a peer', () => {
@@ -89,17 +112,17 @@ describe('budgeted source gaps and entry-chain allocation', () => {
   });
   it('reports only the actual remaining lines of a partial body', () => {
     const out = render([source('large.ts', body('large', 100), [n('large', 'method', 1, 100)], { large: 0 })], 950, 450);
-    const shown = out.match(/Shown 1-(\d+);/)!;
-    expect(shown).not.toBeNull();
-    const end = Number(shown[1]);
-    expect(out).toContain(`shown 1-${end}; missing ${end + 1}-100`);
+    const shown = expectActualCoverage(out, 'large.ts', 'large', 1, 100);
+    expect(shown[0]).toBe(1); expect(shown.length).toBeGreaterThan(1); expect(shown.length).toBeLessThan(100);
     expect(out).not.toContain('END_large');
   });
   it('subtracts several emitted nested spans from an omitted enclosing callable', () => {
     const content = Array.from({ length: 40 }, (_, i) => `statement_${i};`).join('\n');
     const f = source('nested.ts', content, [n('outer', 'method', 1, 40), n('innerA', 'method', 5, 7), n('innerB', 'method', 20, 22)], { innerA: 0, innerB: 0, outer: 2 });
     const out = render([f], 650, 300);
-    expect(out).toContain('shown 5-7,20-22; missing 1-4,8-19,23-40');
+    const shown = expectActualCoverage(out, 'nested.ts', 'outer', 1, 40);
+    for (const line of [5, 6, 7, 20, 21, 22]) expect(shown).toContain(line);
+    expect(shown.length).toBeLessThan(40);
     expect(out.length).toBeLessThanOrEqual(650);
   });
   it('does not report a nested callable omitted when a complete parent covers it', () => {

@@ -1,0 +1,858 @@
+{
+  "community": {
+    "execute_ttl_delete": [
+      {
+        "id": "method:bc515b80dac801170c3df636672f8c4e",
+        "kind": "method",
+        "name": "execute_ttl_delete",
+        "qualified_name": "ObTableTTLDeleteTask::execute_ttl_delete",
+        "file_path": "src/observer/table/ttl/ob_table_ttl_task.cpp",
+        "start_line": 1075,
+        "end_line": 1209,
+        "is_declaration": null,
+        "outgoing": {
+          "calls": 66
+        },
+        "incoming": {
+          "calls": 1,
+          "contains": 1
+        }
+      }
+    ],
+    "process_one": [
+      {
+        "id": "method:1d93f4db8267807d8b781e117bf5d152",
+        "kind": "method",
+        "name": "process_one",
+        "qualified_name": "ObWorkerProcessor::process_one",
+        "file_path": "src/observer/omt/ob_worker_processor.cpp",
+        "start_line": 65,
+        "end_line": 92,
+        "is_declaration": null,
+        "outgoing": {
+          "calls": 19
+        },
+        "incoming": {
+          "calls": 1,
+          "contains": 1
+        }
+      },
+      {
+        "id": "method:b969a70c87010783c546c35932882584",
+        "kind": "method",
+        "name": "process_one",
+        "qualified_name": "ObTableTTLDeleteTask::process_one",
+        "file_path": "src/observer/table/ttl/ob_table_ttl_task.cpp",
+        "start_line": 289,
+        "end_line": 424,
+        "is_declaration": null,
+        "outgoing": {
+          "calls": 24,
+          "contains": 1,
+          "instantiates": 1
+        },
+        "incoming": {
+          "calls": 1,
+          "contains": 1
+        }
+      },
+      {
+        "id": "method:41b73b29c31df7f07825bacc9e038e5e",
+        "kind": "method",
+        "name": "process_one",
+        "qualified_name": "oceanbase::ObLobCheckTask::process_one",
+        "file_path": "src/share/lob/lob_consistency_check/ob_lob_check_task.cpp",
+        "start_line": 319,
+        "end_line": 355,
+        "is_declaration": null,
+        "outgoing": {
+          "calls": 19
+        },
+        "incoming": {
+          "calls": 1,
+          "contains": 1
+        }
+      },
+      {
+        "id": "method:747e864d6c33fafdbbb078593859e6f3",
+        "kind": "method",
+        "name": "process_one",
+        "qualified_name": "oceanbase::share::ObVectorIndexTask::process_one",
+        "file_path": "src/share/vector_index/ob_plugin_vector_index_scheduler.cpp",
+        "start_line": 1897,
+        "end_line": 1946,
+        "is_declaration": null,
+        "outgoing": {
+          "calls": 45,
+          "instantiates": 1
+        },
+        "incoming": {
+          "calls": 1,
+          "contains": 1
+        }
+      },
+      {
+        "id": "method:a6eb743a6b93f2caf40cdd9de07894d8",
+        "kind": "method",
+        "name": "process_one",
+        "qualified_name": "oceanbase::sql::dtl::ObDtlChannelLoop::process_one",
+        "file_path": "src/sql/dtl/ob_dtl_channel_loop.cpp",
+        "start_line": 306,
+        "end_line": 315,
+        "is_declaration": null,
+        "outgoing": {
+          "calls": 3
+        },
+        "incoming": {
+          "calls": 7,
+          "contains": 1
+        }
+      },
+      {
+        "id": "method:77cf1e9492c1aa23e0b910b92a2c8cf0",
+        "kind": "method",
+        "name": "process_one",
+        "qualified_name": "ObMockChannelLoop::process_one",
+        "file_path": "unittest/sql/engine/px/test_merge_sort_receive.cpp",
+        "start_line": 112,
+        "end_line": 120,
+        "is_declaration": null,
+        "outgoing": {
+          "calls": 1
+        },
+        "incoming": {
+          "contains": 2
+        }
+      }
+    ],
+    "wait_unblocking": [
+      {
+        "id": "method:226e5d0d11ba53f32d7c8326120b82eb",
+        "kind": "method",
+        "name": "wait_unblocking",
+        "qualified_name": "oceanbase::sql::ObDtlBasicChannel::wait_unblocking",
+        "file_path": "src/sql/dtl/ob_dtl_basic_channel.cpp",
+        "start_line": 801,
+        "end_line": 891,
+        "is_declaration": null,
+        "outgoing": {
+          "calls": 62
+        },
+        "incoming": {
+          "calls": 1,
+          "contains": 1
+        }
+      }
+    ],
+    "wait_unblocking_if_blocked": [
+      {
+        "id": "method:c4ff3535d2a8eb09ed7f10e488ee5b2f",
+        "kind": "method",
+        "name": "wait_unblocking_if_blocked",
+        "qualified_name": "oceanbase::sql::ObDtlBasicChannel::wait_unblocking_if_blocked",
+        "file_path": "src/sql/dtl/ob_dtl_basic_channel.cpp",
+        "start_line": 768,
+        "end_line": 799,
+        "is_declaration": null,
+        "outgoing": {
+          "calls": 22
+        },
+        "incoming": {
+          "calls": 2,
+          "contains": 1
+        }
+      }
+    ],
+    "ObTableTTLDeleteTask": [
+      {
+        "id": "method:6d78188f234f934e7e3a7f5e2e8e1e97",
+        "kind": "method",
+        "name": "ObTableTTLDeleteTask",
+        "qualified_name": "ObTableTTLDeleteTask::ObTableTTLDeleteTask",
+        "file_path": "src/observer/table/ttl/ob_table_ttl_task.cpp",
+        "start_line": 84,
+        "end_line": 103,
+        "is_declaration": null,
+        "outgoing": {},
+        "incoming": {
+          "contains": 1
+        }
+      },
+      {
+        "id": "class:91a6c84d82d1b476d78353671878f949",
+        "kind": "class",
+        "name": "ObTableTTLDeleteTask",
+        "qualified_name": "oceanbase::table::ObTableTTLDeleteTask",
+        "file_path": "src/observer/table/ttl/ob_table_ttl_task.h",
+        "start_line": 111,
+        "end_line": 190,
+        "is_declaration": null,
+        "outgoing": {
+          "contains": 6,
+          "extends": 2
+        },
+        "incoming": {
+          "contains": 1,
+          "extends": 1
+        }
+      }
+    ],
+    "ObTTLDeleteRateThrottler": [
+      {
+        "id": "method:a8af16bcb3e2235470e84860ba3c6260",
+        "kind": "method",
+        "name": "ObTTLDeleteRateThrottler",
+        "qualified_name": "oceanbase::common::ObTTLDeleteRateThrottler::ObTTLDeleteRateThrottler",
+        "file_path": "src/share/table/ob_ttl_util.cpp",
+        "start_line": 2579,
+        "end_line": 2588,
+        "is_declaration": null,
+        "outgoing": {},
+        "incoming": {
+          "contains": 1
+        }
+      },
+      {
+        "id": "class:5eebfdff38f9d982b9149ff7aa9f1b2a",
+        "kind": "class",
+        "name": "ObTTLDeleteRateThrottler",
+        "qualified_name": "oceanbase::ObTTLDeleteRateThrottler",
+        "file_path": "src/share/table/ob_ttl_util.h",
+        "start_line": 626,
+        "end_line": 695,
+        "is_declaration": null,
+        "outgoing": {
+          "contains": 2
+        },
+        "incoming": {
+          "contains": 1
+        }
+      }
+    ],
+    "ObDtlBasicChannel": [
+      {
+        "id": "method:d15db4c71f53a8fa219a9014e12bbdef",
+        "kind": "method",
+        "name": "ObDtlBasicChannel",
+        "qualified_name": "oceanbase::sql::dtl::ObDtlBasicChannel::ObDtlBasicChannel",
+        "file_path": "src/sql/dtl/ob_dtl_basic_channel.cpp",
+        "start_line": 144,
+        "end_line": 181,
+        "is_declaration": null,
+        "outgoing": {
+          "calls": 2
+        },
+        "incoming": {
+          "contains": 1,
+          "extends": 4
+        }
+      },
+      {
+        "id": "method:eece0acd5cb3c6a86faff96947ccb344",
+        "kind": "method",
+        "name": "ObDtlBasicChannel",
+        "qualified_name": "oceanbase::sql::dtl::ObDtlBasicChannel::ObDtlBasicChannel",
+        "file_path": "src/sql/dtl/ob_dtl_basic_channel.cpp",
+        "start_line": 183,
+        "end_line": 218,
+        "is_declaration": null,
+        "outgoing": {
+          "calls": 1
+        },
+        "incoming": {
+          "contains": 1
+        }
+      },
+      {
+        "id": "class:51fc5ec5b93b8d18a2e3ffa713ac67b3",
+        "kind": "class",
+        "name": "ObDtlBasicChannel",
+        "qualified_name": "oceanbase::sql::dtl::ObDtlBasicChannel",
+        "file_path": "src/sql/dtl/ob_dtl_basic_channel.h",
+        "start_line": 655,
+        "end_line": 821,
+        "is_declaration": null,
+        "outgoing": {
+          "contains": 26,
+          "extends": 7
+        },
+        "incoming": {
+          "contains": 1
+        }
+      }
+    ]
+  },
+  "candidate": {
+    "execute_ttl_delete": [
+      {
+        "id": "method:e1c91612fc2b3de5ed670a1faa1259e0",
+        "kind": "method",
+        "name": "execute_ttl_delete",
+        "qualified_name": "ObTableTTLDeleteTask::execute_ttl_delete",
+        "file_path": "src/observer/table/ttl/ob_table_ttl_task.cpp",
+        "start_line": 1075,
+        "end_line": 1209,
+        "is_declaration": 0,
+        "outgoing": {
+          "calls": 92,
+          "defines": 1,
+          "references": 23
+        },
+        "incoming": {
+          "calls": 1,
+          "contains": 1
+        }
+      },
+      {
+        "id": "method:c6b5393a10bd8d6fa033cdec0d75db90",
+        "kind": "method",
+        "name": "execute_ttl_delete",
+        "qualified_name": "oceanbase::table::ObTableTTLDeleteTask::execute_ttl_delete",
+        "file_path": "src/observer/table/ttl/ob_table_ttl_task.h",
+        "start_line": 131,
+        "end_line": 135,
+        "is_declaration": 1,
+        "outgoing": {},
+        "incoming": {
+          "contains": 1,
+          "defines": 1
+        }
+      }
+    ],
+    "process_one": [
+      {
+        "id": "method:075aa7bee8a0c014f68a2a90549a40db",
+        "kind": "method",
+        "name": "process_one",
+        "qualified_name": "ObWorkerProcessor::process_one",
+        "file_path": "src/observer/omt/ob_worker_processor.cpp",
+        "start_line": 65,
+        "end_line": 92,
+        "is_declaration": 0,
+        "outgoing": {
+          "calls": 25,
+          "defines": 1,
+          "references": 4
+        },
+        "incoming": {
+          "calls": 1,
+          "contains": 1
+        }
+      },
+      {
+        "id": "method:a14f58f7e1eedf6b22ee054545390d2b",
+        "kind": "method",
+        "name": "process_one",
+        "qualified_name": "oceanbase::omt::ObWorkerProcessor::process_one",
+        "file_path": "src/observer/omt/ob_worker_processor.h",
+        "start_line": 41,
+        "end_line": 41,
+        "is_declaration": 1,
+        "outgoing": {},
+        "incoming": {
+          "contains": 1,
+          "defines": 1
+        }
+      },
+      {
+        "id": "method:3d0aa417eeb8f829add2ed242759de0b",
+        "kind": "method",
+        "name": "process_one",
+        "qualified_name": "ObTableTTLDeleteTask::process_one",
+        "file_path": "src/observer/table/ttl/ob_table_ttl_task.cpp",
+        "start_line": 289,
+        "end_line": 424,
+        "is_declaration": 0,
+        "outgoing": {
+          "calls": 110,
+          "defines": 1,
+          "references": 28
+        },
+        "incoming": {
+          "calls": 1,
+          "contains": 1
+        }
+      },
+      {
+        "id": "method:4a31bc4a24eb29510040dd05e18fbb58",
+        "kind": "method",
+        "name": "process_one",
+        "qualified_name": "oceanbase::table::ObTableTTLDeleteTask::process_one",
+        "file_path": "src/observer/table/ttl/ob_table_ttl_task.h",
+        "start_line": 168,
+        "end_line": 168,
+        "is_declaration": 1,
+        "outgoing": {},
+        "incoming": {
+          "contains": 1,
+          "defines": 1
+        }
+      },
+      {
+        "id": "method:2230f44c58f1cfafa2696e6ad045bc03",
+        "kind": "method",
+        "name": "process_one",
+        "qualified_name": "oceanbase::share::ObLobCheckTask::process_one",
+        "file_path": "src/share/lob/lob_consistency_check/ob_lob_check_task.cpp",
+        "start_line": 319,
+        "end_line": 355,
+        "is_declaration": 0,
+        "outgoing": {
+          "calls": 24,
+          "defines": 1,
+          "references": 24
+        },
+        "incoming": {
+          "calls": 1,
+          "contains": 1
+        }
+      },
+      {
+        "id": "method:4021bcc844adf4c12eeffdfa88d28966",
+        "kind": "method",
+        "name": "process_one",
+        "qualified_name": "oceanbase::share::ObLobCheckTask::process_one",
+        "file_path": "src/share/lob/lob_consistency_check/ob_lob_check_task.h",
+        "start_line": 137,
+        "end_line": 137,
+        "is_declaration": 1,
+        "outgoing": {},
+        "incoming": {
+          "contains": 1,
+          "defines": 1
+        }
+      },
+      {
+        "id": "method:5e61b5da8874d6f05133aae392d15670",
+        "kind": "method",
+        "name": "process_one",
+        "qualified_name": "oceanbase::share::ObVectorIndexTask::process_one",
+        "file_path": "src/share/vector_index/ob_plugin_vector_index_scheduler.cpp",
+        "start_line": 1897,
+        "end_line": 1946,
+        "is_declaration": 0,
+        "outgoing": {
+          "calls": 61,
+          "defines": 1,
+          "references": 30
+        },
+        "incoming": {
+          "calls": 1,
+          "contains": 1
+        }
+      },
+      {
+        "id": "method:6b9ed044b18d85d71e7ac3bd6512b138",
+        "kind": "method",
+        "name": "process_one",
+        "qualified_name": "oceanbase::share::ObVectorIndexTask::process_one",
+        "file_path": "src/share/vector_index/ob_plugin_vector_index_scheduler.h",
+        "start_line": 417,
+        "end_line": 417,
+        "is_declaration": 1,
+        "outgoing": {},
+        "incoming": {
+          "contains": 1,
+          "defines": 1
+        }
+      },
+      {
+        "id": "method:08fc4137b38644740c324c48a12423a3",
+        "kind": "method",
+        "name": "process_one",
+        "qualified_name": "oceanbase::sql::dtl::ObDtlChannelLoop::process_one",
+        "file_path": "src/sql/dtl/ob_dtl_channel_loop.cpp",
+        "start_line": 306,
+        "end_line": 315,
+        "is_declaration": 0,
+        "outgoing": {
+          "calls": 4,
+          "defines": 1,
+          "references": 4
+        },
+        "incoming": {
+          "calls": 5,
+          "contains": 1
+        }
+      },
+      {
+        "id": "method:2eb14be81f2cecebb35a893c6a9c14c3",
+        "kind": "method",
+        "name": "process_one",
+        "qualified_name": "oceanbase::sql::dtl::ObDtlChannelLoop::process_one",
+        "file_path": "src/sql/dtl/ob_dtl_channel_loop.h",
+        "start_line": 65,
+        "end_line": 65,
+        "is_declaration": 1,
+        "outgoing": {
+          "calls": 2
+        },
+        "incoming": {
+          "contains": 1,
+          "defines": 1
+        }
+      },
+      {
+        "id": "method:b400817d99e3469f86fa750c5d8e026f",
+        "kind": "method",
+        "name": "process_one",
+        "qualified_name": "ObMockChannelLoop::process_one",
+        "file_path": "unittest/sql/engine/px/test_merge_sort_receive.cpp",
+        "start_line": 77,
+        "end_line": 77,
+        "is_declaration": 1,
+        "outgoing": {},
+        "incoming": {
+          "calls": 1,
+          "contains": 1,
+          "defines": 1
+        }
+      },
+      {
+        "id": "method:c03d22911fc3a76ba9ca90f3771b43d2",
+        "kind": "method",
+        "name": "process_one",
+        "qualified_name": "ObMockChannelLoop::process_one",
+        "file_path": "unittest/sql/engine/px/test_merge_sort_receive.cpp",
+        "start_line": 112,
+        "end_line": 120,
+        "is_declaration": 0,
+        "outgoing": {
+          "calls": 1,
+          "defines": 1,
+          "references": 7
+        },
+        "incoming": {
+          "calls": 1,
+          "contains": 2
+        }
+      }
+    ],
+    "wait_unblocking": [
+      {
+        "id": "method:25f14a2a5ee1024ff02d032ed625a78d",
+        "kind": "method",
+        "name": "wait_unblocking",
+        "qualified_name": "oceanbase::sql::dtl::ObDtlBasicChannel::wait_unblocking",
+        "file_path": "src/sql/dtl/ob_dtl_basic_channel.cpp",
+        "start_line": 801,
+        "end_line": 891,
+        "is_declaration": 0,
+        "outgoing": {
+          "calls": 85,
+          "defines": 1,
+          "references": 53
+        },
+        "incoming": {
+          "calls": 1,
+          "contains": 1
+        }
+      },
+      {
+        "id": "method:44947809c8bfecc71bb5a98eb28d0014",
+        "kind": "method",
+        "name": "wait_unblocking",
+        "qualified_name": "oceanbase::sql::dtl::ObDtlBasicChannel::wait_unblocking",
+        "file_path": "src/sql/dtl/ob_dtl_basic_channel.h",
+        "start_line": 750,
+        "end_line": 750,
+        "is_declaration": 1,
+        "outgoing": {},
+        "incoming": {
+          "contains": 1,
+          "defines": 1
+        }
+      }
+    ],
+    "wait_unblocking_if_blocked": [
+      {
+        "id": "method:06a321f2e450bc7ed6ef9b92fc86158e",
+        "kind": "method",
+        "name": "wait_unblocking_if_blocked",
+        "qualified_name": "oceanbase::sql::dtl::ObDtlBasicChannel::wait_unblocking_if_blocked",
+        "file_path": "src/sql/dtl/ob_dtl_basic_channel.cpp",
+        "start_line": 768,
+        "end_line": 799,
+        "is_declaration": 0,
+        "outgoing": {
+          "calls": 30,
+          "defines": 1,
+          "references": 16
+        },
+        "incoming": {
+          "calls": 2,
+          "contains": 1
+        }
+      },
+      {
+        "id": "method:1dbe4030218aa605584f649611f7c156",
+        "kind": "method",
+        "name": "wait_unblocking_if_blocked",
+        "qualified_name": "oceanbase::sql::dtl::ObDtlBasicChannel::wait_unblocking_if_blocked",
+        "file_path": "src/sql/dtl/ob_dtl_basic_channel.h",
+        "start_line": 703,
+        "end_line": 703,
+        "is_declaration": 1,
+        "outgoing": {},
+        "incoming": {
+          "contains": 1,
+          "defines": 1
+        }
+      }
+    ],
+    "ObTableTTLDeleteTask": [
+      {
+        "id": "method:e85624d989623a98a82306adf2dec500",
+        "kind": "method",
+        "name": "ObTableTTLDeleteTask",
+        "qualified_name": "ObTableTTLDeleteTask::ObTableTTLDeleteTask",
+        "file_path": "src/observer/table/ttl/ob_table_ttl_task.cpp",
+        "start_line": 84,
+        "end_line": 103,
+        "is_declaration": 0,
+        "outgoing": {
+          "calls": 1,
+          "defines": 1
+        },
+        "incoming": {
+          "contains": 1
+        }
+      },
+      {
+        "id": "class:2c18c7426bcde8b3b4b739cd46317310",
+        "kind": "class",
+        "name": "ObTableTTLDeleteTask",
+        "qualified_name": "oceanbase::table::ObTableTTLDeleteTask",
+        "file_path": "src/observer/table/ttl/ob_table_ttl_task.h",
+        "start_line": 111,
+        "end_line": 190,
+        "is_declaration": 0,
+        "outgoing": {
+          "contains": 49,
+          "extends": 1
+        },
+        "incoming": {
+          "contains": 1,
+          "extends": 1
+        }
+      },
+      {
+        "id": "method:6b040c3c326d08adaacc8c229bbf9847",
+        "kind": "method",
+        "name": "ObTableTTLDeleteTask",
+        "qualified_name": "oceanbase::table::ObTableTTLDeleteTask::ObTableTTLDeleteTask",
+        "file_path": "src/observer/table/ttl/ob_table_ttl_task.h",
+        "start_line": 114,
+        "end_line": 114,
+        "is_declaration": 1,
+        "outgoing": {},
+        "incoming": {
+          "contains": 1,
+          "defines": 1
+        }
+      },
+      {
+        "id": "method:3fb9075b24892df835efacff6334000a",
+        "kind": "method",
+        "name": "ObTableTTLDeleteTask",
+        "qualified_name": "oceanbase::table::ObTableTTLDeleteTask::ObTableTTLDeleteTask",
+        "file_path": "src/observer/table/ttl/ob_table_ttl_task.h",
+        "start_line": 189,
+        "end_line": 189,
+        "is_declaration": 1,
+        "outgoing": {},
+        "incoming": {
+          "contains": 1
+        }
+      },
+      {
+        "id": "class:2af0ebf48f089498c143a1aa61127e06",
+        "kind": "class",
+        "name": "ObTableTTLDeleteTask",
+        "qualified_name": "oceanbase::table::ObTableTTLDeleteTask",
+        "file_path": "src/observer/table/ttl/ob_tenant_tablet_ttl_mgr.h",
+        "start_line": 81,
+        "end_line": 81,
+        "is_declaration": 1,
+        "outgoing": {},
+        "incoming": {
+          "contains": 1
+        }
+      }
+    ],
+    "ObTTLDeleteRateThrottler": [
+      {
+        "id": "method:6d57a34f93db9598fd7f6e3e539aa052",
+        "kind": "method",
+        "name": "ObTTLDeleteRateThrottler",
+        "qualified_name": "oceanbase::common::ObTTLDeleteRateThrottler::ObTTLDeleteRateThrottler",
+        "file_path": "src/share/table/ob_ttl_util.cpp",
+        "start_line": 2579,
+        "end_line": 2588,
+        "is_declaration": 0,
+        "outgoing": {},
+        "incoming": {
+          "contains": 1
+        }
+      },
+      {
+        "id": "class:6722c96ff086e6607e6262cae8e14c12",
+        "kind": "class",
+        "name": "ObTTLDeleteRateThrottler",
+        "qualified_name": "oceanbase::ObTTLDeleteRateThrottler",
+        "file_path": "src/share/table/ob_ttl_util.h",
+        "start_line": 626,
+        "end_line": 695,
+        "is_declaration": 0,
+        "outgoing": {
+          "contains": 22
+        },
+        "incoming": {
+          "contains": 1
+        }
+      },
+      {
+        "id": "method:0e878a4c8f2aa6f6b8f02db92d13e15c",
+        "kind": "method",
+        "name": "ObTTLDeleteRateThrottler",
+        "qualified_name": "oceanbase::ObTTLDeleteRateThrottler::ObTTLDeleteRateThrottler",
+        "file_path": "src/share/table/ob_ttl_util.h",
+        "start_line": 665,
+        "end_line": 665,
+        "is_declaration": 1,
+        "outgoing": {},
+        "incoming": {
+          "contains": 1
+        }
+      }
+    ],
+    "ObDtlBasicChannel": [
+      {
+        "id": "method:590920502d65f280eae7d1ea68240d39",
+        "kind": "method",
+        "name": "ObDtlBasicChannel",
+        "qualified_name": "oceanbase::sql::dtl::ObDtlBasicChannel::ObDtlBasicChannel",
+        "file_path": "src/sql/dtl/ob_dtl_basic_channel.cpp",
+        "start_line": 144,
+        "end_line": 181,
+        "is_declaration": 0,
+        "outgoing": {
+          "calls": 2,
+          "defines": 1,
+          "references": 4
+        },
+        "incoming": {
+          "contains": 1
+        }
+      },
+      {
+        "id": "method:d95e542e41faa30ee61f123ee8c97c18",
+        "kind": "method",
+        "name": "ObDtlBasicChannel",
+        "qualified_name": "oceanbase::sql::dtl::ObDtlBasicChannel::ObDtlBasicChannel",
+        "file_path": "src/sql/dtl/ob_dtl_basic_channel.cpp",
+        "start_line": 183,
+        "end_line": 218,
+        "is_declaration": 0,
+        "outgoing": {
+          "calls": 1,
+          "defines": 1,
+          "references": 3
+        },
+        "incoming": {
+          "contains": 1
+        }
+      },
+      {
+        "id": "class:ac91a239d6273e116c08f9a9187c3d5b",
+        "kind": "class",
+        "name": "ObDtlBasicChannel",
+        "qualified_name": "oceanbase::sql::dtl::ObDtlBasicChannel",
+        "file_path": "src/sql/dtl/ob_dtl_basic_channel.h",
+        "start_line": 655,
+        "end_line": 821,
+        "is_declaration": 0,
+        "outgoing": {
+          "contains": 104,
+          "extends": 1
+        },
+        "incoming": {
+          "contains": 1,
+          "extends": 2
+        }
+      },
+      {
+        "id": "method:188ffd4664a101c26f6d3b3c43e4f5d0",
+        "kind": "method",
+        "name": "ObDtlBasicChannel",
+        "qualified_name": "oceanbase::sql::dtl::ObDtlBasicChannel::ObDtlBasicChannel",
+        "file_path": "src/sql/dtl/ob_dtl_basic_channel.h",
+        "start_line": 660,
+        "end_line": 661,
+        "is_declaration": 1,
+        "outgoing": {},
+        "incoming": {
+          "contains": 1,
+          "defines": 1
+        }
+      },
+      {
+        "id": "method:3db9312168aca4e35973a2481b49ce51",
+        "kind": "method",
+        "name": "ObDtlBasicChannel",
+        "qualified_name": "oceanbase::sql::dtl::ObDtlBasicChannel::ObDtlBasicChannel",
+        "file_path": "src/sql/dtl/ob_dtl_basic_channel.h",
+        "start_line": 662,
+        "end_line": 663,
+        "is_declaration": 1,
+        "outgoing": {},
+        "incoming": {
+          "contains": 1,
+          "defines": 1
+        }
+      },
+      {
+        "id": "class:8240fc4e3f09525bf83c546beaff353a",
+        "kind": "class",
+        "name": "ObDtlBasicChannel",
+        "qualified_name": "oceanbase::sql::dtl::ObDtlBasicChannel",
+        "file_path": "src/sql/dtl/ob_dtl_buf_allocator.h",
+        "start_line": 25,
+        "end_line": 25,
+        "is_declaration": 1,
+        "outgoing": {},
+        "incoming": {
+          "contains": 1
+        }
+      },
+      {
+        "id": "class:8c6a7ff5786c5c683b83e19b9083ad52",
+        "kind": "class",
+        "name": "ObDtlBasicChannel",
+        "qualified_name": "oceanbase::sql::dtl::ObDtlBasicChannel",
+        "file_path": "src/sql/dtl/ob_dtl_flow_control.h",
+        "start_line": 38,
+        "end_line": 38,
+        "is_declaration": 1,
+        "outgoing": {},
+        "incoming": {
+          "contains": 1
+        }
+      },
+      {
+        "id": "class:e84b7c1bc801427ef5a420b7ef3f6368",
+        "kind": "class",
+        "name": "ObDtlBasicChannel",
+        "qualified_name": "oceanbase::sql::dtl::ObDtlBasicChannel",
+        "file_path": "src/sql/dtl/ob_dtl_task.h",
+        "start_line": 27,
+        "end_line": 27,
+        "is_declaration": 1,
+        "outgoing": {},
+        "incoming": {
+          "contains": 1
+        }
+      }
+    ]
+  }
+}

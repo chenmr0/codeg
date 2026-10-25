@@ -1,0 +1,72 @@
+复现说明（只做工具级回归）
+
+候选：D:\python_code\codegraph\artifacts\codegraph-explore-upstream-parity-20261024\candidate
+官方固定包：D:\python_code\codegraph\artifacts\community-v1.6.2-p0-20261022\community
+基准提交：6560052a6f856855d3f71eee838fd66ccfa4285d
+本机运行时：Node v24.11.1。候选沿用原生 package.json 依赖，生产代码不引用官方目录。
+官方目录仅用于差分测试的 oracle、临时项目索引和非 Explore 的 UI/数据库测试支架。
+
+当前记录已冻结。复跑应使用新的候选/输出目录和新的日志名，不覆盖现有文件。
+run_phase.py 和结果脚本采用排他写入；若文件已存在，会拒绝写入。
+
+构建：
+  在 candidate 目录执行 npm run build。
+  最终成功记录：logs/build-release.json。
+
+完整官方回归（633 条）：
+  PowerShell 设置
+    $env:CODEGRAPH_UPSTREAM_ORACLE='D:/python_code/codegraph/artifacts/community-v1.6.2-p0-20261022/community/dist/index.js'
+  在候选目录运行
+    node D:/python_code/codegraph/node_modules/vitest/vitest.mjs run --config vitest.upstream.config.ts
+  这一路仍使用官方索引，但 QueryBuilder、分段匹配、ContextBuilder、遍历和 Explore handler 都是候选中的移植实现。
+  42 个原始测试文件的断言保留；导入路由、原生 session 参数形式以及可选证据采集在测试支架中适配。
+  最终日志：logs/full-pipeline-oracle-01-results.json。
+  测试支架导入别名的独立复核：logs/oracle-config-smoke.json。
+
+原生索引端到端 Explore 回归：
+  去掉 CODEGRAPH_UPSTREAM_ORACLE 后运行
+    node D:/python_code/codegraph/node_modules/vitest/vitest.mjs run --config vitest.upstream.config.ts --exclude '**/dependency-*'
+  已知结果是 379 通过、10 失败，不能将返回码 1 包装成全绿。
+  失败原因和原断言见 reports/native-open-differences.json。
+
+原生保留性与兼容层：
+  logs/native-preservation-01-results.json：原有 290 条通过。
+  logs/adapter-integration-01-results.json：新 4 条 + 工具暴露 8 条通过。
+  logs/native-query-api-02.json：抽取公共查询 API 后新 4 条再次通过。
+  不重复累计复跑数量。
+
+四个问题夹具：
+  budget-fixture-release.cjs candidate <新的标签>
+  budget-fixture-release.cjs shared <同一个新的标签>
+  budget-fixture.cjs community <同一个新的标签>
+  每个标签创建独立临时源项目和结果目录；源码、query、maxFiles、预算不改变。
+  最终本轮原生/共享图记录在 fixture-results-release，官方记录在 fixture-results-parity-01。
+  comparison-final.json 已核验四项全文一致。
+
+OceanBase：
+  inputs/community/oceanbase 与 inputs/candidate/oceanbase 是冻结源码和数据库快照。
+  源码硬链接只读使用；数据库通过 SQLite backup 单独创建，非硬链接。
+  两库均只读打开，未运行 sync 或重新索引。
+  scripts/replay-oceanbase.cjs 负责初始四路拆分，scripts/replay-oceanbase-release.cjs 负责完整查询链路和最终候选复核。
+  这两个脚本默认写固定目录，复跑必须先使用新的 stage/输出目录；不要修改或清空当前 differential/oceanbase-*。
+  最终比较：comparison-final.json。按字符 SHA-256 逐字比较，不能只比总行数。
+
+逐行覆盖与数据来源：
+  scripts/analyze-results.py 的结果读取完整正文，核对文件、行号及源码内容；只规范化 CRLF 的 CR。
+  comparison-final.json 含全量显示行和换行规范化计数；reports/COVERAGE_DETAILS.txt 是可读版本。
+  历史源码文件清单逐一校验结果见 integrity-final.json。
+  历史数据库不是本轮 v1.6.2 重建，因此两套数据库之间只报告“历史索引差异”，不冒称是当前提取器效果对决。
+
+反事实：
+  differential/cg21-counterfactual.json：固定官方算法，仅替换临时图中的 docstring / kind。
+  differential/index-difference-evidence.json：Go/RTK 边端点、TS 成员与 docstring 的差异。
+  differential/oceanbase-index-evidence.json：OceanBase 声明、定义、范围与关系数。
+  所有反事实都在新临时夹具中，未修改产品索引或产品代码。
+
+完整性：
+  freeze.json / protected-before.json：旧候选、主工作区和旧日志的冻结清单。
+  integrity-final.json：12,737 个保护文件、两套各 16,317 源文件、Git HEAD/暂存索引与归档的核验。
+  candidate-final-hashes.json：最终候选 1,680 个构建/源码/测试文件指纹。
+  source-parity-audit.json：原样上游模块、类成员与原生核心代码保留性。
+  candidate.patch：源码/测试接入层差异；二进制语法资源与夹具以候选目录和哈希清单为准。
+  最早的 port-upstream.cjs 是迁移过程脚本，之后还有接入修订；不要单独重跑它并误以为能重建最终候选。

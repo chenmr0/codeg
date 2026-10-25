@@ -1,3 +1,4 @@
+import { ExploreSessionState } from '../upstream-explore/mcp/explore-session-state';
 /**
  * MCP per-connection session — speaks the JSON-RPC protocol (initialize,
  * tools/list, tools/call) over a single {@link JsonRpcTransport}. It owns
@@ -80,6 +81,10 @@ export interface MCPSessionOptions {
  * (direct mode) or per socket connection (daemon mode).
  */
 export class MCPSession {
+  private readonly exploreSession = new ExploreSessionState();
+
+  /** Per-client Explore state; never shared across daemon connections. */
+  getExploreSessionState(): ExploreSessionState { return this.exploreSession; }
   private clientSupportsRoots = false;
   private rootsAttempted = false;
   private resolvePromise: Promise<void> | null = null;
@@ -238,6 +243,7 @@ export class MCPSession {
       await this.retryInitIfNeeded();
       const result = await this.engine.getToolHandler().execute(toolName, toolArgs, {
         signal: controller.signal,
+        exploreSession: this.exploreSession,
       });
       if (controller.signal.aborted) {
         this.transport.sendError(request.id, -32800, 'Request cancelled');

@@ -1,5 +1,7 @@
-import { renderExploreSources, type ExploreSourceFile } from './explore-selection';
-import { findEntryProcessingNodes } from './explore-entry-chain';
+import { getExploreBudget } from '../upstream-explore/mcp/budget-policy';
+export { getExploreBudget, getExploreOutputBudget } from '../upstream-explore/mcp/budget-policy';
+export type { ExploreOutputBudget } from '../upstream-explore/mcp/budget-policy';
+import type { ExploreSessionState } from '../upstream-explore/mcp/explore-session-state';
 /**
  * MCP Tool Definitions
  *
@@ -7,8 +9,6 @@ import { findEntryProcessingNodes } from './explore-entry-chain';
  */
 
 import type CodeGraph from '../index';
-import { capExploreResponse } from './explore-response';
-import { retrieveExploreContext } from './explore-retrieval';
 import type { IndexDataReadiness } from '../index';
 import { AsyncLocalStorage } from 'async_hooks';
 import { findNearestCodeGraphRoot } from '../directory';
@@ -33,7 +33,6 @@ import {
   comparePathSimilarityScores,
   isDistinctiveIdentifier,
   isNaturalLanguageQuery,
-  isTestFile,
   normalizePathForComparison,
   pathContainsHint,
   scorePathSimilarity,
@@ -42,7 +41,7 @@ import {
   existsSync,
   readFileSync,
 } from 'fs';
-import { clamp, validatePathWithinRoot, validateProjectPath, isConfigLeafNode, CONFIG_LEAF_LANGUAGES, canonicalFilePath } from '../utils';
+import { clamp, validatePathWithinRoot, validateProjectPath, CONFIG_LEAF_LANGUAGES, canonicalFilePath } from '../utils';
 import { isGeneratedFile } from '../extraction/generated-detection';
 import {
   cppCallableOwnersMatch,
@@ -159,200 +158,6 @@ const MAX_INPUT_LENGTH = 10_000;
  * never legitimate and signal abuse or a bug upstream.
  */
 const MAX_PATH_LENGTH = 4_096;
-
-/**
- * Calculate the recommended number of codegraph_explore calls based on project size.
- * Larger codebases need more exploration calls to cover their surface area,
- * but smaller ones should use fewer to avoid unnecessary overhead.
- */
-export function getExploreBudget(fileCount: number): number {
-  if (fileCount < 500) return 1;
-  if (fileCount < 5000) return 2;
-  if (fileCount < 15000) return 3;
-  if (fileCount < 25000) return 4;
-  return 5;
-}
-
-/**
- * Adaptive output budget for `codegraph_explore`, scaled to project size.
- *
- * Smaller codebases get a tighter total cap, fewer default files, smaller
- * per-file cap, and tighter clustering — so a focused query on a 100-file
- * project doesn't dump a whole file's worth of source into the agent's
- * context. Larger codebases keep the generous defaults because the
- * agent's native discovery cost (grep + find + many Reads) genuinely
- * dwarfs a fat explore call at that scale.
- *
- * Meta-text (relationships map, "additional relevant files" list,
- * completeness signal, budget note) is gated off for tiny projects
- * where one rich call is the whole story and the extra prose is just
- * overhead.
- *
- * Tier breakpoints mirror `getExploreBudget` so a project sits in the
- * same tier across both knobs.
- */
-export interface ExploreOutputBudget {
-  /** Hard cap on total output characters. */
-  maxOutputChars: number;
-  /** Default `maxFiles` when the caller didn't specify one. */
-  defaultMaxFiles: number;
-  /** Cap on contiguous source returned per file (across all its clusters). */
-  maxCharsPerFile: number;
-  /** Cluster gap threshold in lines — tighter clustering on small projects. */
-  gapThreshold: number;
-  /** Max symbols listed in the per-file header (`#### path — sym(kind), ...`). */
-  maxSymbolsInFileHeader: number;
-  /** Max edges shown per relationship kind in the Relationships section. */
-  maxEdgesPerRelationshipKind: number;
-  /** Include the "Relationships" section. */
-  includeRelationships: boolean;
-  /** Include the "Additional relevant files (not shown)" trailing list. */
-  includeAdditionalFiles: boolean;
-  /** Include the "Complete source code is included above…" reminder. */
-  includeCompletenessSignal: boolean;
-  /** Include the explore-budget reminder at the end. */
-  includeBudgetNote: boolean;
-  /**
-   * Hard-drop test/spec/icon/i18n files from the relevant-file set unless
-   * the query itself mentions tests. Today they're only deprioritized in
-   * the sort, which on tiny repos still lets one slip into the top N (e.g.
-   * cobra's `command_test.go` displaced `args.go` and contributed ~10KB of
-   * pure noise to "How does cobra parse commands?"). Off by default; on
-   * for the very-tiny tier where one slip dominates the budget.
-   */
-  excludeLowValueFiles: boolean;
-}
-
-export function getExploreOutputBudget(fileCount: number): ExploreOutputBudget {
-  // Tiered budget, scaled to project size. The budget is a CEILING (relevance
-  // still gates WHAT is included), and it MUST stay under the agent's INLINE
-  // tool-result cap (~25K chars). Above that, the host externalizes the result
-  // to a file the agent then Reads back — re-introducing a read AND the
-  // cache-write cost — which is exactly what a 35K vscode explore did in the
-  // n=4 README A/B. So even large repos cap at ~24K: the answer is the handful
-  // of ~100-line flow windows the agent would have grep-located and read (it
-  // natively reads ~6–9 files, median 100-line ranges), NOT a sprawl of 12
-  // files. Concentration onto the flow emerges from this cap + the named-file-
-  // first sort dropping peripheral files. Invariant: a larger tier must never
-  // get a smaller `maxCharsPerFile` than a smaller tier.
-  if (fileCount < 150) {
-    return {
-      // ITER3: revert iter2's aggressive body shrink (forced Read fallback —
-      // the per-file 2.5K cap pushed the agent to Read instead of node).
-      // Back to the iter1 shape (13K/4/3.8K) but keep the test-file
-      // hard-exclude. The cost lever for this tier lives in steering the
-      // agent to stop after 1-2 calls, not in this budget.
-      maxOutputChars: 13000,
-      defaultMaxFiles: 4,
-      maxCharsPerFile: 3800,
-      gapThreshold: 7,
-      maxSymbolsInFileHeader: 5,
-      maxEdgesPerRelationshipKind: 4,
-      includeRelationships: false,
-      includeAdditionalFiles: false,
-      includeCompletenessSignal: false,
-      includeBudgetNote: false,
-      excludeLowValueFiles: true,
-    };
-  }
-  if (fileCount < 500) {
-    return {
-      // ITER3: same revert/keep-filter pattern as <150.
-      maxOutputChars: 18000,
-      defaultMaxFiles: 5,
-      maxCharsPerFile: 3800,
-      gapThreshold: 8,
-      maxSymbolsInFileHeader: 6,
-      maxEdgesPerRelationshipKind: 6,
-      includeRelationships: false,
-      includeAdditionalFiles: false,
-      includeCompletenessSignal: false,
-      includeBudgetNote: false,
-      excludeLowValueFiles: true,
-    };
-  }
-  if (fileCount < 5000) {
-    return {
-      // ~150-line per-file window (the native read unit) × ~6 files, capped at
-      // the ~24K inline ceiling so the response is never externalized. Per-file
-      // stays ≥ the <500 tier (3800) — monotonic.
-      maxOutputChars: 24000,
-      defaultMaxFiles: 8,
-      maxCharsPerFile: 6500,
-      gapThreshold: 12,
-      maxSymbolsInFileHeader: 10,
-      maxEdgesPerRelationshipKind: 10,
-      includeRelationships: true,
-      includeAdditionalFiles: true,
-      includeCompletenessSignal: true,
-      includeBudgetNote: true,
-      excludeLowValueFiles: false,
-    };
-  }
-  // Large + very-large repos: SAME ~24K inline ceiling (a bigger response just
-  // externalizes — see vscode). More files indexed → more CALLS via
-  // getExploreBudget, not a bigger single response. Per-file 7000 (≥ smaller
-  // tiers) gives the central file a ~180-line orientation window.
-  if (fileCount < 15000) {
-    return {
-      maxOutputChars: 24000,
-      defaultMaxFiles: 8,
-      maxCharsPerFile: 7000,
-      gapThreshold: 15,
-      maxSymbolsInFileHeader: 15,
-      maxEdgesPerRelationshipKind: 15,
-      includeRelationships: true,
-      includeAdditionalFiles: true,
-      includeCompletenessSignal: true,
-      includeBudgetNote: true,
-      excludeLowValueFiles: false,
-    };
-  }
-  return {
-    maxOutputChars: 24000,
-    defaultMaxFiles: 8,
-    maxCharsPerFile: 7000,
-    gapThreshold: 15,
-    maxSymbolsInFileHeader: 15,
-    maxEdgesPerRelationshipKind: 15,
-    includeRelationships: true,
-    includeAdditionalFiles: true,
-    includeCompletenessSignal: true,
-    includeBudgetNote: true,
-    excludeLowValueFiles: false,
-  };
-}
-
-/**
- * Whether `codegraph_explore` should prefix source lines with their line
- * numbers (cat -n style: `<num>\t<code>`).
- *
- * Line numbers let the agent cite `file:line` straight from the explore
- * payload instead of re-Reading the file just to find a line number — the
- * dominant residual cost on precise-tracing questions (#185 follow-up).
- *
- * Defaults ON. Set `CODEGRAPH_EXPLORE_LINENUMS=0` to disable (used by the
- * A/B harness to measure the payload-cost vs. read-savings tradeoff).
- */
-function exploreLineNumbersEnabled(): boolean {
-  return process.env.CODEGRAPH_EXPLORE_LINENUMS !== '0';
-}
-
-/**
- * Adaptive explore sizing (default ON). `codegraph_explore` skeletonizes OFF-SPINE
- * polymorphic-sibling files — a file whose class is one of ≥3 interchangeable
- * implementations of a shared interface (e.g. OkHttp's `: Interceptor` classes) —
- * to class + member signatures (bodies elided), keeping the on-spine exemplar full.
- * This sizes the response to the answer instead of the budget cap on sibling-heavy
- * flows (OkHttp interceptor-chain explore 28.5k→16.6k, ~28% cheaper than native
- * search, reads flat). It is PROVABLY INERT elsewhere: distinct pipeline steps (no
- * ≥3-implementer supertype, e.g. Excalidraw's `renderStaticScene`) and on-spine
- * files keep full source — output is byte-identical to shipped on excalidraw /
- * tokio / django / vscode / gin. Set `CODEGRAPH_ADAPTIVE_EXPLORE=0` to disable.
- */
-function adaptiveExploreEnabled(): boolean {
-  return process.env.CODEGRAPH_ADAPTIVE_EXPLORE !== '0' && process.env.CODEGRAPH_ADAPTIVE_EXPLORE !== 'false';
-}
 
 /**
  * Whether `codegraph_explore` is enabled. Default OFF.
@@ -488,9 +293,11 @@ function formatCatchUpNotice(
  * MCP Tool definition
  */
 export interface ToolDefinition {
+  _meta?: Record<string, unknown>;
   /** Behavioral hints for MCP hosts; these do not override host permissions. */
   annotations?: {
     readOnlyHint?: boolean;
+    idempotentHint?: boolean;
     destructiveHint?: boolean;
     openWorldHint?: boolean;
   };
@@ -529,6 +336,7 @@ export interface ToolResult {
 }
 
 export interface ToolExecutionOptions {
+  exploreSession?: ExploreSessionState;
   signal?: AbortSignal;
 }
 
@@ -1154,14 +962,13 @@ export const tools: ToolDefinition[] = [
   },
   {
     name: 'explore',
-    annotations: { readOnlyHint: true },
-    description: 'PRIMARY TOOL — call FIRST for almost any question OR before an edit: how does X work, architecture, a bug, where/what is X, surveying an area, or the symbols you are about to change. Returns the verbatim source of the relevant symbols grouped by file in ONE capped call (Read-equivalent — treat the shown source as already Read; do NOT re-open those files), plus the call path among them. 传入一组符号名/文件名（例如 "AuthService"、"GraphTraverser BFS impact traversal.ts"）。为获得最佳结果请使用符号名，不要传自然语言问题。Usually the ONLY call you need — more accurate context, in far fewer tokens and round-trips than a search/Read/Grep loop.',
+    description: 'PRIMARY TOOL — call FIRST for almost any question OR before an edit: how does X work, architecture, a bug, where/what is X, surveying an area, or the symbols you are about to change. Returns the verbatim source of the relevant symbols grouped by file in ONE capped call (Read-equivalent — treat the shown source as already Read; do NOT re-open those files), plus the call path among them. Query can be a natural-language question OR a bag of symbol/file names. Usually the ONLY call you need — more accurate context, in far fewer tokens and round-trips than a search/Read/Grep loop.',
     inputSchema: {
       type: 'object',
       properties: {
         query: {
           type: 'string',
-          description: '符号名、文件名或简短代码术语（例如 "AuthService"、"GraphTraverser BFS traversal.ts"）。不要传自然语言问题——先提取关键符号名再传入。',
+          description: 'Symbol names, file names, or short code terms to explore (e.g., "AuthService loginUser session-manager", "GraphTraverser BFS impact traversal.ts"). For a flow question, name the symbols spanning the flow (e.g. "mutateElement renderScene"). A natural-language question works too — no prior codegraph_search needed.',
         },
         maxFiles: {
           type: 'number',
@@ -1172,6 +979,10 @@ export const tools: ToolDefinition[] = [
       },
       required: ['query'],
     },
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    // Loaded from the first prompt in Claude Code, which otherwise defers every
+    // MCP tool behind a ToolSearch step (#1696).
+    _meta: { 'anthropic/alwaysLoad': true },
   },
   {
     name: 'status',
@@ -1267,6 +1078,7 @@ export class ToolHandler {
   // Daemon sessions may execute concurrently. AsyncLocalStorage keeps one
   // request's cancellation signal attached to its raw-evidence subprocess
   // without leaking it into another client's tool call.
+  private exploreSession = new AsyncLocalStorage<ExploreSessionState | undefined>();
   private executionSignal = new AsyncLocalStorage<AbortSignal | undefined>();
   private dataView = new AsyncLocalStorage<QueryDataView>();
 
@@ -1439,7 +1251,7 @@ export class ToolHandler {
         if (tool.name === 'explore') {
           return {
             ...tool,
-            description: `${tool.description} Budget: make at most ${budget} calls for this project (${stats.fileCount.toLocaleString()} files indexed).`,
+            description: `${tool.description} Exploration guidance — advisory only, NOT a quota: ~${budget} focused calls usually cover this project (${stats.fileCount.toLocaleString()} files indexed), and extra calls are never rejected or rate-limited.`,
           };
         }
         return tool;
@@ -1788,13 +1600,13 @@ export class ToolHandler {
     args: Record<string, unknown>,
     options: ToolExecutionOptions = {},
   ): Promise<ToolResult> {
-    return await this.executionSignal.run(
+    return await this.exploreSession.run(options.exploreSession, () => this.executionSignal.run(
       options.signal,
       () => this.dataView.run({
         symbolsOnly: toolName === 'search' || toolName === 'files' || toolName === 'text_search' ||
           (toolName === 'node' && args.includeRelations !== true && args.targets === undefined),
       }, () => this.executeWithSignal(toolName, args)),
-    );
+    ));
   }
 
   private async executeWithSignal(
@@ -3335,797 +3147,14 @@ export class ToolHandler {
     const formatted = this.formatImpact(this.formatRelationshipTarget(target), mergedImpact) + target.lookupNote;
     return this.textResult(this.truncateOutput(formatted));
   }
-
-  /**
-   * Flow-from-named-symbols: an agent's codegraph_explore query is a bag of
-   * symbol names that usually spans the flow it's investigating (e.g.
-   * "PmsProductController getList PmsProductService list PmsProductServiceImpl").
-   * Surface the longest call chain AMONG those named symbols — scoped to what the
-   * agent explicitly named, so (unlike a fuzzy relevance set) there's no
-   * wrong-feature wandering. Rides synthesized edges, so controller→service-
-   * interface→impl shows up. Returns '' if no chain of >=3 nodes exists.
-   *
-   * Ambiguous tokens (Java `list` → dozens of nodes) are disambiguated by
-   * CO-NAMING: the agent names the class too, so we keep only `list` candidates
-   * whose qualifiedName contains another named token (`PmsProductServiceImpl::list`),
-   * dropping unrelated `OmsOrderService::list`.
-   */
-  private buildFlowFromNamedSymbols(cg: CodeGraph, query: string, lookup?: (token: string) => Node[]): { text: string; pathNodeIds: Set<string>; namedNodeIds: Set<string>; uniqueNamedNodeIds: Set<string> } {
-    const EMPTY = { text: '', pathNodeIds: new Set<string>(), namedNodeIds: new Set<string>(), uniqueNamedNodeIds: new Set<string>() };
-    try {
-      const CALLABLE = new Set(['method', 'function', 'component', 'constructor']);
-      // Strip only a REAL file extension (Create.cs → Create); KEEP qualified
-      // names (Class.method / Class::method) — the agent's most precise input,
-      // resolved exactly by findAllSymbols. (The old strip mangled Class.method
-      // into Class, throwing the method away.)
-      const FILE_EXT = /\.(?:java|kt|kts|ts|tsx|js|jsx|mjs|cjs|cs|py|go|rb|php|swift|rs|cpp|cc|cxx|c|h|hpp|scala|lua|dart|vue|svelte)$/i;
-      const tokens = [...new Set(
-        query.split(/[\s,()[\]]+/)
-          .map((t) => t.replace(FILE_EXT, '').trim())
-          .filter((t) => t.length >= 3 && /^[A-Za-z_$][\w$]*(?:(?:::|\.)[\w$]+)*$/.test(t))
-      )].slice(0, 16);
-      if (tokens.length < 2) return EMPTY;
-      // Pool of name SEGMENTS (Class + method from every token) used to
-      // disambiguate an ambiguous SIMPLE name: keep a candidate only if its
-      // CONTAINER class is itself named in the query.
-      const segPool = new Set<string>();
-      for (const t of tokens) for (const s of t.toLowerCase().split(/::|\./)) if (s) segPool.add(s);
-      const named = new Map<string, Node>();
-      // Nodes whose token is SPECIFIC — a (near-)unique callable name (<=3 defs in
-      // the whole graph). These are safe to SPARE a file on: the agent named THIS
-      // method (`getResponseWithInterceptorChain`, 1 def). A hyper-polymorphic name
-      // (`as_sql`, 110 defs across every Expression/Compiler subclass) is NOT here,
-      // so naming it doesn't keep every backend variant full and flood the budget.
-      const uniqueNamedNodeIds = new Set<string>();
-      for (const t of tokens) {
-        const cands = (lookup ? lookup(t) : this.findAllSymbols(cg, t).nodes).filter((n) => CALLABLE.has(n.kind));
-        // A qualified or otherwise-specific name (<=3 hits) keeps all; an
-        // ambiguous simple name keeps only candidates whose container is named.
-        const specific = cands.length <= 3;
-        const pick = specific
-          ? cands
-          : cands.filter((n) => {
-              const segs = (n.qualifiedName || '').toLowerCase().split(/::|\./).filter(Boolean);
-              const container = segs.length >= 2 ? segs[segs.length - 2] : '';
-              return !!container && segPool.has(container);
-            });
-        for (const n of pick.slice(0, 6)) {
-          named.set(n.id, n);
-          if (specific) uniqueNamedNodeIds.add(n.id);
-        }
-        if (named.size > 40) break;
-      }
-      if (named.size < 2) return EMPTY;
-      const MAX_HOPS = 7;
-      let best: Array<{ node: Node; edge: Edge | null }> | null = null;
-      // BFS the full call graph (incl. synth edges) from each named seed, but
-      // only ACCEPT a sink that is also named — both ends anchored to symbols the
-      // agent named, so the chain stays on-topic while bridging intermediates
-      // (e.g. the exact interface overload) that the token resolution missed.
-      for (const seed of [...named.values()].slice(0, 8)) {
-        const parent = new Map<string, { prev: string | null; edge: Edge | null; node: Node }>();
-        parent.set(seed.id, { prev: null, edge: null, node: seed });
-        const q: Array<{ id: string; depth: number; streak: number }> = [{ id: seed.id, depth: 0, streak: 0 }];
-        let deep: string | null = null, deepDepth = 0;
-        const MAX_BRIDGE = 1; // ≤1 consecutive UNNAMED hop: bridge one missing intermediate, never wander a god-function's fan-out
-        for (let h = 0; h < q.length && parent.size < 1500; h++) {
-          const { id, depth, streak } = q[h]!;
-          if (id !== seed.id && named.has(id) && depth > deepDepth) { deep = id; deepDepth = depth; }
-          if (depth >= MAX_HOPS - 1) continue;
-          for (const c of cg.getCallees(id)) {
-            if (c.edge.kind !== 'calls' || parent.has(c.node.id)) continue;
-            const newStreak = named.has(c.node.id) ? 0 : streak + 1;
-            if (newStreak > MAX_BRIDGE) continue;
-            parent.set(c.node.id, { prev: id, edge: c.edge, node: c.node });
-            q.push({ id: c.node.id, depth: depth + 1, streak: newStreak });
-          }
-        }
-        if (!deep) continue;
-        const chain: Array<{ node: Node; edge: Edge | null }> = [];
-        let cur: string | null = deep;
-        while (cur) { const p = parent.get(cur); if (!p) break; chain.push({ node: p.node, edge: p.edge }); cur = p.prev; }
-        chain.reverse();
-        if (!best || chain.length > best.length) best = chain;
-      }
-      const hasMain = !!best && best.length >= 3;
-      const pathIds = new Set((best ?? []).map((s) => s.node.id));
-
-      // Supplementary: dynamic-dispatch (synthesized) edges incident to a NAMED
-      // symbol — the indirect hops an agent would otherwise grep/Read to
-      // reconstruct ("where do the appended `validators` actually run?"). The
-      // synth edge IS that answer, so surface it even when the OTHER end wasn't
-      // named (e.g. the agent names `validate` but not the `didCompleteTask`
-      // that drains the collection). On-topic by construction: only heuristic
-      // edges touching a symbol the agent named; skipped when the hop already
-      // shows in the main chain.
-      const synthLines: string[] = [];
-      const synthSeen = new Set<string>();
-      for (const n of named.values()) {
-        if (synthLines.length >= 6) break;
-        for (const { node: other, edge } of [...cg.getCallers(n.id), ...cg.getCallees(n.id)]) {
-          if (synthLines.length >= 6) break;
-          if (edge.provenance !== 'heuristic' || other.id === n.id) continue;
-          if (pathIds.has(edge.source) && pathIds.has(edge.target)) continue; // already in the main chain
-          const src = edge.source === n.id ? n : other;
-          const tgt = edge.source === n.id ? other : n;
-          const key = `${src.name}>${tgt.name}`;
-          if (synthSeen.has(key)) continue;
-          synthSeen.add(key);
-          const note = synthEdgeNote(edge);
-          synthLines.push(`- ${src.name} → ${tgt.name}   [${note ? note.compact : edge.kind}]`);
-        }
-      }
-
-      if (!hasMain && synthLines.length === 0) return EMPTY;
-      const out: string[] = [];
-      if (hasMain) {
-        out.push('## Flow (call path among the symbols you queried)', '');
-        for (let i = 0; i < best!.length; i++) {
-          const step = best![i]!;
-          if (step.edge) { const sy = synthEdgeNote(step.edge); out.push(`   ↓ ${sy ? sy.compact : step.edge.kind}`); }
-          out.push(`${i + 1}. ${step.node.name} (${step.node.filePath}:${step.node.startLine})`);
-        }
-        out.push('');
-      }
-      if (synthLines.length) {
-        out.push(
-          '## Dynamic-dispatch links among your symbols',
-          '(synthesized — the indirect hops grep/Read would reconstruct; the `@file:line` is the wiring site)',
-          '',
-          ...synthLines,
-          ''
-        );
-      }
-      out.push('> This flow describes indexed relationships. Only source ranges actually rendered below are covered; a listed function may be omitted or shown as a signature.', '');
-      // namedNodeIds = every callable the agent explicitly named (a superset of
-      // the spine). A file holding one is something the agent asked to SEE, so it
-      // must keep full source even if it's an off-spine polymorphic sibling — the
-      // agent named `getResponseWithInterceptorChain` / `SQLCompiler.execute_sql`
-      // as the mechanism, not as an interchangeable leaf. See the skeleton gate.
-      return { text: out.join('\n'), pathNodeIds: pathIds, namedNodeIds: new Set(named.keys()), uniqueNamedNodeIds };
-    } catch {
-      return EMPTY;
-    }
-  }
-
-  /**
-   * Compact "blast radius" for the entry symbols of an explore result: who
-   * depends on each (callers) and which test files cover it — LOCATIONS ONLY,
-   * no source, so the agent knows what to update / re-verify before editing
-   * without reaching for a separate impact call. Always-on, but skips symbols
-   * that have no dependents (nothing to warn about), and returns '' when none
-   * qualify so a leaf-only exploration stays clean.
-   */
-  private buildBlastRadiusSection(cg: CodeGraph, subgraph: Subgraph): string {
-    const ROOT_CAP = 5; // only the symbols the query actually targeted
-    const FILE_CAP = 4; // caller files listed per symbol before "+N more"
-    const MEANINGFUL = new Set<string>([
-      'function', 'method', 'class', 'interface', 'struct', 'trait', 'protocol',
-      'enum', 'type_alias', 'component', 'constant', 'variable', 'property', 'field',
-    ]);
-    const rel = (p: string) => p.replace(/\\/g, '/');
-
-    const roots = subgraph.roots
-      .map((id) => subgraph.nodes.get(id))
-      .filter((n): n is Node => !!n && MEANINGFUL.has(n.kind))
-      .slice(0, ROOT_CAP);
-    if (roots.length === 0) return '';
-
-    const entries: string[] = [];
-    for (const root of roots) {
-      let callers: Array<{ node: Node }> = [];
-      try { callers = cg.getCallers(root.id) as Array<{ node: Node }>; } catch { /* skip this root */ }
-
-      const seen = new Set<string>();
-      const uniq: Node[] = [];
-      for (const c of callers) {
-        if (c?.node && !seen.has(c.node.id)) { seen.add(c.node.id); uniq.push(c.node); }
-      }
-      if (uniq.length === 0) continue; // no blast radius → nothing to flag
-
-      const callerFiles = [...new Set(uniq.map((n) => rel(n.filePath)))];
-      const testFiles = callerFiles.filter((f) => isTestFile(f));
-      const nonTest = callerFiles.filter((f) => !isTestFile(f));
-
-      const shown = nonTest.slice(0, FILE_CAP).map((f) => `\`${f}\``).join(', ');
-      const more = nonTest.length > FILE_CAP ? ` +${nonTest.length - FILE_CAP} more` : '';
-      const where = nonTest.length > 0 ? ` in ${shown}${more}` : '';
-      const tests = testFiles.length > 0
-        ? `; tests: ${testFiles.slice(0, FILE_CAP).map((f) => `\`${f}\``).join(', ')}${testFiles.length > FILE_CAP ? ` +${testFiles.length - FILE_CAP}` : ''}`
-        : '; ⚠️ no covering tests found';
-
-      entries.push(
-        `- \`${root.name}\` (${rel(root.filePath)}:${root.startLine}) — ${uniq.length} caller${uniq.length === 1 ? '' : 's'}${where}${tests}`,
-      );
-    }
-    if (entries.length === 0) return '';
-
-    return [
-      '### Blast radius — what depends on these (update/verify before editing)',
-      '',
-      ...entries,
-      '',
-    ].join('\n');
-  }
-
-  /**
-   * Graph-connectivity relevance via Random-Walk-with-Restart (personalized
-   * PageRank) from the query's matched SEED nodes over the call/reference graph.
-   *
-   * This is the ranking signal text search (FTS/bm25) CANNOT provide, and it's
-   * codegraph's home turf: relevance by STRUCTURE, not words. A file whose
-   * symbols are call-connected to the matched cluster accrues walk mass and
-   * ranks high; a lone TEXT match — e.g. `LensSwitcher.swift` matched the word
-   * "switch" from `switchOrganization`, but calls none of `setUser`/`fetchUser`
-   * — gets only its own restart probability and ranks ~0. Immune to the
-   * tokenization trap that fools term matching, deterministic, no embeddings.
-   *
-   * Undirected adjacency (reachability both ways), restart α=0.25 to the seeds,
-   * power iteration to convergence. Bounded to the already-relevant subgraph, so
-   * it's a few hundred nodes × ~25 iterations — negligible cost.
-   */
-  private computeGraphRelevance(
-    nodeIds: string[],
-    edges: Edge[],
-    seedIds: Set<string>,
-  ): Map<string, number> {
-    const out = new Map<string, number>();
-    const n = nodeIds.length;
-    if (n === 0) return out;
-    const idx = new Map<string, number>();
-    for (let i = 0; i < n; i++) idx.set(nodeIds[i]!, i);
-
-    const RANK_EDGES = new Set<string>([
-      'calls', 'references', 'extends', 'implements', 'overrides',
-      'instantiates', 'returns', 'type_of', 'imports',
-    ]);
-    const adj: number[][] = Array.from({ length: n }, () => []);
-    for (const e of edges) {
-      if (!RANK_EDGES.has(e.kind)) continue;
-      const i = idx.get(e.source);
-      const j = idx.get(e.target);
-      if (i === undefined || j === undefined || i === j) continue;
-      adj[i]!.push(j);
-      adj[j]!.push(i); // undirected — reachable either direction
-    }
-
-    // Restart vector: uniform over seeds present in the candidate set. (Falls
-    // back to uniform-over-all if no seed landed in the set, so we never return
-    // all-zero.)
-    const r = new Array<number>(n).fill(0);
-    let rsum = 0;
-    for (const id of seedIds) {
-      const i = idx.get(id);
-      if (i !== undefined) { r[i] = 1; rsum += 1; }
-    }
-    if (rsum === 0) { for (let i = 0; i < n; i++) r[i] = 1; rsum = n; }
-    for (let i = 0; i < n; i++) r[i]! /= rsum;
-
-    const alpha = 0.25;
-    let s = r.slice();
-    for (let iter = 0; iter < 25; iter++) {
-      const next = new Array<number>(n).fill(0);
-      for (let i = 0; i < n; i++) {
-        const si = s[i]!;
-        if (si === 0) continue;
-        const d = adj[i]!.length;
-        if (d === 0) { next[i]! += si; continue; } // dangling: keep its mass
-        const share = si / d;
-        for (const j of adj[i]!) next[j]! += share;
-      }
-      for (let i = 0; i < n; i++) s[i] = (1 - alpha) * next[i]! + alpha * r[i]!;
-    }
-    for (let i = 0; i < n; i++) out.set(nodeIds[i]!, s[i]!);
-    return out;
-  }
-
-  /**
-   * Handle codegraph_explore — deep exploration in a single call
-   *
-   * Strategy: find relevant symbols via graph traversal, group by file,
-   * then read contiguous file sections covering all symbols per file.
-   * This replaces multiple codegraph_node + Read calls.
-   *
-   * Output size is adaptive to project file count via
-   * `getExploreOutputBudget` — see #185 for why a fixed 35k cap was a
-   * tax on small projects while earning its keep on large ones.
-   */
   private async handleExplore(args: Record<string, unknown>): Promise<ToolResult> {
-    const query = this.validateString(args.query, 'query');
-    if (typeof query !== 'string') return query;
-    if (!query.trim()) return this.errorResult('query must contain non-whitespace characters');
-
-    // Explore accepts symbol/file bags and mixed prose, like the relevance search
-    // beneath it. The single-symbol search validator must not reject this input.
-
     const cg = this.getCodeGraph(args.projectPath as string | undefined);
-
-    // Resolve adaptive output budget from project size. Falls back to the
-    // largest-tier defaults if stats aren't available, which preserves
-    // pre-#185 behavior for callers that hit the rare stats failure.
-    let budget: ExploreOutputBudget;
-    try {
-      budget = getExploreOutputBudget(cg.getStats().fileCount);
-    } catch {
-      budget = getExploreOutputBudget(Infinity);
-    }
-    const maxFiles = clamp((args.maxFiles as number) || budget.defaultMaxFiles, 1, 20);
-
-    const retrieval = await retrieveExploreContext(cg, query, { maxFiles });
-    const subgraph = retrieval.graph;
-    const targets = retrieval.targets;
-    const pinnedFiles = new Set(targets.pinnedFiles);
-    const exactFiles = new Set([...targets.exactNodeIds].flatMap(id => {
-      const node = subgraph.nodes.get(id); return node ? [node.filePath] : [];
-    }));
-    const protectedFile = (file: string) => pinnedFiles.has(file) || exactFiles.has(file) || targets.spans.has(file);
-    if (subgraph.nodes.size === 0 && pinnedFiles.size === 0) {
-      return this.textResult(capExploreResponse(
-        `No query-supported symbol or callable source context admitted for "${query}".\n${retrieval.note}`
-          + (targets.issues.length ? '\n' + targets.issues.join('\n') : ''),
-        Math.min(Math.round(budget.maxOutputChars * 1.5), 25000),
-      ));
-    }
-    const namedSeedIds = retrieval.namedNodeIds;
-
-    // Step 2: Group nodes by file, score by relevance
-    const fileGroups = new Map<string, { nodes: Node[]; score: number }>();
-    const entryNodeIds = new Set([...subgraph.roots, ...namedSeedIds, ...targets.exactNodeIds]);
-
-    // Build a set of nodes directly connected to entry points (depth 1)
-    const connectedToEntry = new Set<string>();
-    for (const edge of subgraph.edges) {
-      if (entryNodeIds.has(edge.source)) connectedToEntry.add(edge.target);
-      if (entryNodeIds.has(edge.target)) connectedToEntry.add(edge.source);
-    }
-
-    for (const node of subgraph.nodes.values()) {
-      // Skip import/export nodes — they add noise without information
-      if (node.kind === 'import' || node.kind === 'export') continue;
-      // SECURITY (#383): never render the on-disk source of a config-leaf
-      // (Spring application.{yml,properties} key) — its line is `key = <secret>`,
-      // so whole-file/cluster rendering here would push secrets into context
-      // unbidden. The key still appears in the flow/symbol listing above.
-      if (isConfigLeafNode(node)) continue;
-
-      const group = fileGroups.get(node.filePath) || { nodes: [], score: 0 };
-      group.nodes.push(node);
-      // Score: a NAMED-SEED node (a symbol the agent named that FTS missed, now
-      // injected) is worth far more than a mere reference — its file is where the
-      // answer lives. Without this, an incidental file that name-drops the flow
-      // (Combine.swift references request/task → score 23 from connected nodes)
-      // outranks the file that DEFINES a named symbol (Validation.swift's
-      // `validate` → 10) and steals its render slot. Definition ≫ reference.
-      if (namedSeedIds.has(node.id)) {
-        group.score += 50;
-      } else if (entryNodeIds.has(node.id)) {
-        group.score += 10;
-      } else if (connectedToEntry.has(node.id)) {
-        group.score += 3;
-      } else {
-        group.score += 1;
-      }
-      fileGroups.set(node.filePath, group);
-    }
-    // A requested range can contain comments or module-level source with no AST
-    // node. Its file still participates in admission and source verification.
-    for (const file of pinnedFiles) {
-      if (!fileGroups.has(file)) fileGroups.set(file, { nodes: [], score: 0 });
-    }
-
-    // Type anchors concentrate random-walk mass in headers. Preserve direct
-    // callable neighbors of their proven members as well as definition files;
-    // otherwise admitting the definition makes the gate activate and silently
-    // removes the caller/callee context that previously survived the two-file guard.
-    const memberNeighborFiles = new Set<string>();
-    for (const edge of subgraph.edges) {
-      if (edge.kind !== 'calls') continue;
-      for (const [anchor, other] of [[edge.source, edge.target], [edge.target, edge.source]]) {
-        if (!retrieval.memberNodeIds.has(anchor!)) continue;
-        const n = subgraph.nodes.get(other!);
-        if (n && !n.isDeclaration && ['function', 'method', 'component'].includes(n.kind)) memberNeighborFiles.add(n.filePath);
-      }
-    }
-    // Only include files that have entry points or nodes directly connected to entry points
-    let relevantFiles = [...fileGroups.entries()].filter(([fp, group]) => protectedFile(fp) || group.score >= 3
-      || retrieval.definitionFiles.has(fp) || memberNeighborFiles.has(fp));
-
-    // Extract query terms for relevance checking
-    const queryTerms = targets.matchQuery.toLowerCase().split(/\s+/).filter(t => t.length >= 3);
-
-    // Test/spec/icon/i18n file detector — used both for the pre-sort hard
-    // filter (tiny tier) and the comparator deprioritization (all tiers).
-    const isLowValue = (p: string) => {
-      const lp = p.toLowerCase();
-      return (
-        /\/(tests?|__tests?__|spec)\//.test(lp) ||
-        /_test\.go$/.test(lp) ||
-        /(?:^|\/)test_[^/]+\.py$/.test(lp) ||
-        /_test\.py$/.test(lp) ||
-        /_spec\.rb$/.test(lp) ||
-        /_test\.rb$/.test(lp) ||
-        /\.(test|spec)\.[jt]sx?$/.test(lp) ||
-        /(test|spec|tests)\.(java|kt|scala)$/.test(lp) ||
-        /(tests?|spec)\.cs$/.test(lp) ||
-        /tests?\.swift$/.test(lp) ||
-        /_test\.dart$/.test(lp) ||
-        /\bicons?\b/.test(lp) ||
-        /\bi18n\b/.test(lp)
-      );
-    };
-
-    // Hard-exclude test/spec files (ALL tiers, not just tiny). One slipped test
-    // file dominates the per-file budget on small repos (cobra's `command_test.go`
-    // displaced `args.go`) AND wastes budget on large ones (Django's
-    // `custom_lookups/tests.py` ate ~2.3 KB of the 28 KB cap, crowding out the
-    // SQLCompiler mechanism the agent then Read). A test file almost never answers
-    // an architecture question. Skip when the query itself is about tests — the
-    // legitimate "explore the tests" case — and only cut if ≥2 non-test candidates
-    // remain (else tests are the only signal for this area).
-    {
-      const queryMentionsTests = /\b(test|tests|testing|spec|verify|verifies)\b/i.test(query);
-      if (!queryMentionsTests) {
-        const nonLow = relevantFiles.filter(([p]) => protectedFile(p) || !isLowValue(p));
-        if (nonLow.length >= 2) {
-          relevantFiles = nonLow;
-        }
-      }
-    }
-
-    // Secondary signal: how many DISTINCT query terms each file matches (path +
-    // symbol names). Kept only as a tiebreak — the PRIMARY relevance is graph
-    // connectivity below. (Term counting alone tied the real central file with
-    // incidental same-word matches; it's a weak text signal, not the ranker.)
-    const uniqueQueryTerms = [...new Set(queryTerms)].filter(t => t.length >= 3);
-    const fileTermHits = new Map<string, number>();
-    for (const [fp, group] of relevantFiles) {
-      const hay = fp.toLowerCase() + ' ' + group.nodes.map(n => n.name.toLowerCase()).join(' ');
-      let hits = 0;
-      for (const t of uniqueQueryTerms) if (hay.includes(t)) hits++;
-      fileTermHits.set(fp, hits);
-    }
-
-    // PRIMARY relevance: graph connectivity (Random-Walk-with-Restart from the
-    // matched seeds — see computeGraphRelevance). Aggregate each file's nodes'
-    // walk mass. This is the signal text search lacks: the real cluster
-    // (org-user.storage.ts, call-connected to the matches) accrues mass; a lone
-    // text match (LensSwitcher.swift, matched "switch" but calls nothing in the
-    // flow) gets only its restart probability → ~0, and is dropped by the gate.
-    const nodeRwr = this.computeGraphRelevance(
-      [...subgraph.nodes.keys()], subgraph.edges, entryNodeIds,
+    // Lazy loading keeps the existing MCP startup and batch tool path intact.
+    const { createUpstreamExploreGraph } = await import('./upstream-explore-adapter');
+    const { ToolHandler: UpstreamExplore } = await import('../upstream-explore/mcp/tools');
+    return new UpstreamExplore(createUpstreamExploreGraph(cg)).execute(
+      'codegraph_explore', args, this.exploreSession.getStore(),
     );
-    const fileGraphScore = new Map<string, number>();
-    for (const node of subgraph.nodes.values()) {
-      fileGraphScore.set(
-        node.filePath,
-        (fileGraphScore.get(node.filePath) ?? 0) + (nodeRwr.get(node.id) ?? 0),
-      );
-    }
-    const maxGraph = Math.max(0, ...fileGraphScore.values());
-
-    // Central file(s): the 1-2 most graph-central files that also match the
-    // query textually (so a connected hub-utility with no term match isn't
-    // mistaken for the subject). The heart of the answer — they earn the larger
-    // WHOLE-FILE ceiling below (a god-file central file still exceeds it and
-    // falls to generous full-method sectioning — never a whole dump).
-    const centralFiles = new Set(
-      [...fileGraphScore.entries()]
-        .filter(([fp, g]) => g > 0 && (fileTermHits.get(fp) ?? 0) >= 1)
-        .sort((a, b) => b[1] - a[1] || (fileTermHits.get(b[0]) ?? 0) - (fileTermHits.get(a[0]) ?? 0))
-        .slice(0, 2)
-        .map(([f]) => f),
-    );
-
-    // Files that DEFINE a symbol the agent named (or a subgraph root). These are
-    // the highest-relevance files there are — the agent asked for them by name —
-    // so the connectivity gate below must never drop them, even when their RWR
-    // mass is low (a leaf family file like codec.ts is call-connected to little
-    // but is exactly what the agent queried). Without this protection the gate
-    // prunes a named file and the agent Reads it back.
-    const entryFiles = new Set<string>();
-    for (const id of entryNodeIds) {
-      const n = subgraph.nodes.get(id);
-      if (n) entryFiles.add(n.filePath);
-    }
-
-    // Relevance gate (so the generous budget is a CEILING, not a target): keep a
-    // file only if it is STRUCTURALLY relevant by ANY of:
-    //   - graph score within a fraction of the top (it's on/near the flow), OR
-    //   - central (a query entry-point lives here), OR
-    //   - it DEFINES a symbol the agent named (entryFiles), OR
-    //   - it matches >= 2 DISTINCT named query terms — a strong text signal that
-    //     the agent is asking about this file even when nothing calls it (codec.ts:
-    //     the agent named `encode`/`Codec`/`JsonCodec`, all leaf classes with zero
-    //     RWR mass — graph alone wrongly drops it).
-    // A lone text match on one shared word (LensSwitcher: term=1, g~0) is still
-    // dropped, so the budget never fills with incidental files. Guarded so it
-    // never prunes below 2.
-    if (maxGraph > 0) {
-      const gated = relevantFiles.filter(([fp]) =>
-        protectedFile(fp) || (fileGraphScore.get(fp) ?? 0) >= maxGraph * 0.06
-        || centralFiles.has(fp)
-        || entryFiles.has(fp)
-        || retrieval.definitionFiles.has(fp)
-        || memberNeighborFiles.has(fp)
-        || (fileTermHits.get(fp) ?? 0) >= 2,
-      );
-      if (gated.length >= 2) relevantFiles = gated;
-    }
-
-    // Sort files: graph-central first, then distinct-term match, then the
-    // existing low-value/generated/score tiebreaks.
-    // Files that DEFINE a symbol the agent NAMED. These sort first — ahead of
-    // graph connectivity — because the agent asked for them by name. Without
-    // this, a named leaf override reached only by dynamic dispatch (Alamofire's
-    // `DataRequest.task`/`validate`, low RWR mass) sorts below the high-
-    // connectivity abstract base (`Request.swift`) and the same-named overloads
-    // in other files (`Validation.swift`), falls outside the budget, and the
-    // agent Reads it. The named file is the answer — rank it at the top.
-    const namedSeedFiles = new Set<string>(retrieval.definitionFiles);
-    for (const id of namedSeedIds) {
-      const n = subgraph.nodes.get(id);
-      if (n) namedSeedFiles.add(n.filePath);
-    }
-
-    const sortedFiles = relevantFiles.sort((a, b) => {
-      const targetRank = (fp: string) => targets.spans.get(fp)?.some(r => r.start !== r.end) ? 0
-        : exactFiles.has(fp) ? 1 : targets.spans.has(fp) ? 2 : pinnedFiles.has(fp) ? 3 : 4;
-      const targetOrder = targetRank(a[0]) - targetRank(b[0]);
-      if (targetOrder) return targetOrder;
-      const aPath = a[0].toLowerCase();
-      const bPath = b[0].toLowerCase();
-
-      // Independent exact identifiers corroborating the same file beat walk
-      // mass from a common helper. Repeated occurrences do not inflate this.
-      const proof = (retrieval.fileEvidence.get(b[0]) ?? 0) - (retrieval.fileEvidence.get(a[0]) ?? 0);
-      if (proof) return proof;
-
-      // Agent-named files first (it asked for a symbol defined here by name).
-      const aNamed = namedSeedFiles.has(a[0]) ? 1 : 0;
-      const bNamed = namedSeedFiles.has(b[0]) ? 1 : 0;
-      if (aNamed !== bNamed) return bNamed - aNamed;
-
-      // Graph connectivity is the next key (small epsilon so near-ties fall
-      // through to the text signal rather than coin-flipping on float noise).
-      const aG = fileGraphScore.get(a[0]) ?? 0;
-      const bG = fileGraphScore.get(b[0]) ?? 0;
-      if (Math.abs(aG - bG) > maxGraph * 0.01) return bG - aG;
-
-      const aHits = fileTermHits.get(a[0]) ?? 0;
-      const bHits = fileTermHits.get(b[0]) ?? 0;
-      if (aHits !== bHits) return bHits - aHits;
-
-      const aLow = isLowValue(aPath);
-      const bLow = isLowValue(bPath);
-      if (aLow !== bLow) return aLow ? 1 : -1;
-
-      // Deprioritize generated source (.pb.go / .pulsar.go / _mocks.go / …) —
-      // the agent rarely needs to see the protobuf scaffold or gomock output
-      // when asking about the actual flow, and dumping their bodies inflates
-      // the response (the cosmos Q3 explore otherwise leads with
-      // `expected_keepers_mocks.go`, displacing the real `tally.go` content
-      // and forcing the agent to Read tally.go anyway).
-      const aGen = isGeneratedFile(a[0]);
-      const bGen = isGeneratedFile(b[0]);
-      if (aGen !== bGen) return aGen ? 1 : -1;
-
-      if (a[1].score !== b[1].score) return b[1].score - a[1].score;
-      return b[1].nodes.length - a[1].nodes.length;
-    });
-
-    // Step 3: Build relationship map
-    const lines: string[] = [
-      `## Exploration: ${query}`,
-      '',
-      `Found ${subgraph.nodes.size} symbols across ${fileGroups.size} files.`,
-      '',
-      '',
-      retrieval.note,
-    ];
-
-    // Blast radius (always-on, compact): for the entry symbols, who depends on
-    // them + which tests cover them — locations only, no source — so the agent
-    // knows what to update/verify before editing without a separate call.
-    const blastRadius = this.buildBlastRadiusSection(cg, subgraph);
-    if (blastRadius) lines.push(blastRadius);
-
-    // Relationship map — show how symbols connect
-    const significantEdges = subgraph.edges.filter(e =>
-      e.kind !== 'contains' // skip contains — it's implied by file grouping
-    );
-
-    if (budget.includeRelationships && significantEdges.length > 0) {
-      lines.push('### Relationships');
-      lines.push('');
-
-      // Group edges by kind for readability
-      const byKind = new Map<string, Array<{ source: string; target: string }>>();
-      for (const edge of significantEdges) {
-        const sourceNode = subgraph.nodes.get(edge.source);
-        const targetNode = subgraph.nodes.get(edge.target);
-        if (!sourceNode || !targetNode) continue;
-
-        const group = byKind.get(edge.kind) || [];
-        group.push({ source: sourceNode.name, target: targetNode.name });
-        byKind.set(edge.kind, group);
-      }
-
-      for (const [kind, edges] of byKind) {
-        const cap = budget.maxEdgesPerRelationshipKind;
-        const shown = edges.slice(0, cap);
-        lines.push(`**${kind}:**`);
-        for (const e of shown) {
-          lines.push(`- ${e.source} → ${e.target}`);
-        }
-        if (edges.length > cap) {
-          lines.push(`- ... and ${edges.length - cap} more`);
-        }
-        lines.push('');
-      }
-    }
-
-    // Step 4: Read contiguous file sections
-    // Compute the flow spine once — used both to prepend the Flow section (below)
-    // and to gate adaptive source sizing: files on the spine get full source,
-    // off-spine peers skeletonize.
-    const flow = this.buildFlowFromNamedSymbols(cg, targets.matchQuery, retrieval.lookup);
-
-    // Polymorphic-sibling detector for adaptive sizing. A class that implements/
-    // extends a supertype shared by >= MIN_SIBLINGS classes is one of many
-    // INTERCHANGEABLE implementations (OkHttp's 14 `: Interceptor` classes —
-    // showing one + the rest as signatures is enough), as opposed to a DISTINCT
-    // pipeline step (Excalidraw's `renderStaticScene`, which shares no supertype and
-    // must stay full or the agent loses real content). Only off-spine sibling files
-    // skeletonize; distinct steps and on-spine files keep full source. Cache
-    // supertype→(has ≥N implementers) so this stays a handful of edge queries.
-    const MIN_SIBLINGS = 3;
-    const siblingSuper = new Map<string, boolean>();
-    const isPolymorphicSibling = (nodes: Node[]): boolean => {
-      for (const n of nodes) {
-        for (const e of cg.getOutgoingEdges(n.id)) {
-          if (e.kind !== 'implements' && e.kind !== 'extends') continue;
-          let many = siblingSuper.get(e.target);
-          if (many === undefined) {
-            many = cg.getIncomingEdges(e.target)
-              .filter((x) => x.kind === 'implements' || x.kind === 'extends').length >= MIN_SIBLINGS;
-            siblingSuper.set(e.target, many);
-          }
-          if (many) return true;
-        }
-      }
-      return false;
-    };
-
-    // A file that DEFINES a polymorphic supertype (a class/interface with ≥
-    // MIN_SIBLINGS implementers) AND co-locates its subclasses is a redundant
-    // "family" file — Django's compiler.py holds `SQLCompiler` + its 4 subclasses
-    // (SQLInsert/Update/Delete/AggregateCompiler) in 2,266 lines. Such files are
-    // huge and read-anyway, so they should STILL skeletonize even when the agent
-    // named a method in them: a full one eats ~6.5K of the explore budget (Django
-    // is pinned at the 28K cap, truncating), starving the sibling files the agent
-    // then Reads. This flag OVERRIDES the named-callable spare below — it does NOT
-    // by itself spare a file. (OkHttp's RealCall implements the `Lockable` mixin
-    // but defines no ≥3-impl supertype, so the named spare keeps it full.)
-    const superMany = new Map<string, boolean>();
-    const definesPolymorphicSupertype = (nodes: Node[]): boolean => {
-      for (const n of nodes) {
-        if (n.kind !== 'class' && n.kind !== 'interface' && n.kind !== 'struct'
-            && n.kind !== 'trait' && n.kind !== 'protocol' && n.kind !== 'type_alias') continue;
-        let many = superMany.get(n.id);
-        if (many === undefined) {
-          many = cg.getIncomingEdges(n.id)
-            .filter((x) => x.kind === 'implements' || x.kind === 'extends').length >= MIN_SIBLINGS;
-          superMany.set(n.id, many);
-        }
-        if (many) return true;
-      }
-      return false;
-    };
-
-    lines.push('### Source Code');
-    lines.push('');
-    lines.push('> Source excerpts below are read from current files. Only shown source ranges are covered; signatures, outlines and omitted regions are not complete function bodies or complete files.');
-    lines.push('');
-
-    // A literal hit in a framework method is not a request to prioritize every
-    // virtual lifecycle hook in that framework. Promote contracts of named
-    // types and explicitly named callable entries only.
-    const namedContractIds = new Set(subgraph.edges.filter(e => e.kind === 'contains'
-      && namedSeedIds.has(e.source) && retrieval.contractMemberIds.has(e.target)).map(e => e.target));
-    const processingNodeIds = findEntryProcessingNodes(subgraph, retrieval.memberNodeIds, namedContractIds, flow.namedNodeIds);
-    const memberConnectivity = new Map<string, number>();
-    const memberPairs = new Set<string>();
-    for (const e of subgraph.edges) {
-      if (e.kind !== 'calls' || !retrieval.memberNodeIds.has(e.source) || !retrieval.memberNodeIds.has(e.target)) continue;
-      const pair = JSON.stringify([e.source, e.target]);
-      if (memberPairs.has(pair)) continue;
-      memberPairs.add(pair);
-      memberConnectivity.set(e.source, (memberConnectivity.get(e.source) ?? 0) + 2);
-      memberConnectivity.set(e.target, (memberConnectivity.get(e.target) ?? 0) + 1);
-    }
-    const sources: ExploreSourceFile[] = [];
-    const sourceIssues: string[] = [];
-    for (const [filePath, group] of sortedFiles) {
-      if (targets.rangeOnly && !targets.spans.has(filePath)) continue;
-      // An invalid line constraint is not a plain file request. Keep its
-      // diagnostic, but do not let an empty pinned group render the whole file.
-      if (targets.blockedFiles.has(filePath)) continue;
-      // Share verified bytes with C++ semantic recovery and target resolution.
-      // Never check one read and slice another at potentially stale line ranges.
-      const snapshot = retrieval.sources.get(filePath);
-      if (snapshot.status !== 'fresh' || snapshot.content === undefined) {
-        sourceIssues.push(`Source omitted: ${filePath} — ${snapshot.reason ?? snapshot.status}. Indexed symbol/Flow locations may be stale; use current-file Read or refresh the index before relying on those ranges.`);
-        continue;
-      }
-      if (CONFIG_LEAF_LANGUAGES.has(cg.getFile(filePath)?.language ?? '')) {
-        if (protectedFile(filePath)) sourceIssues.push(`Source omitted: ${filePath} — this config index stores keys only; use Read for explicitly requested current values.`);
-        continue;
-      }
-      const content = snapshot.content;
-      const hasSpine = group.nodes.some(n => flow.pathNodeIds.has(n.id));
-      const family = definesPolymorphicSupertype(group.nodes);
-      const spared = group.nodes.some(n => flow.uniqueNamedNodeIds.has(n.id)) && !family;
-      const skeleton = adaptiveExploreEnabled() && flow.pathNodeIds.size > 0
-        && !hasSpine && isPolymorphicSibling(group.nodes) && !spared;
-      // Retain template/reference locations that have no callable AST node.
-      // They are low-priority source evidence, not additional body targets.
-      const sourceNodes = [...group.nodes];
-      const referenceLines = new Set<number>();
-      for (const n of group.nodes) {
-        for (const e of cg.getOutgoingEdges(n.id)) {
-          if (!e.line || e.line < 1 || e.kind === 'contains' || referenceLines.size >= 32) continue;
-          if (referenceLines.has(e.line) || group.nodes.some(v => v.startLine <= e.line! && v.endLine >= e.line!
-            && ['function', 'method', 'component'].includes(v.kind))) continue;
-          referenceLines.add(e.line);
-          sourceNodes.push({ ...n, id: `reference:${n.id}:${e.line}`, name: e.kind,
-            kind: 'variable', startLine: e.line, endLine: e.line, isDeclaration: false });
-        }
-      }
-      sources.push({ path: filePath, content, nodes: sourceNodes, skeleton,
-        pinned: pinnedFiles.has(filePath), protectedNodeIds: targets.exactNodeIds,
-        requestedRanges: targets.spans.get(filePath),
-        bodyAllowed: n => targets.exactNodeIds.has(n.id) || !skeleton || flow.pathNodeIds.has(n.id)
-          || flow.uniqueNamedNodeIds.has(n.id) || (family && flow.namedNodeIds.has(n.id)),
-        priority: n => entryNodeIds.has(n.id) || flow.uniqueNamedNodeIds.has(n.id) ? 0
-          : flow.pathNodeIds.has(n.id) ? 1 : namedContractIds.has(n.id) ? 1.25
-          : processingNodeIds.has(n.id) ? 1.5 : retrieval.memberNodeIds.has(n.id) ? 2
-          : connectedToEntry.has(n.id) ? 3 : 4,
-        connectivity: n => (memberConnectivity.get(n.id) ?? 0)
-          + (retrieval.contractMemberIds.has(n.id) ? subgraph.nodes.size * 3 : 0),
-      });
-    }
-    let prefix = flow.text + lines.join('\n') + '\n';
-    // These are correctness notices, not optional relationship metadata. Keep
-    // them before the bounded map so truncation cannot erase a stale-range warning.
-    const issues = [...new Set([...sourceIssues, ...targets.issues])];
-    let notices = sourceIssues.length
-      ? `> Source freshness: ${sourceIssues.length} file(s) could not be verified for safe indexed slicing; their source is omitted. Indexed symbol/Flow locations for those files are not current source evidence.\n`
-      : '';
-    let shownIssues = 0;
-    for (const issue of issues) {
-      const compact = issue.replace(/[\r\n]+/g, ' ');
-      const line = `> ${compact.length > 600 ? compact.slice(0, 597) + '...' : compact}\n`;
-      if (notices.length + line.length > 1850) break;
-      notices += line;
-      shownIssues++;
-    }
-    if (shownIssues < issues.length) {
-      notices += `> ${issues.length - shownIssues} additional target/source notices omitted for size; omitted files are not verified source coverage.\n`;
-    }
-    // Bound metadata before selection, never slice a delivered source body.
-    const metadataCap = Math.max(0, Math.floor(budget.maxOutputChars * 0.25) - notices.length);
-    if (prefix.length > metadataCap) {
-      const cut = prefix.slice(0, Math.max(0, metadataCap - 120));
-      prefix = cut.slice(0, Math.max(0, cut.lastIndexOf('\n')))
-        + '\n> Relationship metadata shortened; source coverage is listed below.\n\n### Source Code\n\n';
-    }
-    prefix = notices + prefix;
-    const output = renderExploreSources(prefix, sources, {
-      maxOutputChars: budget.maxOutputChars, maxCharsPerFile: budget.maxCharsPerFile,
-      maxFiles, lineNumbers: exploreLineNumbersEnabled(), headerSymbols: budget.maxSymbolsInFileHeader,
-    });
-    const hardCeiling = Math.min(Math.round(budget.maxOutputChars * 1.5), 25000);
-    return this.textResult(capExploreResponse(output, hardCeiling));
   }
 
   /**

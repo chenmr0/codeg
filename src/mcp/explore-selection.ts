@@ -1,4 +1,6 @@
 import type { Node } from '../types';
+import { allocateExploreFiles } from './explore-allocation';
+import { selectExploreWindow } from './explore-windows';
 
 const CALLABLES = new Set(['method', 'function', 'constructor', 'component']);
 const CONTAINERS = new Set(['class', 'struct', 'interface', 'trait', 'protocol', 'enum', 'module']);
@@ -20,8 +22,15 @@ export interface ExploreSourceFile {
   protectedNodeIds?: ReadonlySet<string>;
   /** Literal requested source spans; these must not expand to enclosing functions. */
   requestedRanges?: ReadonlyArray<{ start: number; end: number }>;
+  /** File relevance and expected source value, independent of presentation order. */
+  relevance?: number;
+  worth?: number;
+  named?: boolean;
+  spine?: boolean;
+  /** Source-proven call sites keyed by the canonical caller ID. */
+  focusLines?: ReadonlyMap<string, readonly number[]>;
 }
-interface Unit { node: Node; start: number; end: number; full: boolean; priority: number; connectivity: number }
+interface Unit { node: Node; start: number; end: number; full: boolean; priority: number; connectivity: number; partial?: boolean }
 interface Plan { file: ExploreSourceFile; lines: string[]; units: Unit[]; selected: Unit[]; rank: number }
 export interface ExploreSelectionOptions {
   maxOutputChars: number;
@@ -36,6 +45,8 @@ export function renderExploreSources(prefix: string, files: ExploreSourceFile[],
   if (files.some(f => f.pinned || f.nodes.some(node => f.protectedNodeIds?.has(node.id)) || f.requestedRanges?.length)) {
     return renderTargetedExploreSources(prefix, files, options);
   }
+  const limit = Math.max(0, Math.floor(options.maxOutputChars));
+  if (prefix.length >= limit) return prefix.slice(0, limit);
   const renderLines = (p: Plan, start: number, end: number) => p.lines.slice(start - 1, end)
     .map((line, i) => options.lineNumbers ? `${start + i}\t${line}` : line).join('\n');
   const plans: Plan[] = files.map((file, rank) => {
@@ -64,7 +75,6 @@ export function renderExploreSources(prefix: string, files: ExploreSourceFile[],
 
   // Definitions beat declaration-only files, even when the named type is in a header.
   plans.sort((a, b) => a.units[0]!.priority - b.units[0]!.priority || a.rank - b.rank);
-  const admitted = plans.slice(0, options.maxFiles);
   const ranges = (units: ReadonlyArray<Pick<Unit, 'start' | 'end'>>) => {
     const result: Array<{ start: number; end: number }> = [];
     for (const u of [...units].sort((a, b) => a.start - b.start || b.end - a.end)) {
@@ -78,105 +88,149 @@ export function renderExploreSources(prefix: string, files: ExploreSourceFile[],
   const section = (p: Plan, units = p.selected): string => {
     if (units.length === 0) return '';
     const names = [...new Set(units.map(u => u.node.name))].slice(0, options.headerSymbols).join(', ');
-    const tag = p.file.skeleton && !units.some(u => u.full)
+    const tag = p.file.skeleton && !units.some(u => u.full || u.partial)
       ? 'skeleton (signatures only; bodies are not included)'
+      : units.some(u => u.partial) ? 'partial body windows (remaining body is omitted; coverage below)'
       : 'focused (complete selected bodies and source ranges; types are outlines)';
     return `#### ${p.file.path} — ${names} · ${tag}\n\n\`\`\`${p.file.nodes[0]?.language ?? ''}\n`
       + ranges(units).map(r => renderLines(p, r.start, r.end)).join(GAP) + '\n```\n\n';
   };
-  // All reservations and fit tests charge actual headers, fences, gaps and line numbers.
-  const footerReserve = Math.min(1000, Math.floor(options.maxOutputChars * 0.06));
-  const pool = Math.max(0, options.maxOutputChars - prefix.length - footerReserve);
-  const cost = (p: Plan) => section(p).length;
-  let spent = 0;
-  const add = (p: Plan, u: Unit, ceiling: number): boolean => {
-    if (p.selected.includes(u)) return true;
-    const before = cost(p);
-    const after = section(p, [...p.selected, u]).length;
-    const delta = after - before;
-    if (after > ceiling || spent + delta > pool) return false;
-    p.selected.push(u); spent += delta; return true;
+  // Allocate complete section envelopes, after charging the prefix and ledger.
+  // A compact anchored mechanism is a useful minimum, not one arbitrary method.
+  const footerReserve = Math.min(1000, Math.max(Math.floor(limit * 0.06), Math.min(240, Math.floor(limit * 0.35))));
+  const pool = Math.max(0, limit - prefix.length - footerReserve);
+  const anchored = (p: Plan) => p.units.filter(u => u.full && u.priority <= 2);
+  const compact = (p: Plan) => {
+    const units = anchored(p);
+    return units.length && section(p, units).length <= options.maxCharsPerFile ? units : [];
   };
-
-  // Reserve a compact complete unit for each anchored file. Ordinary neighbors
-  // are not entitled to consume an explicit target's funding before selection.
-  // Within the best tier choose the cheapest unit, not a giant first method.
-  for (const p of admitted) {
-    const best = p.units[0]!.priority;
-    if (best > 2) continue;
-    const initial = p.units.filter(u => u.priority === best)
-      .map(u => ({ u, size: section(p, [u]).length }))
-      .sort((a, b) => a.size - b.size || b.u.connectivity - a.u.connectivity || a.u.start - b.u.start);
-    for (const { u } of initial) {
-      if (add(p, u, options.maxCharsPerFile)) break;
+  const allocation = allocateExploreFiles(plans.map(p => ({
+    path: p.file.path, score: p.file.relevance ?? 1, worth: p.file.worth ?? 1,
+    spine: p.file.spine ?? false,
+    named: p.file.named || anchored(p).length > 0,
+    // Direct graph evidence survives lexical cliffs regardless of file size.
+    // Compact callable evidence also retains the historical zero-score caller
+    // case, without promoting its relevance or exempting the ordinary cap.
+    graphEvidence: p.units.some(u => u.full && u.priority <= 3)
+      || p.units.some(u => u.full) && section(p, p.units).length <= options.maxCharsPerFile,
+    demandChars: section(p, p.units).length,
+    minimumChars: compact(p).length ? section(p, compact(p)).length : undefined,
+  })), pool, options.maxFiles);
+  const admitted = plans.filter(p => (allocation.allowances.get(p.file.path) ?? 0) > 0);
+  // Preserve affordable independent mechanisms as complete groups. If generic
+  // minimum floors compete in a small envelope, shrink large-file windows first
+  // rather than turn an already affordable group into several partial methods.
+  const compactPlans = admitted.filter(p => compact(p).length);
+  const compactCost = compactPlans.reduce((sum, p) => sum + section(p, compact(p)).length, 0);
+  if (compactCost <= pool && compactPlans.length) {
+    const flexible = admitted.filter(p => !compactPlans.includes(p));
+    const previous = flexible.reduce((sum, p) => sum + (allocation.allowances.get(p.file.path) ?? 0), 0);
+    for (const p of compactPlans) allocation.allowances.set(p.file.path, section(p, compact(p)).length);
+    for (const p of flexible) allocation.allowances.set(p.file.path,
+      previous ? Math.floor((pool - compactCost) * allocation.allowances.get(p.file.path)! / previous) : 0);
+  }
+  const cost = (p: Plan) => section(p).length;
+  const covered = (p: Plan, u: Unit) => ranges(p.selected).some(r => r.start <= u.start && r.end >= u.end);
+  let spent = 0;
+  const replace = (p: Plan, selected: Unit[], ceiling: number): boolean => {
+    const before = cost(p), after = section(p, selected).length;
+    if (after > ceiling || spent + after - before > pool) return false;
+    p.selected = selected; spent += after - before; return true;
+  };
+  const add = (p: Plan, u: Unit, ceiling: number): boolean => {
+    if (covered(p, u)) return true;
+    return replace(p, [...p.selected.filter(item => !(item.partial && item.node.id === u.node.id)), u], ceiling);
+  };
+  const window = (p: Plan, u: Unit, ceiling: number): boolean => {
+    if (!u.full || covered(p, u)) return false;
+    const retained = p.selected.filter(item => !(item.partial && item.node.id === u.node.id));
+    const first = { ...u, end: u.start, full: false, partial: true };
+    const overhead = section(p, [first]).length - renderLines(p, first.start, first.end).length;
+    const bound = Math.min(ceiling, cost(p) + pool - spent);
+    // Price the final union, not a guessed fixed header or character slice.
+    let room = Math.max(0, bound - overhead);
+    for (let retry = 0; room > 0 && retry < 24; retry++) {
+      const selection = selectExploreWindow({ lines: p.lines, start: u.start, end: u.end,
+        maxChars: room, focusLines: p.file.focusLines?.get(u.node.id), lineNumbers: options.lineNumbers, gap: GAP });
+      if (!selection.ranges.length) return false;
+      const units = selection.ranges.map(span => ({ ...u, ...span,
+        full: selection.complete, partial: !selection.complete }));
+      const proposed = [...retained, ...units];
+      const after = section(p, proposed).length;
+      if (after <= bound) return replace(p, proposed, bound);
+      room -= Math.max(1, after - bound);
     }
-  }
-  // Keep compact anchored mechanisms together before large entry chains borrow
-  // globally. Otherwise a broad query can gain one task body by losing several
-  // already affordable bodies belonging to another independent query anchor.
-  for (const p of admitted) {
-    const anchored = p.units.filter(u => u.full && u.priority <= 2);
-    if (!anchored.length || section(p, anchored).length > options.maxCharsPerFile) continue;
-    for (const u of anchored) add(p, u, options.maxCharsPerFile);
-  }
+    return false;
+  };
+  const allowance = (p: Plan) => allocation.allowances.get(p.file.path) ?? 0;
   const candidates = admitted.flatMap(p => p.units.map(u => ({ p, u })))
     .sort((a, b) => a.u.priority - b.u.priority || b.u.connectivity - a.u.connectivity
       || a.p.rank - b.p.rank || a.u.start - b.u.start);
-  // Reclaim capacity tier by tier: lower-priority filler cannot spend bytes
-  // before an explicit target has had a chance to borrow unused capacity.
-  // Other files' funded first units remain protected throughout.
+
+  // Every important file first receives its own reserved evidence. Do not spend
+  // another file's unused share until all important reservations were attempted.
+  for (const p of admitted) {
+    const important = anchored(p);
+    if (!important.length) continue;
+    const ceiling = allowance(p);
+    const group = compact(p);
+    if (group.length && replace(p, group, ceiling)) continue;
+    const best = important[0]!.priority;
+    const processingTier = best > 1 && best < 2;
+    const initial = important.filter(u => u.priority === best)
+      .sort((a, b) => processingTier ? b.connectivity - a.connectivity || a.start - b.start
+        : section(p, [a]).length - section(p, [b]).length || b.connectivity - a.connectivity || a.start - b.start);
+    for (const u of processingTier ? initial.slice(0, 1) : initial) if (add(p, u, ceiling)) break;
+    // A short completed helper is not evidence for an omitted larger target.
+    // Reserve a head/call-site window before further complete helpers can fill it.
+    const omitted = important.find(u => !covered(p, u));
+    if (omitted) window(p, omitted, Math.min(ceiling, cost(p) + 700));
+  }
+  // All reservations have now had a turn. Reclaim unused capacity by semantic
+  // tier, completing bodies first and funding missing windows before lower-tier
+  // ordinary neighbors. A giant body cannot borrow its peers' spent evidence.
   for (const priority of [...new Set(candidates.map(c => c.u.priority))]) {
     const tier = candidates.filter(c => c.u.priority === priority);
-    // An entry's processing chain must get a chance to fit as complete bodies
-    // before smaller helpers in that chain spend the remaining capacity.
-    // Other anchored files retain their funded first units.
-    if (priority > 1 && priority < 2) {
-      for (const { p, u } of tier) add(p, u, pool);
-      continue;
+    if (priority >= 2) {
+      // Group related small bodies at their own semantic tier. This reservation
+      // occurs after higher-priority exact/entry bodies, not before them.
+      const groups = admitted.map(p => ({ p, units: tier.filter(item => item.p === p && item.u.full).map(item => item.u) }))
+        .filter(group => group.units.length && section(group.p, group.units).length <= options.maxCharsPerFile)
+        .sort((a, b) => (b.p.file.relevance ?? 1) * (b.p.file.worth ?? 1)
+          - (a.p.file.relevance ?? 1) * (a.p.file.worth ?? 1) || a.p.rank - b.p.rank);
+      for (const { p, units } of groups) {
+        const wanted = [...p.selected.filter(item => !item.partial || !units.some(u => u.node.id === item.node.id)), ...units];
+        replace(p, wanted, pool);
+      }
     }
-    const demands = new Map(admitted.map(p => [p,
-      section(p, [...p.selected, ...p.units.filter(u => u.priority === priority)]).length]));
-    // Compact member groups get their ordinary allowance before large groups
-    // borrow. Otherwise newly admitted implementation files can erase all
-    // inline predicates in a named type's header merely by being longer.
-    const ordinary = priority >= 2 ? [...tier].sort((a, b) => {
-      return demands.get(a.p)! - demands.get(b.p)! || a.p.rank - b.p.rank
-        || b.u.connectivity - a.u.connectivity || a.u.start - b.u.start;
-    }) : tier;
-    for (const { p, u } of ordinary) add(p, u, options.maxCharsPerFile);
-    for (const { p, u } of tier) {
-      if (u.full) add(p, u, pool);
+    // Entry-processing order carries directed structural evidence. Do not let
+    // a later small helper buy the room needed to complete its earlier caller.
+    if (!(priority > 1 && priority < 2)) for (const { p, u } of tier) add(p, u, allowance(p));
+    for (const { p, u } of tier) add(p, u, pool);
+    const pending = tier.filter(({ p, u }) => u.full && !covered(p, u));
+    for (let index = 0; index < pending.length; index++) {
+      const { p, u } = pending[index]!;
+      const share = Math.floor((pool - spent) / (pending.length - index));
+      if (share > 0) window(p, u, cost(p) + Math.min(share, Math.max(700, options.maxCharsPerFile - cost(p))));
     }
   }
-
-  // If a single required body cannot fit, expose a bounded whole-line prefix with
-  // an explicit incomplete range. Do not mislabel its first line as a full body.
-  const partials = new Map<Plan, { start: number; end: number; wantedEnd: number; text: string }>();
-  for (const p of admitted) {
-    if (p.selected.some(u => u.full) || p.file.skeleton) continue;
-    const u = p.units.find(u => u.full);
-    if (!u) continue;
-    const available = Math.min(options.maxCharsPerFile, pool - spent);
-    const header = `#### ${p.file.path} — ${u.node.name} · partial body (required ${u.start}-${u.end})\n\n`;
-    let end = u.start - 1, body = '';
-    for (let line = u.start; line <= u.end; line++) {
-      const next = renderLines(p, line, line);
-      if (header.length + body.length + next.length + 100 > available) break;
-      body += (body ? '\n' : '') + next; end = line;
-    }
-    if (end < u.start) continue;
-    const text = header + `Shown ${u.start}-${end}; remaining body is omitted.\n\n\`\`\`${p.file.nodes[0]?.language ?? ''}\n${body}\n\`\`\`\n\n`;
-    if (spent + text.length > pool) continue;
-    spent += text.length;
-    partials.set(p, { start: u.start, end, wantedEnd: u.end, text });
+  // A relevance cliff defers weak lexical neighbors; it does not erase them.
+  // Only after all admitted evidence has had its turn may an unused file slot
+  // and otherwise idle source budget fund one. Existing selections never move.
+  let openFiles = Math.max(0, options.maxFiles - admitted.filter(p => p.selected.length).length);
+  for (const p of plans.filter(plan => !admitted.includes(plan))) {
+    if (openFiles <= 0 || spent >= pool) break;
+    for (const u of p.units.filter(unit => unit.full)) add(p, u, pool);
+    const omitted = p.units.find(u => u.full && !covered(p, u));
+    if (omitted) window(p, omitted, cost(p) + Math.min(options.maxCharsPerFile, pool - spent));
+    for (const u of p.units.filter(unit => !unit.full)) add(p, u, pool);
+    if (p.selected.length) { admitted.push(p); openFiles--; }
   }
-  let output = prefix;
-  for (const p of admitted) output += section(p) + (partials.get(p)?.text ?? '');
+  let output = prefix + admitted.map(p => section(p)).join('');
   // Coverage is derived from emitted ranges. A parent body can cover an inner
   // function, but an outline, Flow mention or partial body cannot establish it.
   const missing = plans.flatMap(p => {
-    const partial = partials.get(p);
-    const shown = ranges([...p.selected, ...(partial ? [{ start: partial.start, end: partial.end }] : [])]);
+    const shown = ranges(p.selected);
     return p.units.filter(u => u.full).flatMap(u => {
       const covered = shown.map(r => ({ start: Math.max(r.start, u.start), end: Math.min(r.end, u.end) }))
         .filter(r => r.start <= r.end);
@@ -192,7 +246,7 @@ export function renderExploreSources(prefix: string, files: ExploreSourceFile[],
   }).sort((a, b) => a.u.priority - b.u.priority || b.u.connectivity - a.u.connectivity
     || a.p.rank - b.p.rank || a.u.start - b.u.start);
   if (missing.length) {
-    const lead = `> ${missing.length} candidate function bodies not fully shown; highest-priority gaps below (not exhaustive). Outlines and Flow are not body coverage.\n`;
+    const lead = `> ${missing.length} candidate function bodies not fully shown; highest-priority gaps below (not exhaustive).\n`;
     if (output.length + lead.length <= options.maxOutputChars) output += lead;
     const spans = (rs: Array<{ start: number; end: number }>) => rs.length
       ? rs.slice(0, 3).map(r => r.start === r.end ? `${r.start}` : `${r.start}-${r.end}`).join(',')
@@ -227,8 +281,8 @@ interface TargetPlan {
   selected: SourceSpan[];
 }
 
-/** Explicit targets have a separate reservation pass. The historical allocator
- * remains unchanged for queries without path, range or qualified-member intent. */
+/** Explicit source spans keep their own coverage contract while sharing the
+ * same file allocation and whole-line window machinery as ordinary exploration. */
 function renderTargetedExploreSources(prefix: string, files: ExploreSourceFile[], options: ExploreSelectionOptions): string {
   const limit = Math.max(0, Math.floor(options.maxOutputChars));
   if (prefix.length >= limit) return prefix.slice(0, limit);
@@ -342,6 +396,26 @@ function renderTargetedExploreSources(prefix: string, files: ExploreSourceFile[]
     spent += after - before;
     return true;
   };
+  const window = (plan: TargetPlan, unit: TargetUnit, ceiling: number): boolean => {
+    if (unit.outline || !missing(plan.selected, unit).length) return false;
+    const end = Math.min(unit.end, plan.lines.length);
+    if (unit.start > end) return false;
+    const bound = Math.min(ceiling, section(plan).length + pool - spent);
+    const first = { start: unit.start, end: unit.start };
+    const overhead = section(plan, [first]).length - sourceText(plan, first).length;
+    let room = Math.max(0, bound - overhead);
+    for (let retry = 0; room > 0 && retry < 24; retry++) {
+      const selection = selectExploreWindow({ lines: plan.lines, start: unit.start, end,
+        maxChars: room, lineNumbers: options.lineNumbers, gap: GAP,
+        focusLines: unit.node ? plan.file.focusLines?.get(unit.node.id) : undefined });
+      if (!selection.ranges.length) return false;
+      const selected = merge([...plan.selected, ...selection.ranges]);
+      const before = section(plan).length, after = section(plan, selected).length;
+      if (after <= bound) { plan.selected = selected; spent += after - before; return true; }
+      room -= Math.max(1, after - bound);
+    }
+    return false;
+  };
   const minimum = (plan: TargetPlan, unit: TargetUnit): SourceSpan => {
     let end = unit.start;
     if (unit.body && unit.end > unit.start) {
@@ -357,6 +431,19 @@ function renderTargetedExploreSources(prefix: string, files: ExploreSourceFile[]
   const combinedMinimum = new Map<TargetPlan, SourceSpan[]>();
   for (const { plan, span } of minima) combinedMinimum.set(plan, [...(combinedMinimum.get(plan) ?? []), span]);
   const minimumCost = [...combinedMinimum].reduce((size, [plan, spans]) => size + section(plan, merge(spans)).length, 0);
+  const allocation = allocateExploreFiles(admitted.map(plan => {
+    const compact = plan.ordinary.filter(unit => unit.body && unit.priority <= 2);
+    const compactCost = compact.length ? section(plan, compact).length : 0;
+    return { path: plan.file.path, score: plan.file.relevance ?? 1, worth: plan.file.worth ?? 1,
+      named: plan.file.named || compact.length > 0, spine: plan.file.spine ?? false,
+      pinned: plan.file.pinned, protected: plan.targets.length > 0,
+      graphEvidence: plan.ordinary.some(unit => unit.body && unit.priority <= 3)
+        || compactCost > 0 && compactCost <= options.maxCharsPerFile,
+      demandChars: section(plan, [...plan.targets.map(selectable), ...plan.ordinary]).length,
+      minimumChars: combinedMinimum.has(plan) ? section(plan, merge(combinedMinimum.get(plan)!)).length
+        : compactCost <= options.maxCharsPerFile ? compactCost : undefined };
+  }), pool, options.maxFiles);
+  const allowance = (plan: TargetPlan) => allocation.allowances.get(plan.file.path) ?? 0;
   if (minimumCost <= pool) {
     for (const { plan, span } of minima) change(plan, span, pool);
   } else {
@@ -366,20 +453,33 @@ function renderTargetedExploreSources(prefix: string, files: ExploreSourceFile[]
     // target's minimum. Reclaim only after every target has had its turn.
     for (const { plan, span } of minima) change(plan, span, pool);
   }
+  // Fulfil independent anchored-file reservations before exact bodies borrow
+  // unused shares. A path/type target never buys an enclosing class envelope.
+  for (const plan of admitted) {
+    if (plan.targets.length) continue;
+    const important = plan.ordinary.filter(unit => unit.body && unit.priority <= 2);
+    if (!important.length && !plan.file.pinned) continue;
+    const groupCost = important.length ? section(plan, important).length : Infinity;
+    if (groupCost <= options.maxCharsPerFile && groupCost <= allowance(plan)) {
+      for (const unit of important) change(plan, unit, allowance(plan));
+    } else {
+      const first = important[0] ?? plan.ordinary[0];
+      if (first && !change(plan, first, allowance(plan))) window(plan, first, Math.min(700, allowance(plan)));
+    }
+  }
   const byCost = [...required].sort((a, b) => section(a.plan, [...a.plan.selected, selectable(a.unit)]).length - section(a.plan).length
     - (section(b.plan, [...b.plan.selected, selectable(b.unit)]).length - section(b.plan).length)
     || a.plan.rank - b.plan.rank || a.unit.start - b.unit.start);
-  for (const { plan, unit } of byCost) change(plan, selectable(unit), options.maxCharsPerFile);
+  for (const { plan, unit } of byCost) change(plan, selectable(unit), allowance(plan));
   for (const { plan, unit } of byCost) change(plan, selectable(unit), pool);
-  // Extend incomplete explicit evidence even when another body in the same file
-  // is already complete. Every extension ends on a whole source line.
+  // Incomplete exact bodies retain a head and proven call-site windows even
+  // when another body in the same file is already complete. Literal ranges use
+  // the same whole-line budget but never expand outside the requested span.
   for (const { plan, unit } of required) {
     if (unit.outline || !missing(plan.selected, unit).length) continue;
-    const first = minimum(plan, unit);
-    if (missing(plan.selected, first).length && !change(plan, first, options.maxCharsPerFile)) continue;
-    for (let end = first.end + 1; end <= Math.min(unit.end, plan.lines.length); end++) {
-      if (!change(plan, { start: unit.start, end }, options.maxCharsPerFile)) break;
-    }
+    const used = section(plan).length;
+    window(plan, unit, used + Math.min(pool - spent,
+      Math.max(700, Math.min(options.maxCharsPerFile, allowance(plan)) - used)));
   }
   // Path-only files get a compact unit before ordinary neighboring files. Exact
   // targets have already reserved evidence and cannot be displaced by this pass.
@@ -393,18 +493,33 @@ function renderTargetedExploreSources(prefix: string, files: ExploreSourceFile[]
     if (plan.file.pinned && !plan.selected.length) {
       const unit = plan.ordinary.find(candidate => candidate.body);
       if (!unit) continue;
-      const first = minimum(plan, unit);
-      if (!change(plan, first, options.maxCharsPerFile)) continue;
-      for (let end = first.end + 1; end <= unit.end; end++) {
-        if (!change(plan, { start: unit.start, end }, options.maxCharsPerFile)) break;
-      }
+      window(plan, unit, Math.min(options.maxCharsPerFile, allowance(plan)));
     }
   }
   const ordinary = admitted.flatMap(plan => plan.ordinary.map(unit => ({ plan, unit })))
     .sort((a, b) => a.unit.priority - b.unit.priority || b.unit.connectivity - a.unit.connectivity
       || a.plan.rank - b.plan.rank || a.unit.start - b.unit.start);
-  for (const { plan, unit } of ordinary) change(plan, unit, options.maxCharsPerFile);
-  for (const { plan, unit } of ordinary) if (unit.body) change(plan, unit, pool);
+  for (const priority of [...new Set(ordinary.map(item => item.unit.priority))]) {
+    const tier = ordinary.filter(item => item.unit.priority === priority);
+    if (priority >= 2) {
+      const groups = admitted.map(plan => ({ plan, units: tier.filter(item => item.plan === plan && item.unit.body).map(item => item.unit) }))
+        .filter(group => group.units.length && section(group.plan, group.units).length <= options.maxCharsPerFile)
+        .sort((a, b) => (b.plan.file.relevance ?? 1) * (b.plan.file.worth ?? 1)
+          - (a.plan.file.relevance ?? 1) * (a.plan.file.worth ?? 1) || a.plan.rank - b.plan.rank);
+      for (const { plan, units } of groups) {
+        const selected = merge([...plan.selected, ...units]);
+        const before = section(plan).length, after = section(plan, selected).length;
+        if (spent + after - before <= pool) { plan.selected = selected; spent += after - before; }
+      }
+    }
+    if (!(priority > 1 && priority < 2)) for (const { plan, unit } of tier) change(plan, unit, allowance(plan));
+    for (const { plan, unit } of tier) change(plan, unit, pool);
+    for (const { plan, unit } of tier) if (unit.body && missing(plan.selected, unit).length) {
+      const used = section(plan).length;
+      window(plan, unit, used + Math.min(pool - spent,
+        Math.max(700, Math.min(options.maxCharsPerFile, allowance(plan)) - used)));
+    }
+  }
   let output = prefix + admitted.map(plan => section(plan)).join('');
   const append = (text: string): boolean => {
     if (output.length + text.length > limit) return false;
