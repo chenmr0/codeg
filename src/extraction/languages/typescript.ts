@@ -1,10 +1,40 @@
 import { getNodeText, getChildByField } from '../tree-sitter-helpers';
 import type { LanguageExtractor } from '../tree-sitter-types';
+import type { Node as SyntaxNode } from 'web-tree-sitter';
+
+/** Match upstream #808: callable class fields are methods; other fields are properties. */
+export function classifyTsClassMember(node: SyntaxNode): 'method' | 'property' {
+  if (node.type !== 'public_field_definition' && node.type !== 'field_definition') {
+    return 'method'; // method_definition, getters/setters — untouched
+  }
+  for (let i = 0; i < node.namedChildCount; i++) {
+    const child = node.namedChild(i);
+    if (!child) continue;
+    if (child.type === 'arrow_function' || child.type === 'function_expression') {
+      return 'method';
+    }
+    if (child.type === 'call_expression') {
+      const args = getChildByField(child, 'arguments');
+      if (args) {
+        for (let j = 0; j < args.namedChildCount; j++) {
+          const arg = args.namedChild(j);
+          if (arg && (arg.type === 'arrow_function' || arg.type === 'function_expression')) {
+            return 'method';
+          }
+        }
+      }
+    }
+  }
+  return 'property';
+}
+
 
 export const typescriptExtractor: LanguageExtractor = {
   functionTypes: ['function_declaration', 'arrow_function', 'function_expression'],
   classTypes: ['class_declaration', 'abstract_class_declaration'],
-  methodTypes: ['method_definition', 'public_field_definition'],
+  methodTypes: ['method_definition', 'public_field_definition', 'method_signature'],
+  classifyMethodNode: classifyTsClassMember,
+  propertyTypes: ['property_signature'],
   interfaceTypes: ['interface_declaration'],
   structTypes: [],
   enumTypes: ['enum_declaration'],

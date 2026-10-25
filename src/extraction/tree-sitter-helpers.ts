@@ -52,11 +52,25 @@ export function getChildByField(node: SyntaxNode, fieldName: string): SyntaxNode
   return node.childForFieldName(fieldName);
 }
 
+// Declaration wrappers place leading comments beside the wrapper (upstream #780).
+const DOCSTRING_WRAPPER_TYPES = new Set([
+  'export_statement', // JS/TS: export class/function/const ...
+  'decorated_definition', // Python: @decorator over def/class
+  'lexical_declaration', // JS/TS: const/let x = () => {}
+  'variable_declaration', // JS/TS: var x = ...
+  'variable_declarator', // JS/TS: the `x = () => {}` inside the declaration
+  'ambient_declaration', // TS: declare ...
+]);
+
 /**
  * Get the docstring/comment preceding a node
  */
 export function getPrecedingDocstring(node: SyntaxNode, source: string): string | undefined {
-  let sibling = node.previousNamedSibling;
+  let anchor = node;
+  while (anchor.parent && DOCSTRING_WRAPPER_TYPES.has(anchor.parent.type)) {
+    anchor = anchor.parent;
+  }
+  let sibling = anchor.previousNamedSibling;
   const comments: string[] = [];
 
   while (sibling) {

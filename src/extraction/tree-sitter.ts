@@ -52,6 +52,8 @@ import { cppIdentityTokens, isCppIdentityIdentifier } from './c-cpp-macro-types'
 // Re-export for backward compatibility
 export { generateNodeId } from './tree-sitter-helpers';
 
+const TS_JS_LANGUAGES = new Set<Language>(['typescript', 'javascript', 'tsx', 'jsx']);
+
 interface CppDeclaredTypeName {
   name: string;
   qualifiedName?: string;
@@ -2536,9 +2538,28 @@ export class TreeSitterExtractor {
       skipChildren = true;
     }
     // Check for method declarations (only if not already handled by functionTypes)
-    else if (this.extractor.methodTypes.includes(nodeType)) {
-      this.extractMethod(node);
-      skipChildren = true; // extractMethod visits children via visitFunctionBody
+    else if (
+      this.extractor.methodTypes.includes(nodeType)
+      && (!TS_JS_LANGUAGES.has(this.language) || nodeType !== 'method_signature' || this.isInsideClassLikeNode())
+    ) {
+      // Upstream #808/#1638: a grammar's class field is not necessarily callable.
+      // Unimplemented hooks keep all other language paths, including C/C++, unchanged.
+      const methodClass = this.extractor.classifyMethodNode?.(node) ?? 'method';
+      if (methodClass === 'skip') {
+        // Let initializers contribute relationships through the ordinary children walk.
+      } else if (methodClass === 'property') {
+        const property = this.extractProperty(node);
+        const value = getChildByField(node, 'value');
+        if (property && value) {
+          this.nodeStack.push(property.id);
+          this.visitFunctionBody(value, '');
+          this.nodeStack.pop();
+        }
+        skipChildren = true;
+      } else {
+        this.extractMethod(node);
+        skipChildren = true;
+      }
     }
     // C++ explicit template instantiations (`template class Box<int>;`) use a
     // dedicated wrapper whose body-less type child is not a forward declaration.
@@ -2947,22 +2968,8 @@ export class TreeSitterExtractor {
     else if (nodeType === 'impl_item') {
       this.extractRustImplItem(node);
     }
-    // TypeScript interface members: property_signature (`foo: T`, `foo?: T`)
-    // and method_signature (`foo(arg: A): R`) both carry type annotations the
-    // interface walker would otherwise drop. Extract them as `references`
-    // edges from the interface so resolvers can wire callers/impact for
-    // types that only appear in interface members.
-    else if (
-      (nodeType === 'property_signature' || nodeType === 'method_signature') &&
-      this.isInsideClassLikeNode() &&
-      this.TYPE_ANNOTATION_LANGUAGES.has(this.language)
-    ) {
-      const parentId = this.nodeStack[this.nodeStack.length - 1];
-      if (parentId) {
-        this.extractTypeAnnotations(node, parentId);
-      }
-      // don't skipChildren — nested signatures still need traversal
-    }
+    // TS interface members now enter through methodTypes/propertyTypes.
+    // Their symbol extractors own the type-annotation references (upstream #1638).
     // C/C++ global variable reference tracking. Identifiers matching the
     // `g_xxx` naming convention inside a function/method body are collected
     // as `references` edges so codegraph_callers/codegraph_impact can answer
@@ -4362,8 +4369,8 @@ export class TreeSitterExtractor {
    * Extract a class property declaration (e.g. C# `public string Name { get; set; }`).
    * Extracts as 'property' kind node inside the owning class.
    */
-  private extractProperty(node: SyntaxNode): void {
-    if (!this.extractor) return;
+  private extractProperty(node: SyntaxNode): Node | null {
+    if (!this.extractor) return null;
 
     const docstring = getPrecedingDocstring(node, this.source);
     const visibility = this.extractor.getVisibility?.(node);
@@ -4372,17 +4379,22 @@ export class TreeSitterExtractor {
     const hookName = this.extractor.extractPropertyName?.(node, this.source);
     const nameNode = hookName
       ? null
-      : getChildByField(node, 'name') || node.namedChildren.find(c => c.type === 'identifier');
+      : getChildByField(node, 'name') || getChildByField(node, 'property') || node.namedChildren.find(c => c.type === 'identifier');
     const name = hookName ?? (nameNode ? getNodeText(nameNode, this.source) : null);
-    if (!name) return;
+    if (!name) return null;
 
-    // Get property type from the type child (first named child that isn't modifier or identifier)
-    const typeNode = node.namedChildren.find(
-      c => c.type !== 'modifier' && c.type !== 'modifiers'
-        && c.type !== 'identifier' && c.type !== 'accessor_list'
-        && c.type !== 'accessors' && c.type !== 'equals_value_clause'
-    );
-    const typeText = typeNode ? getNodeText(typeNode, this.source) : undefined;
+    // TS/JS fields and interface signatures expose the type field explicitly.
+    // The generic scan can mistake a property_identifier or initializer for its type.
+    const isTsJsField = node.type === 'public_field_definition' || node.type === 'field_definition'
+      || node.type === 'property_signature';
+    const typeNode = isTsJsField
+      ? getChildByField(node, 'type')
+      : node.namedChildren.find(
+          c => c.type !== 'modifier' && c.type !== 'modifiers'
+            && c.type !== 'identifier' && c.type !== 'accessor_list'
+            && c.type !== 'accessors' && c.type !== 'equals_value_clause'
+        );
+    const typeText = typeNode ? getNodeText(typeNode, this.source).replace(/^:\s*/, '') : undefined;
     const signature = typeText ? `${typeText} ${name}` : name;
 
     const propNode = this.createNode('property', name, node, {
@@ -4401,6 +4413,7 @@ export class TreeSitterExtractor {
       // `type_annotation` children; the C# branch walks the `type` field.
       this.extractTypeAnnotations(node, propNode.id);
     }
+    return propNode;
   }
 
   /**
@@ -6624,6 +6637,33 @@ export class TreeSitterExtractor {
               } else {
                 calleeName = methodName;
               }
+            } else if (
+              TS_JS_LANGUAGES.has(this.language) &&
+              receiver?.type === 'member_expression' &&
+              getChildByField(receiver, 'object')?.type === 'this' &&
+              ['property_identifier', 'private_property_identifier'].includes(
+                getChildByField(receiver, 'property')?.type ?? '',
+              )
+            ) {
+              // Upstream #1496/#1987: retain the field receiver. Bare-name
+              // fallback can turn delegation into a fabricated self-call.
+              const fieldName = getNodeText(getChildByField(receiver, 'property')!, this.source);
+              calleeName = 'this.' + fieldName + '.' + methodName;
+            } else if (
+              this.language === 'go' &&
+              receiver &&
+              receiver.type === 'selector_expression' &&
+              /^[A-Za-z_]\w*\.[A-Za-z_]\w*$/.test(getNodeText(receiver, this.source).replace(/\s+/g, ''))
+            ) {
+              // Go 2-hop field chain `target.conn.Exec(...)`: keep the
+              // receiver chain so resolution can infer `conn`'s declared type
+              // from the Target struct. Previously this emitted the bare
+              // method name, and when the field's type is EXTERNAL (sql.DB)
+              // the bare name exact-matched an unrelated same-named local
+              // method — a fabricated internal dependency (#1276). Chained
+              // Go receivers resolve strictly via validated field-hop
+              // inference (see matchGoFieldChainCall) or stay unresolved.
+              calleeName = `${getNodeText(receiver, this.source).replace(/\s+/g, '')}.${methodName}`;
             } else if (
               (this.language === 'cpp' ||
                 this.language === 'c' ||

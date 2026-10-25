@@ -1,0 +1,447 @@
+{
+  "tests": {
+    "native": {
+      "files": 33,
+      "total": 389,
+      "passed": 389,
+      "failed": 0,
+      "success": true,
+      "log": "logs/native-upstream-release-results.json",
+      "sha256": "012e0f4701ce72f7e579ac112dbfd02856453cca9464b9020c3b293ce6e0a287"
+    },
+    "oracle": {
+      "files": 42,
+      "total": 633,
+      "passed": 633,
+      "failed": 0,
+      "success": true,
+      "log": "logs/oracle-upstream-release-results.json",
+      "sha256": "c158e6fbb4f7bae62cbff00a6107d5391a4662945397d030a27ee978365aec67"
+    },
+    "preservation": {
+      "files": 20,
+      "total": 350,
+      "passed": 350,
+      "failed": 0,
+      "success": true,
+      "log": "logs/preservation-release-results.json",
+      "sha256": "6fb4e5abaaa741b7dae33334e6d2c98a303b2b75abf683e6b73f07d559fbf2cc"
+    }
+  },
+  "old_failures": 10,
+  "old_failures_resolved": 10,
+  "index_failure_assertions": 9,
+  "compatibility_failure_assertions": 1,
+  "fixture_conditions": {
+    "maxFiles": true,
+    "budget": true,
+    "sources": true,
+    "sourceHashes": true,
+    "queries": true,
+    "bodies": true,
+    "languageScope": true
+  },
+  "fixtures": [
+    {
+      "id": "huge-entry-tail",
+      "query": "routeEnvelope validateEnvelope",
+      "chars": 9826,
+      "coverage": [
+        {
+          "name": "routeEnvelope",
+          "path": "dispatcher.ts",
+          "start": 8,
+          "end": 272,
+          "wantedLines": 265,
+          "coveredLines": 85,
+          "complete": false,
+          "explicitOmission": false
+        },
+        {
+          "name": "validateEnvelope",
+          "path": "checks.ts",
+          "start": 1,
+          "end": 11,
+          "wantedLines": 11,
+          "coveredLines": 11,
+          "complete": true,
+          "explicitOmission": null
+        }
+      ],
+      "callSites": {
+        "validateEnvelope": {
+          "line": 270,
+          "shown": false
+        },
+        "persistEnvelope": {
+          "line": 271,
+          "shown": false
+        }
+      },
+      "equal": {
+        "query": true,
+        "maxFiles": true,
+        "budget": true,
+        "result": true,
+        "coverage": true,
+        "gaps": true,
+        "shownLines": true,
+        "callSites": true,
+        "invalidSourceLines": true,
+        "text_bytes": true
+      },
+      "text_sha256": "8ef9ef3e30ccf9585e44ccd984b7095ad8f7e47b190ae474f8ec03999db5539c"
+    },
+    {
+      "id": "small-body-masks-large",
+      "query": "tinyStatus routeEnvelope",
+      "chars": 2402,
+      "coverage": [
+        {
+          "name": "tinyStatus",
+          "path": "dispatcher.ts",
+          "start": 4,
+          "end": 6,
+          "wantedLines": 3,
+          "coveredLines": 3,
+          "complete": true,
+          "explicitOmission": null
+        },
+        {
+          "name": "routeEnvelope",
+          "path": "dispatcher.ts",
+          "start": 8,
+          "end": 272,
+          "wantedLines": 265,
+          "coveredLines": 8,
+          "complete": false,
+          "explicitOmission": false
+        }
+      ],
+      "callSites": {
+        "validateEnvelope": {
+          "line": 270,
+          "shown": true
+        },
+        "persistEnvelope": {
+          "line": 271,
+          "shown": true
+        }
+      },
+      "equal": {
+        "query": true,
+        "maxFiles": true,
+        "budget": true,
+        "result": true,
+        "coverage": true,
+        "gaps": true,
+        "shownLines": true,
+        "callSites": true,
+        "invalidSourceLines": true,
+        "text_bytes": true
+      },
+      "text_sha256": "247794972a6f89f2d0a62c2ecf1d74affe11b7eeef3a9317e6cced5c48a33eb8"
+    },
+    {
+      "id": "cross-file-reservations",
+      "query": "routeEnvelope validateEnvelope persistEnvelope",
+      "chars": 7922,
+      "coverage": [
+        {
+          "name": "routeEnvelope",
+          "path": "dispatcher.ts",
+          "start": 8,
+          "end": 272,
+          "wantedLines": 265,
+          "coveredLines": 65,
+          "complete": false,
+          "explicitOmission": false
+        },
+        {
+          "name": "validateEnvelope",
+          "path": "checks.ts",
+          "start": 1,
+          "end": 11,
+          "wantedLines": 11,
+          "coveredLines": 11,
+          "complete": true,
+          "explicitOmission": null
+        },
+        {
+          "name": "persistEnvelope",
+          "path": "storage.ts",
+          "start": 3,
+          "end": 10,
+          "wantedLines": 8,
+          "coveredLines": 8,
+          "complete": true,
+          "explicitOmission": null
+        }
+      ],
+      "callSites": {
+        "validateEnvelope": {
+          "line": 270,
+          "shown": false
+        },
+        "persistEnvelope": {
+          "line": 271,
+          "shown": false
+        }
+      },
+      "equal": {
+        "query": true,
+        "maxFiles": true,
+        "budget": true,
+        "result": true,
+        "coverage": true,
+        "gaps": true,
+        "shownLines": true,
+        "callSites": true,
+        "invalidSourceLines": true,
+        "text_bytes": true
+      },
+      "text_sha256": "b66fd8348d61ac4bec3c27956905c07bda32eda72e60003e09a177410637b0b7"
+    },
+    {
+      "id": "large-explicit-range",
+      "query": "dispatcher.ts:8-272",
+      "chars": 14394,
+      "coverage": [
+        {
+          "name": "routeEnvelope",
+          "path": "dispatcher.ts",
+          "start": 8,
+          "end": 272,
+          "wantedLines": 265,
+          "coveredLines": 142,
+          "complete": false,
+          "explicitOmission": false
+        }
+      ],
+      "callSites": {
+        "validateEnvelope": {
+          "line": 270,
+          "shown": false
+        },
+        "persistEnvelope": {
+          "line": 271,
+          "shown": false
+        }
+      },
+      "equal": {
+        "query": true,
+        "maxFiles": true,
+        "budget": true,
+        "result": true,
+        "coverage": true,
+        "gaps": true,
+        "shownLines": true,
+        "callSites": true,
+        "invalidSourceLines": true,
+        "text_bytes": true
+      },
+      "text_sha256": "95558357048d5741519866b09469162b79f8d146baa048581c2a9ed4e29959e8"
+    }
+  ],
+  "oceanbase_conditions": {
+    "source": true,
+    "budget": true,
+    "options": true,
+    "node": true
+  },
+  "oceanbase": [
+    {
+      "id": "dtl-explicit-range",
+      "query": "src/sql/dtl/ob_dtl_basic_channel.cpp:801-891",
+      "chars": 24746,
+      "equal": {
+        "id": true,
+        "area": true,
+        "query": true,
+        "maxFiles": true,
+        "chars": true,
+        "sha256": true,
+        "result": true,
+        "text_bytes": true
+      },
+      "text_sha256": "48d5ccc2982f4fd867b3dfe5045c0048d60d83896ccb8cb61611e544b7aa13b1"
+    },
+    {
+      "id": "dtl-methods",
+      "query": "ObDtlBasicChannel wait_unblocking ObDtlFlowControl need_block can_unblock",
+      "chars": 24980,
+      "equal": {
+        "id": true,
+        "area": true,
+        "query": true,
+        "maxFiles": true,
+        "chars": true,
+        "sha256": true,
+        "result": true,
+        "text_bytes": true
+      },
+      "text_sha256": "0c3aeb263283f34527870a1b79f851aaa11dc35dc04ca64f0aa3e52e93d02a0e"
+    },
+    {
+      "id": "dtl-qualified-member",
+      "query": "ObDtlBasicChannel::wait_unblocking",
+      "chars": 24870,
+      "equal": {
+        "id": true,
+        "area": true,
+        "query": true,
+        "maxFiles": true,
+        "chars": true,
+        "sha256": true,
+        "result": true,
+        "text_bytes": true
+      },
+      "text_sha256": "c823f4b48bb2e066d08fa556c7520af3dea8c86241067113b978e60f87e4e1c1"
+    },
+    {
+      "id": "dtl-seed-bag",
+      "query": "ObDtlBasicChannel ObDtlFlowControl ObPxTransmitOp DTL_BLOCKING_TIME",
+      "chars": 24930,
+      "equal": {
+        "id": true,
+        "area": true,
+        "query": true,
+        "maxFiles": true,
+        "chars": true,
+        "sha256": true,
+        "result": true,
+        "text_bytes": true
+      },
+      "text_sha256": "b932d5ab71b9677232fc3d3397c3055dbd9cb774ee4c739fab540f6b09c9b708"
+    },
+    {
+      "id": "ttl-explicit-range",
+      "query": "src/observer/table/ttl/ob_table_ttl_task.cpp:1075-1209",
+      "chars": 24749,
+      "equal": {
+        "id": true,
+        "area": true,
+        "query": true,
+        "maxFiles": true,
+        "chars": true,
+        "sha256": true,
+        "result": true,
+        "text_bytes": true
+      },
+      "text_sha256": "e06ce711c8b205063fcf8dff706f773666ed8487aa6509a24b4820ff96e2d77b"
+    },
+    {
+      "id": "ttl-mixed-bag",
+      "query": "kv_ttl_delete_max_ops ObTableTTLDeleteTask ttl_thread_score TTL delete task limit rate",
+      "chars": 24952,
+      "equal": {
+        "id": true,
+        "area": true,
+        "query": true,
+        "maxFiles": true,
+        "chars": true,
+        "sha256": true,
+        "result": true,
+        "text_bytes": true
+      },
+      "text_sha256": "4ec0e24e5206e9b8ca365953d714a04664752097dbd2592eb594a80a40dccb51"
+    },
+    {
+      "id": "ttl-qualified-member",
+      "query": "ObTableTTLDeleteTask::execute_ttl_delete",
+      "chars": 23411,
+      "equal": {
+        "id": true,
+        "area": true,
+        "query": true,
+        "maxFiles": true,
+        "chars": true,
+        "sha256": true,
+        "result": true,
+        "text_bytes": true
+      },
+      "text_sha256": "6ac3b6d0ab29bdceaa8b9bde32f62b9e2cd8ec7a8098acbad93949a119cffcad"
+    },
+    {
+      "id": "ttl-seed-bag",
+      "query": "ObTableTTLDeleteTask kv_ttl_delete_max_ops ttl_thread_score",
+      "chars": 24975,
+      "equal": {
+        "id": true,
+        "area": true,
+        "query": true,
+        "maxFiles": true,
+        "chars": true,
+        "sha256": true,
+        "result": true,
+        "text_bytes": true
+      },
+      "text_sha256": "4bc703eb7115e48b321529209a336fccf66384d65d5a12f04d854d62a7b892cc"
+    },
+    {
+      "id": "ttl-task-methods",
+      "query": "ObTableTTLDeleteTask process process_one execute_ttl_delete",
+      "chars": 24921,
+      "equal": {
+        "id": true,
+        "area": true,
+        "query": true,
+        "maxFiles": true,
+        "chars": true,
+        "sha256": true,
+        "result": true,
+        "text_bytes": true
+      },
+      "text_sha256": "b7919d9e496527121692d8dc2c49c17f063166d0ff20d07049f71439f9cfb04e"
+    },
+    {
+      "id": "ttl-task-single",
+      "query": "ObTableTTLDeleteTask",
+      "chars": 24855,
+      "equal": {
+        "id": true,
+        "area": true,
+        "query": true,
+        "maxFiles": true,
+        "chars": true,
+        "sha256": true,
+        "result": true,
+        "text_bytes": true
+      },
+      "text_sha256": "b3bbeb1fac85191405d58f19fa1b1e78d224a9016071abd46c578d0127514619"
+    },
+    {
+      "id": "ttl-throttler-methods",
+      "query": "ObTTLDeleteRateThrottler init check_and_try_throttle calculate_wait_time need_commit_trans_early",
+      "chars": 24940,
+      "equal": {
+        "id": true,
+        "area": true,
+        "query": true,
+        "maxFiles": true,
+        "chars": true,
+        "sha256": true,
+        "result": true,
+        "text_bytes": true
+      },
+      "text_sha256": "77f24c7dc343e3c4977c0135a47218278f2cf66ef77f3572760af350b5a3807d"
+    },
+    {
+      "id": "ttl-throttler-single",
+      "query": "ObTTLDeleteRateThrottler",
+      "chars": 24979,
+      "equal": {
+        "id": true,
+        "area": true,
+        "query": true,
+        "maxFiles": true,
+        "chars": true,
+        "sha256": true,
+        "result": true,
+        "text_bytes": true
+      },
+      "text_sha256": "8373936cfa5006f6e34f5ade33a1f7896b2b2de593c3b9f37e954726421ef2d7"
+    }
+  ],
+  "model_runs": 0
+}

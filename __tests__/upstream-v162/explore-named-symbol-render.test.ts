@@ -35,6 +35,7 @@ import * as path from 'path';
 import * as os from 'os';
 import CodeGraph from './oracle-index';
 import { ToolHandler } from './tool-handler';
+import { setGeneratedFixtureFlag, restoreGeneratedFixtureFlags } from './generated-fixture-control';
 
 const FIXTURE = 'tail-render-ts';
 const TARGET = 'src/lib/session-store.ts';
@@ -173,15 +174,15 @@ describe('CG-38 — a penalty on one file cannot shrink an unrelated file\'s ren
 
   it('renders the same named definitions with the .d.ts flagged and unflagged', async () => {
     const setGenerated = (value: number) => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const db = (cg as any).db?.getDatabase?.() ?? (cg as any).db?.db;
-      db.prepare('UPDATE files SET generated = ? WHERE path = ?').run(value, DTS);
+      setGeneratedFixtureFlag(cg, DTS, value);
     };
     const linesFor = async () => renderedLines(await explore(QUERY));
 
+    expect(cg.generatedFilePredicate([DTS])(DTS)).toBe(true);
     const flagged = await linesFor();
     setGenerated(0);
     try {
+      expect(cg.generatedFilePredicate([DTS])(DTS)).toBe(false);
       const unflagged = await linesFor();
       for (const name of ['queueMessage', 'flushQueuedMessages']) {
         const line = defLineOf(name);
@@ -193,7 +194,12 @@ describe('CG-38 — a penalty on one file cannot shrink an unrelated file\'s ren
       // top-ranked file the source the agent asked for.
       expect(unflagged.size).toBeGreaterThan(0);
     } finally {
-      setGenerated(1);
+      try {
+        setGenerated(1);
+        expect(cg.generatedFilePredicate([DTS])(DTS)).toBe(true);
+      } finally {
+        restoreGeneratedFixtureFlags();
+      }
     }
   }, 180_000);
 });

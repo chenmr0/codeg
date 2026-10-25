@@ -1,0 +1,128 @@
+本阶段提交与原生索引 10 条失败修复报告
+日期：2026-10-25。仅工具级验证；模型调用为 0。
+
+已先完成上一阶段提交，再在新的独立 worktree 修复。原来的 10 条失败均已通过：9 条失败断言来自真实索引缺陷，1 条来自测试对官方数据库 schema 的直接依赖。9 条失败断言不等于 9 个互不相关的根因。全量原生 Explore 回归另外暴露了一处 TS 字段调用误连自身的问题，也已修复。未修改 Explore 选区、排序、预算，未叠加旧 P3 优化。
+
+1. 提交、工作区与固定基准
+
+提交：ab3e1ed4573a1f9eacb7f03aa0d614ee765eeeaa
+提交主题：移植：在独立候选中完整接入官方 v1.6.2 Explore 并完成同图差分验收
+完整中文提交说明：../checkpoint-message.txt
+检查点分支：codex/explore-upstream-parity-checkpoint-20261025
+后续修复分支：codex/explore-native-index-fixes-20261025
+独立工作区：../candidate
+官方 v1.6.2 固定修订：6560052a6f856855d3f71eee838fd66ccfa4285d
+
+该提交冻结上一阶段的完整移植、依赖模块、测试和验收证据，包括当时尚未解决的 10 条失败。后续索引修复保留在上述独立工作区，尚未做第二次提交；完整补丁为 ../fixes.patch。主工作区 HEAD 与暂存区没有变化，也没有推送或合并。上一阶段 candidate 及所有旧日志均保留。
+
+2. 原 10 条失败逐项归因与处理
+
+编号与 FAILURE_MAPPING.json 一致；该文件保留原断言全文、旧失败堆栈和最终通过状态。
+
+1）explore-allocation-1500 / payroll workflow chain
+类别：索引缺陷。Go h.svc.RunCycle 的字段链在抽取时丢失，错误落入同名方法匹配，形成 handler 自调用，未连到 usecase。
+处理：保留两级字段接收者；依据实际声明、字段类型和 import 包目录确定目标。未知、冲突、重绑定、失效作用域证据均不猜测。最终通过。
+
+2）explore-allocation-e2e / CG-21 delivers target WHOLE
+3）explore-allocation-e2e / spends more than reservation
+4）explore-allocation-e2e / no admitted file under reservation
+类别：同一组索引缺陷引出的三个预算表现。TS export 等包装节点外的文档注释没有附着到符号，且普通属性被误标为 method，相关性和分配输入与官方不同，ETag 文件仅输出 521 字符。此问题不应通过扩大预算或修改选区断言解决。
+处理：沿明确的 export/declare/变量/装饰包装节点查找前置注释，保留原注释清理规则，并纠正属性 kind。原有三个选区与预算断言全部通过。
+
+5）explore-declaration-only / CG-28 interface method/property nodes
+类别：索引缺陷。TS interface method_signature / property_signature 缺失。
+处理：补齐接口成员抽取；普通类字段标为 property，函数值字段保留 method；阻止匿名类型字面量的方法误变成顶层函数。最终通过。
+
+6）explore-displacement-guard / fixture admits types.ts
+7）explore-displacement-guard / CG-31 admitted lower files delivered
+类别：接口成员与文档信息缺失导致的召回/预算表现。这些索引差异改变 types.ts 的候选地位和后续交付。
+处理：同上述成员及文档抽取修复；没有改文件排序、预留预算或断言。两条均通过。
+
+8）explore-empty-diagnostics / docstring-only match
+类别：索引缺陷。export 包装外的注释丢失，无法辨认仅在文档注释中的词法命中。
+处理：同前置注释附着修复。最终通过。
+
+9）explore-named-symbol-render / CG-38 generated flag flip
+类别：测试兼容问题。测试直接执行 UPDATE files SET generated，但原生库不持久化这一列，而由已有适配层检测源文件；原失败为 no such column: generated。
+处理：官方测试路径保持原 SQL；原生测试路径仅对指定 fixture 文件的 detectGeneratedFile 输入做可恢复替身，按 true→false→true 验证切换。原有正文、命名定义与无关文件不受罚的断言保留，并确保 finally 恢复。未修改生产数据库 schema，也未通过改源码来改变 fixture 图。最终通过。
+
+10）explore-synth-constant-endpoints / RTK thunk→thunk dispatch
+类别：索引缺陷。原生合成缺少 thunk 调用关系，constant→constant 动态派发区段无依据可显示。
+处理：增加 Redux thunk 合成；使用 TS/JS AST 确认实际 dispatch 调用、payload 绑定及本文件/import 目标，限制每个候选和目标的语言。排除注释、字符串、正则、模板字面量、同名遮蔽、赋值和 API.dispatch 重绑定造成的假边。保留分块写入、内存准入、恢复清理。最终通过。
+
+补充的测试兼容调整：object-literal-methods.test.ts 原来只按 fetchUser 名字选第一个节点。接口成员补齐后，该选择可能命中接口签名。现在明确选择 kind=function 的 action 节点，保留调用边断言，并增加接口 method 节点存在断言；不削弱生产行为验证。
+
+3. 全量回归另外发现的 CG-36 问题
+
+初轮原生回归已解决原 10 条失败，但 explore-cluster-starvation 新出现一个失败：未交付 async proceed(request: PipelineRequest)。中间 388/389 的失败日志原样保留。
+
+对同一图逐项替换证据发现：
+- 原生输出 13,114 字符，未包含 proceed；官方 13,665 字符，包含 proceed。
+- 只替换 imports 或 docstrings，不恢复 proceed。
+- 只删除 trace?.write 的额外边，输出 13,113 字符，仍不恢复 proceed。
+- 将 RequestChain.close → RequestChain.close 的错误自环纠正为 Socket.close，输出 13,666 字符并恢复 proceed。
+
+因此修复的是 TS/JS this.field.method 的解析证据：抽取时保留字段链，解析时依据实际 property、构造参数属性、显式 new 初始化及已有 import 解析。无 import 的简单名和点分限定名均限制在本文件；未知、外部或歧义类型不退回裸方法名全仓猜测。直接 this.method() 的真实递归仍保留。
+
+证据：../differential/cg36-causal-summary.json、../differential/cg36-calls-causal-summary.json。
+新增字段绑定正反例 10/10；最终 CG-36 所在测试文件 9/9。此处数字为工具输出字符，不是 token。
+
+4. 最终验证结果
+
+构建：../logs/build-final-03.json，npm run build，退出码 0。
+
+验证范围                         文件数   通过/总数    失败
+原生索引 + 已移植 Explore          33       389/389     0
+官方 oracle 图 + 移植/依赖回归      42       633/633     0
+C/C++、批量工具及新增边界回归       20       350/350     0
+
+原生 389 条保持上一阶段相同范围，沿用对 dependency-* 的排除；官方路径覆盖这些官方依赖测试。不能把 633 条全部描述为原生索引通过。三套计数有覆盖交叠，不合并成唯一测试总数。机器可读结果与 SHA-256 位于 REGRESSION_COMPARISON.json；完整日志均在 ../logs，初次失败及中间诊断未删除。
+
+保留性回归包含 C++ 声明/定义、重载、签名、命名空间、宏身份、结构体/枚举/字段，以及 batch context、node 文件视图、工具暴露与指引、原生适配、升级行为、TS/JS/Go/RTK 正反例。
+
+5. 同条件工具级差分
+
+四个通用大函数/跨文件场景：两边相同源码哈希、query、maxFiles=3、语言范围及全部预算配置。目标预算 13,000 字符，每文件普通额度 3,800，沿用官方硬上限 19,500，不自行压成 13,000。以下大函数主体总计 265 行；比较的不仅是计数，还包括返回结果、源码逐行覆盖、调用点、缺口记录和 .txt 文件字节。
+
+场景                    官方 v1.6.2       当前候选          正文差分
+大函数 + 调用目标         85 行 / 9,826    85 行 / 9,826      字节相同
+同文件小函数 + 大函数      8 行 / 2,402     8 行 / 2,402       字节相同
+跨文件调用与短机制        65 行 / 7,922    65 行 / 7,922      字节相同
+明确指定大范围           142 行 / 14,394  142 行 / 14,394     字节相同
+
+完整移植已经把这四项能力差异归零；本轮索引修复保持这一结果。相同不代表大函数全部交付：四项仍分别只覆盖 85/8/65/142 行；大函数+调用目标、跨文件、明确范围三项仍未输出位于尾部的两个调用点。小函数+大函数场景含两个调用点但大函数仅 8 行。这些是保留官方策略后共同存在的输出边界，未为测例叠加 P3 优化。
+
+OceanBase：TTL 与 DTL 共 12 条固定查询，使用上一阶段冻结的索引和相同输入，maxFiles=12，目标预算 24,000、硬上限 25,000、行号开启、去重关闭。当前候选与上一阶段候选的 12 个返回正文、字符数及 SHA-256 全部相同。它证明查询管线没有回退；不是重建索引后的效果测试，也不是新一轮与官方 OceanBase 图的效果排名。
+
+工具回放记录：../fixture-results-final-02、../fixture-results-final/community-*、../results-oceanbase-final-02。
+上述工具回放使用 build-final-02；随后收紧 TS 字段类型绑定并完成 build-final-03。为避免将索引阶段改动混入回放结论，对冻结图读取实际使用的 329 个查询/宿主/数据库运行文件逐一核验，最终构建与回放时完全相同（../verification-final.json）。最终原生全量和字段边界测试则在最终源代码上重新运行。OceanBase 没有重新抽取，因此并未声称整个索引运行时未变化。
+
+6. 改动范围、升级与仍存边界
+
+生产变更仅 8 个文件：
+- src/extraction/extraction-version.ts
+- src/extraction/tree-sitter-helpers.ts
+- src/extraction/tree-sitter-types.ts
+- src/extraction/tree-sitter.ts
+- src/extraction/languages/typescript.ts
+- src/extraction/languages/javascript.ts
+- src/resolution/name-matcher.ts
+- src/resolution/callback-synthesizer.ts
+
+src/upstream-explore、src/mcp、src/db 与上一阶段候选逐字节一致。没有调整 Explore 预算和排序，没有为 TTL/DTL 写特判。C/C++ 专属增强保留；共用抽取/解析文件的变化通过语言和证据分支隔离，并用 C/C++ 回归验证。
+
+提取版本从 37 升为 38。已有库即使源码哈希没变，也需要使用新构建显式运行 codegraph index（API 为 indexAll），并重启长期运行的 MCP/daemon/worker；普通 sync 不会宣称完成此升级。升级测试先模拟旧文档/成员/RTK 边，再确认 sync 保留旧状态、indexAll 重新提取并写入新版本，源文件哈希保持不变。合成版本保持 1，因为它代表持久化完成协议；不通过改它触发普通 sync 中无关的全量 C++ 合成。
+
+尚未扩展的边界：
+- OceanBase 冻结图仍使用旧提取版本，本轮不据此推断新索引质量。上阶段原生图与官方图的差异没有自动消失。
+- 现有边唯一键不包含 provenance；同坐标 raw 边先入库时，heuristic 标签不会追加，关系仍在。此次失败没有该冲突；未改数据库边身份。诊断见 ../logs/rtk-provenance-identity-diagnostic.json。
+- CG-36 中 trace?.write 的额外边及部分 imports 目标差异仍保留；实验证实它们不是该遗漏的原因。
+- 现有 TS namespace 抽取会扁平化名称；新增点分类型测试覆盖解析层明确给出的限定节点，不宣称已补齐端到端 namespace 抽取。
+- 对无法证明的动态/重绑定/外部字段目标保守地不补边，避免全仓同名猜测。
+- Rust/hybrid 原生扫描只负责文件发现/stat，不负责此次 AST/调用关系解析；未修改它，也未执行 native-on 二进制验证。
+
+7. 归档与完整性
+
+../verification-final.json 已确认：主工作区及历史受保护文件 12,737 个无变化；上一候选 1,680 个文件及旧证据 604 个文件无变化；主 HEAD 和 Git index 无变化；329 个冻结图查询运行文件无变化。最终 src/dist/__tests__ 的 1,682 个文件指纹在 ../candidate-final-hashes.json。
+
+本报告、差分汇总及最终证据索引的哈希另存 FINAL_EVIDENCE_HASHES.json。没有运行 Claude 或任何模型实验，因此没有新的 token、模型轮次或定位质量评分，也不能从字符覆盖直接推出这些指标改善。

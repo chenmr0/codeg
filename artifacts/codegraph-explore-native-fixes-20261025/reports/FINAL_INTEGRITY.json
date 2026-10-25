@@ -1,0 +1,17 @@
+{
+  "changes": {
+    "primary": [],
+    "old_candidate": [],
+    "old_evidence": [],
+    "final_candidate": [],
+    "query_runtime": []
+  },
+  "primary_head_unchanged": true,
+  "primary_index_unchanged": true,
+  "candidate_head": "ab3e1ed4573a1f9eacb7f03aa0d614ee765eeeaa",
+  "candidate_branch": "codex/explore-native-index-fixes-20261025",
+  "checkpoint_head_matches": true,
+  "candidate_files_verified": 1682,
+  "query_runtime_files_verified": 329,
+  "model_runs": 0
+}
