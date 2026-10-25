@@ -23,6 +23,6 @@
  * turns the re-index hint into noise — keep it honest (see CLAUDE.md, "Honesty
  * in the product is load-bearing").
  */
-// v38: recover exported JS/TS docs and typed members; preserve Go receiver
-// field chains and synthesize RTK dispatch edges. Existing indexes need reindexing.
-export const EXTRACTION_VERSION = 38;
+// v40: source-validated C++ namespace ranges must preserve receiver owners
+// when parser recovery drops an outer namespace prefix. Reindex to repair IDs.
+export const EXTRACTION_VERSION = 40;

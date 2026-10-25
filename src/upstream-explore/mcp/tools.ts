@@ -17,6 +17,7 @@ import { ExploreDiagnostics } from './explore-diagnostics';
 import { EXPLORE_EMISSION_KEY, EXPLORE_SESSION_VIEW_ARG, ExploreSessionState, readExploreSessionView, viewForProject, type ExploreEmission, type ExploreFileEmission, type ExploreLineRange } from './explore-session-state';
 import { EXPLORE_DEDUP, dedupeRange, exploreDedupEnabled, fileFingerprint, formatBackReference, mergeRanges, servedRangesForFile, symbolsInSpans } from './explore-dedup';
 import { indexedHashInput } from '../file-limits';
+import { CppTargetIdentity, cppIdentityRankingView } from './cpp-target-identity';
 
 
 
@@ -2074,6 +2075,17 @@ export class ToolHandler {
       return owned;
     };
 
+    // Keep the native graph intact; only target identity/weight is canonical.
+    // Full-graph bridge lookup avoids treating a declaration as unambiguous
+    // merely because another definition fell outside this BFS gather.
+    const cppTargets = new CppTargetIdentity(cg, pinnedSet);
+    const logicalRoots = new Set<string>();
+    for (const rootId of subgraph.roots) {
+      const root = subgraph.nodes.get(rootId);
+      const target = root ? cppTargets.canonical(root) : undefined;
+      logicalRoots.add(target?.id ?? rootId);
+      if (target && !subgraph.nodes.has(target.id)) subgraph.nodes.set(target.id, target);
+    }
     const namedSeedIds = new Set<string>();
     // The subset of named seeds that earns the named-FIRST sort tier. We still
     // SEED every ≤3-def name (so RWR / flow ranking is unchanged), but only the
@@ -2221,6 +2233,13 @@ export class ToolHandler {
         if (!isPreciseToken(t)) {
           cands = cands.filter((n) => coNamedInFile(t, n.filePath));
         }
+        // Preserve lexical corroboration at the declaration's original file,
+        // then count its proven definition once. Otherwise two overloads plus
+        // two prototypes trip the >3-candidate fallback as four targets.
+        if (cands.some(n => cppTargets.canonical(n).id !== n.id)) {
+          cands = cppTargets.unique(cands)
+            .sort((a, b) => (bodyLines(b) > 1 ? 1 : 0) - (bodyLines(a) > 1 ? 1 : 0) || bodyLines(b) - bodyLines(a));
+        }
         // A specific name (<=3 defs) injects all its defs. An overloaded name
         // (`validate` = 10, `request` = 44) would flood the subgraph, so inject
         // only: the overloads whose file/class the query ALSO names (the agent
@@ -2281,11 +2300,13 @@ export class ToolHandler {
     // `peripheral` accumulates separately so it can be capped — see
     // PERIPHERAL_SCORE_CAP; it is folded into `score` once the loop is done.
     const fileGroups = new Map<string, { nodes: Node[]; score: number; peripheral: number }>();
-    const entryNodeIds = new Set([...subgraph.roots, ...namedSeedIds]);
+    const cppAliases = cppTargets.aliasesIn(subgraph.nodes);
+    const rankingGraph = cppIdentityRankingView(subgraph.nodes, subgraph.edges, cppAliases);
+    const entryNodeIds = new Set([...logicalRoots, ...namedSeedIds]);
 
     // Build a set of nodes directly connected to entry points (depth 1)
     const connectedToEntry = new Set<string>();
-    for (const edge of subgraph.edges) {
+    for (const edge of rankingGraph.edges) {
       if (entryNodeIds.has(edge.source)) connectedToEntry.add(edge.target);
       if (entryNodeIds.has(edge.target)) connectedToEntry.add(edge.source);
     }
@@ -2363,7 +2384,12 @@ export class ToolHandler {
       const seedNode = subgraph.nodes.get(seedId);
       if (!seedNode || !CALLABLE_KINDS.has(seedNode.kind)) continue;
       let outs: Edge[] = [];
-      try { outs = cg.getOutgoingEdges(seedId); } catch { continue; }
+      try {
+        // A header may carry signature-type evidence absent at the definition.
+        // Preserve it without awarding the declaration another target budget.
+        const signatureIds = [seedId, ...[...cppAliases].filter(([, def]) => def === seedId).map(([decl]) => decl)];
+        outs = signatureIds.flatMap(id => cg.getOutgoingEdges(id));
+      } catch { continue; }
       for (const e of outs) {
         if (!SIG_EDGE.has(e.kind)) continue;
         const tgt = cg.getNode(e.target);
@@ -2396,7 +2422,10 @@ export class ToolHandler {
       // tier says how the symbol reached us, the kind weight says whether the
       // match is evidence. A file whose only claim is an unused local `explore`
       // constant is a name collision, not an answer (#1500).
-      if (namedSeedIds.has(node.id)) {
+      if (cppAliases.has(node.id)) {
+        // Still in group.nodes for header/source association, but the paired
+        // definition already owns this logical callable's relevance weight.
+      } else if (namedSeedIds.has(node.id)) {
         group.score += 50 * relevanceWeight(node, true);
       } else if (entryNodeIds.has(node.id)) {
         group.score += 10 * relevanceWeight(node, true);
@@ -2591,7 +2620,7 @@ export class ToolHandler {
     const nodeRwr = this.computeGraphRelevance(
       // Fall back to the unfiltered seeds when EVERY seed is damped: the walk
       // must not lose its restart vector and return all-uniform.
-      [...subgraph.nodes.keys()], subgraph.edges,
+      rankingGraph.nodeIds, rankingGraph.edges,
       rwrSeedIds.size > 0 ? rwrSeedIds : entryNodeIds,
     );
     //
@@ -2842,6 +2871,14 @@ export class ToolHandler {
     // is synchronous, so the grammars it needs are loaded here, once.
     await warmBranchGuardGrammars();
     const flow = this.buildFlowFromNamedSymbols(cg, matchQuery);
+    // Flow keeps its original narrative and call evidence. Only downstream
+    // source-priority identities are canonicalized; a declaration's call-site
+    // line must never be transplanted onto a different definition file.
+    const logicalFlowIds = (ids: Set<string>) => new Set([...ids].map(id => cppAliases.get(id) ?? id));
+    flow.namedNodeIds = logicalFlowIds(flow.namedNodeIds);
+    flow.uniqueNamedNodeIds = logicalFlowIds(flow.uniqueNamedNodeIds);
+    flow.pathNodeIds = logicalFlowIds(flow.pathNodeIds);
+    for (const id of cppAliases.keys()) flow.spineCallSites.delete(id);
 
     // The symbols the question is about: exact targets, the named ones, the spine.
     const questionIds = new Set([...exactNodeIds, ...flow.pathNodeIds, ...flow.namedNodeIds]);
@@ -2862,7 +2899,8 @@ export class ToolHandler {
       const calls: number[] = [];
       try {
         for (const e of cg.getOutgoingEdges(n.id)) {
-          if (e.target === n.id || !questionIds.has(e.target) || !e.line) continue;
+          // Match the logical callee, but retain this caller's original site.
+          if (e.target === n.id || !questionIds.has(cppAliases.get(e.target) ?? e.target) || !e.line) continue;
           if (e.line > n.startLine && e.line <= n.endLine) calls.push(e.line);
         }
       } catch { /* focus is a nicety; the head window still renders */ }

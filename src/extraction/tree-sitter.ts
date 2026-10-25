@@ -40,6 +40,7 @@ import {
   createMacroTypeHeaderResolver,
   preservesInitializerBoundary,
   type DeclarationMacroCandidate,
+  type DeclarationMacroExpansion,
   type CppMacroDefinition,
 } from './declaration-macros';
 import { isWasmRuntimeCorruptionError } from './wasm-errors';
@@ -997,6 +998,9 @@ export class TreeSitterExtractor {
   private declarationMacroTypeSource: string | null = null;
   private isolatedDeclarationSource: string | null = null;
   private useMacroSemanticIds = false;
+  /** Only callable name tokens proven to come from an expanded invocation. */
+  private recoveredCallableNamespace: ((syntax: SyntaxNode, callableName: string) => string | undefined) | null = null;
+  private recoveredNamespaceAtName: ((startRow: number, startColumn: number, endRow: number, endColumn: number) => string | undefined) | null = null;
   private macroPrimarySyntax = new Map<Node, SyntaxNode>();
   private macroTypeBindings: CppTypeBindings | undefined;
   private cppRecoveredDeclarations = new Set<number>();
@@ -1649,7 +1653,8 @@ export class TreeSitterExtractor {
   }
 
   /** Parse one transformed declaration source with a disposable Parser. */
-  private extractDeclarationRecoverySource(source: string): ExtractionResult & { sourceMemberIds: Set<string> } {
+  private extractDeclarationRecoverySource(source: string, expansion?: DeclarationMacroExpansion,
+    expandedScope?: CCppSourceScope): ExtractionResult & { sourceMemberIds: Set<string> } {
     const parser = createParser(this.language);
     if (!parser) {
       throw new Error(`Failed to create isolated parser for language: ${this.language}`);
@@ -1665,6 +1670,49 @@ export class TreeSitterExtractor {
         parser,
       );
       extractor.useMacroSemanticIds = true;
+      if (this.language === 'cpp' && expansion?.sourceRanges?.length && expandedScope) {
+        const expandedLines = expansion.source.split('\n');
+        const recoveryLines = source.split('\n');
+        const starts = [0];
+        for (let i = 0; i < expansion.source.length; i++) if (expansion.source[i] === '\n') starts.push(i + 1);
+        extractor.recoveredNamespaceAtName = (row, startColumn, endRow, endColumn) => {
+          if (row !== endRow) return undefined;
+          const expandedLine = expandedLines[row], recoveryLine = recoveryLines[row];
+          if (!expandedLine || !recoveryLine) return undefined;
+          // Isolated recovery may prepend namespace shells. Require an exact,
+          // unique source-line embedding before translating its token columns.
+          const shift = recoveryLine.indexOf(expandedLine);
+          if (shift < 0 || recoveryLine.indexOf(expandedLine, shift + 1) >= 0) return undefined;
+          const start = starts[row]! + startColumn - shift;
+          const end = starts[row]! + endColumn - shift;
+          const ranges = expansion.sourceRanges!;
+          let low = 0, high = ranges.length;
+          while (low < high) {
+            const mid = (low + high) >>> 1;
+            if (ranges[mid]!.expandedStart <= start) low = mid + 1;
+            else high = mid;
+          }
+          if (low === 0 || end > ranges[low - 1]!.expandedEnd) return undefined;
+          // Use the full expanded source, not the sparse auxiliary fragment:
+          // it retains original scope AND namespaces introduced by the macro.
+          return expandedScope.namespaceAt(start);
+        };
+        extractor.recoveredCallableNamespace = (syntax, callableName) => {
+          // A declaration can contain several callable declarators. Never
+          // borrow the first one's macro provenance for a different symbol;
+          // same-name ambiguities stay on the existing extraction path.
+          const declarators = syntax.type === 'function_declarator' ? [syntax] : syntax.descendantsOfType('function_declarator');
+          const matching = declarators.filter(fn => cppCallableDeclaratorName(fn, extractor.source) === callableName);
+          if (matching.length !== 1) return undefined;
+          const fn = matching[0];
+          let name = fn && (getChildByField(fn, 'declarator') ?? fn.namedChild(0));
+          while (name && ['pointer_declarator', 'reference_declarator', 'parenthesized_declarator'].includes(name.type)) {
+            name = getChildByField(name, 'declarator') ?? name.namedChild(0);
+          }
+          return name ? extractor.recoveredNamespaceAtName!(name.startPosition.row, name.startPosition.column,
+            name.endPosition.row, name.endPosition.column) : undefined;
+        };
+      }
       return { ...extractor.extract(), sourceMemberIds: extractor.macroSourceMemberIds };
     } finally {
       parser.delete();
@@ -2073,7 +2121,15 @@ export class TreeSitterExtractor {
         || this.cppSourceScope().isDirective(match.index)) continue;
       const { name, receiverType } = parsed;
       const line = lineForOffset(match.index);
-      const qualifiedName = `${this.qualifyCppReceiver(receiverType, line)}::${name}`;
+      // A generated definition can be rescued textually after its AST node
+      // was lost. Its qualified name token needs the same exact macro-origin
+      // proof as an AST-produced callable, before creating its semantic ID.
+      const qualifiedStart = match.index + match[0].lastIndexOf(match[2]!);
+      const qualifiedEnd = qualifiedStart + match[2]!.length;
+      const startRow = lineForOffset(qualifiedStart) - 1, endRow = lineForOffset(qualifiedEnd) - 1;
+      const recoveredNamespace = this.recoveredNamespaceAtName?.(startRow,
+        qualifiedStart - lineStarts[startRow]!, endRow, qualifiedEnd - lineStarts[endRow]!);
+      const qualifiedName = `${this.qualifyCppReceiver(receiverType, line, 0, recoveredNamespace)}::${name}`;
       const lineStart = lineStarts[line - 1]!;
       const column = match.index - lineStart;
       if (this.nodes.some(node =>
@@ -2153,9 +2209,10 @@ export class TreeSitterExtractor {
     // A one-shot Parser is never shared with the worker's long-lived parser.
     const auxiliaryParseStarted = performance.now();
     const declarationSource = new CCppSourceScope(recoverySource).maskExecutableBodies(recoverySource, expanded.invocationLines);
-    const recovered = this.extractDeclarationRecoverySource(declarationSource);
+    const expandedNamespaceScope = this.language === 'cpp' ? new CCppSourceScope(expanded.source) : undefined;
+    const recovered = this.extractDeclarationRecoverySource(declarationSource, expanded, expandedNamespaceScope);
     if (this.isolatedDeclarationSource) {
-      const isolated = this.extractDeclarationRecoverySource(this.isolatedDeclarationSource);
+      const isolated = this.extractDeclarationRecoverySource(this.isolatedDeclarationSource, expanded, expandedNamespaceScope);
       for (const id of isolated.sourceMemberIds) recovered.sourceMemberIds.add(id);
       for (const node of isolated.nodes) if (node.kind !== 'file' && node.kind !== 'namespace') recovered.nodes.push(node);
       const isolatedById = new Map(isolated.nodes.map(n => [n.id, n]));
@@ -2190,7 +2247,7 @@ export class TreeSitterExtractor {
     if (typeSource && missingTypes.size > 0 && typeSource !== declarationSource) {
       const missingLines = new Set([...missingTypes].map(key => Number(key.slice(0, key.indexOf(':')))));
       const isolatedTypes = typeSource.split('\n').map((line, i) => missingLines.has(i + 1) ? line : '').join('\n');
-      const fallback = this.extractDeclarationRecoverySource(isolatedTypes);
+      const fallback = this.extractDeclarationRecoverySource(isolatedTypes, expanded, expandedNamespaceScope);
       for (const id of fallback.sourceMemberIds) recovered.sourceMemberIds.add(id);
       const admitted = new Set(fallback.nodes.filter(n => typeKinds.has(n.kind) && missingTypes.has(typeKey(n))).map(n => n.id));
       const children = new Map<string, string[]>();
@@ -3033,7 +3090,35 @@ export class TreeSitterExtractor {
     // C/C++ permits unrelated scopes and overload declarations on one line.
     // A line/name-only identity makes the scope stack pick an earlier namesake
     // and silently loses later declarations when the graph is persisted.
-    const qualifiedName = extra?.qualifiedName ?? this.buildQualifiedName(name);
+    let qualifiedName = extra?.qualifiedName ?? this.buildQualifiedName(name);
+    if (this.language === 'cpp' && (kind === 'method' || kind === 'function')) {
+      const namespace = this.recoveredCallableNamespace?.(node, name);
+      if (namespace !== undefined) {
+        const receiver = this.extractor?.getReceiverType?.(node, this.source);
+        if (receiver) {
+          qualifiedName = `${this.qualifyCppReceiver(receiver, node.startPosition.row + 1, node.startPosition.column, namespace)}::${name}`;
+        } else {
+          // An inline macro method has no explicit receiver. Complete only
+          // the namespace portion of its existing class/member identity.
+          let currentNamespace = '';
+          for (let i = this.nodeStack.length - 1; i >= 0; i--) {
+            const parent = this.nodes.find(candidate => candidate.id === this.nodeStack[i]);
+            if (parent?.kind === 'namespace') { currentNamespace = parent.qualifiedName; break; }
+          }
+          const complete = this.completeCppNamespace(currentNamespace, namespace);
+          if (complete !== currentNamespace && !qualifiedName.startsWith(complete + '::')) {
+            if (currentNamespace && qualifiedName.startsWith(currentNamespace + '::')) {
+              qualifiedName = complete + qualifiedName.slice(currentNamespace.length);
+            } else if (!currentNamespace && !qualifiedName.startsWith(complete + '::')) {
+              qualifiedName = `${complete}::${qualifiedName}`;
+            }
+          }
+        }
+        // Apply before both legacy and semantic IDs, preserving declaration /
+        // definition identity and all edges emitted with those identities.
+        extra = { ...extra, qualifiedName };
+      }
+    }
     const identitySalt = this.language === 'c' || this.language === 'cpp'
       ? `${qualifiedName}:${node.startPosition.column}` : undefined;
     const id = generateNodeId(this.filePath, kind, name, node.startPosition.row + 1, identitySalt);
@@ -3045,10 +3130,34 @@ export class TreeSitterExtractor {
     // (callees, the callback synthesizer's body scan, context slices). Guarded to
     // only ever extend: for child-body grammars the body is within range (no-op).
     let endLine = node.endPosition.row + 1;
+    let endColumn = node.endPosition.column;
     if (kind === 'function' || kind === 'method') {
       const body = this.extractor?.resolveBody?.(node, this.extractor.bodyField);
       if (body && body.endPosition.row + 1 > endLine) {
         endLine = body.endPosition.row + 1;
+      }
+    }
+    if (this.language === 'cpp' && kind === 'namespace' && node.type === 'namespace_definition') {
+      const body = getChildByField(node, 'body');
+      if (body) {
+        const opening = this.originalLineStart(body.startPosition.row + 1) + body.startPosition.column;
+        const range = this.cppSourceScope().namespaceBodyAt(opening);
+        // Macro type arguments can make error recovery consume a function's
+        // closing brace as the end of a namespace. Use an independently
+        // balanced source range only for the same source-written header;
+        // macro-generated or conditionally ambiguous scopes keep the AST.
+        if (range && range.name === name.replace(/\binline\s+|\s+/g, '')
+          && this.originalSource[opening] === '{') {
+          const starts = this.originalLineStarts!;
+          let low = 0, high = starts.length;
+          while (low + 1 < high) {
+            const mid = (low + high) >>> 1;
+            if (starts[mid]! <= range.end) low = mid;
+            else high = mid;
+          }
+          endLine = low + 1;
+          endColumn = range.end - starts[low]!;
+        }
       }
     }
 
@@ -3062,7 +3171,7 @@ export class TreeSitterExtractor {
       startLine: node.startPosition.row + 1,
       endLine,
       startColumn: node.startPosition.column,
-      endColumn: node.endPosition.column,
+      endColumn,
       updatedAt: Date.now(),
       ...extra,
     };
@@ -3343,7 +3452,11 @@ export class TreeSitterExtractor {
 
   /** A relative out-of-line receiver is resolved in the current namespace,
    * not in a method/class body. Merge a partially qualified namespace once. */
-  private qualifyCppReceiver(receiver: string, sourceLine?: number, sourceColumn = 0): string {
+  private completeCppNamespace(current: string, source: string): string {
+    return source && (!current || source.startsWith(current + '::') || source.endsWith('::' + current)) ? source : current;
+  }
+
+  private qualifyCppReceiver(receiver: string, sourceLine?: number, sourceColumn = 0, recoveredNamespace?: string): string {
     if (receiver.startsWith('::')) return receiver.slice(2);
     let namespace: Node | undefined;
     if (sourceLine !== undefined) {
@@ -3364,10 +3477,13 @@ export class TreeSitterExtractor {
     let namespaceName = namespace?.qualifiedName ?? '';
     if (sourceLine !== undefined) {
       const lexical = this.cppSourceScope().namespaceAt(this.originalLineStart(sourceLine) + sourceColumn);
-      // Only restore a source-proven missing suffix. Do not replace a macro-
-      // generated namespace or guess across conflicting lexical/AST owners.
-      if (lexical && (!namespaceName || lexical.startsWith(namespaceName + '::'))) namespaceName = lexical;
+      // Error recovery can lose either inner scopes or an outer namespace
+      // while retaining its nested namespace nodes. Restore only a complete
+      // prefix/suffix relationship proven at this source position; unrelated
+      // or macro-generated owners must not be replaced by a guessed scope.
+      namespaceName = this.completeCppNamespace(namespaceName, lexical);
     }
+    if (recoveredNamespace !== undefined) namespaceName = this.completeCppNamespace(namespaceName, recoveredNamespace);
     if (namespaceName) {
       const parts = namespaceName.split('::');
       for (let start = 0; start < parts.length; start++) {

@@ -73,6 +73,9 @@ export interface DeclarationMacroExpansion {
   /** 1-indexed source lines on which a declaration-producing invocation began. */
   invocationLines: Set<number>;
   expandedMacroNames: Set<string>;
+  /** Exact replacement provenance in the original and fully expanded source.
+   * Consumers must not treat an entire invocation line as generated code. */
+  sourceRanges?: Array<{ sourceStart: number; sourceEnd: number; expandedStart: number; expandedEnd: number }>;
   /** Remaining source was not inspected after the bounded expansion budget. */
   truncated?: boolean;
 }
@@ -839,12 +842,19 @@ export function expandDeclarationMacros(
   // result once instead of copying the full translation unit for every macro
   // (O(source + output), rather than O(replacements * source)).
   const chunks: string[] = [];
+  const sourceRanges: NonNullable<DeclarationMacroExpansion['sourceRanges']> = [];
   let cursor = 0;
+  let outputLength = 0;
   for (const replacement of replacements) {
-    chunks.push(source.slice(cursor, replacement.start), replacement.text);
+    const prefix = source.slice(cursor, replacement.start);
+    const expandedStart = outputLength + prefix.length;
+    chunks.push(prefix, replacement.text);
+    outputLength = expandedStart + replacement.text.length;
+    sourceRanges.push({ sourceStart: replacement.start, sourceEnd: replacement.end,
+      expandedStart, expandedEnd: outputLength });
     cursor = replacement.end;
   }
   chunks.push(source.slice(cursor));
   const truncated = i < source.length && /\S/.test(source.slice(i));
-  return { source: chunks.join(''), invocationLines, expandedMacroNames, ...(truncated ? { truncated } : {}) };
+  return { source: chunks.join(''), invocationLines, expandedMacroNames, sourceRanges, ...(truncated ? { truncated } : {}) };
 }
