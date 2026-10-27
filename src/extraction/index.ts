@@ -21,7 +21,7 @@ import {
   UnresolvedReference,
   EdgeKind,
 } from '../types';
-import { QueryBuilder, type UnchangedFileStatUpdate } from '../db/queries';
+import { QueryBuilder, type RemovalCost, type UnchangedFileStatUpdate } from '../db/queries';
 import { extractFromSource } from './tree-sitter';
 import { detectLanguage, isSourceFile, isLanguageSupported, isGrammarLoaded, isFileLevelOnlyLanguage, initGrammars, loadGrammarsForLanguages, readGrammarWasmBytes, EXTENSION_MAP } from './grammars';
 import { isLanguageEnabled, languageScopeWorkerEnv, withLanguageScope } from './language-scope';
@@ -56,6 +56,8 @@ import { filterGitPaths } from './git-paths';
 import { rewireRecoveryMetadata, type SyncRetryState } from './sync-retry-state';
 import { AppendDeltaState } from './append-delta';
 import { EXTRACTION_VERSION } from './extraction-version';
+import { REMOVAL_BATCH_LIMITS, addRemovalCost, canBatchRemovals, fitsRemovalBatch,
+  removalWalThreshold, type RemovalBatchOptions } from './removal-batch';
 import { collectHybridFiles, HybridScanFallback, planSupplementRoots } from './hybrid-scan';
 import { RUST_SCAN_PROTOCOL, RustScanFallback, formatScanFallback, safeScanReason, runRustScan, rustScanMode, automaticRustScanStatus, verifyRustSnapshot, type RustScanCapture } from './rust-scan';
 
@@ -2606,8 +2608,9 @@ export class ExtractionOrchestrator {
     /** Capture legacy macro evidence before the first node mutation. */
     beforeNodeWrite?: () => Promise<void>,
     onScanFallback?: (message: string) => void,
+    removalBatch?: RemovalBatchOptions,
   ): Promise<SyncResult> {
-    return withLanguageScope(() => this.syncInScope(onProgress, scopedPaths, verbose, replaceFileStore, afterWrite, beforeNodeWrite, onScanFallback));
+    return withLanguageScope(() => this.syncInScope(onProgress, scopedPaths, verbose, replaceFileStore, afterWrite, beforeNodeWrite, onScanFallback, removalBatch));
   }
 
   private async syncInScope(
@@ -2619,6 +2622,7 @@ export class ExtractionOrchestrator {
     /** Capture legacy macro evidence before the first node mutation. */
     beforeNodeWrite?: () => Promise<void>,
     onScanFallback?: (message: string) => void,
+    removalBatch?: RemovalBatchOptions,
   ): Promise<SyncResult> {
     await initGrammars(); // Initialize WASM runtime (grammars loaded lazily below)
     // Sync rescans; clear the canonical-path cache so repointed symlinks are seen.
@@ -2834,16 +2838,112 @@ export class ExtractionOrchestrator {
       if (!fs.existsSync(fullPath)) await removeTracked(tracked, true);
     };
 
+    const batchOptions = canBatchRemovals(removalBatch, !!afterWrite, knownRemovalTotal)
+      ? removalBatch : undefined;
+    const batchThreshold = batchOptions ? removalWalThreshold(batchOptions) : 0;
+    const pendingDeletes: Array<{ tracked: FileRecord; cost: RemovalCost }> = [];
+    const emptyCost = (): RemovalCost => ({ nodes: 0, workRows: 0, payloadBytes: 0 });
+    const pendingCost = (): RemovalCost => pendingDeletes.reduce(
+      (total, item) => addRemovalCost(total, item.cost), emptyCost());
+    const probeRemoval = (tracked: FileRecord): RemovalCost => {
+      const probe = () => this.queries.getRemovalCost(tracked.path,
+        REMOVAL_BATCH_LIMITS.nodes, REMOVAL_BATCH_LIMITS.workRows);
+      if (!removal) return probe();
+      // Admission runs between operations, so its non-overlapping probe time
+      // must also belong to operationMs. No transaction or heartbeat await here.
+      const started = performance.now();
+      try { return removal.measure('probeMs', probe); }
+      finally { removal.operationMs += performance.now() - started; }
+    };
+    const flushDeletes = async (): Promise<void> => {
+      while (pendingDeletes.length > 0) {
+        // Keep existing single-file behavior near the cap, for a lone remainder,
+        // or without an active valve. Uncommitted dirty pages are not visible to
+        // this observation: admission limits work, not exact WAL overshoot bytes.
+        if (!batchOptions || pendingDeletes.length === 1 ||
+          batchOptions.getWalSizeBytes() >= batchThreshold) {
+          await removeTracked(pendingDeletes.shift()!.tracked);
+          continue;
+        }
+        removal?.beginFile(false, knownRemovalTotal, log);
+        try {
+          removalProgress('running');
+          if (removal) await removal.measureAsync('beforeNodeWriteMs', async () => { await beforeNodeWrite?.(); });
+          else await beforeNodeWrite?.();
+          let completed = 0;
+          const sourceFiles = new Set<string>();
+          const started = performance.now();
+          const storeBatch = () => this.queries.runRemovalTransaction(() => {
+            for (const { tracked } of pendingDeletes) {
+              if (removal) {
+                if (completed > 0) removal.attempted++;
+                removal.mainThread++;
+              }
+              this.invalidateMacroContext(tracked.path);
+              this.syncRetryState?.beforeDelete(tracked.path);
+              // Do not skip callers queued for a later deletion: an interruption
+              // can leave their graph alive, and their source can reappear.
+              for (const file of this.removeStoredFile(tracked.path)) sourceFiles.add(file);
+              completed++;
+              // Decline the next file only. SQLite statements already running
+              // cannot be interrupted by this cooperative time/work budget.
+              if (batchOptions.getWalSizeBytes() >= batchThreshold ||
+                performance.now() - started >= REMOVAL_BATCH_LIMITS.targetMs) break;
+            }
+          });
+          if (removal) removal.measure('batchMs', storeBatch);
+          else storeBatch();
+          pendingDeletes.splice(0, completed);
+          for (const file of sourceFiles) resurrectedReferenceSourceFiles.add(file);
+          filesRemoved += completed;
+          if (removal) removal.committed += completed;
+          removalProgress('running');
+          // The original boundary gate runs after COMMIT with no active writer.
+          if (removal) await removal.measureAsync('walWaitMs', async () => {
+            const wait = afterWrite?.();
+            if (wait) await wait;
+          });
+          else {
+            const wait = afterWrite?.();
+            if (wait) await wait;
+          }
+        } catch (error) {
+          removalFailed = true;
+          try { removalProgress('failed'); } catch { /* preserve the original error */ }
+          throw error;
+        } finally { removal?.endFile(); }
+      }
+    };
+
     let reconcileChecks = 0;
     let reconcileComplete = false;
     try {
       for (const tracked of trackedFiles) {
-        if (!currentSet.has(tracked.path)) await removeTracked(tracked);
+        if (!currentSet.has(tracked.path)) {
+          if (!batchOptions || batchOptions.getWalSizeBytes() >= batchThreshold) {
+            await flushDeletes();
+            await removeTracked(tracked);
+          } else {
+            // Prepare cost statements only when at least two known removals can
+            // actually be batched. Noop/one-file/disabled syncs pay no probe cost.
+            const cost = probeRemoval(tracked);
+            if (!fitsRemovalBatch(cost)) {
+              await flushDeletes();
+              await removeTracked(tracked);
+            } else {
+              if (pendingDeletes.length >= REMOVAL_BATCH_LIMITS.files ||
+                !fitsRemovalBatch(addRemovalCost(pendingCost(), cost))) await flushDeletes();
+              pendingDeletes.push({ tracked, cost });
+            }
+          }
+        }
         else if (nativeCapture.snapshot && diagnostics) diagnostics.counts.snapshotPresence++;
         if (++reconcileChecks % SYNC_RECONCILE_YIELD_INTERVAL === 0) {
+          await flushDeletes();
           await new Promise<void>((resolve) => setImmediate(resolve));
         }
       }
+      await flushDeletes();
       if (knownRemovalTotal > 0) {
         removalProgress('complete');
         onProgress?.({ phase: 'scanning', current: 0, total: 0 });

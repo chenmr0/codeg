@@ -36,6 +36,40 @@ large transaction/file or an internally multi-write synthesis phase may
 overshoot it before the next gate. Other database writers are outside this
 writer's control. A lower threshold trades more folding/I/O for less space.
 
+## Bounded deletion batches
+
+Sync may combine already-confirmed scan omissions into a small synchronous
+transaction. The default limits apply to the **whole batch**, not each file:
+16 files, 128 nodes, 512 combined node/incident-edge/owned-reference rows,
+and 128 KiB of measured stored text plus record/journal allowances. A 25ms
+cooperative target declines the next file; it cannot interrupt a SQLite
+statement already running. Internal incident edges are conservatively counted
+twice. The admission probe includes variable-length node/file/reference fields
+and existing recovery metadata without reading source contents.
+
+No-deletion, single-deletion and disabled-valve syncs do not prepare these
+admission statements. Late stat/read deletions and oversized files retain the
+existing single-file/worker path. Batching also stays disabled with a cap below
+16 MiB. The policy receives the actual active valve limit and database WAL-size
+observer; it does not infer another cap or database path from the environment.
+
+Before admission and after each file in a transaction, the visible WAL is
+compared to `cap - min(64 MiB, cap/4)`. Near that threshold, sync uses the
+single-file path or commits the batch early. After every commit, the unchanged
+WAL gate must succeed before further writes. At the default 512 MiB cap, new
+batches therefore leave a 64 MiB reserve. The reserve and work limits are
+conservative admission rules, **not a guaranteed bound on dirty SQLite/FTS
+pages or maximum overshoot bytes**. Like the prior file-level policy, the cap
+is enforced at completed-write boundaries, not at every byte written.
+
+Proof invalidation, stamped pending references, legacy caller recovery tasks,
+and deletions share the batch transaction. A rollback restores the whole batch;
+an abort after commit leaves its recovery work durable. A caller scheduled for
+a later deletion is still preserved for recovery. Counters/progress advance
+only after commit, and no await/checkpoint runs inside the transaction.
+
+## Checkpoint diagnostics and recovery
+
 PASSIVE/TRUNCATE use a worker connection with `busy_timeout=0`. The normal first
 attempt and advisory timer keep their existing 60-second cancellation deadline,
 so a healthy checkpoint on slow storage does not acquire a shorter timeout.

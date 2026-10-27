@@ -331,6 +331,13 @@ export interface UnchangedFileStatUpdate {
   modifiedAt: number;
 }
 
+/** Conservative admission work; this is not a SQLite WAL-byte prediction. */
+export interface RemovalCost {
+  nodes: number;
+  workRows: number;
+  payloadBytes: number;
+}
+
 /** Query builder for the knowledge graph database. */
 export class QueryBuilder {
   private db: SqliteDatabase;
@@ -398,6 +405,7 @@ export class QueryBuilder {
   // Keys depend only on query shape and <=500 placeholders, never paths or
   // page numbers. sql.js retains prepared statements until connection close.
   private scopedRefStmts: Map<string, SqliteStatement> = new Map();
+  private removalCostStmts?: Record<'nodes' | 'incoming' | 'outgoing' | 'refs' | 'file' | 'metadata', SqliteStatement>;
 
   private scopedRefStatement(key: string, sql: string): SqliteStatement {
     let stmt = this.scopedRefStmts.get(key);
@@ -2367,6 +2375,58 @@ export class QueryBuilder {
       }
       return updated;
     })();
+  }
+
+  /** Compose synchronous deletion/proof/reference helpers in one transaction. */
+  runRemovalTransaction(operation: () => void): void {
+    this.db.transaction(operation)();
+  }
+
+  /**
+   * Lazy, bounded admission probe for a potential multi-file removal batch.
+   * Include every variable-length core-row column and caller journal overhead.
+   * Incident edges are counted twice when internal to a file, conservatively.
+   * Payload/work bounds do not predict B-tree/index/FTS dirty-page bytes.
+   */
+  getRemovalCost(filePath: string, maxNodes: number, maxWorkRows: number): RemovalCost {
+    if (!this.removalCostStmts) {
+      const bytes = (columns: string[]): string => columns
+        .map(column => `COALESCE(length(CAST(${column} AS BLOB)),0)`).join('+');
+      const aggregate = (rows: string): string =>
+        `SELECT COUNT(*) AS n, COALESCE(SUM(bytes),0) AS bytes FROM (${rows})`;
+      const edgeBytes = bytes(['e.source', 'e.target', 'e.kind', 'e.metadata', 'e.provenance']);
+      this.removalCostStmts = {
+        nodes: this.db.prepare(aggregate(`SELECT ${bytes(['id', 'kind', 'name', 'qualified_name',
+          'file_path', 'language', 'docstring', 'signature', 'visibility', 'decorators',
+          'type_parameters', 'return_type'])}+96 AS bytes FROM nodes WHERE file_path=? LIMIT ?`)),
+        incoming: this.db.prepare(aggregate(`SELECT ${edgeBytes}+${bytes(['s.file_path', 'm.key', 'm.value'])}
+          +128 AS bytes FROM nodes n JOIN edges e ON e.target=n.id
+          JOIN nodes s ON s.id=e.source
+          LEFT JOIN project_metadata m ON m.key='sync-retry:rewire:'||s.file_path
+          WHERE n.file_path=? LIMIT ?`)),
+        outgoing: this.db.prepare(aggregate(`SELECT ${edgeBytes}+40 AS bytes
+          FROM nodes n JOIN edges e ON e.source=n.id WHERE n.file_path=? LIMIT ?`)),
+        refs: this.db.prepare(aggregate(`SELECT ${bytes(['r.from_node_id', 'r.reference_name',
+          'r.reference_kind', 'r.candidates', 'r.file_path', 'r.language', 'r.status', 'r.name_tail'])}
+          +64 AS bytes FROM nodes n JOIN unresolved_refs r ON r.from_node_id=n.id
+          WHERE n.file_path=? LIMIT ?`)),
+        file: this.db.prepare(aggregate(`SELECT ${bytes(['path', 'content_hash', 'language', 'errors'])}
+          +64 AS bytes FROM files WHERE path=?`)),
+        metadata: this.db.prepare(aggregate(`SELECT ${bytes(['key', 'value'])}+32 AS bytes
+          FROM project_metadata WHERE key IN ('sync-retry:done:'||?, 'sync-retry:pending:'||?,
+          'sync-retry:rewire:'||?, 'sync-append-delta:pending:'||?)`)),
+      };
+    }
+    type CostRow = { n: number; bytes: number };
+    const stmts = this.removalCostStmts;
+    const nodes = stmts.nodes.get(filePath, maxNodes + 1) as CostRow;
+    const incoming = stmts.incoming.get(filePath, maxWorkRows + 1) as CostRow;
+    const outgoing = stmts.outgoing.get(filePath, maxWorkRows + 1) as CostRow;
+    const refs = stmts.refs.get(filePath, maxWorkRows + 1) as CostRow;
+    const file = stmts.file.get(filePath) as CostRow;
+    const metadata = stmts.metadata.get(filePath, filePath, filePath, filePath) as CostRow;
+    return { nodes: nodes.n, workRows: nodes.n + incoming.n + outgoing.n + refs.n,
+      payloadBytes: nodes.bytes + incoming.bytes + outgoing.bytes + refs.bytes + file.bytes + metadata.bytes };
   }
 
   /** Delete a file and atomically retain any callers that need source recovery. */

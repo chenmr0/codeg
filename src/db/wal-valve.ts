@@ -98,6 +98,9 @@ export class WalCheckpointValve {
     this.timer.unref?.();
   }
 
+  /** Completed-write boundary cap used by this instance's backpressure gate. */
+  get hardCapBytes(): number { return this.hardBytes; }
+
   stop(): void {
     if (this.timer) clearInterval(this.timer);
     this.timer = null;

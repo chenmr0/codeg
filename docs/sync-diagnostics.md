@@ -218,6 +218,8 @@ time env CODEGRAPH_HYBRID_SCAN=1 codegraph sync -v
 - `beforeNodeWriteMs/proofMs/probeMs`：已有写前准备、旧重试证明失效、重文件分流查询。
 - `preserveDeleteMs`：主线程保存待恢复引用、恢复任务及删除旧图数据的总时间。
 - `workerMs`：另一条 worker 路径的完整等待，包括启动、IPC 和事务，不是纯 SQL 时间。
+- `batchMs`：有界小批次的完整事务时间，包括批内重试证明失效、恢复引用/任务、删除与提交；
+  这些操作不会再次累计到单文件的 `proofMs/preserveDeleteMs`。
 - `walWaitMs`：提交后检查 WAL 上限及等待回收的时间。
 
 这些互斥细分是 `operationMs` 的子项；`operationMs` 还包含上下文失效、集合维护与
@@ -227,7 +229,8 @@ time env CODEGRAPH_HYBRID_SCAN=1 codegraph sync -v
 
 每次 WAL 暂停另有 `checkpoint-detail`，区分 `inflightMs/passiveMs/truncateMs/retrySleepMs`
 及是否真正启动重试预算。这些时间已包含在相应的 `walWaitMs` 或收尾阶段中；字段边界
-见 [WAL 策略](sync-wal-backpressure.md)。本次日志改动不改变删除范围、事务或 WAL 上限。
+见 [WAL 策略](sync-wal-backpressure.md)。日志本身不改变删除范围或 WAL 上限；
+有界删除批次的准入与提交规则见该文档的批量删除说明。
 
 ## 文件列表复用
 

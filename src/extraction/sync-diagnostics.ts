@@ -110,12 +110,14 @@ export class ReconcileDiagnostics {
  * Known scan omissions belong to removalMs; late stat/read deletions belong to
  * changeCheckMs. The timings below are disjoint children of operationMs.
  * workerMs includes dispatch/startup, IPC and the worker's whole transaction;
- * preserveDeleteMs measures the alternative main-thread path, not its child.
+ * preserveDeleteMs measures the alternative single-file main-thread path.
+ * batchMs includes proof/ref/deletion/commit for a multi-file transaction;
+ * its children are not measured again as proofMs or preserveDeleteMs.
  */
 export class RemovalDiagnostics {
   readonly timings = {
     beforeNodeWriteMs: 0, proofMs: 0, probeMs: 0, preserveDeleteMs: 0,
-    workerMs: 0, walWaitMs: 0,
+    workerMs: 0, batchMs: 0, walWaitMs: 0,
   };
   attempted = 0;
   committed = 0;

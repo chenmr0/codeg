@@ -913,6 +913,8 @@ export class CodeGraph {
           afterWrite,
           beforeNodeWrite,
           options.onScanFallback,
+          walValve ? { hardCapBytes: walValve.hardCapBytes,
+            getWalSizeBytes: () => this.db.getWalSizeBytes() } : undefined,
         );
         // Old unstamped edges need source re-extraction, even if their caller
         // was unchanged (or was stored before a later target replacement).
