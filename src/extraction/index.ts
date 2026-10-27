@@ -53,7 +53,7 @@ import {
 import { ReconcileDiagnostics, type ScanDiagnostics } from './sync-diagnostics';
 import { StoreDiagnostics, measureStore } from './store-diagnostics';
 import { filterGitPaths } from './git-paths';
-import type { SyncRetryState } from './sync-retry-state';
+import { rewireRecoveryMetadata, type SyncRetryState } from './sync-retry-state';
 import { AppendDeltaState } from './append-delta';
 import { EXTRACTION_VERSION } from './extraction-version';
 import { collectHybridFiles, HybridScanFallback, planSupplementRoots } from './hybrid-scan';
@@ -2359,11 +2359,11 @@ export class ExtractionOrchestrator {
   }
 
   private removeStoredFile(filePath: string): string[] {
-    const resurrected = this.queries.getIncomingCrossFileEdges(filePath)
-      .map(resurrectReferenceFromEdge)
-      .filter((ref): ref is UnresolvedReference => ref !== null);
+    const { resurrected, failedSourceFiles } = this.planRewiredEdges(
+      this.queries.getIncomingCrossFileEdges(filePath), []);
     if (resurrected.length > 0) this.queries.insertUnresolvedRefsBatch(resurrected);
-    this.queries.deleteFile(filePath);
+    this.queries.deleteFile(filePath, rewireRecoveryMetadata(failedSourceFiles));
+    this.syncRewireFailures.push(...failedSourceFiles);
     return [...new Set(resurrected.map(ref => ref.filePath).filter((file): file is string => !!file))];
   }
 
@@ -2437,10 +2437,17 @@ export class ExtractionOrchestrator {
     // Snapshot incoming cross-file edges before deleting old nodes.
     // These are edges from nodes in OTHER files → nodes in THIS file.
     // After re-insertion we'll re-wire them to the new node IDs.
-    let savedEdges: SavedCrossFileEdge[] = [];
+    let rewirePlan: ReturnType<ExtractionOrchestrator['planRewiredEdges']> | undefined;
     if (existingFile && !retained) {
-      savedEdges = measureStore(detail, 'snapshotMs', () => this.queries.getIncomingCrossFileEdges(filePath));
-      measureStore(detail, 'deleteMs', () => this.queries.deleteFile(filePath));
+      const savedEdges = measureStore(detail, 'snapshotMs', () => this.queries.getIncomingCrossFileEdges(filePath));
+      if (savedEdges.length > 0) {
+        rewirePlan = measureStore(detail, 'rewireMs', () => this.planRewiredEdges(savedEdges, validNodes));
+      }
+      // Preserve source-only recovery before the old edges disappear. Worker
+      // replacements include this deletion transaction in their outer commit.
+      const recovery = rewirePlan?.failedSourceFiles.length
+        ? rewireRecoveryMetadata(rewirePlan.failedSourceFiles) : undefined;
+      measureStore(detail, 'deleteMs', () => this.queries.deleteFile(filePath, recovery));
     }
 
     // Insert nodes
@@ -2478,8 +2485,8 @@ export class ExtractionOrchestrator {
     }
 
     // Re-wire saved incoming cross-file edges to new node IDs
-    if (savedEdges.length > 0) {
-      measureStore(detail, 'rewireMs', () => this.rewireEdges(savedEdges, validNodes));
+    if (rewirePlan) {
+      measureStore(detail, 'rewireMs', () => this.applyRewiredEdges(rewirePlan));
     }
 
     // Insert file record
@@ -2505,10 +2512,10 @@ export class ExtractionOrchestrator {
    * edges become pending references, including during fallback re-indexing,
    * so deleting a target can never silently discard the caller's reference.
    */
-  private rewireEdges(
+  private planRewiredEdges(
     savedEdges: SavedCrossFileEdge[],
     newNodes: ExtractionResult['nodes']
-  ): void {
+  ) {
     const byId = new Map(newNodes.map(node => [node.id, node]));
     const identityIndex = new Map<string, string[]>();
     // Deduplicate IDs just as the node table does, not by spelling: distinct
@@ -2560,12 +2567,17 @@ export class ExtractionOrchestrator {
       }
     }
 
+    return { rewired, resurrected, failedSourceFiles: [...failedSourceFiles] };
+  }
+
+  private applyRewiredEdges({ rewired, resurrected, failedSourceFiles }:
+    ReturnType<ExtractionOrchestrator['planRewiredEdges']>): void {
     if (rewired.length > 0) {
       this.queries.insertEdges(rewired as import('../types').Edge[]);
     }
     if (resurrected.length > 0) this.queries.insertUnresolvedRefsBatch(resurrected);
 
-    if (failedSourceFiles.size > 0) {
+    if (failedSourceFiles.length > 0) {
       this.syncRewireFailures.push(...failedSourceFiles);
     }
   }

@@ -15,6 +15,8 @@ and adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixes
 
+- 修复大量增量同步遇到短暂数据库读取占用时过早退出：保留 WAL 上限和正常检查点路径，在受阻后有界等待重试，并区分占用、超时及 SQLite 错误。补齐旧调用边缺少引用元数据时的持久化恢复任务，避免中止后续跑漏掉未变化调用方。`CODEGRAPH_WAL_WAIT_MS` 可调整受阻重试预算，默认 10 秒；不改数据库格式或提取版本。见 [WAL 同步策略](docs/sync-wal-backpressure.md)。
+
 - 修复宏生成 C/C++ 类型的后续源码成员丢失，并保留正确的字段类型、所属类型和源码位置；修复 `namespace_push` 等合法方法名被误过滤。提取版本升至 28，旧索引需完整重建。见 [符号提取修复说明](docs/cpp-symbol-admission.md)。
 
 - C/C++ 声明准入不再凭跨文件空宏名冲突删除真实函数；枚举初始化推断按条件分支及类型证据保守判定，保持函数与调用关系。兼容 typedef 标签类型和匿名枚举底层类型修复；提取版本 26，已有版本 25 索引需完整重建。见 [声明证据安全说明](docs/cpp-declaration-evidence-safety.md)。

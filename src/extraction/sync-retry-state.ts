@@ -1,4 +1,4 @@
-import { createHash } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
 import type { QueryBuilder } from '../db/queries';
 import type { ExtractionResult, FileRecord, Language, UnresolvedReference } from '../types';
 import { EXTRACTION_VERSION } from './extraction-version';
@@ -7,6 +7,18 @@ import { APPEND_DELTA_JOURNAL } from './append-delta';
 const VERSION = `1:${EXTRACTION_VERSION}`;
 const DONE = 'sync-retry:done:';
 const PENDING = 'sync-retry:pending:';
+export const REWIRE_RECOVERY_PREFIX = 'sync-retry:rewire:';
+
+/** Written in the transaction that removes the old target and its edges. */
+export function rewireRecoveryMetadata(filePaths: Iterable<string>): Record<string, string> {
+  const changes: Record<string, string> = {};
+  for (const filePath of new Set(filePaths)) {
+    // A later replacement can invalidate a caller already recovered this run.
+    // Acknowledging an earlier generation must not erase that newer task.
+    changes[REWIRE_RECOVERY_PREFIX + filePath] = randomUUID();
+  }
+  return changes;
+}
 
 interface Proof {
   version: string;
@@ -142,6 +154,8 @@ function readPending(text: string): Pending | null {
  */
 export class SyncRetryState {
   private readonly entries: Map<string, Pending | null>;
+  private readonly rewires = new Map<string, string>();
+  private readonly recoveredRewires = new Map<string, string>();
   private readonly safeFiles = new Set<string>();
   private readonly disabled = process.env.CODEGRAPH_NO_SYNC_RETRY_FILTER === '1';
   private primaryExtraction = true;
@@ -151,8 +165,25 @@ export class SyncRetryState {
       .map(({ key, value }) => [key.slice(PENDING.length), readPending(value)]));
   }
 
-  get hasWork(): boolean { return this.entries.size > 0; }
+  get hasWork(): boolean { return this.entries.size > 0 || this.rewires.size > 0; }
   get filePaths(): string[] { return [...this.entries.keys()]; }
+
+  /** Once per extraction/recovery batch, including writes made by the worker. */
+  refreshRewireRecovery(): string[] {
+    this.rewires.clear();
+    for (const { key, value } of this.queries.getMetadataByPrefix(REWIRE_RECOVERY_PREFIX)) {
+      this.rewires.set(key.slice(REWIRE_RECOVERY_PREFIX.length), value);
+    }
+    return [...this.rewires].filter(([file, token]) => this.recoveredRewires.get(file) !== token)
+      .map(([file]) => file);
+  }
+
+  acknowledgeRewireRecovery(filePath: string): void {
+    // Earlier fallback files in this batch may have renewed this caller's
+    // task. Its just-completed parse covers that newest committed generation.
+    const token = this.queries.getMetadata(REWIRE_RECOVERY_PREFIX + filePath);
+    if (token !== null) this.recoveredRewires.set(filePath, token);
+  }
 
   finishPrimaryExtraction(): void { this.primaryExtraction = false; }
 
@@ -236,6 +267,10 @@ export class SyncRetryState {
     // Also acknowledge unchanged callers invalidated by same-name additions.
     // The index mutex excludes other syncs; keep this atomic with retry proof promotion.
     for (const { key } of this.queries.getMetadataByPrefix(APPEND_DELTA_JOURNAL)) changes[key] = null;
+    for (const [filePath, token] of this.recoveredRewires) {
+      const key = REWIRE_RECOVERY_PREFIX + filePath;
+      if (this.queries.getMetadata(key) === token) changes[key] = null;
+    }
     // Atomic promotion + journal removal. Failure leaves recoverable work.
     this.queries.applyMetadataChanges(changes);
   }

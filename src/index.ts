@@ -56,7 +56,7 @@ import { FileWatcher, WatchOptions, PendingFile, LockUnavailableError } from './
 import { EXTRACTION_VERSION } from './extraction/extraction-version';
 import { recoverAppendDeltas } from './extraction/append-delta';
 import { getLanguageScopeKey, withLanguageScope } from './extraction/language-scope';
-import { SyncRetryState } from './extraction/sync-retry-state';
+import { REWIRE_RECOVERY_PREFIX, SyncRetryState } from './extraction/sync-retry-state';
 import { StoreWriter, type ReplaceFileStore } from './extraction/store-writer';
 import {
   collectPersistedIndexDiagnostics,
@@ -914,6 +914,9 @@ export class CodeGraph {
           beforeNodeWrite,
           options.onScanFallback,
         );
+        // Old unstamped edges need source re-extraction, even if their caller
+        // was unchanged (or was stored before a later target replacement).
+        const rewireRecoveryFiles = retryState.refreshRewireRecovery();
         // Publish extraction failures before any resolution work can finish
         // (or throw), including a recovery run with an older complete baseline.
         this.refreshSyncFileFailures(result);
@@ -949,9 +952,9 @@ export class CodeGraph {
         tailMark('postExtractMs');
         // No node-writing fallback may remain when symbol queries are admitted.
         // A resolving progress event alone is not sufficient evidence.
-        const needsNodeFallback = result.failedRewireSourceFiles?.some(
+        const needsNodeFallback = rewireRecoveryFiles.length > 0 || (result.failedRewireSourceFiles?.some(
           fp => !(result.changedFilePaths ?? []).includes(fp),
-        ) ?? false;
+        ) ?? false);
         this.publishSymbolsReady(result.complete !== false && !needsNodeFallback);
         // Resolve references for changed files first. This restores their
         // import edges (e.g. `a.c --imports--> a.h`), which the co-importer
@@ -1084,11 +1087,11 @@ export class CodeGraph {
         // from unchanged files to the changed files' new nodes.  Only the
         // files whose edges couldn't be re-wired (symbol renamed/removed,
         // or ambiguous overload) need the old co-importer re-index fallback.
-        const failedFiles = result.failedRewireSourceFiles?.length
-          ? result.failedRewireSourceFiles.filter(
-              fp => !(result.changedFilePaths ?? []).includes(fp)
-            )
-          : [];
+        const failedFiles = [...new Set([
+          ...(result.failedRewireSourceFiles ?? []).filter(
+            fp => !(result.changedFilePaths ?? []).includes(fp)),
+          ...rewireRecoveryFiles,
+        ])];
 
         if (failedFiles.length > 0) {
           const successfullyReindexedFiles: string[] = [];
@@ -1125,15 +1128,32 @@ export class CodeGraph {
             currentFile: failedFiles[0],
           });
 
+          const attemptedRecovery = new Set<string>();
+          let remainingRewireRecovery: string[] = [];
           for (let i = 0; i < failedFiles.length; i++) {
             const fp = failedFiles[i]!;
+            attemptedRecovery.add(fp);
             let stored = false;
-            try {
+            // A missing DB row can also mean an interrupted replacement. Only
+            // retire it when the source is confirmed absent; unknown I/O errors
+            // must keep the durable task and go through ordinary read handling.
+            let removedCaller = false;
+            if (!this.queries.getFileByPath(fp)) {
+              try { statSync(path.join(this.projectRoot, fp)); }
+              catch (error) {
+                const code = (error as NodeJS.ErrnoException).code;
+                removedCaller = code === 'ENOENT' || code === 'ENOTDIR';
+              }
+            }
+            if (removedCaller) {
+              retryState.acknowledgeRewireRecovery(fp);
+            } else try {
               const reindexResult = await this.orchestrator.indexFile(fp, { force: true });
               if (reindexResult.stored) {
                 stored = true;
                 successfullyReindexedFiles.push(fp);
                 result.filesModified++;
+                retryState.acknowledgeRewireRecovery(fp);
               } else {
                 recordReindexFailure(fp, reindexResult.errors);
               }
@@ -1156,6 +1176,19 @@ export class CodeGraph {
               current: i + 1,
               total: failedFiles.length,
             });
+            if (i === failedFiles.length - 1) {
+              // Recover new caller tasks created by this fallback batch, but
+              // never spin on a failed/reinvalidated caller within one sync.
+              remainingRewireRecovery = retryState.refreshRewireRecovery();
+              failedFiles.push(...remainingRewireRecovery.filter(file => !attemptedRecovery.has(file)));
+            }
+          }
+          for (const fp of remainingRewireRecovery) {
+            if (result.failedFilePaths?.includes(fp)) continue;
+            recordReindexFailure(fp, [{
+              filePath: fp, severity: 'error', code: 'rewire_recovery_pending',
+              message: 'Caller recovery was invalidated again during sync; retry sync to finish its references.',
+            }]);
           }
 
           if (successfullyReindexedFiles.length > 0) {
@@ -1813,7 +1846,7 @@ export class CodeGraph {
   private hasSynthesisRecoveryEvidence(): boolean {
     return [SYNTHESIS_PENDING, 'index_conformance_pending', 'language_scope_pending',
       SYNC_FAILURE_BASELINE].some(key => this.queries.getMetadata(key) !== null) ||
-      ['sync-retry:pending:', 'sync-append-delta:pending:', 'resolution-deferred:']
+      ['sync-retry:pending:', REWIRE_RECOVERY_PREFIX, 'sync-append-delta:pending:', 'resolution-deferred:']
         .some(prefix => this.queries.getMetadataByPrefix(prefix).length > 0) ||
       this.queries.getUnresolvedReferencesCount() > 0;
   }

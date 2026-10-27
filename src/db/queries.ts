@@ -2369,9 +2369,12 @@ export class QueryBuilder {
     })();
   }
 
-  /** Delete a file record and its nodes. */
-  deleteFile(filePath: string): void {
+  /** Delete a file and atomically retain any callers that need source recovery. */
+  deleteFile(filePath: string, recoveryMetadata?: Record<string, string>): void {
     this.db.transaction(() => {
+      if (recoveryMetadata) {
+        for (const [key, value] of Object.entries(recoveryMetadata)) this.setMetadata(key, value);
+      }
       this.deleteNodesByFile(filePath);
       if (!this.stmts.deleteFile) {
         this.stmts.deleteFile = this.db.prepare('DELETE FROM files WHERE path = ?');

@@ -10,6 +10,13 @@ import * as path from 'path';
 import { SchemaVersion } from '../types';
 import { runMigrations, getCurrentVersion, CURRENT_SCHEMA_VERSION } from './migrations';
 import { getCodeGraphDir } from '../directory';
+import {
+  WalCheckpointError,
+  walCheckpointErrorFrom,
+  walCheckpointResultFrom,
+  type WalCheckpointOptions,
+  type WalCheckpointResult,
+} from './wal-checkpoint';
 
 export { SqliteDatabase, SqliteBackend } from './sqlite-adapter';
 
@@ -408,8 +415,8 @@ export class DatabaseConnection {
   }
 
   /** Off-thread, non-blocking-reader checkpoint. Safe while the writer is active. */
-  checkpointWalPassive(): Promise<{ busy: number; log: number; checkpointed: number } | null> {
-    return this.checkpointWal('PASSIVE');
+  checkpointWalPassive(options?: WalCheckpointOptions): Promise<WalCheckpointResult | null> {
+    return this.checkpointWal('PASSIVE', options);
   }
 
   /**
@@ -417,56 +424,115 @@ export class DatabaseConnection {
    * transaction. busy_timeout=0 means a pinned reader returns busy rather than
    * blocking a writer waiting for this checkpoint. Never called by the timer.
    */
-  checkpointWalTruncate(): Promise<{ busy: number; log: number; checkpointed: number } | null> {
-    return this.checkpointWal('TRUNCATE');
+  checkpointWalTruncate(options?: WalCheckpointOptions): Promise<WalCheckpointResult | null> {
+    return this.checkpointWal('TRUNCATE', options);
   }
 
-  private async checkpointWal(mode: 'PASSIVE' | 'TRUNCATE'): Promise<{ busy: number; log: number; checkpointed: number } | null> {
+  private async checkpointWal(
+    mode: 'PASSIVE' | 'TRUNCATE',
+    options: WalCheckpointOptions = {},
+  ): Promise<WalCheckpointResult | null> {
     if (!this.dbPath || this.dbPath === ':memory:') {
       try {
-        const row = this.db.prepare(`PRAGMA wal_checkpoint(${mode})`).get() as Record<string, number> | undefined;
-        return row ? { busy: Number(row.busy), log: Number(row.log), checkpointed: Number(row.checkpointed) } : null;
-      } catch { return null; }
+        return walCheckpointResultFrom(this.db.prepare(`PRAGMA wal_checkpoint(${mode})`).get());
+      } catch (error) { throw walCheckpointErrorFrom(error); }
     }
+    const requestedTimeout = options.timeoutMs;
+    const timeoutMs = requestedTimeout !== undefined && Number.isFinite(requestedTimeout)
+      ? Math.max(1, Math.min(2_147_483_647, Math.floor(requestedTimeout))) : 60_000;
     try {
       const { Worker } = await import('node:worker_threads');
       const workerSource = `
         const { workerData, parentPort } = require('node:worker_threads');
-        let row = null;
+        let db;
+        let response;
+        let reason = 'unavailable';
+        const failure = (error, reason) => ({ error: {
+          message: error && typeof error.message === 'string' ? error.message : String(error),
+          code: error && error.code,
+          errcode: error && error.errcode,
+          reason,
+        } });
         try {
           const { DatabaseSync } = require('node:sqlite');
-          const db = new DatabaseSync(workerData.dbPath);
+          reason = 'sqlite';
+          db = new DatabaseSync(workerData.dbPath);
           db.exec('PRAGMA busy_timeout=0');
-          try { row = db.prepare('PRAGMA wal_checkpoint(' + workerData.mode + ')').get(); } catch {}
-          try { db.close(); } catch {}
-        } catch {}
-        parentPort.postMessage({ row });
+          response = { row: db.prepare('PRAGMA wal_checkpoint(' + workerData.mode + ')').get() };
+        } catch (error) {
+          response = failure(error, reason);
+        } finally {
+          try { if (db) db.close(); }
+          catch (error) { if (!response || !response.error) response = failure(error, 'sqlite'); }
+        }
+        parentPort.postMessage(response);
       `;
-      return await new Promise((resolve) => {
+      return await new Promise<WalCheckpointResult>((resolve, reject) => {
+        type Outcome = { row: WalCheckpointResult; error?: never } | { error: WalCheckpointError; row?: never };
+        let outcome: Outcome | undefined;
         let settled = false;
+        let exited = false;
+        let stopping = false;
         let timer: ReturnType<typeof setTimeout> | undefined;
         let worker: import('node:worker_threads').Worker | undefined;
-        const finish = async (row?: Record<string, number> | null): Promise<void> => {
-          if (settled) return;
-          settled = true;
+        const clearTimer = (): void => {
           if (timer) clearTimeout(timer);
-          // Never resume the parked writer while a timed-out TRUNCATE worker
-          // might still hold SQLite locks. Termination settles after exit.
-          try { await worker?.terminate(); } catch { /* already exited */ }
-          resolve(row ? { busy: Number(row.busy), log: Number(row.log), checkpointed: Number(row.checkpointed) } : null);
+          timer = undefined;
+        };
+        const settleAfterExit = (): void => {
+          if (settled || !exited || !outcome) return;
+          settled = true;
+          clearTimer();
+          if (outcome.error) reject(outcome.error);
+          else resolve(outcome.row);
+        };
+        const terminationFailed = (error: unknown): void => {
+          // A rejected termination request is NOT evidence of thread exit.
+          // Keep waiting for 'exit', even beyond the cancellation deadline.
+          if (!outcome?.error) outcome = { error: walCheckpointErrorFrom(error, 'unavailable') };
+        };
+        const finish = (next: Outcome): void => {
+          if (settled) return;
+          if (!outcome || (!outcome.error && next.error)) outcome = next;
+          clearTimer();
+          if (exited) { settleAfterExit(); return; }
+          if (stopping) return;
+          stopping = true;
+          // Neither success nor failure may resume the writer until the
+          // checkpoint thread has actually exited and released SQLite locks.
+          try { void worker!.terminate().catch(terminationFailed); }
+          catch (error) { terminationFailed(error); }
         };
         try {
           worker = new Worker(workerSource, { eval: true, workerData: { dbPath: this.dbPath, mode } });
-          // Request cancellation after 60s. Wait for confirmed worker exit
-          // before releasing SQLite locks; an OS-uninterruptible I/O can still
-          // delay termination. This is not an OS-level hard time bound.
-          timer = setTimeout(() => { void finish(null); }, 60_000);
-          worker.once('message', (m: { row?: Record<string, number> | null }) => { void finish(m?.row ?? null); });
-          worker.once('error', () => { void finish(null); });
-          worker.once('exit', () => { void finish(null); });
-        } catch { void finish(null); }
+        } catch (error) {
+          reject(walCheckpointErrorFrom(error, 'unavailable'));
+          return;
+        }
+        worker.once('message', (message: {
+          row?: unknown;
+          error?: { message?: unknown; code?: unknown; errcode?: unknown; reason?: string };
+        } | undefined) => {
+          if (message?.error) {
+            finish({ error: walCheckpointErrorFrom(message.error,
+              message.error.reason === 'unavailable' ? 'unavailable' : 'sqlite') });
+          } else {
+            try { finish({ row: walCheckpointResultFrom(message?.row) }); }
+            catch (error) { finish({ error: walCheckpointErrorFrom(error, 'unavailable') }); }
+          }
+        });
+        worker.once('error', (error) => { finish({ error: walCheckpointErrorFrom(error, 'unavailable') }); });
+        worker.once('exit', (code) => {
+          exited = true;
+          if (!outcome) outcome = { error: new WalCheckpointError(
+            `WAL ${mode} checkpoint worker exited before returning a result (code=${code})`, 'unavailable', true) };
+          settleAfterExit();
+        });
+        // This bounds the cancellation request, not uninterruptible OS I/O.
+        timer = setTimeout(() => finish({ error: new WalCheckpointError(
+          `WAL ${mode} checkpoint timed out after ${timeoutMs}ms`, 'timeout', true) }), timeoutMs);
       });
-    } catch { return null; }
+    } catch (error) { throw walCheckpointErrorFrom(error, 'unavailable'); }
   }
 
   /**

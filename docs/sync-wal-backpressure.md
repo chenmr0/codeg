@@ -16,9 +16,16 @@ With deferral enabled, the valve is shared by incremental sync and durable
   not growth above a previous checkpoint. The previous growth baseline was
   unsafe across asynchronous checkpoint snapshots and reused WAL generations.
 - At the cap, wait with writers parked outside transactions, run PASSIVE and
-  then TRUNCATE. TRUNCATE is never issued by the concurrent timer. A reader
-  pinning frames/space, unavailable machinery, or repeated lack of progress
-  fails closed with `WAL_VALVE_ABORT`, preserving the normal retry journal.
+  then TRUNCATE. TRUNCATE is never issued by the concurrent timer. Short-lived
+  reader/writer contention and temporary checkpoint unavailability are retried
+  while the writer remains parked; two identical results no longer abort sync.
+- The retry budget defaults to 10 seconds (`CODEGRAPH_WAL_WAIT_MS`, positive
+  integer milliseconds, clamped to 1–60,000; invalid/non-positive values use
+  the default). It starts after the first retryable blocked/failed attempt.
+  Delays grow from 50 to 100, 200, 400, then at most 500ms. The budget never
+  resets when progress changes. Permanent SQLite errors stop immediately above
+  cap; exhausted retries still fail with `WAL_VALVE_ABORT` and retain recovery
+  work. Increasing this budget does not increase the WAL byte cap.
 - Phase boundaries always inspect nonempty WAL, even without physical growth.
   Empty WAL does not start a checkpoint worker. Unknown file-size I/O errors
   propagate at the next writer boundary instead of being treated as zero.
@@ -29,19 +36,38 @@ large transaction/file or an internally multi-write synthesis phase may
 overshoot it before the next gate. Other database writers are outside this
 writer's control. A lower threshold trades more folding/I/O for less space.
 
-PASSIVE/TRUNCATE use a worker connection with `busy_timeout=0`. No-progress
-reader pins stop promptly; attempts are bounded and delayed, not a busy spin.
-The worker receives a termination request after 60 seconds, and the caller
-waits for confirmed exit before allowing further writes. This is deliberately
-**not** a guaranteed 60-second wall-clock deadline for uninterruptible OS I/O:
-resuming while a checkpoint thread still holds SQLite locks would be unsafe.
+PASSIVE/TRUNCATE use a worker connection with `busy_timeout=0`. The normal first
+attempt and advisory timer keep their existing 60-second cancellation deadline,
+so a healthy checkpoint on slow storage does not acquire a shorter timeout.
+Once retries begin, each worker receives the remaining retry budget as its
+cancellation deadline. The caller always waits for the actual worker exit,
+including when a termination request fails. Neither timeout is a guaranteed
+wall-clock deadline for uninterruptible OS I/O: resuming while a checkpoint
+thread still holds SQLite locks would be unsafe. Draining an already-running
+timer checkpoint can also precede the retry budget.
+
+Abort diagnostics include the last mode, reason, checkpoint frame counts when
+available, attempt count, retry wait and original worker/SQLite error. Reasons
+distinguish contention, timeout, unavailable machinery and permanent SQLite
+errors. A failed pause logs `backpressure aborted`, not `backpressure released`.
+Below-cap phase folds retain their advisory behavior; the timer never aborts
+the writer itself. Successful ordinary writes incur no retry delays.
 
 On failure, sync/full-index cleanup restores the prior autocheckpoint policy
 and releases its lock; normal persisted pending-reference/retry state allows
-resumption after the reader/space problem is resolved. Do not remove live
-`-wal`/`-shm` files. This change does not alter graph schema, extraction version,
+resumption after the reader/space problem is resolved. Callers whose old edges
+lack reference metadata are recorded in the existing metadata table in the
+same transaction that removes the old target. An unchanged caller is recovered
+on the next sync, and its task is cleared only after successful completion;
+new invalidations cannot be acknowledged by an older recovery attempt. This
+protects interruptions after the fix is installed; it cannot reconstruct old
+unstamped edges already lost without a durable task before the fix. If that
+specific loss is confirmed, use the supported full re-index command.
+Do not remove live `-wal`/`-shm` files. This change does not alter graph schema, extraction version,
 macro invalidation policy, or file replacement transaction semantics.
 
-Tests: `wal-valve-backpressure.test.ts`, `wal-checkpoint-worker-lifecycle.test.ts`,
+Tests: `wal-valve-backpressure.test.ts`, `wal-checkpoint-errors.test.ts`,
+`wal-checkpoint-worker-lifecycle.test.ts`, `sync-wal-rewire-recovery.test.ts`,
+`sync-wal-watcher.test.ts`,
 `sync-wal-boundaries.test.ts`, `sync-wal-worker-boundary.test.ts`, plus existing
 sync WAL, recovery, batching, append-delta and worker regression suites.
