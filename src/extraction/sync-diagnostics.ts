@@ -82,6 +82,7 @@ export class ScanDiagnostics {
 export class ReconcileDiagnostics {
   scope: 'full' | 'scoped' | 'full-fallback' = 'full';
   readonly scan = new ScanDiagnostics();
+  readonly removal = new RemovalDiagnostics();
   readonly phases = {
     enumerateMs: 0, loadTrackedMs: 0, buildLookupMs: 0, removalMs: 0, changeCheckMs: 0,
   };
@@ -101,6 +102,97 @@ export class ReconcileDiagnostics {
     log(`reconcile-detail scope=${this.scope} ${formatMs(this.phases)} totalMs=${Math.round(totalMs)}ms`);
     log(`reconcile-io ${formatMs(this.io)}`);
     log(`reconcile-counts ${Object.entries(this.counts).map(([key, value]) => `${key}=${value}`).join(' ')}`);
+  }
+}
+
+/**
+ * Attribution within existing per-file removals, never another reconcile phase.
+ * Known scan omissions belong to removalMs; late stat/read deletions belong to
+ * changeCheckMs. The timings below are disjoint children of operationMs.
+ * workerMs includes dispatch/startup, IPC and the worker's whole transaction;
+ * preserveDeleteMs measures the alternative main-thread path, not its child.
+ */
+export class RemovalDiagnostics {
+  readonly timings = {
+    beforeNodeWriteMs: 0, proofMs: 0, probeMs: 0, preserveDeleteMs: 0,
+    workerMs: 0, walWaitMs: 0,
+  };
+  attempted = 0;
+  committed = 0;
+  mainThread = 0;
+  worker = 0;
+  late = 0;
+  operationMs = 0;
+  failedPhase: keyof RemovalDiagnostics['timings'] | 'none' = 'none';
+  private activePhase: keyof RemovalDiagnostics['timings'] | undefined;
+  private phaseStarted = 0;
+  private fileStarted: number | undefined;
+  private timer: ReturnType<typeof setInterval> | undefined;
+  private lastLog = -Infinity;
+
+  beginFile(late: boolean, knownTotal: number, log: (message: string) => void): void {
+    this.attempted++;
+    if (late) this.late++;
+    this.fileStarted = performance.now();
+    if (!this.timer) {
+      this.timer = setInterval(() => {
+        if (this.fileStarted !== undefined) this.progress(knownTotal, log);
+      }, 1000);
+      this.timer.unref?.();
+    }
+    this.progress(knownTotal, log);
+  }
+
+  endFile(): void {
+    if (this.fileStarted !== undefined) this.operationMs += performance.now() - this.fileStarted;
+    this.fileStarted = undefined;
+  }
+
+  measure<T>(phase: keyof RemovalDiagnostics['timings'], operation: () => T): T {
+    this.activePhase = phase;
+    this.phaseStarted = performance.now();
+    try { return operation(); }
+    catch (error) { this.failedPhase = phase; throw error; }
+    finally {
+      this.timings[phase] += performance.now() - this.phaseStarted;
+      this.activePhase = undefined;
+    }
+  }
+
+  async measureAsync<T>(phase: keyof RemovalDiagnostics['timings'], operation: () => Promise<T>): Promise<T> {
+    this.activePhase = phase;
+    this.phaseStarted = performance.now();
+    try { return await operation(); }
+    catch (error) { this.failedPhase = phase; throw error; }
+    finally {
+      this.timings[phase] += performance.now() - this.phaseStarted;
+      this.activePhase = undefined;
+    }
+  }
+
+  progress(knownTotal: number, log: (message: string) => void, status = 'running', force = false): void {
+    const now = performance.now();
+    if (!force && now - this.lastLog < 1000) return;
+    this.lastLog = now;
+    const elapsed = this.operationMs + (this.fileStarted === undefined ? 0 : now - this.fileStarted);
+    try {
+      log(`removing-progress target=stale-index-entries status=${status} committed=${this.committed} ` +
+        `total=${this.late > 0 ? 'unknown' : knownTotal} knownTotal=${knownTotal} late=${this.late} ` +
+        `stage=${this.activePhase ?? 'between-files'} operationMs=${Math.round(elapsed)}ms`);
+    } catch { /* Diagnostic output must not fail sync or escape the heartbeat. */ }
+  }
+
+  finish(knownTotal: number, complete: boolean, log: (message: string) => void): void {
+    if (this.timer) clearInterval(this.timer);
+    this.timer = undefined;
+    if (this.attempted === 0) return;
+    this.progress(knownTotal, log, complete ? 'complete' : 'failed', true);
+    try {
+      log(`removal-detail attempted=${this.attempted} committed=${this.committed} ` +
+        `mainThread=${this.mainThread} worker=${this.worker} late=${this.late} ` +
+        `failedPhase=${this.failedPhase} ${formatMs(this.timings)} operationMs=${Math.round(this.operationMs)}ms ` +
+        `timingRelation=children-of-operation operationRelation=within-removal-or-changeCheck`);
+    } catch { /* Never replace a store/checkpoint error with a logging error. */ }
   }
 }
 

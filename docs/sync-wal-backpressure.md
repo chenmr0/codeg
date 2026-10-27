@@ -53,6 +53,24 @@ errors. A failed pause logs `backpressure aborted`, not `backpressure released`.
 Below-cap phase folds retain their advisory behavior; the timer never aborts
 the writer itself. Successful ordinary writes incur no retry delays.
 
+With verbose logging, each completed/aborted writer pause also emits one
+`checkpoint-detail` line. `trigger=cap|phase` distinguishes a write-boundary
+pause from an explicit phase fold; `outcome=released|aborted` describes whether
+the writer was allowed to resume. `retryStarted=true` means a retryable blockage
+actually started the retry budget, not merely that the pause took several
+seconds. `passiveCalls` and `truncateCalls` count fresh calls during this pause.
+
+`inflightMs`, `passiveMs`, `truncateMs`, `retrySleepMs`, and `otherMs` are
+non-overlapping parts of `totalMs`, rounded independently to milliseconds.
+`inflightMs` is the remaining wait for an already-running advisory checkpoint;
+its work is not also counted in `passiveMs`. PASSIVE/TRUNCATE call times include
+worker startup, database open/checkpoint/close and confirmed worker exit; they
+are not isolated disk-I/O measurements. Retry sleep includes scheduling delay.
+The total covers this pause, not prior phase-fold draining or all sync work.
+These figures are already included in the caller's WAL-wait/phase timing and
+must not be added to those totals again. A released below-cap advisory fold
+does not prove the WAL was truncated; inspect the existing `wal=` result.
+
 On failure, sync/full-index cleanup restores the prior autocheckpoint policy
 and releases its lock; normal persisted pending-reference/retry state allows
 resumption after the reader/space problem is resolved. Callers whose old edges

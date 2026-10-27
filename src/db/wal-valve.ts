@@ -13,7 +13,7 @@
  */
 import type { DatabaseConnection } from './index';
 import { performance } from 'node:perf_hooks';
-import { WalCheckpointError } from './wal-checkpoint';
+import { WalCheckpointError, type WalCheckpointResult } from './wal-checkpoint';
 
 const DEFAULT_WAL_VALVE_MB = 256;
 const HARD_CAP_MULTIPLIER = 2;
@@ -22,6 +22,17 @@ const RETRY_DELAY_MS = 50;
 const MAX_RETRY_DELAY_MS = 500;
 const DEFAULT_WAL_WAIT_MS = 10_000;
 const MAX_WAL_WAIT_MS = 60_000;
+const NO_LOG = (_message: string): void => {};
+
+interface WalPauseTimings {
+  inflightMs: number;
+  passiveMs: number;
+  truncateMs: number;
+  retrySleepMs: number;
+  passiveCalls: number;
+  truncateCalls: number;
+  retryStarted: boolean;
+}
 
 export interface WalValveCheckpointFailure {
   mode: 'PASSIVE' | 'TRUNCATE';
@@ -74,7 +85,7 @@ export class WalCheckpointValve {
     private readonly db: DatabaseConnection,
     softMb: number = resolveWalValveMb(process.env.CODEGRAPH_WAL_VALVE_MB),
     private readonly intervalMs: number = CHECK_INTERVAL_MS,
-    private readonly log: (msg: string) => void = () => {},
+    private readonly log: (msg: string) => void = NO_LOG,
     private readonly waitMs: number = resolveWalWaitMs(process.env.CODEGRAPH_WAL_WAIT_MS),
   ) {
     this.softBytes = softMb * 1024 * 1024;
@@ -107,7 +118,7 @@ export class WalCheckpointValve {
   backpressure(): Promise<void> | null {
     if (this.pause) return this.pause;
     if (this.db.getWalSizeBytes() <= this.hardBytes) return null;
-    return this.park();
+    return this.park('cap');
   }
 
   async drain(): Promise<void> {
@@ -121,17 +132,40 @@ export class WalCheckpointValve {
   async foldNow(): Promise<void> {
     await this.drain();
     if (this.db.getWalSizeBytes() === 0) return;
-    await this.park();
+    await this.park('phase');
   }
 
-  private park(): Promise<void> {
+  private park(trigger: 'cap' | 'phase'): Promise<void> {
     if (this.pause) return this.pause;
-    const started = Date.now();
-    this.log(`backpressure: wal=${this.db.getWalSizeBytes()} cap=${this.hardBytes}; pausing writer`);
-    this.pause = this.backfillFully().then(() => {
-      this.log(`backpressure released after ${Date.now() - started}ms: wal=${this.db.getWalSizeBytes()}`);
+    const started = performance.now();
+    const beforeBytes = this.db.getWalSizeBytes();
+    const timings: WalPauseTimings | undefined = this.log === NO_LOG ? undefined : {
+      inflightMs: 0, passiveMs: 0, truncateMs: 0, retrySleepMs: 0,
+      passiveCalls: 0, truncateCalls: 0, retryStarted: false,
+    };
+    this.log(`backpressure: wal=${beforeBytes} cap=${this.hardBytes}; pausing writer`);
+    const report = (outcome: 'released' | 'aborted'): void => {
+      if (!timings) return;
+      const totalMs = performance.now() - started;
+      // These intervals are disjoint. A checkpoint call includes its worker's
+      // startup, open/checkpoint/close, and confirmed exit, not just SQLite I/O.
+      const otherMs = Math.max(0, totalMs - timings.inflightMs - timings.passiveMs -
+        timings.truncateMs - timings.retrySleepMs);
+      try {
+        this.log(`checkpoint-detail trigger=${trigger} outcome=${outcome} ` +
+          `passiveCalls=${timings.passiveCalls} truncateCalls=${timings.truncateCalls} ` +
+          `retryStarted=${timings.retryStarted} ` +
+          `inflightMs=${Math.round(timings.inflightMs)}ms passiveMs=${Math.round(timings.passiveMs)}ms ` +
+          `truncateMs=${Math.round(timings.truncateMs)}ms retrySleepMs=${Math.round(timings.retrySleepMs)}ms ` +
+          `otherMs=${Math.round(otherMs)}ms totalMs=${Math.round(totalMs)}ms`);
+      } catch { /* Additional diagnostics must not change the checkpoint outcome. */ }
+    };
+    this.pause = this.backfillFully(timings).then(() => {
+      this.log(`backpressure released after ${Math.round(performance.now() - started)}ms: wal=${this.db.getWalSizeBytes()}`);
+      report('released');
     }, error => {
-      this.log(`backpressure aborted after ${Date.now() - started}ms: ${String(error)}`);
+      this.log(`backpressure aborted after ${Math.round(performance.now() - started)}ms: ${String(error)}`);
+      report('aborted');
       throw error;
     }).finally(() => { this.pause = null; });
     return this.pause;
@@ -150,10 +184,14 @@ export class WalCheckpointValve {
       `Pending index work is retained for retry.`, bytes, this.hardBytes, checkpoint);
   }
 
-  private async backfillFully(): Promise<void> {
+  private async backfillFully(timings?: WalPauseTimings): Promise<void> {
     // Timer PASSIVE may describe an old snapshot; discard its result and do a
     // fresh checkpoint with this writer parked. Never TRUNCATE from the timer.
-    if (this.inflight) await this.inflight;
+    if (this.inflight) {
+      const started = timings ? performance.now() : 0;
+      try { await this.inflight; }
+      finally { if (timings) timings.inflightMs += performance.now() - started; }
+    }
     let retryStarted: number | undefined;
     let delay = RETRY_DELAY_MS;
     let attempts = 0;
@@ -174,7 +212,11 @@ export class WalCheckpointValve {
       let mode: 'PASSIVE' | 'TRUNCATE' = 'PASSIVE';
       attempts++;
       try {
-        const res = await this.db.checkpointWalPassive(checkpointOptions());
+        let started = timings ? performance.now() : 0;
+        if (timings) timings.passiveCalls++;
+        let res: WalCheckpointResult | null;
+        try { res = await this.db.checkpointWalPassive(checkpointOptions()); }
+        finally { if (timings) timings.passiveMs += performance.now() - started; }
         if (!res) throw new WalCheckpointError('Checkpoint returned no result', 'unavailable', true);
         let incomplete = res;
         if (res.busy === 0 && res.log === res.checkpointed) {
@@ -183,7 +225,11 @@ export class WalCheckpointValve {
             throw new WalCheckpointError('Retry budget exhausted before TRUNCATE', 'timeout', true);
           }
           mode = 'TRUNCATE';
-          const trunc = await this.db.checkpointWalTruncate(checkpointOptions());
+          started = timings ? performance.now() : 0;
+          if (timings) timings.truncateCalls++;
+          let trunc: WalCheckpointResult | null;
+          try { trunc = await this.db.checkpointWalTruncate(checkpointOptions()); }
+          finally { if (timings) timings.truncateMs += performance.now() - started; }
           if (!trunc) throw new WalCheckpointError('Checkpoint returned no result', 'unavailable', true);
           if (trunc.busy === 0 && this.db.getWalSizeBytes() <= this.hardBytes) return;
           incomplete = trunc;
@@ -202,12 +248,15 @@ export class WalCheckpointValve {
       if (!failure.retryable) this.abort(failure);
       if (retryStarted === undefined) {
         retryStarted = performance.now();
+        if (timings) timings.retryStarted = true;
         this.log(`checkpoint blocked: ${failure.mode} ${failure.reason}; ${failure.message}; ` +
           `waiting up to ${this.waitMs}ms with writer paused`);
       }
       const remaining = this.waitMs - (performance.now() - retryStarted);
       if (remaining <= 0) this.abort({ ...failure, waitedMs: waitedMs() });
+      const sleepStarted = timings ? performance.now() : 0;
       await new Promise<void>(resolve => setTimeout(resolve, Math.min(delay, remaining)));
+      if (timings) timings.retrySleepMs += performance.now() - sleepStarted;
       delay = Math.min(delay * 2, MAX_RETRY_DELAY_MS);
     }
   }

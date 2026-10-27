@@ -70,6 +70,15 @@ function renderBar(frame: number, filled: number, empty: number): string {
 let currentMessage = '';
 let currentPercent = -1;
 let currentCount = 0;
+let currentPhase = '';
+let currentTotal = 0;
+let currentStatus: 'running' | 'complete' | 'failed' | undefined;
+
+function removalCount(): string {
+  return currentTotal > 0
+    ? `${formatNumber(currentCount)}/${formatNumber(currentTotal)} index entries removed`
+    : `${formatNumber(currentCount)} index entries removed (total unknown)`;
+}
 
 function render(): void {
   if (!currentMessage) return;
@@ -79,7 +88,9 @@ function render(): void {
   const color = shimmerColor(frame);
 
   let line: string;
-  if (currentPercent >= 0) {
+  if (currentPhase === 'removing') {
+    line = `${DM}${G.rail}${RST}  ${color}${glyph}${RST} ${currentMessage}... ${removalCount()}`;
+  } else if (currentPercent >= 0) {
     const barWidth = 25;
     const filled = Math.round(barWidth * currentPercent / 100);
     const empty = barWidth - filled;
@@ -96,6 +107,21 @@ function render(): void {
 function finishPhase(): void {
   if (!currentMessage) return;
   writeStdout(`\r\x1b[K`);
+  if (currentPhase === 'removing') {
+    // stop() is also used on errors. A committed count is not proof that the
+    // WAL barrier (or the remaining deletions) finished successfully.
+    const complete = currentStatus === 'complete';
+    const state = complete ? 'complete' : currentStatus === 'failed' ? 'failed' : 'stopped';
+    writeStdout(`${DM}${G.rail}${RST}  ${complete ? GRN : DM}${complete ? G.phaseDone : '!'}${RST} ` +
+      `${currentMessage} ${G.dash} ${removalCount()}; ${state}\n`);
+    currentMessage = '';
+    currentPercent = -1;
+    currentCount = 0;
+    currentPhase = '';
+    currentTotal = 0;
+    currentStatus = undefined;
+    return;
+  }
   let detail = '';
   if (currentPercent >= 0) detail = ` ${G.dash} done`;
   else if (currentCount > 0) detail = ` ${G.dash} ${formatNumber(currentCount)} found`;
@@ -110,9 +136,12 @@ const tickInterval = setInterval(render, 50);
 
 parentPort!.on('message', (msg: ShimmerWorkerMessage) => {
   if (msg.type === 'update') {
+    currentPhase = msg.phase;
     currentMessage = msg.phaseName;
     currentPercent = msg.percent;
     currentCount = msg.count;
+    currentTotal = msg.total ?? 0;
+    currentStatus = msg.status;
   } else if (msg.type === 'finish-phase') {
     finishPhase();
   } else if (msg.type === 'stop') {

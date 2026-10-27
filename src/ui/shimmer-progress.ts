@@ -3,6 +3,7 @@ import * as path from 'path';
 
 const PHASE_NAMES: Record<string, string> = {
   scanning: 'Scanning files',
+  removing: 'Removing stale index entries',
   parsing: 'Parsing code',
   storing: 'Storing data',
   resolving: 'Resolving refs',
@@ -13,6 +14,7 @@ export interface IndexProgress {
   phase: string;
   current: number;
   total: number;
+  status?: 'running' | 'complete' | 'failed';
 }
 
 export interface ShimmerProgress {
@@ -50,7 +52,8 @@ export function createShimmerProgress(): ShimmerProgress {
         phase: progress.phase,
         phaseName,
         percent,
-        count,
+        count: progress.phase === 'removing' ? progress.current : count,
+        ...(progress.phase === 'removing' ? { total: progress.total, status: progress.status } : {}),
       });
     },
 

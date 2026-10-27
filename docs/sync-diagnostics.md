@@ -196,6 +196,39 @@ time env CODEGRAPH_HYBRID_SCAN=1 codegraph sync -v
 
 原有 `[sync] phases read=...` 只统计待解析文件的读取，不包含这里的 `readForHashMs`，也不包含后续全项目宏扫描的文件读取。因此 `read=0` 不代表整个命令没有读取源码。
 
+## 清理旧文件索引的进度与耗时
+
+核对发现旧索引中的文件不再属于本次扫描集合时，CLI 会显示
+`Removing stale index entries... 12/300 index entries removed`。
+计数单位是已清理的**文件索引记录**，不表示删除了磁盘上的源文件。
+只有数据库提交完成或存储 worker 确认后才增加完成数；等待 WAL 回收时保留该计数。
+扫描之后才由 stat/read 确认的缺失文件没有预先已知的总数，显示 `total unknown`。
+无删除的 sync 不新增清理阶段。失败或提前停止时不会把尚未完成的清理显示成 `done`。
+
+`sync -v` 在清理开始、运行期间约每秒以及结束/失败时输出 `removing-progress`，
+并在核对退出时输出一条 `removal-detail`。主线程在执行同步 SQLite 语句时不能运行
+定时回调，因此这里的每秒进度是尽力而为的，不是独立线程心跳或卡死检测。
+新日志不包含源文件路径或源码内容。
+
+- `committed/knownTotal/late`：已提交删除数、枚举阶段已知的删除总数、后续确认的删除数。
+  出现后续删除时 `total=unknown`；`knownTotal` 仍是初始计划，不会冒充最终总量。
+- `attempted/mainThread/worker`：尝试删除数以及采用主线程/worker 路径的尝试数。
+  尝试数可能大于已提交数，前置准备失败也可能尚未选择写入路径。
+- `stage/failedPhase`：当前操作或失败所在环节，帮助区分处理数据与等待 WAL。
+- `beforeNodeWriteMs/proofMs/probeMs`：已有写前准备、旧重试证明失效、重文件分流查询。
+- `preserveDeleteMs`：主线程保存待恢复引用、恢复任务及删除旧图数据的总时间。
+- `workerMs`：另一条 worker 路径的完整等待，包括启动、IPC 和事务，不是纯 SQL 时间。
+- `walWaitMs`：提交后检查 WAL 上限及等待回收的时间。
+
+这些互斥细分是 `operationMs` 的子项；`operationMs` 还包含上下文失效、集合维护与
+进度通知等少量工作。扫描遗漏的清理计入原 `reconcile-detail.removalMs`，后续发现缺失
+的清理计入 `changeCheckMs`；不能把新细分再次加到原阶段总时间上。
+`removal-detail` 在异常退出时也会保留已完成的计数和耗时。
+
+每次 WAL 暂停另有 `checkpoint-detail`，区分 `inflightMs/passiveMs/truncateMs/retrySleepMs`
+及是否真正启动重试预算。这些时间已包含在相应的 `walWaitMs` 或收尾阶段中；字段边界
+见 [WAL 策略](sync-wal-backpressure.md)。本次日志改动不改变删除范围、事务或 WAL 上限。
+
 ## 文件列表复用
 
 有待重索引文件时，框架/宏准备结束后还会输出一行，例如：

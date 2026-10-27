@@ -15,6 +15,8 @@ and adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixes
 
+- 同步清理旧索引时增加独立删除进度和分段耗时；verbose WAL 日志区分等待已有检查点、PASSIVE、TRUNCATE 与受阻重试休眠，便于定位长时间停留的阶段。保持现有 WAL 上限、删除策略和失败恢复能力。
+
 - 修复大量增量同步遇到短暂数据库读取占用时过早退出：保留 WAL 上限和正常检查点路径，在受阻后有界等待重试，并区分占用、超时及 SQLite 错误。补齐旧调用边缺少引用元数据时的持久化恢复任务，避免中止后续跑漏掉未变化调用方。`CODEGRAPH_WAL_WAIT_MS` 可调整受阻重试预算，默认 10 秒；不改数据库格式或提取版本。见 [WAL 同步策略](docs/sync-wal-backpressure.md)。
 
 - 修复宏生成 C/C++ 类型的后续源码成员丢失，并保留正确的字段类型、所属类型和源码位置；修复 `namespace_push` 等合法方法名被误过滤。提取版本升至 28，旧索引需完整重建。见 [符号提取修复说明](docs/cpp-symbol-admission.md)。

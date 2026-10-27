@@ -157,10 +157,12 @@ const WORKER_RECYCLE_INTERVAL = 250;
  * Progress callback for indexing operations
  */
 export interface IndexProgress {
-  phase: 'scanning' | 'parsing' | 'storing' | 'resolving' | 'synthesizing';
+  phase: 'scanning' | 'removing' | 'parsing' | 'storing' | 'resolving' | 'synthesizing';
   current: number;
   total: number;
   currentFile?: string;
+  /** Removal totals are unknown (total=0) for deletions found during stat/read. */
+  status?: 'running' | 'complete' | 'failed';
 }
 
 /**
@@ -2742,8 +2744,10 @@ export class ExtractionOrchestrator {
     const currentSet = new Set(currentFiles);
 
     const trackedMap = new Map<string, FileRecord>();
+    let knownRemovalTotal = 0;
     for (const f of trackedFiles) {
       trackedMap.set(f.path, f);
+      if (!currentSet.has(f.path)) knownRemovalTotal++;
     }
     if (diagnostics) {
       diagnostics.phases.buildLookupMs = performance.now() - phaseStarted;
@@ -2759,29 +2763,65 @@ export class ExtractionOrchestrator {
     // Keep deletion lifecycle in one place. Scan omissions are removed first;
     // Git-listed disk deletions are discovered by the just-in-time stat below.
     // All removals still finish before queued extraction and resolution start.
-    const removeTracked = async (tracked: FileRecord): Promise<void> => {
-      await beforeNodeWrite?.();
-      this.invalidateMacroContext(tracked.path);
-      // Deleting the target cascades its incoming edges even though callers
-      // in other files are unchanged. Preserve stamped resolution edges as
-      // pending refs so this same sync can rebind them or park them for a
-      // later symbol-driven retry.
-      this.syncRetryState?.beforeDelete(tracked.path);
-      let sourceFiles: string[];
-      if (replaceFileStore && this.queries.hasManyIncomingEdges(tracked.path)) {
-        try {
-          sourceFiles = (await replaceFileStore({ filePath: tracked.path, remove: true }))
-            .resurrectedSourceFiles ?? [];
-        } finally { this.queries.clearCache(); }
-      } else {
-        sourceFiles = this.removeStoredFile(tracked.path);
-      }
-      for (const file of sourceFiles) resurrectedReferenceSourceFiles.add(file);
-      filesRemoved++;
-      // Worker replacements are fully acknowledged above; neither connection
-      // has an active write when the checkpoint valve parks this sync.
-      const wait = afterWrite?.();
-      if (wait) await wait;
+    let lateRemoval = false;
+    let removalFailed = false;
+    const removal = diagnostics?.removal;
+    const removalProgress = (status: 'running' | 'complete' | 'failed'): void => {
+      onProgress?.({ phase: 'removing', current: filesRemoved,
+        total: lateRemoval ? 0 : knownRemovalTotal, status });
+    };
+    const removeTracked = async (tracked: FileRecord, late = false): Promise<void> => {
+      lateRemoval ||= late;
+      removal?.beginFile(late, knownRemovalTotal, log);
+      try {
+        removalProgress('running');
+        if (removal) await removal.measureAsync('beforeNodeWriteMs', async () => { await beforeNodeWrite?.(); });
+        else await beforeNodeWrite?.();
+        this.invalidateMacroContext(tracked.path);
+        // Deleting the target cascades its incoming edges even though callers
+        // in other files are unchanged. Preserve stamped resolution edges as
+        // pending refs so this same sync can rebind them or park them for a
+        // later symbol-driven retry.
+        if (removal) removal.measure('proofMs', () => this.syncRetryState?.beforeDelete(tracked.path));
+        else this.syncRetryState?.beforeDelete(tracked.path);
+        let sourceFiles: string[];
+        const useWorker = replaceFileStore && (removal
+          ? removal.measure('probeMs', () => this.queries.hasManyIncomingEdges(tracked.path))
+          : this.queries.hasManyIncomingEdges(tracked.path));
+        if (replaceFileStore && useWorker) {
+          if (removal) removal.worker++;
+          try {
+            const replace = () => replaceFileStore({ filePath: tracked.path, remove: true });
+            sourceFiles = (await (removal ? removal.measureAsync('workerMs', replace) : replace()))
+              .resurrectedSourceFiles ?? [];
+          } finally { this.queries.clearCache(); }
+        } else {
+          if (removal) removal.mainThread++;
+          sourceFiles = removal
+            ? removal.measure('preserveDeleteMs', () => this.removeStoredFile(tracked.path))
+            : this.removeStoredFile(tracked.path);
+        }
+        for (const file of sourceFiles) resurrectedReferenceSourceFiles.add(file);
+        filesRemoved++;
+        if (removal) removal.committed++;
+        // Report only committed index removals, including while the WAL waits.
+        removalProgress('running');
+        // Worker replacements are fully acknowledged above; neither connection
+        // has an active write when the checkpoint valve parks this sync.
+        if (removal) await removal.measureAsync('walWaitMs', async () => {
+          const wait = afterWrite?.();
+          if (wait) await wait;
+        });
+        else {
+          const wait = afterWrite?.();
+          if (wait) await wait;
+        }
+      } catch (error) {
+        removalFailed = true;
+        // Reporting must not replace the actual store/checkpoint failure.
+        try { removalProgress('failed'); } catch { /* preserve the original error */ }
+        throw error;
+      } finally { removal?.endFile(); }
     };
 
     // Both newly introduced late-deletion routes require an actual missing-
@@ -2791,143 +2831,160 @@ export class ExtractionOrchestrator {
       if (nativeCapture.snapshot || (code !== 'ENOENT' && code !== 'ENOTDIR')) return;
       if (diagnostics) diagnostics.counts.existsChecks++;
       // A path may have reappeared after the failed stat/read.
-      if (!fs.existsSync(fullPath)) await removeTracked(tracked);
+      if (!fs.existsSync(fullPath)) await removeTracked(tracked, true);
     };
 
     let reconcileChecks = 0;
-    for (const tracked of trackedFiles) {
-      if (!currentSet.has(tracked.path)) await removeTracked(tracked);
-      else if (nativeCapture.snapshot && diagnostics) diagnostics.counts.snapshotPresence++;
-      if (++reconcileChecks % SYNC_RECONCILE_YIELD_INTERVAL === 0) {
-        await new Promise<void>((resolve) => setImmediate(resolve));
-      }
-    }
-    if (diagnostics) {
-      diagnostics.phases.removalMs = performance.now() - phaseStarted;
-      phaseStarted = performance.now();
-    }
-
-    const statUpdates: UnchangedFileStatUpdate[] = [];
-    const flushStatUpdates = (): void => {
-      if (statUpdates.length === 0) return;
-      const started = diagnostics ? performance.now() : 0;
-      try {
-        const updated = this.queries.refreshUnchangedFileStats(statUpdates);
-        if (diagnostics) {
-          diagnostics.counts.sameHashStatUpdated += updated;
-          diagnostics.counts.sameHashStatDeferred += statUpdates.length - updated;
+    let reconcileComplete = false;
+    try {
+      for (const tracked of trackedFiles) {
+        if (!currentSet.has(tracked.path)) await removeTracked(tracked);
+        else if (nativeCapture.snapshot && diagnostics) diagnostics.counts.snapshotPresence++;
+        if (++reconcileChecks % SYNC_RECONCILE_YIELD_INTERVAL === 0) {
+          await new Promise<void>((resolve) => setImmediate(resolve));
         }
-        statUpdates.length = 0;
-      } finally {
-        if (diagnostics) diagnostics.io.statRefreshMs += performance.now() - started;
       }
-    };
-
-    // Adds / modifications.
-    for (const filePath of currentFiles) {
-      // Keep the unchanged-file fast path cooperative too: most entries leave
-      // through `continue` after stat, so the yield must happen at loop entry.
-      if (++reconcileChecks % SYNC_RECONCILE_YIELD_INTERVAL === 0) {
-        await new Promise<void>((resolve) => setImmediate(resolve));
+      if (knownRemovalTotal > 0) {
+        removalProgress('complete');
+        onProgress?.({ phase: 'scanning', current: 0, total: 0 });
       }
-      const fullPath = path.join(this.rootDir, filePath);
-      const tracked = trackedMap.get(filePath);
-      const needsDeclarationMacroRecovery = hasDeclarationMacroRecoverySkipped(
-        tracked?.errors,
-      );
-      if (needsDeclarationMacroRecovery && diagnostics) diagnostics.counts.recoveryRetryFiles++;
-      let beforeReadStat: fs.Stats | undefined;
+      if (diagnostics) {
+        diagnostics.phases.removalMs = performance.now() - phaseStarted;
+        phaseStarted = performance.now();
+      }
 
-      // Cheap pre-filter: an already-indexed file whose size AND mtime both match
-      // the DB is unchanged — skip it without reading or hashing. (A content
-      // change that preserves both exactly is the blind spot every mtime-based
-      // incremental tool accepts; `index --force` is the escape hatch. Git bumps
-      // mtime on every file it writes during checkout/merge, so pulls are caught.)
-      // A base-only file is intentionally exempt: unchanged source bytes do not
-      // mean its graph coverage is complete, so a later sync must retry it.
-      if (tracked && !needsDeclarationMacroRecovery) {
-        const nativeStat = nativeCapture.snapshot?.stats.get(filePath);
-        if (nativeStat && diagnostics) diagnostics.counts.snapshotStats++;
+      const statUpdates: UnchangedFileStatUpdate[] = [];
+      const flushStatUpdates = (): void => {
+        if (statUpdates.length === 0) return;
+        const started = diagnostics ? performance.now() : 0;
         try {
-          const stat = nativeStat ?? (beforeReadStat = readStat(fullPath));
-          if (stat.size === tracked.size && Math.floor(stat.mtimeMs) === Math.floor(tracked.modifiedAt)) {
-            if (diagnostics) diagnostics.counts.statUnchanged++;
+          const updated = this.queries.refreshUnchangedFileStats(statUpdates);
+          if (diagnostics) {
+            diagnostics.counts.sameHashStatUpdated += updated;
+            diagnostics.counts.sameHashStatDeferred += statUpdates.length - updated;
+          }
+          statUpdates.length = 0;
+        } finally {
+          if (diagnostics) diagnostics.io.statRefreshMs += performance.now() - started;
+        }
+      };
+
+      // Adds / modifications.
+      for (const filePath of currentFiles) {
+        // Keep the unchanged-file fast path cooperative too: most entries leave
+        // through `continue` after stat, so the yield must happen at loop entry.
+        if (++reconcileChecks % SYNC_RECONCILE_YIELD_INTERVAL === 0) {
+          await new Promise<void>((resolve) => setImmediate(resolve));
+        }
+        const fullPath = path.join(this.rootDir, filePath);
+        const tracked = trackedMap.get(filePath);
+        const needsDeclarationMacroRecovery = hasDeclarationMacroRecoverySkipped(
+          tracked?.errors,
+        );
+        if (needsDeclarationMacroRecovery && diagnostics) diagnostics.counts.recoveryRetryFiles++;
+        let beforeReadStat: fs.Stats | undefined;
+
+        // Cheap pre-filter: an already-indexed file whose size AND mtime both match
+        // the DB is unchanged — skip it without reading or hashing. (A content
+        // change that preserves both exactly is the blind spot every mtime-based
+        // incremental tool accepts; `index --force` is the escape hatch. Git bumps
+        // mtime on every file it writes during checkout/merge, so pulls are caught.)
+        // A base-only file is intentionally exempt: unchanged source bytes do not
+        // mean its graph coverage is complete, so a later sync must retry it.
+        if (tracked && !needsDeclarationMacroRecovery) {
+          const nativeStat = nativeCapture.snapshot?.stats.get(filePath);
+          if (nativeStat && diagnostics) diagnostics.counts.snapshotStats++;
+          try {
+            const stat = nativeStat ?? (beforeReadStat = readStat(fullPath));
+            if (stat.size === tracked.size && Math.floor(stat.mtimeMs) === Math.floor(tracked.modifiedAt)) {
+              if (diagnostics) diagnostics.counts.statUnchanged++;
+              continue;
+            }
+            // Rust snapshots only supply size/mtime. For a changed stat, acquire
+            // current file identity and ctime before reading; snapshot metadata
+            // alone cannot certify an unchanged-content refresh against races.
+            beforeReadStat ??= readStat(fullPath);
+          } catch (error) {
+            if (diagnostics) diagnostics.counts.statErrors++;
+            await removeIfMissing(tracked, fullPath, error);
+            logDebug('Skipping unstattable file during sync', { filePath, error: String(error) });
             continue;
           }
-          // Rust snapshots only supply size/mtime. For a changed stat, acquire
-          // current file identity and ctime before reading; snapshot metadata
-          // alone cannot certify an unchanged-content refresh against races.
-          beforeReadStat ??= readStat(fullPath);
+        }
+
+        // Recovery must still read unchanged source. Do not preflight it with
+        // existsSync: denied access would look absent and erase its retry marker.
+        // New, or size/mtime changed — read + hash to confirm a real content change.
+        let content: string | undefined;
+        let readError: unknown;
+        const readStarted = diagnostics ? performance.now() : 0;
+        if (diagnostics) diagnostics.counts.hashReadAttempts++;
+        try {
+          content = fs.readFileSync(fullPath, 'utf-8');
         } catch (error) {
-          if (diagnostics) diagnostics.counts.statErrors++;
-          await removeIfMissing(tracked, fullPath, error);
-          logDebug('Skipping unstattable file during sync', { filePath, error: String(error) });
+          if (diagnostics) diagnostics.counts.hashReadErrors++;
+          readError = error;
+        } finally {
+          if (diagnostics) diagnostics.io.readForHashMs += performance.now() - readStarted;
+        }
+        if (content === undefined) {
+          if (tracked && needsDeclarationMacroRecovery) await removeIfMissing(tracked, fullPath, readError);
+          logDebug('Skipping unreadable file during sync', { filePath, error: String(readError) });
           continue;
         }
-      }
+        if (diagnostics) diagnostics.counts.hashReadFiles++;
+        const hashStarted = diagnostics ? performance.now() : 0;
+        const contentHash = hashContent(content);
+        if (diagnostics) diagnostics.io.hashMs += performance.now() - hashStarted;
 
-      // Recovery must still read unchanged source. Do not preflight it with
-      // existsSync: denied access would look absent and erase its retry marker.
-      // New, or size/mtime changed — read + hash to confirm a real content change.
-      let content: string | undefined;
-      let readError: unknown;
-      const readStarted = diagnostics ? performance.now() : 0;
-      if (diagnostics) diagnostics.counts.hashReadAttempts++;
-      try {
-        content = fs.readFileSync(fullPath, 'utf-8');
-      } catch (error) {
-        if (diagnostics) diagnostics.counts.hashReadErrors++;
-        readError = error;
-      } finally {
-        if (diagnostics) diagnostics.io.readForHashMs += performance.now() - readStarted;
-      }
-      if (content === undefined) {
-        if (tracked && needsDeclarationMacroRecovery) await removeIfMissing(tracked, fullPath, readError);
-        logDebug('Skipping unreadable file during sync', { filePath, error: String(readError) });
-        continue;
-      }
-      if (diagnostics) diagnostics.counts.hashReadFiles++;
-      const hashStarted = diagnostics ? performance.now() : 0;
-      const contentHash = hashContent(content);
-      if (diagnostics) diagnostics.io.hashMs += performance.now() - hashStarted;
-
-      if (!tracked) {
-        this.invalidateMacroContext(filePath, content);
-        filesToIndex.push(filePath);
-        filesAdded++;
-      } else if (
-        needsDeclarationMacroRecovery ||
-        tracked.contentHash !== contentHash
-      ) {
-        this.invalidateMacroContext(filePath, content);
-        filesToIndex.push(filePath);
-        filesModified++;
-      } else {
-        if (diagnostics) diagnostics.counts.sameHashSkipped++;
-        // Persist only metadata that brackets the bytes just hashed. Exact
-        // timestamps (including ctime) and inode/device catch replacement and
-        // writes that restore mtime. A later write remains detectable on the
-        // next sync because we store the observed state, never a later stat.
-        let stable = false;
-        try {
-          const afterReadStat = readStat(fullPath);
-          stable = !!beforeReadStat && beforeReadStat.isFile() && afterReadStat.isFile() &&
-            beforeReadStat.dev === afterReadStat.dev && beforeReadStat.ino === afterReadStat.ino &&
-            beforeReadStat.size === afterReadStat.size && beforeReadStat.mtimeMs === afterReadStat.mtimeMs &&
-            beforeReadStat.ctimeMs === afterReadStat.ctimeMs;
-        } catch (error) {
-          if (diagnostics) diagnostics.counts.statErrors++;
-          logDebug('Deferring same-hash metadata refresh', { filePath, error: String(error) });
+        if (!tracked) {
+          this.invalidateMacroContext(filePath, content);
+          filesToIndex.push(filePath);
+          filesAdded++;
+        } else if (
+          needsDeclarationMacroRecovery ||
+          tracked.contentHash !== contentHash
+        ) {
+          this.invalidateMacroContext(filePath, content);
+          filesToIndex.push(filePath);
+          filesModified++;
+        } else {
+          if (diagnostics) diagnostics.counts.sameHashSkipped++;
+          // Persist only metadata that brackets the bytes just hashed. Exact
+          // timestamps (including ctime) and inode/device catch replacement and
+          // writes that restore mtime. A later write remains detectable on the
+          // next sync because we store the observed state, never a later stat.
+          let stable = false;
+          try {
+            const afterReadStat = readStat(fullPath);
+            stable = !!beforeReadStat && beforeReadStat.isFile() && afterReadStat.isFile() &&
+              beforeReadStat.dev === afterReadStat.dev && beforeReadStat.ino === afterReadStat.ino &&
+              beforeReadStat.size === afterReadStat.size && beforeReadStat.mtimeMs === afterReadStat.mtimeMs &&
+              beforeReadStat.ctimeMs === afterReadStat.ctimeMs;
+          } catch (error) {
+            if (diagnostics) diagnostics.counts.statErrors++;
+            logDebug('Deferring same-hash metadata refresh', { filePath, error: String(error) });
+          }
+          if (stable && beforeReadStat) {
+            statUpdates.push({ path: filePath, contentHash: tracked.contentHash,
+              previousSize: tracked.size, previousModifiedAt: tracked.modifiedAt, indexedAt: tracked.indexedAt,
+              size: beforeReadStat.size, modifiedAt: beforeReadStat.mtimeMs });
+            if (statUpdates.length >= SYNC_STAT_REFRESH_BATCH_SIZE) flushStatUpdates();
+          } else if (diagnostics) diagnostics.counts.sameHashStatDeferred++;
         }
-        if (stable && beforeReadStat) {
-          statUpdates.push({ path: filePath, contentHash: tracked.contentHash,
-            previousSize: tracked.size, previousModifiedAt: tracked.modifiedAt, indexedAt: tracked.indexedAt,
-            size: beforeReadStat.size, modifiedAt: beforeReadStat.mtimeMs });
-          if (statUpdates.length >= SYNC_STAT_REFRESH_BATCH_SIZE) flushStatUpdates();
-        } else if (diagnostics) diagnostics.counts.sameHashStatDeferred++;
+      }
+      flushStatUpdates();
+      reconcileComplete = true;
+    } finally {
+      // Emit the last committed count even when the delete or WAL gate throws.
+      removal?.finish(knownRemovalTotal, reconcileComplete, log);
+      if (lateRemoval && !removalFailed) {
+        if (reconcileComplete) removalProgress('complete');
+        else {
+          try { removalProgress('failed'); } catch { /* preserve the reconcile error */ }
+        }
       }
     }
-    flushStatUpdates();
 
     if (diagnostics) diagnostics.phases.changeCheckMs = performance.now() - phaseStarted;
     const reconcileMs = performance.now() - reconcileStarted;
