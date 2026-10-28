@@ -6,7 +6,7 @@
  */
 
 import * as path from 'path';
-import { existsSync, statSync } from 'fs';
+import { existsSync, statSync, appendFileSync, renameSync } from 'fs';
 import {
   Node,
   Edge,
@@ -32,6 +32,7 @@ import { WalCheckpointValve } from './db/wal-valve';
 import { QueryBuilder } from './db/queries';
 import {
   isInitialized,
+  getCodeGraphDir,
   createDirectory,
   removeDirectory,
   validateDirectory,
@@ -51,7 +52,13 @@ import {
 } from './resolution';
 import { GraphTraverser, GraphQueryManager } from './graph';
 import { ContextBuilder, createContextBuilder } from './context';
-import { Mutex, FileLock, canonicalFilePath } from './utils';
+import { Mutex, canonicalFilePath } from './utils';
+import { GenerationWriterLock, resolveGeneration, createGeneration, publishGeneration, hasRebuildDiskSpace } from './sync/generation-store';
+import { installSourceOwnership, isSourceOwned, beginSourceWrite, finishSourceWrite } from './sync/source-ownership';
+import { adaptiveRuntimeKey, readAdaptiveHistory, hasAdaptiveCalibration, createAdaptivePlan, adaptiveChangeGate,
+  chooseAdaptiveStrategy, validateAdaptiveSnapshot, adaptiveConfigFingerprint, adaptiveSampleFromFiles,
+  recordAdaptiveSample, type AdaptiveDecision } from './sync/adaptive-plan';
+import { runRebuildChild, validateRebuiltDatabase } from './sync/rebuild-controller';
 import { FileWatcher, WatchOptions, PendingFile, LockUnavailableError } from './sync';
 import { EXTRACTION_VERSION } from './extraction/extraction-version';
 import { recoverAppendDeltas } from './extraction/append-delta';
@@ -180,6 +187,10 @@ export interface SyncOptions extends IndexOptions {
    * @internal Callers without a complete event set must leave this undefined.
    */
   paths?: string[];
+  /** Disable adaptive planning for this invocation; default is conservative automatic selection. */
+  adaptive?: boolean;
+  /** Decision diagnostics; no stdout output is emitted for library/MCP callers. */
+  onAdaptiveDecision?: (decision: AdaptiveDecision) => void;
 }
 
 /** Read visibility for the most recent in-process refresh; not a completion stamp. */
@@ -211,7 +222,15 @@ export class CodeGraph {
   private watchRevisionBase = 0;
 
   // File lock for preventing concurrent writes across processes (CLI, MCP, git hooks)
-  private fileLock: FileLock;
+  private fileLock: GenerationWriterLock;
+  private readonly dataDir: string;
+  private readonly shadowCandidate: boolean;
+  private readonly readOnly: boolean;
+  private readonly pinnedRead: boolean;
+  private closed = false;
+  private activeBuild: AbortController | null = null;
+  private forwardedWriter: CodeGraph | null = null;
+  private generationReaders = new Map<string, CodeGraph>();
 
   // File watcher for auto-sync on file changes
   private watcher: FileWatcher | null = null;
@@ -219,11 +238,19 @@ export class CodeGraph {
   private constructor(
     db: DatabaseConnection,
     queries: QueryBuilder,
-    projectRoot: string
+    projectRoot: string,
+    shadowCandidate = false,
+    readOnly = false,
+    pinnedRead = false,
+    dataDirOverride?: string
   ) {
     this.db = db;
     this.queries = queries;
     this.projectRoot = projectRoot;
+    this.shadowCandidate = shadowCandidate;
+    this.readOnly = readOnly;
+    this.pinnedRead = pinnedRead;
+    this.dataDir = shadowCandidate ? path.dirname(db.getPath()) : dataDirOverride ?? getCodeGraphDir(projectRoot);
     // Down-weight the project name as a query term in search ranking — it names
     // the whole repo, not a symbol, so it has no discriminative value (#720).
     try {
@@ -231,9 +258,7 @@ export class CodeGraph {
     } catch {
       // Best-effort: ranking still works without it.
     }
-    this.fileLock = new FileLock(
-      path.join(path.dirname(db.getPath()), 'codegraph.lock')
-    );
+    this.fileLock = new GenerationWriterLock(this.dataDir);
     this.orchestrator = new ExtractionOrchestrator(projectRoot, queries);
     this.resolver = createResolver(projectRoot, queries);
     this.graphManager = new GraphQueryManager(queries);
@@ -273,6 +298,7 @@ export class CodeGraph {
     // Initialize database
     const dbPath = getDatabasePath(resolvedRoot);
     const db = DatabaseConnection.initialize(dbPath);
+    if (db.getBackend() === 'node-sqlite') installSourceOwnership(db.getDb());
     const queries = new QueryBuilder(db.getDb());
 
     const instance = new CodeGraph(db, queries, resolvedRoot);
@@ -313,6 +339,7 @@ export class CodeGraph {
     // Initialize database
     const dbPath = getDatabasePath(resolvedRoot);
     const db = DatabaseConnection.initialize(dbPath);
+    if (db.getBackend() === 'node-sqlite') installSourceOwnership(db.getDb());
     const queries = new QueryBuilder(db.getDb());
 
     return new CodeGraph(db, queries, resolvedRoot);
@@ -342,10 +369,11 @@ export class CodeGraph {
 
     // Open database
     const dbPath = getDatabasePath(resolvedRoot);
-    const db = DatabaseConnection.open(dbPath);
+    const readOnly = options.readOnly === true || resolveGeneration(getCodeGraphDir(resolvedRoot)).id !== null;
+    const db = readOnly ? DatabaseConnection.openReadOnly(dbPath) : DatabaseConnection.open(dbPath);
     const queries = new QueryBuilder(db.getDb());
 
-    const instance = new CodeGraph(db, queries, resolvedRoot);
+    const instance = new CodeGraph(db, queries, resolvedRoot, false, readOnly, options.readOnly === true);
 
     // Sync if requested
     if (options.sync) {
@@ -374,11 +402,42 @@ export class CodeGraph {
 
     // Open database
     const dbPath = getDatabasePath(resolvedRoot);
-    const db = DatabaseConnection.open(dbPath);
+    const readOnly = resolveGeneration(getCodeGraphDir(resolvedRoot)).id !== null;
+    const db = readOnly ? DatabaseConnection.openReadOnly(dbPath) : DatabaseConnection.open(dbPath);
     const queries = new QueryBuilder(db.getDb());
 
-    return new CodeGraph(db, queries, resolvedRoot);
+    return new CodeGraph(db, queries, resolvedRoot, false, readOnly);
   }
+
+  /** @internal A full reader instance pinned to the currently published generation. */
+  static openReadOnlySync(projectRoot: string, dataDirectory?: string): CodeGraph {
+    const root = path.resolve(projectRoot);
+    const dataDir = dataDirectory ? path.resolve(dataDirectory) : getCodeGraphDir(root);
+    if (path.dirname(dataDir) !== root) throw new Error('Data directory must belong to the project root');
+    const db = DatabaseConnection.openReadOnly(resolveGeneration(dataDir).databasePath);
+    return new CodeGraph(db, new QueryBuilder(db.getDb()), root, false, true, true, dataDir);
+  }
+
+  /** @internal Only the isolated rebuild child creates an unpublished database. */
+  static async createShadow(projectRoot: string, databasePath: string): Promise<CodeGraph> {
+    await initGrammars();
+    const root = path.resolve(projectRoot);
+    const directory = path.dirname(path.resolve(databasePath));
+    const generations = path.dirname(directory);
+    const dataDir = path.dirname(generations);
+    if (path.dirname(dataDir) !== root || path.basename(generations) !== 'generations' || path.basename(databasePath) !== 'codegraph.db' || existsSync(databasePath)) {
+      throw new Error('Shadow database must be a new candidate inside the project generation store');
+    }
+    const db = DatabaseConnection.initialize(databasePath);
+    if (db.getBackend() === 'node-sqlite') installSourceOwnership(db.getDb());
+    return new CodeGraph(db, new QueryBuilder(db.getDb()), root, true);
+  }
+
+  /** Identifies a pinned database; consumers must not derive the logical data root from it. */
+  getDatabaseFilePath(): string { return this.db.getPath(); }
+
+  /** Logical store identity is pinned for the life of this facade. */
+  getDataDirectory(): string { return this.dataDir; }
 
   /**
    * Check if a directory has been initialized as a CodeGraph project
@@ -391,11 +450,23 @@ export class CodeGraph {
    * Close the CodeGraph instance and release resources
    */
   close(): void {
+    if (this.closed) return;
+    this.closed = true;
+    this.abortActiveWork();
     cancelRawEvidenceScans(this);
     this.unwatch();
     // Release file lock if held
-    this.fileLock.release();
+    // A child must finish exiting before its owning operation releases the root lock.
+    if (!this.indexMutex.isLocked()) this.fileLock.release();
     this.db.close();
+    for (const reader of this.generationReaders.values()) reader.close();
+    this.generationReaders.clear();
+  }
+
+  /** Stop an isolated build without closing a graph still leased by readers. */
+  abortActiveWork(): void {
+    this.activeBuild?.abort();
+    this.forwardedWriter?.abortActiveWork();
   }
 
   /**
@@ -415,6 +486,7 @@ export class CodeGraph {
    * Uses a mutex to prevent concurrent indexing operations.
    */
   async indexAll(options: IndexOptions = {}): Promise<IndexResult> {
+    this.assertWritableFacade();
     const startedAt = performance.now();
     const result = await withLanguageScope(() => this.indexMutex.withLock(() =>
       this.trackDataReadiness(() => this.indexAllLocked(options))));
@@ -432,6 +504,13 @@ export class CodeGraph {
         return { success: false, filesIndexed: 0, filesSkipped: 0, filesErrored: 0, nodesCreated: 0, edgesCreated: 0, errors: [{ message: 'Could not acquire file lock - another process may be indexing', severity: 'error' as const }], durationMs: 0 };
       }
       try {
+        if (!this.shadowCandidate && (this.readOnly || resolveGeneration(this.dataDir).databasePath !== this.db.getPath())) {
+          const active = this.openCurrentWriter();
+          this.forwardedWriter = active;
+          try { return await active.indexAllLocked(options, true); }
+          finally { active.close(); this.forwardedWriter = null; }
+        }
+        const ownership = this.db.getBackend() === 'node-sqlite' ? beginSourceWrite(this.db.getDb()) : null;
         // Persist intent before any full-index write: a crash must not make old
         // build stamps eligible for legacy compatibility again.
         this.beginFullSynthesisVerification();
@@ -586,7 +665,7 @@ export class CodeGraph {
               total: unresolvedCount,
             });
 
-            const resolution = await this.resolveReferencesBatched(
+            const resolution = await this.resolveReferencesBatchedLocked(
               (current, total) => {
                 options.onProgress?.({
                   phase: 'resolving',
@@ -703,6 +782,10 @@ export class CodeGraph {
             );
           } catch { /* the returned diagnostics remain authoritative */ }
 
+          finishSourceWrite(this.db.getDb(), ownership, result.success === true && result.complete === true);
+          if (!this.shadowCandidate && result.success && result.complete) {
+            this.recordCostSample('full', [], performance.now() - startedAt);
+          }
           return result;
         } finally {
           // Restore auto-checkpointing even on error/abort so subsequent syncs
@@ -739,6 +822,7 @@ export class CodeGraph {
    * Uses a mutex to prevent concurrent indexing operations.
    */
   async indexFiles(filePaths: string[]): Promise<IndexResult> {
+    this.assertWritableFacade();
     return withLanguageScope(() => this.indexMutex.withLock(async () => {
       try {
         this.fileLock.acquire();
@@ -746,18 +830,164 @@ export class CodeGraph {
         return { success: false, filesIndexed: 0, filesSkipped: 0, filesErrored: 0, nodesCreated: 0, edgesCreated: 0, errors: [{ message: 'Could not acquire file lock - another process may be indexing', severity: 'error' as const }], durationMs: 0 };
       }
       try {
-        if (this.needsLanguageScopeRebuild()) {
-          return await this.indexAllLocked({}, true);
+        if (!this.shadowCandidate && (this.readOnly || resolveGeneration(this.dataDir).databasePath !== this.db.getPath())) {
+          const active = this.openCurrentWriter();
+          this.forwardedWriter = active;
+          try { return await active.indexFilesLocked(filePaths); }
+          finally { active.close(); this.forwardedWriter = null; }
         }
+        return await this.indexFilesLocked(filePaths);
+      } finally { this.fileLock.release(); }
+    }));
+  }
+
+  private async indexFilesLocked(filePaths: string[]): Promise<IndexResult> {
+        if (this.needsLanguageScopeRebuild()) return this.indexAllLocked({}, true);
+        const ownership = this.db.getBackend() === 'node-sqlite' ? beginSourceWrite(this.db.getDb()) : null;
         const result = await this.orchestrator.indexFiles(filePaths);
         if (result.success && this.queries.getMetadata('indexed_language_scope') !== getLanguageScopeKey()) {
           this.queries.setMetadata('indexed_language_scope', getLanguageScopeKey());
         }
+        finishSourceWrite(this.db.getDb(), ownership, result.success === true && result.complete === true);
         return result;
-      } finally {
-        this.fileLock.release();
+  }
+
+  private assertWritableFacade(): void {
+    if (this.closed) throw new Error('CodeGraph is closed');
+    if (this.pinnedRead) throw new Error('This CodeGraph facade is read-only');
+  }
+
+  private withCurrentWriterSync<T>(operation: (active: CodeGraph) => T): T {
+    this.assertWritableFacade();
+    if (this.indexMutex.isLocked()) throw new Error('Cannot mutate the graph while indexing is active');
+    this.fileLock.acquire();
+    let active: CodeGraph | undefined;
+    try {
+      active = this.readOnly || resolveGeneration(this.dataDir).databasePath !== this.db.getPath() ? this.openCurrentWriter() : this;
+      return operation(active);
+    } finally { if (active && active !== this) active.close(); this.fileLock.release(); }
+  }
+
+  /** SDK reads automatically follow publication without rebinding an active async query's layers. */
+  private readView(): CodeGraph {
+    if (this.closed) throw new Error('CodeGraph is closed');
+    if (this.pinnedRead || this.shadowCandidate) return this;
+    const current = resolveGeneration(this.dataDir).databasePath;
+    if (current === this.db.getPath()) return this;
+    let reader = this.generationReaders.get(current);
+    if (!reader) {
+      reader = CodeGraph.openReadOnlySync(this.projectRoot, this.dataDir);
+      this.generationReaders.set(reader.getDatabaseFilePath(), reader);
+    }
+    // Old readers are retained until facade.close(): an SDK async call may still
+    // hold its context/traverser. MCP has finer-grained request lease retirement.
+    return reader;
+  }
+
+  /** Caller holds the root lock. Never rebind an instance borrowed by an in-flight reader. */
+  private openCurrentWriter(): CodeGraph {
+    const current = resolveGeneration(this.dataDir);
+    const db = DatabaseConnection.open(current.databasePath, { nativeOnly: current.id !== null });
+    const active = new CodeGraph(db, new QueryBuilder(db.getDb()), this.projectRoot, false, false, false, this.dataDir);
+    active.fileLock = this.fileLock;
+    return active;
+  }
+
+  private recordCostSample(kind: 'full' | 'incremental', before: FileRecord[], durationMs: number, changedFilePaths?: string[]): void {
+    if (this.shadowCandidate || this.db.getBackend() !== 'node-sqlite' || getCodeGraphDir(this.projectRoot) !== this.dataDir || !isSourceOwned(this.db.getDb())) return;
+    try {
+      const after = this.queries.getAllFiles();
+      recordAdaptiveSample(this.projectRoot, adaptiveSampleFromFiles({ kind, before, after, durationMs, changedFilePaths,
+        runtimeKey: adaptiveRuntimeKey(this.projectRoot, this.db.getBackend()),
+        configFingerprint: adaptiveConfigFingerprint(this.projectRoot, [...before, ...after]) }), true);
+    } catch { /* Performance hints must never invalidate a successful index. */ }
+  }
+
+  private emitAdaptiveDecision(options: SyncOptions, decision: AdaptiveDecision): void {
+    try { options.onAdaptiveDecision?.(decision); } catch { /* Diagnostic callbacks cannot change publication outcome. */ }
+    const message = `[adaptive-sync] ${JSON.stringify({ ...decision, at: new Date().toISOString() })}`;
+    if (options.verbose) console.error(message);
+    try {
+      const log = path.join(this.dataDir, 'adaptive-sync.log');
+      if (existsSync(log) && statSync(log).size > 1024 * 1024) renameSync(log, log + '.1');
+      appendFileSync(log, message + '\n');
+    } catch { /* best effort diagnostic */ }
+  }
+
+  private async tryAdaptiveRebuild(options: SyncOptions): Promise<SyncResult | null> {
+    if (this.shadowCandidate) return null;
+    let decision: AdaptiveDecision = { strategy: 'incremental', reason: 'insufficient-local-calibration' };
+    let plan: Awaited<ReturnType<typeof createAdaptivePlan>> | undefined;
+    try {
+      if (options.adaptive === false || process.env.CODEGRAPH_ADAPTIVE_SYNC === '0') decision.reason = 'disabled';
+      else if (getCodeGraphDir(this.projectRoot) !== this.dataDir) decision.reason = 'data-directory-selection-changed';
+      else if (options.paths) decision.reason = 'scoped-watcher-sync';
+      else if (process.execArgv.some(arg => arg !== '--liftoff-only' && !/^--max[-_]old[-_]space[-_]size=\d+$/.test(arg)) || process.env.NODE_OPTIONS?.trim()) decision.reason = 'unsupported-child-runtime-options';
+      else if (this.db.getBackend() !== 'node-sqlite') decision.reason = 'unsupported-sqlite-backend';
+      else if (!isSourceOwned(this.db.getDb())) decision.reason = 'unowned-legacy-or-custom-index';
+      else if (this.needsLanguageScopeRebuild() || this.isIndexStale() || this.getIndexCompleteness().status !== 'complete' || this.hasSynthesisRecoveryEvidence()) decision.reason = 'configuration-or-recovery-pending';
+      else {
+        const runtimeKey = adaptiveRuntimeKey(this.projectRoot, this.db.getBackend());
+        const history = readAdaptiveHistory(this.projectRoot);
+        if (hasAdaptiveCalibration(history, runtimeKey)) {
+          const tracked = this.queries.getAllFiles();
+          const planningStarted = performance.now();
+          const gate = await adaptiveChangeGate(this.projectRoot, tracked, history, runtimeKey);
+          if (gate.belowRange) decision.reason = gate.candidates === 0 ? 'no-stat-change-candidates' : 'below-calibrated-change-count';
+          else {
+            plan = await createAdaptivePlan(this.projectRoot, tracked, { runtimeKey });
+            plan.planningMs = performance.now() - planningStarted; // Include the preliminary gate, not only the strict plan.
+            decision = chooseAdaptiveStrategy(plan, history);
+          }
+        }
       }
-    }));
+    } catch (error) { decision = { strategy: 'incremental', reason: `planning-unavailable: ${error instanceof Error ? error.message : String(error)}` }; }
+    if (decision.strategy !== 'rebuild' || !plan) { this.emitAdaptiveDecision(options, decision); return null; }
+    const requiredBytes = Math.ceil(Math.max(statSync(this.db.getPath()).size * 4, plan.totalBytes * 16, 256 * 1024 * 1024));
+    if (!hasRebuildDiskSpace(this.dataDir, requiredBytes)) {
+      this.emitAdaptiveDecision(options, { strategy: 'incremental', reason: 'insufficient-or-unknown-free-disk' }); return null;
+    }
+    this.emitAdaptiveDecision(options, decision);
+    const started = performance.now();
+    const prior = resolveGeneration(this.dataDir);
+    const candidate = createGeneration(this.dataDir, this.fileLock);
+    const abort = new AbortController();
+    this.activeBuild = abort;
+    const cancel = (): void => abort.abort();
+    options.signal?.addEventListener('abort', cancel, { once: true });
+    if (options.signal?.aborted) abort.abort();
+    try {
+      const built = await runRebuildChild(this.projectRoot, candidate.databasePath, { signal: abort.signal, onProgress: options.onProgress });
+      if (abort.signal.aborted || this.closed) throw new Error('Adaptive rebuild cancelled; old generation retained');
+      if (!built.success || built.complete !== true) throw new Error('Adaptive rebuild incomplete; old generation retained');
+      const buildMs = performance.now() - started;
+      this.fileLock.assertHeld();
+      await publishGeneration(this.dataDir, candidate, { lock: this.fileLock, expectedPreviousId: prior.id,
+        success: built.success, complete: built.complete,
+        validate: () => adaptiveRuntimeKey(this.projectRoot, this.db.getBackend()) === plan!.runtimeKey && isSourceOwned(this.db.getDb()) && validateRebuiltDatabase(candidate.databasePath, plan!.snapshot),
+        sourceUnchanged: async () => {
+          const unchanged = await validateAdaptiveSnapshot(this.projectRoot, plan!.snapshot);
+          return unchanged && !abort.signal.aborted && !this.closed && adaptiveRuntimeKey(this.projectRoot, this.db.getBackend()) === plan!.runtimeKey && isSourceOwned(this.db.getDb());
+        },
+      });
+      const durationMs = performance.now() - started + plan.planningMs;
+      // Record the whole rebuild (planning, validation and switching), not just extraction.
+      try {
+        const current = CodeGraph.openReadOnlySync(this.projectRoot, this.dataDir);
+        try { current.recordCostSample('full', [], durationMs); } finally { current.close(); }
+      } catch { /* publication already succeeded; history is optional */ }
+      this.emitAdaptiveDecision(options, { ...decision, reason: `rebuild-published:${candidate.id};buildMs=${Math.round(buildMs)};validationAndPublishMs=${Math.round(durationMs - buildMs - plan.planningMs)}` });
+      return { adaptive: { strategy: 'rebuild', reason: decision.reason, generation: candidate.id, planningMs: plan.planningMs, buildMs, validationAndPublishMs: durationMs - buildMs - plan.planningMs }, complete: true, filesChecked: plan.totalFiles + plan.removed.length,
+        filesAdded: plan.added.length, filesModified: plan.modified.length, filesRemoved: plan.removed.length,
+        filesErrored: 0, nodesUpdated: built.nodesCreated, durationMs,
+        changedFilePaths: [...plan.added, ...plan.modified], errors: built.errors };
+    } catch (error) {
+      this.emitAdaptiveDecision(options, { ...decision, reason: `rebuild-failed: ${error instanceof Error ? error.message : String(error)}` });
+      throw error;
+    } finally {
+      options.signal?.removeEventListener('abort', cancel);
+      this.activeBuild = null;
+    }
   }
 
   private needsLanguageScopeRebuild(): boolean {
@@ -805,15 +1035,36 @@ export class CodeGraph {
    * Uses a mutex to prevent concurrent indexing operations.
    */
   async sync(options: SyncOptions = {}): Promise<SyncResult> {
+    this.assertWritableFacade();
+    return this.syncInternal(options);
+  }
+
+  private async syncInternal(options: SyncOptions, inheritedLock = false): Promise<SyncResult> {
+    if (this.closed) throw new Error('CodeGraph is closed');
     const syncStartedAt = performance.now();
     let acquiredWriteLock = false;
     const result = await withLanguageScope(() => this.indexMutex.withLock(() => this.trackDataReadiness(async () => {
       try {
-        this.fileLock.acquire();
+        if (!inheritedLock) this.fileLock.acquire();
         acquiredWriteLock = true;
       } catch {
         return { filesChecked: 0, filesAdded: 0, filesModified: 0, filesRemoved: 0, nodesUpdated: 0, durationMs: 0 };
       }
+      try {
+      if (!this.shadowCandidate && (this.readOnly || resolveGeneration(this.dataDir).databasePath !== this.db.getPath())) {
+        let active: CodeGraph | undefined;
+        try {
+          active = this.openCurrentWriter(); this.forwardedWriter = active;
+          return await active.syncInternal(options, true);
+        } finally { active?.close(); this.forwardedWriter = null; this.fileLock.release(); }
+      }
+      let adaptiveBefore: FileRecord[] = [];
+      try {
+        const rebuilt = await this.tryAdaptiveRebuild(options);
+        if (rebuilt) { this.fileLock.release(); return rebuilt; }
+        if (this.db.getBackend() === 'node-sqlite' && isSourceOwned(this.db.getDb())) adaptiveBefore = this.queries.getAllFiles();
+      } catch (error) { this.fileLock.release(); throw error; }
+      const ownership = this.db.getBackend() === 'node-sqlite' ? beginSourceWrite(this.db.getDb()) : null;
       let scopeChanged: boolean;
       try {
         scopeChanged = this.needsLanguageScopeRebuild();
@@ -1227,7 +1478,7 @@ export class CodeGraph {
             current: 0,
             total: orphanCount,
           });
-          const resolution = await this.resolveReferencesBatched((current, total) => {
+          const resolution = await this.resolveReferencesBatchedLocked((current, total) => {
             options.onProgress?.({ phase: 'resolving', current, total });
           }, (current, total) => {
             options.onProgress?.({ phase: 'synthesizing', current, total });
@@ -1333,6 +1584,10 @@ export class CodeGraph {
           this.queries.setMetadata('indexed_language_scope', getLanguageScopeKey());
         }
         tailMark('finalizeMs');
+        finishSourceWrite(this.db.getDb(), ownership, result.complete === true);
+        if (result.complete === true && (result.filesAdded + result.filesModified + result.filesRemoved) > 0) {
+          this.recordCostSample('incremental', adaptiveBefore, performance.now() - syncStartedAt, result.changedFilePaths);
+        }
         return result;
       } finally {
         this.orchestrator.setSyncRetryState();
@@ -1365,6 +1620,7 @@ export class CodeGraph {
           }
         }
       }
+      } finally { this.fileLock.release(); }
     }, options.paths)));
     // The extraction result excludes reference resolution, maintenance and
     // lock cleanup. Report elapsed time only after all sync work has finished.
@@ -1524,6 +1780,8 @@ export class CodeGraph {
    * Get files that have changed since last index
    */
   getChangedFiles(): { added: string[]; modified: string[]; removed: string[] } {
+    const view = this.readView();
+    if (view !== this) return view.getChangedFiles();
     return this.orchestrator.getChangedFiles();
   }
 
@@ -1533,6 +1791,8 @@ export class CodeGraph {
    * freshness without shelling out to `codegraph status --json`. (#329)
    */
   getLastIndexedAt(): number | null {
+    const view = this.readView();
+    if (view !== this) return view.getLastIndexedAt();
     return this.queries.getLastIndexedAt();
   }
 
@@ -1543,6 +1803,8 @@ export class CodeGraph {
    * `extraction-version.ts` and `isIndexStale()`.
    */
   getIndexBuildInfo(): { version: string | null; extractionVersion: number | null } {
+    const view = this.readView();
+    if (view !== this) return view.getIndexBuildInfo();
     const version = this.queries.getMetadata('indexed_with_version');
     const ev = this.queries.getMetadata('indexed_with_extraction_version');
     const parsed = ev != null ? parseInt(ev, 10) : NaN;
@@ -1556,6 +1818,8 @@ export class CodeGraph {
     /** Usable historical graph; full synthesis has not been verified by this engine. */
     legacyUnverified?: true;
   } {
+    const view = this.readView();
+    if (view !== this) return view.getIndexCompleteness();
     const rawStatus = this.queries.getMetadata('index_completeness');
     const status = rawStatus === 'complete' || rawStatus === 'incomplete'
       ? rawStatus
@@ -1607,6 +1871,8 @@ export class CodeGraph {
    * hint and `codegraph upgrade`'s reminder.
    */
   isIndexStale(): boolean {
+    const view = this.readView();
+    if (view !== this) return view.isIndexStale();
     if (this.queries.getLastIndexedAt() == null) return false;
     const { extractionVersion } = this.getIndexBuildInfo();
     return extractionVersion == null || extractionVersion < EXTRACTION_VERSION;
@@ -1633,9 +1899,7 @@ export class CodeGraph {
    * - Name-based symbol matching
    */
   resolveReferences(onProgress?: (current: number, total: number) => void): ResolutionResult {
-    // Get all unresolved references from the database
-    const unresolvedRefs = this.queries.getUnresolvedReferences();
-    return this.resolver.resolveAndPersist(unresolvedRefs, onProgress);
+    return this.withCurrentWriterSync(active => active.resolver.resolveAndPersist(active.queries.getUnresolvedReferences(), onProgress));
   }
 
   /**
@@ -1645,7 +1909,22 @@ export class CodeGraph {
   async resolveReferencesBatched(
     onProgress?: (current: number, total: number) => void,
     onSynthesisProgress?: (current: number, total: number) => void,
-    /** @internal Proven empty graph before extraction; no old derived edges exist. */
+    options: { freshIndex?: boolean; afterWrite?: () => Promise<void> | null } = {},
+  ): Promise<ResolutionResult> {
+    this.assertWritableFacade();
+    return this.indexMutex.withLock(async () => {
+      this.fileLock.acquire();
+      let active: CodeGraph | undefined;
+      try {
+        active = this.readOnly || resolveGeneration(this.dataDir).databasePath !== this.db.getPath() ? this.openCurrentWriter() : this;
+        return await active.resolveReferencesBatchedLocked(onProgress, onSynthesisProgress, options);
+      } finally { if (active && active !== this) active.close(); this.fileLock.release(); }
+    });
+  }
+
+  private async resolveReferencesBatchedLocked(
+    onProgress?: (current: number, total: number) => void,
+    onSynthesisProgress?: (current: number, total: number) => void,
     options: { freshIndex?: boolean; afterWrite?: () => Promise<void> | null } = {},
   ): Promise<ResolutionResult> {
     const deferResolutionIndexes =
@@ -1708,6 +1987,8 @@ export class CodeGraph {
    * sync sweeps these rows in bounded batches.
    */
   getPendingReferenceCount(): number {
+    const view = this.readView();
+    if (view !== this) return view.getPendingReferenceCount();
     return this.queries.getUnresolvedReferencesCount();
   }
 
@@ -1715,6 +1996,8 @@ export class CodeGraph {
    * Get detected frameworks in the project
    */
   getDetectedFrameworks(): string[] {
+    const view = this.readView();
+    if (view !== this) return view.getDetectedFrameworks();
     return this.resolver.getDetectedFrameworks();
   }
 
@@ -1733,6 +2016,8 @@ export class CodeGraph {
    * Get statistics about the knowledge graph
    */
   getStats(): GraphStats {
+    const view = this.readView();
+    if (view !== this) return view.getStats();
     const stats = this.queries.getStats();
     stats.dbSizeBytes = this.db.getSize();
     return stats;
@@ -1765,6 +2050,8 @@ export class CodeGraph {
    * Get a node by ID
    */
   getNode(id: string): Node | null {
+    const view = this.readView();
+    if (view !== this) return view.getNode(id);
     return this.queries.getNodeById(id);
   }
 
@@ -1772,6 +2059,8 @@ export class CodeGraph {
    * Get all nodes in a file
    */
   getNodesInFile(filePath: string): Node[] {
+    const view = this.readView();
+    if (view !== this) return view.getNodesInFile(filePath);
     // Canonicalize so a caller passing a symlink path resolves to the file's
     // canonical (realpath-relative) path as stored in the DB.
     return this.queries.getNodesByFile(canonicalFilePath(this.projectRoot, filePath));
@@ -1781,6 +2070,8 @@ export class CodeGraph {
    * Get all nodes of a specific kind
    */
   getNodesByKind(kind: Node['kind']): Node[] {
+    const view = this.readView();
+    if (view !== this) return view.getNodesByKind(kind);
     return this.queries.getNodesByKind(kind);
   }
 
@@ -1790,6 +2081,8 @@ export class CodeGraph {
    * definition the caller wants is never dropped below a search cut.
    */
   getNodesByName(name: string): Node[] {
+    const view = this.readView();
+    if (view !== this) return view.getNodesByName(name);
     return this.queries.getNodesByName(name);
   }
 
@@ -1991,6 +2284,8 @@ export class CodeGraph {
    * the requested namespace/module candidate.
    */
   getNodesBySymbolExact(symbol: string): Node[] {
+    const view = this.readView();
+    if (view !== this) return view.getNodesBySymbolExact(symbol);
     return this.queries.getNodesBySymbolExact(symbol);
   }
 
@@ -1998,6 +2293,8 @@ export class CodeGraph {
    * Search nodes by text
    */
   searchNodes(query: string, options?: SearchOptions): SearchResult[] {
+    const view = this.readView();
+    if (view !== this) return view.searchNodes(query, options);
     return this.queries.searchNodes(query, options);
   }
 
@@ -2009,6 +2306,8 @@ export class CodeGraph {
    * embeds the project name.
    */
   getProjectNameTokens(): Set<string> {
+    const view = this.readView();
+    if (view !== this) return view.getProjectNameTokens();
     return this.queries.getProjectNameTokens();
   }
 
@@ -2021,6 +2320,8 @@ export class CodeGraph {
    * Glob+Read of `routes.rb`/`urls.py`/etc. otherwise beats codegraph.
    */
   getTopRouteFile(): { filePath: string; routeCount: number; totalRoutes: number } | null {
+    const view = this.readView();
+    if (view !== this) return view.getTopRouteFile();
     return this.queries.getTopRouteFile();
   }
 
@@ -2036,6 +2337,8 @@ export class CodeGraph {
     topHandlerFileCount: number;
     totalRoutes: number;
   } | null {
+    const view = this.readView();
+    if (view !== this) return view.getRoutingManifest(limit);
     return this.queries.getRoutingManifest(limit);
   }
 
@@ -2047,6 +2350,8 @@ export class CodeGraph {
    * Get outgoing edges from a node
    */
   getOutgoingEdges(nodeId: string): Edge[] {
+    const view = this.readView();
+    if (view !== this) return view.getOutgoingEdges(nodeId);
     return this.queries.getOutgoingEdges(nodeId);
   }
 
@@ -2054,6 +2359,8 @@ export class CodeGraph {
    * Get incoming edges to a node
    */
   getIncomingEdges(nodeId: string): Edge[] {
+    const view = this.readView();
+    if (view !== this) return view.getIncomingEdges(nodeId);
     return this.queries.getIncomingEdges(nodeId);
   }
 
@@ -2067,6 +2374,8 @@ export class CodeGraph {
     direction: RelationshipDirection,
     kinds?: EdgeKind[],
   ): DirectRelationshipGroup[] {
+    const view = this.readView();
+    if (view !== this) return view.getDirectRelationshipGroups(nodeId, direction, kinds);
     return this.traverser.getDirectRelationshipGroups(nodeId, direction, kinds);
   }
 
@@ -2078,6 +2387,8 @@ export class CodeGraph {
    * Get a file record by path
    */
   getFile(filePath: string): FileRecord | null {
+    const view = this.readView();
+    if (view !== this) return view.getFile(filePath);
     return this.queries.getFileByPath(filePath);
   }
 
@@ -2085,6 +2396,8 @@ export class CodeGraph {
    * Get all tracked files
    */
   getFiles(): FileRecord[] {
+    const view = this.readView();
+    if (view !== this) return view.getFiles();
     return this.queries.getAllFiles();
   }
 
@@ -2103,6 +2416,8 @@ export class CodeGraph {
    * @returns Context object with all related information
    */
   getContext(nodeId: string): Context {
+    const view = this.readView();
+    if (view !== this) return view.getContext(nodeId);
     return this.graphManager.getContext(nodeId);
   }
 
@@ -2117,6 +2432,8 @@ export class CodeGraph {
    * @returns Subgraph containing traversed nodes and edges
    */
   traverse(startId: string, options?: TraversalOptions): Subgraph {
+    const view = this.readView();
+    if (view !== this) return view.traverse(startId, options);
     return this.traverser.traverseBFS(startId, options);
   }
 
@@ -2131,6 +2448,8 @@ export class CodeGraph {
    * @returns Subgraph containing the call graph
    */
   getCallGraph(nodeId: string, depth: number = 2): Subgraph {
+    const view = this.readView();
+    if (view !== this) return view.getCallGraph(nodeId, depth);
     return this.traverser.getCallGraph(nodeId, depth);
   }
 
@@ -2144,6 +2463,8 @@ export class CodeGraph {
    * @returns Subgraph containing the type hierarchy
    */
   getTypeHierarchy(nodeId: string): Subgraph {
+    const view = this.readView();
+    if (view !== this) return view.getTypeHierarchy(nodeId);
     return this.traverser.getTypeHierarchy(nodeId);
   }
 
@@ -2157,6 +2478,8 @@ export class CodeGraph {
    * @returns Array of nodes and edges that reference this symbol
    */
   findUsages(nodeId: string): Array<{ node: Node; edge: Edge }> {
+    const view = this.readView();
+    if (view !== this) return view.findUsages(nodeId);
     return this.traverser.findUsages(nodeId);
   }
 
@@ -2168,6 +2491,8 @@ export class CodeGraph {
    * @returns Array of nodes that call this function
    */
   getCallers(nodeId: string, maxDepth: number = 1): Array<{ node: Node; edge: Edge }> {
+    const view = this.readView();
+    if (view !== this) return view.getCallers(nodeId, maxDepth);
     return this.traverser.getCallers(nodeId, maxDepth);
   }
 
@@ -2179,6 +2504,8 @@ export class CodeGraph {
    * @returns Array of nodes called by this function
    */
   getCallees(nodeId: string, maxDepth: number = 1): Array<{ node: Node; edge: Edge }> {
+    const view = this.readView();
+    if (view !== this) return view.getCallees(nodeId, maxDepth);
     return this.traverser.getCallees(nodeId, maxDepth);
   }
 
@@ -2192,6 +2519,8 @@ export class CodeGraph {
    * @returns Subgraph containing potentially impacted nodes
    */
   getImpactRadius(nodeId: string, maxDepth: number = 3): Subgraph {
+    const view = this.readView();
+    if (view !== this) return view.getImpactRadius(nodeId, maxDepth);
     return this.traverser.getImpactRadius(nodeId, maxDepth);
   }
 
@@ -2208,6 +2537,8 @@ export class CodeGraph {
     toId: string,
     edgeKinds?: Edge['kind'][]
   ): Array<{ node: Node; edge: Edge | null }> | null {
+    const view = this.readView();
+    if (view !== this) return view.findPath(fromId, toId, edgeKinds);
     return this.traverser.findPath(fromId, toId, edgeKinds);
   }
 
@@ -2218,6 +2549,8 @@ export class CodeGraph {
    * @returns Array of ancestor nodes from immediate parent to root
    */
   getAncestors(nodeId: string): Node[] {
+    const view = this.readView();
+    if (view !== this) return view.getAncestors(nodeId);
     return this.traverser.getAncestors(nodeId);
   }
 
@@ -2228,6 +2561,8 @@ export class CodeGraph {
    * @returns Array of child nodes
    */
   getChildren(nodeId: string): Node[] {
+    const view = this.readView();
+    if (view !== this) return view.getChildren(nodeId);
     return this.traverser.getChildren(nodeId);
   }
 
@@ -2238,6 +2573,8 @@ export class CodeGraph {
    * @returns Array of file paths this file depends on
    */
   getFileDependencies(filePath: string): string[] {
+    const view = this.readView();
+    if (view !== this) return view.getFileDependencies(filePath);
     return this.graphManager.getFileDependencies(filePath);
   }
 
@@ -2248,6 +2585,8 @@ export class CodeGraph {
    * @returns Array of file paths that depend on this file
    */
   getFileDependents(filePath: string): string[] {
+    const view = this.readView();
+    if (view !== this) return view.getFileDependents(filePath);
     // Canonicalize so a caller passing a symlink path resolves to the canonical
     // path the dependency graph is keyed on.
     return this.graphManager.getFileDependents(canonicalFilePath(this.projectRoot, filePath));
@@ -2259,6 +2598,8 @@ export class CodeGraph {
    * @returns Array of cycles, each cycle is an array of file paths
    */
   findCircularDependencies(): string[][] {
+    const view = this.readView();
+    if (view !== this) return view.findCircularDependencies();
     return this.graphManager.findCircularDependencies();
   }
 
@@ -2269,6 +2610,8 @@ export class CodeGraph {
    * @returns Array of unreferenced nodes
    */
   findDeadCode(kinds?: Node['kind'][]): Node[] {
+    const view = this.readView();
+    if (view !== this) return view.findDeadCode(kinds);
     return this.graphManager.findDeadCode(kinds);
   }
 
@@ -2286,6 +2629,8 @@ export class CodeGraph {
     childCount: number;
     depth: number;
   } {
+    const view = this.readView();
+    if (view !== this) return view.getNodeMetrics(nodeId);
     return this.graphManager.getNodeMetrics(nodeId);
   }
 
@@ -2302,6 +2647,8 @@ export class CodeGraph {
    * @returns Code string or null if not found
    */
   async getCode(nodeId: string): Promise<string | null> {
+    const view = this.readView();
+    if (view !== this) return view.getCode(nodeId);
     return this.contextBuilder.getCode(nodeId);
   }
 
@@ -2319,6 +2666,8 @@ export class CodeGraph {
     query: string,
     options?: FindRelevantContextOptions
   ): Promise<Subgraph> {
+    const view = this.readView();
+    if (view !== this) return view.findRelevantContext(query, options);
     return this.contextBuilder.findRelevantContext(query, options);
   }
 
@@ -2339,6 +2688,8 @@ export class CodeGraph {
     input: TaskInput,
     options?: BuildContextOptions
   ): Promise<TaskContext | string> {
+    const view = this.readView();
+    if (view !== this) return view.buildContext(input, options);
     return this.contextBuilder.buildContext(input, options);
   }
 
@@ -2350,14 +2701,14 @@ export class CodeGraph {
    * Optimize the database (vacuum and analyze)
    */
   optimize(): void {
-    this.db.optimize();
+    this.withCurrentWriterSync(active => active.db.optimize());
   }
 
   /**
    * Clear all data from the graph
    */
   clear(): void {
-    this.queries.clear();
+    this.withCurrentWriterSync(active => active.queries.clear());
   }
 
   /**
@@ -2375,7 +2726,9 @@ export class CodeGraph {
    * WARNING: This permanently deletes all CodeGraph data for the project.
    */
   uninitialize(): void {
-    const directoryName = path.basename(path.dirname(this.db.getPath()));
+    this.assertWritableFacade();
+    if (this.indexMutex.isLocked()) throw new Error('Cannot remove an index while a writer is active');
+    const directoryName = path.basename(this.dataDir);
     this.close();
     removeDirectory(this.projectRoot, directoryName);
   }

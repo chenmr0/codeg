@@ -145,7 +145,10 @@ describe('MCP data readiness during a real refresh', () => {
   it('keeps concurrent symbol and relationship requests isolated', async () => {
     edit(); const resolution = pause(internal().resolver, 'resolveFilesAndPersist');
     const p = sync(); await resolution.entered;
-    const source = pause(cg, 'getCode');
+    // MCP uses a pinned native read-only facade, separate from the writer.
+    await text('files', {});
+    const reader = (handler as any).generationReaders.get(path.resolve(folder))?.graph ?? cg;
+    const source = pause(reader, 'getCode');
     const node = text('node', { symbol: 'added', includeCode: true });
     await source.entered;
     const callers = await text('callers', { symbol: 'target' });
@@ -156,7 +159,10 @@ describe('MCP data readiness during a real refresh', () => {
 
   it('rechecks readiness after an awaited source read', async () => {
     await watchEventsOnly();
-    const source = pause(cg, 'getCode');
+    // MCP uses a pinned native read-only facade, separate from the writer.
+    await text('files', {});
+    const reader = (handler as any).generationReaders.get(path.resolve(folder))?.graph ?? cg;
+    const source = pause(reader, 'getCode');
     const request = text('node', { symbol: 'target', file: 'api.c', includeCode: true });
     await source.entered;
     edit(); __emitWatchEventForTests(folder, 'api.c');
@@ -188,7 +194,7 @@ describe('MCP data readiness during a real refresh', () => {
   });
 
   it('also publishes symbol readiness during full indexing', async () => {
-    edit(); const resolution = pause(cg, 'resolveReferencesBatched');
+    edit(); const resolution = pause(cg, 'resolveReferencesBatchedLocked');
     const p = cg.indexAll({ force: true }); work.push(p);
     handler.setCatchUpGate(p.then(() => undefined));
     await resolution.entered;

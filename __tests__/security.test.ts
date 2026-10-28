@@ -66,14 +66,15 @@ describe('FileLock', () => {
     lock1.release();
   });
 
-  it('should detect and remove stale locks from dead processes', () => {
+  it('should retain stale locks until explicit offline unlock', () => {
     // Write a lock file with a PID that doesn't exist
     // PID 99999999 is extremely unlikely to be a real process
     fs.writeFileSync(lockPath, '99999999');
 
     const lock = new FileLock(lockPath);
-    // Should succeed because the PID is dead
-    expect(() => lock.acquire()).not.toThrow();
+    // A dead PID in this namespace does not prove another namespace has no writer.
+    expect(() => lock.acquire()).toThrow(/locked by another process/);
+    expect(fs.readFileSync(lockPath, 'utf8')).toBe('99999999');
 
     lock.release();
   });

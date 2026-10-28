@@ -194,6 +194,11 @@ export interface SingleFileIndexResult extends ExtractionResult {
  * Result of a sync operation
  */
 export interface SyncResult {
+  /** Optional automatic strategy report; omitted by low-level extraction-only callers. */
+  adaptive?: {
+    strategy: 'incremental' | 'rebuild'; reason: string; generation?: string;
+    planningMs?: number; buildMs?: number; validationAndPublishMs?: number;
+  };
   /** False when file extraction or a recoverable post-processing phase is incomplete. */
   complete?: boolean;
   filesChecked: number;

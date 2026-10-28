@@ -145,9 +145,15 @@ export class MCPEngine {
   stop(): void {
     if (this.closed) return;
     this.closed = true;
+    if (this.cg) {
+      // Stop events and the rebuild child immediately, but let admitted MCP
+      // requests release their legacy-reader lease before closing its DB.
+      try { this.cg.unwatch(); } catch { /* continue shutdown */ }
+      try { this.cg.abortActiveWork(); } catch { /* continue shutdown */ }
+    }
     this.toolHandler.closeAll();
     if (this.cg) {
-      try { this.cg.close(); } catch { /* ignore */ }
+      try { this.toolHandler.closeOwnedDefaultWhenIdle(this.cg); } catch { /* ignore */ }
       this.cg = null;
     }
   }

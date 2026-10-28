@@ -158,6 +158,12 @@ export interface RawEvidenceScanOptions {
   timeoutMs?: number;
   /** Optional caller cancellation; the active ripgrep child is terminated. */
   signal?: AbortSignal;
+  /** Watcher-only state for a separately pinned read facade; never supplies graph data. */
+  sourceState?: {
+    isWatching(): boolean;
+    getPendingFiles(): readonly unknown[];
+    isCurrentGeneration(): boolean;
+  };
 }
 
 function scanDeadline(timeoutMs: number): number {
@@ -519,8 +525,11 @@ export async function scanRawSourceEvidence(
       ? configuredTimeout
       : RAW_EVIDENCE_DEFAULT_TIMEOUT_MS
   );
-  const pending = cg.getPendingFiles();
-  const cacheable = cg.isWatching() && pending.length === 0;
+  const sourceState = options.sourceState ?? cg;
+  const sourceIsCurrent = (): boolean => !options.sourceState || options.sourceState.isCurrentGeneration();
+  const canCache = (): boolean => sourceState.isWatching() &&
+    sourceState.getPendingFiles().length === 0 && sourceIsCurrent();
+  const cacheable = canCache();
   const epoch = cg.getLastIndexedAt();
   const cacheKey = reportCacheKey(specs, maxScannedBytes);
   if (!cacheable) {
@@ -558,7 +567,7 @@ export async function scanRawSourceEvidence(
     state.scannedFiles === state.eligibleFiles &&
     state.unreadableFiles === 0
   );
-  if (cacheable && completeForCache && cg.getPendingFiles().length === 0 && cg.getLastIndexedAt() === epoch) {
+  if (cacheable && completeForCache && canCache() && cg.getLastIndexedAt() === epoch) {
     let bucket = rawEvidenceCache.get(cg);
     if (!bucket || bucket.epoch !== epoch) {
       bucket = { epoch, entries: new Map() };

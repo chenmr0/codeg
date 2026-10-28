@@ -85,7 +85,7 @@ describe('sync synthesis completeness and recovery', () => {
     expect(queries().getMetadata(PENDING)).toBeNull();
     expect(cg.getIndexCompleteness()).toEqual({ status: 'complete', diagnostics: [] });
     expect(graph()).toEqual(expected);
-    const full = vi.spyOn(cg, 'resolveReferencesBatched');
+    const full = vi.spyOn(cg as any, 'resolveReferencesBatchedLocked');
     expect((await cg.sync()).complete).toBe(true);
     expect(full).not.toHaveBeenCalled();
   });
@@ -168,7 +168,7 @@ describe('sync synthesis completeness and recovery', () => {
     expect((await cg!.sync()).complete).toBe(false);
     expect(cg!.getIndexCompleteness()).toEqual({ status: 'incomplete', diagnostics: [unrelated] });
     expect(queries().getMetadata(PENDING)).toBeNull();
-    const full = vi.spyOn(cg!, 'resolveReferencesBatched');
+    const full = vi.spyOn(cg! as any, 'resolveReferencesBatchedLocked');
     expect((await cg!.sync()).complete).toBe(false);
     expect(full).not.toHaveBeenCalled();
   });
@@ -202,7 +202,7 @@ describe('sync synthesis completeness and recovery', () => {
   it('keeps healthy scoped sync complete without invoking full synthesis', async () => {
     await setup();
     fs.appendFileSync(path.join(directory, 'api.c'), '\n/* normal scoped change */\n');
-    const full = vi.spyOn(cg!, 'resolveReferencesBatched');
+    const full = vi.spyOn(cg! as any, 'resolveReferencesBatchedLocked');
     expect(await cg!.sync({ paths: ['api.c'] })).toMatchObject({ complete: true, filesModified: 1 });
     expect(full).not.toHaveBeenCalled();
     expect(cg!.getIndexCompleteness()).toEqual({ status: 'complete', diagnostics: [] });

@@ -32,7 +32,7 @@ describe.each([22, 24])('known legacy extraction %i stays usable without inventi
     const f=await fixture(), before=edges(f.internal);
     expect(f.graph.getIndexCompleteness()).toMatchObject({status:'unknown',legacyUnverified:true});
     expect(f.q.getMetadata(legacy)).toBeNull();
-    const full=vi.spyOn(f.graph,'resolveReferencesBatched');
+    const full=vi.spyOn(f.graph as any, 'resolveReferencesBatchedLocked');
     const macro=vi.spyOn(f.q,'invalidateCppMacroCalls');
     for(let i=0;i<2;i++) expect(await f.graph.sync()).toMatchObject({filesModified:0,filesRemoved:0});
     expect(full).not.toHaveBeenCalled(); expect(macro).not.toHaveBeenCalled();
@@ -41,7 +41,7 @@ describe.each([22, 24])('known legacy extraction %i stays usable without inventi
     expect(f.graph.getIndexDataReadiness()).toMatchObject({symbolsReady:true,relationshipsReady:true});
     f.graph.close(); graphs.splice(graphs.indexOf(f.graph),1);
     const reopened=CodeGraph.openSync(f.root); graphs.push(reopened);
-    const again=vi.spyOn(reopened,'resolveReferencesBatched'); await reopened.sync();
+    const again=vi.spyOn(reopened as any, 'resolveReferencesBatchedLocked'); await reopened.sync();
     expect(again).not.toHaveBeenCalled(); expect(reopened.getIndexCompleteness()).toMatchObject({status:'unknown',legacyUnverified:true});
   });
 
@@ -58,7 +58,7 @@ describe.each([22, 24])('known legacy extraction %i stays usable without inventi
   it.each([false,true])('keeps a real edit incremental and preserves legacy coverage (enrolled=%s)',async enrolled=>{
     const f=await fixture(); if(enrolled) await f.graph.sync();
     fs.writeFileSync(path.join(f.root,'api.c'),'#include "api.h"\nint api(void){return FLAG+2345;}\n');
-    const full=vi.spyOn(f.graph,'resolveReferencesBatched');
+    const full=vi.spyOn(f.graph as any, 'resolveReferencesBatchedLocked');
     expect(await f.graph.sync()).toMatchObject({filesModified:1, complete:true});
     expect(full).not.toHaveBeenCalled(); expect(f.q.getMetadata(proof)).toBeNull();
     expect(f.graph.getIndexCompleteness()).toMatchObject({status:'unknown',legacyUnverified:true});
