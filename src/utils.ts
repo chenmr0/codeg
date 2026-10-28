@@ -30,6 +30,7 @@
  */
 
 import * as fs from 'fs';
+import { randomUUID } from 'crypto';
 import * as path from 'path';
 
 // ============================================================
@@ -331,75 +332,35 @@ export class FileLock {
   private lockPath: string;
   private held = false;
 
-  /** Locks older than this are considered stale regardless of PID status */
-  private static readonly STALE_TIMEOUT_MS = 2 * 60 * 1000; // 2 minutes
+  private owner: string | null = null;
 
   constructor(lockPath: string) {
     this.lockPath = lockPath;
   }
 
-  /**
-   * Acquire the lock. Throws if the lock is held by another live process.
-   */
+  /** Acquire exclusively. Existing locks require explicit offline unlock. */
   acquire(): void {
-    // Check for existing lock
-    if (fs.existsSync(this.lockPath)) {
-      try {
-        const content = fs.readFileSync(this.lockPath, 'utf-8').trim();
-        const pid = parseInt(content, 10);
-        const stat = fs.statSync(this.lockPath);
-        const lockAge = Date.now() - stat.mtimeMs;
-
-        // Treat locks older than the timeout as stale, regardless of PID
-        if (lockAge < FileLock.STALE_TIMEOUT_MS && !isNaN(pid) && this.isProcessAlive(pid)) {
-          throw new Error(
-            `CodeGraph database is locked by another process (PID ${pid}). ` +
-            `If this is stale, run 'codegraph unlock' or delete ${this.lockPath}`
-          );
-        }
-
-        // Stale lock (dead process or timed out) - remove it
-        fs.unlinkSync(this.lockPath);
-      } catch (err) {
-        if (err instanceof Error && err.message.includes('locked by another')) {
-          throw err;
-        }
-        // Other errors reading lock file - try to remove it
-        try { fs.unlinkSync(this.lockPath); } catch { /* ignore */ }
-      }
-    }
-
-    // Write our PID to the lock file using exclusive create flag
+    if (this.held) throw new Error('CodeGraph database is locked by another process (non-reentrant lock)');
+    const owner = `${process.pid}\n${randomUUID()}\n`;
     try {
-      fs.writeFileSync(this.lockPath, String(process.pid), { flag: 'wx' });
+      fs.writeFileSync(this.lockPath, owner, { flag: 'wx' });
+      this.owner = owner;
       this.held = true;
-    } catch (err: any) {
-      if (err.code === 'EEXIST') {
-        // Race condition: another process grabbed the lock between our check and write
-        throw new Error(
-          'CodeGraph database is locked by another process. ' +
-          `If this is stale, run 'codegraph unlock' or delete ${this.lockPath}`
-        );
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'EEXIST') {
+        throw new Error('CodeGraph database is locked by another process. Stop all writers before explicit offline unlock.');
       }
-      throw err;
+      throw error;
     }
   }
 
-  /**
-   * Release the lock
-   */
   release(): void {
     if (!this.held) return;
     try {
-      // Only remove if we still own it (check PID)
-      const content = fs.readFileSync(this.lockPath, 'utf-8').trim();
-      if (parseInt(content, 10) === process.pid) {
-        fs.unlinkSync(this.lockPath);
-      }
-    } catch {
-      // Lock file already gone - that's fine
-    }
+      if (fs.readFileSync(this.lockPath, 'utf8') === this.owner) fs.unlinkSync(this.lockPath);
+    } catch { /* a missing/replaced lock is never ours to remove */ }
     this.held = false;
+    this.owner = null;
   }
 
   /**
@@ -426,17 +387,7 @@ export class FileLock {
     }
   }
 
-  /**
-   * Check if a process is still running
-   */
-  private isProcessAlive(pid: number): boolean {
-    try {
-      process.kill(pid, 0);
-      return true;
-    } catch {
-      return false;
-    }
-  }
+
 }
 
 /**

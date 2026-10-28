@@ -7,7 +7,8 @@
 import type CodeGraph from '../index';
 import type { IndexDataReadiness } from '../index';
 import { AsyncLocalStorage } from 'async_hooks';
-import { findNearestCodeGraphRoot } from '../directory';
+import { findNearestCodeGraphRoot, getCodeGraphDir } from '../directory';
+import { resolveGeneration } from '../sync/generation-store';
 // Lazy-load the heavy CodeGraph chain off the MCP startup path — see the same
 // helper in engine.ts. ToolHandler must load to answer tools/list (static
 // schemas), but it must NOT drag in sqlite/query layers before the daemon binds;
@@ -457,9 +458,17 @@ interface QueryDataView {
   symbolsOnly: boolean;
   legacyUnverified?: boolean;
   graph?: CodeGraph;
+  readinessGraph?: CodeGraph;
   readiness?: IndexDataReadiness | null;
   admission?: CatchUpAdmission | null;
   observed?: IndexDataReadiness | null;
+}
+
+interface GenerationReader {
+  graph: CodeGraph;
+  owned: boolean;
+  references: number;
+  retired: boolean;
 }
 
 const LEGACY_INDEX_COVERAGE_NOTICE =
@@ -1266,6 +1275,12 @@ export class ToolHandler {
   // without leaking it into another client's tool call.
   private executionSignal = new AsyncLocalStorage<AbortSignal | undefined>();
   private dataView = new AsyncLocalStorage<QueryDataView>();
+  // Pin the whole facade, not just a SQLite handle: traversers, resolvers and
+  // prepared statements must all refer to the same published generation.
+  private generationRequest = new AsyncLocalStorage<Map<string, GenerationReader>>();
+  private generationReaders = new Map<string, GenerationReader>();
+  private readerEntries = new Map<CodeGraph, GenerationReader>();
+  private closing = false;
 
   constructor(private cg: CodeGraph | null) {}
 
@@ -1456,6 +1471,75 @@ export class ToolHandler {
    * similar to how git finds .git/ directories.
    */
   private getCodeGraph(projectPath?: string): CodeGraph {
+    const request = this.generationRequest.getStore();
+    if (this.closing && !request?.size) throw new Error('CodeGraph tool handler is closing');
+    // The default root is stable even while its writer forwards to a newer
+    // generation. Explicit aliases are resolved by the existing project cache.
+    const base = this.getProjectCodeGraph(projectPath);
+    // Keep legacy embedding adapters/test facades working without the newer
+    // generation API; only actual generation-aware facades need root lookup.
+    if (!request || typeof base.getDatabaseFilePath !== 'function') return base;
+    const root = resolvePath(base.getProjectRoot());
+    const pinned = request?.get(root);
+    if (pinned) return pinned.graph;
+    if (this.closing) throw new Error('CodeGraph tool handler is closing');
+
+    const dataDirectory = typeof base.getDataDirectory === 'function'
+      ? base.getDataDirectory() : getCodeGraphDir(root);
+    const currentPath = resolveGeneration(dataDirectory).databasePath;
+    let entry = this.generationReaders.get(root);
+    if (!entry || entry.graph.getDatabaseFilePath() !== currentPath) {
+      // SDK facades may forward reads after publication. Native MCP readers
+      // must therefore be independently pinned even for the first/legacy DB.
+      // Their WAL connection still observes ordinary same-generation syncs.
+      const graph = base.getBackend?.() === 'node-sqlite' || base.getDatabaseFilePath() !== currentPath
+        ? (base.constructor as typeof import('../index').CodeGraph).openReadOnlySync(root, dataDirectory) : base;
+      let replacement = this.readerEntries.get(graph);
+      if (!replacement) {
+        replacement = { graph, owned: graph !== this.cg, references: 0, retired: false };
+        this.readerEntries.set(graph, replacement);
+      }
+      // The engine owns the default facade and its watcher; never close it
+      // here. Cross-project base facades remain in projectCache until shutdown.
+      if (entry && entry !== replacement && ![...this.projectCache.values()].includes(entry.graph)) {
+        this.retireReader(entry);
+      }
+      entry = replacement;
+      this.generationReaders.set(root, entry);
+    }
+    entry.references++;
+    request.set(root, entry);
+    return entry.graph;
+  }
+
+  private retireReader(entry: GenerationReader): void {
+    entry.retired = true;
+    if (entry.references === 0) {
+      this.readerEntries.delete(entry.graph);
+      if (entry.owned) entry.graph.close();
+    }
+  }
+
+  private releaseGenerationRequest(request: Map<string, GenerationReader>): void {
+    for (const entry of request.values()) {
+      entry.references--;
+      if (entry.retired && entry.references === 0) this.retireReader(entry);
+    }
+    request.clear();
+    if (this.closing && ![...this.readerEntries.values()].some(entry => entry.references > 0)) {
+      this.projectCache.clear();
+    }
+  }
+
+  private freshnessGraph(graph: CodeGraph): CodeGraph {
+    // Pending watcher events belong to the project, while SQL reads remain
+    // pinned to their request's generation. Never substitute the query facade.
+    if (graph === this.cg) return graph;
+    return this.cg && resolvePath(this.cg.getProjectRoot()) === resolvePath(graph.getProjectRoot())
+      ? this.cg : graph;
+  }
+
+  private getProjectCodeGraph(projectPath?: string): CodeGraph {
     if (!projectPath) {
       if (!this.cg) {
         const searched = this.defaultProjectHint ?? process.cwd();
@@ -1529,11 +1613,35 @@ export class ToolHandler {
    */
   closeAll(): void {
     this.setCatchUpGate(null);
-    for (const cg of this.projectCache.values()) {
-      cg.close();
+    this.closing = true;
+    for (const cg of new Set(this.projectCache.values())) {
+      let entry = this.readerEntries.get(cg);
+      if (!entry) {
+        entry = { graph: cg, owned: true, references: 0, retired: false };
+        this.readerEntries.set(cg, entry);
+      }
     }
-    this.projectCache.clear();
+    for (const entry of [...this.readerEntries.values()]) this.retireReader(entry);
+    this.generationReaders.clear();
+    // Keep alias resolution alive for requests that already hold a lease.
+    // New requests are rejected; the final release clears these references.
+    if (![...this.readerEntries.values()].some(entry => entry.references > 0)) this.projectCache.clear();
     this.worktreeMismatchCache.clear();
+  }
+
+  /**
+   * Engine shutdown transfers the default facade's ownership here after it
+   * stops watching and cancels work. Already admitted requests may finish on
+   * their borrowed legacy generation before its connection is closed.
+   */
+  closeOwnedDefaultWhenIdle(graph: CodeGraph): void {
+    const entry = this.readerEntries.get(graph);
+    if (!entry) {
+      graph.close();
+      return;
+    }
+    entry.owned = true;
+    this.retireReader(entry);
   }
 
   /**
@@ -1734,7 +1842,7 @@ export class ToolHandler {
     if (result.isError) return result;
     const view = this.dataView.getStore();
     let readiness = view?.readiness;
-    const current = view?.graph?.getIndexDataReadiness?.();
+    const current = view?.readinessGraph?.getIndexDataReadiness?.();
     if (!readiness && view?.observed && current && (
       current.generation !== view.observed.generation ||
       (view.observed.symbolsReady && !current.symbolsReady) ||
@@ -1742,7 +1850,7 @@ export class ToolHandler {
     )) readiness = { generation: view.observed.generation, symbolsReady: false, relationshipsReady: false };
     let notice: string;
     if (readiness && view) {
-      const latest = view.graph?.getIndexDataReadiness?.();
+      const latest = view.readinessGraph?.getIndexDataReadiness?.();
       const symbolsReady = readiness.symbolsReady && latest?.symbolsReady &&
         latest.generation === readiness.generation;
       const relationshipsReady = symbolsReady && readiness.relationshipsReady && latest?.relationshipsReady;
@@ -1785,13 +1893,18 @@ export class ToolHandler {
     args: Record<string, unknown>,
     options: ToolExecutionOptions = {},
   ): Promise<ToolResult> {
-    return await this.executionSignal.run(
-      options.signal,
-      () => this.dataView.run({
-        symbolsOnly: toolName === 'search' || toolName === 'files' || toolName === 'text_search' ||
-          (toolName === 'node' && args.includeRelations !== true && args.targets === undefined),
-      }, () => this.executeWithSignal(toolName, args)),
-    );
+    const request = new Map<string, GenerationReader>();
+    try {
+      return await this.generationRequest.run(request, () => this.executionSignal.run(
+        options.signal,
+        () => this.dataView.run({
+          symbolsOnly: toolName === 'search' || toolName === 'files' || toolName === 'text_search' ||
+            (toolName === 'node' && args.includeRelations !== true && args.targets === undefined),
+        }, () => this.executeWithSignal(toolName, args)),
+      ));
+    } finally {
+      this.releaseGenerationRequest(request);
+    }
   }
 
   private async executeWithSignal(
@@ -1820,19 +1933,20 @@ export class ToolHandler {
       const view = this.dataView.getStore()!;
       view.admission = catchUpAdmission;
       try {
-        let graph = this.getCodeGraph(args.projectPath as string | undefined);
-        if (this.cg && resolvePath(graph.getProjectRoot()) === resolvePath(this.cg.getProjectRoot())) graph = this.cg;
-        const readiness = graph.getIndexDataReadiness?.();
+        const graph = this.getCodeGraph(args.projectPath as string | undefined);
+        const freshness = this.freshnessGraph(graph);
+        const readiness = freshness.getIndexDataReadiness?.();
         const completeness = graph.getIndexCompleteness?.();
         view.graph = graph;
+        view.readinessGraph = freshness;
         view.observed = readiness;
         view.legacyUnverified = completeness?.legacyUnverified === true;
-        const sameProject = graph === this.cg;
+        const sameProject = freshness === this.cg;
         if (readiness && (catchUpAdmission && sameProject
           ? readiness.generation >= catchUpAdmission.minimumDataGeneration
-          : graph.isIndexing?.() || completeness?.status === 'incomplete' ||
+          : freshness.isIndexing?.() || completeness?.status === 'incomplete' ||
             (!view.symbolsOnly && !readiness.relationshipsReady) ||
-            (!readiness.symbolsReady && (graph.getPendingFiles?.().length ?? 0) === 0))) {
+            (!readiness.symbolsReady && (freshness.getPendingFiles?.().length ?? 0) === 0))) {
           view.readiness = readiness;
         }
         // A different project's data must not inherit this session's refresh state.
@@ -1888,7 +2002,7 @@ export class ToolHandler {
           return this.errorResult(`Unknown tool: ${toolName}`);
       }
       const withWorktree = this.withWorktreeNotice(result, args.projectPath as string | undefined);
-      const latestReadiness = view.graph?.getIndexDataReadiness?.();
+      const latestReadiness = view.readinessGraph?.getIndexDataReadiness?.();
       const symbolsReady = view.readiness?.symbolsReady && latestReadiness?.symbolsReady &&
         view.readiness.generation === latestReadiness.generation;
       const withFileStaleness = symbolsReady ? withWorktree : this.withStalenessNotice(
@@ -1904,7 +2018,7 @@ export class ToolHandler {
 
   private relationshipsPending(): boolean {
     const view = this.dataView.getStore();
-    const latest = view?.graph?.getIndexDataReadiness?.();
+    const latest = view?.readinessGraph?.getIndexDataReadiness?.();
     if (view?.observed && latest && (latest.generation !== view.observed.generation ||
         (view.observed.relationshipsReady && !latest.relationshipsReady))) return true;
     return view?.readiness ? !view.readiness.relationshipsReady : view?.admission != null;
@@ -5494,18 +5608,7 @@ export class ToolHandler {
     args: Record<string, unknown>,
     catchUpAdmission: CatchUpAdmission | null = null,
   ): Promise<ToolResult> {
-    let cg = this.getCodeGraph(args.projectPath as string | undefined);
-    // Same trick as withStalenessNotice — when an explicit projectPath
-    // resolves to the same project as the default session cg, prefer the
-    // default so getPendingFiles() (only populated by the default's watcher)
-    // is non-empty when there are pending edits.
-    if (this.cg && cg !== this.cg) {
-      try {
-        if (resolvePath(this.cg.getProjectRoot()) === resolvePath(cg.getProjectRoot())) {
-          cg = this.cg;
-        }
-      } catch { /* closed instance — leave as is */ }
-    }
+    const cg = this.getCodeGraph(args.projectPath as string | undefined);
     const stats = cg.getStats();
 
     // Warn when this index actually belongs to a different git working tree
@@ -5590,7 +5693,7 @@ export class ToolHandler {
     // (issue #403). Surfacing it inside `status` gives the agent a single
     // place to ask "is the index caught up?" rather than inferring from
     // banners on other tool calls.
-    const pending = cg.getPendingFiles();
+    const pending = this.freshnessGraph(cg).getPendingFiles();
     if (pending.length > 0) {
       lines.push('', '### Pending sync:');
       const now = Date.now();
@@ -7116,7 +7219,21 @@ export class ToolHandler {
         cg,
         [...unique.values()],
         undefined,
-        { signal: this.executionSignal.getStore() },
+        {
+          signal: this.executionSignal.getStore(),
+          sourceState: {
+            isWatching: () => this.freshnessGraph(cg).isWatching(),
+            getPendingFiles: () => this.freshnessGraph(cg).getPendingFiles(),
+            isCurrentGeneration: () => {
+              if (typeof cg.getDatabaseFilePath !== 'function') return true;
+              try {
+                const dataDirectory = typeof cg.getDataDirectory === 'function'
+                  ? cg.getDataDirectory() : getCodeGraphDir(cg.getProjectRoot());
+                return resolveGeneration(dataDirectory).databasePath === cg.getDatabaseFilePath();
+              } catch { return false; }
+            },
+          },
+        },
       )),
       6_000,
     );

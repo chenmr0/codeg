@@ -10,6 +10,7 @@ import * as path from 'path';
 import { SchemaVersion } from '../types';
 import { runMigrations, getCurrentVersion, CURRENT_SCHEMA_VERSION } from './migrations';
 import { getCodeGraphDir } from '../directory';
+import { resolveGeneration } from '../sync/generation-store';
 import {
   WalCheckpointError,
   walCheckpointErrorFrom,
@@ -94,12 +95,12 @@ export class DatabaseConnection {
   /**
    * Open an existing database
    */
-  static open(dbPath: string): DatabaseConnection {
+  static open(dbPath: string, options: { nativeOnly?: boolean } = {}): DatabaseConnection {
     if (!fs.existsSync(dbPath)) {
       throw new Error(`Database not found: ${dbPath}`);
     }
 
-    const { db, backend } = createDatabase(dbPath);
+    const { db, backend } = createDatabase(dbPath, options);
 
     configureConnection(db, backend);
 
@@ -118,6 +119,19 @@ export class DatabaseConnection {
     conn.healBulkParseIndexes();
 
     return conn;
+  }
+
+  /** Native, non-migrating connection for generation-pinned readers and validation. */
+  static openReadOnly(dbPath: string): DatabaseConnection {
+    const { db, backend } = createDatabase(dbPath, { readOnly: true });
+    try {
+      db.pragma('busy_timeout = 5000');
+      db.pragma('query_only = ON');
+      if (getCurrentVersion(db) !== CURRENT_SCHEMA_VERSION) {
+        throw new Error('Read-only generation requires the current schema version');
+      }
+      return new DatabaseConnection(db, dbPath, backend);
+    } catch (error) { db.close(); throw error; }
   }
 
   private static readonly FTS_TRIGGER_NAMES = ['nodes_ai', 'nodes_ad', 'nodes_au'] as const;
@@ -658,5 +672,5 @@ export const DATABASE_FILENAME = 'codegraph.db';
  * Get the default database path for a project
  */
 export function getDatabasePath(projectRoot: string): string {
-  return path.join(getCodeGraphDir(projectRoot), DATABASE_FILENAME);
+  return resolveGeneration(getCodeGraphDir(projectRoot)).databasePath;
 }

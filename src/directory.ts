@@ -6,12 +6,23 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
+import { resolveGeneration } from './sync/generation-store';
 
 /** New indexes use wx; existing indexes remain readable during the transition. */
 const DEFAULT_CODEGRAPH_DIR = '.codegraph-wx';
 const LEGACY_CODEGRAPH_DIR = '.codegraph';
 
 let warnedBadDirName = false;
+
+// A dangling/symlink CURRENT still selects this directory and must fail closed
+// during resolution, rather than silently exposing a different legacy index.
+function hasCurrentManifest(directory: string): boolean {
+  try { fs.lstatSync(path.join(directory, 'CURRENT')); return true; }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false;
+    throw error;
+  }
+}
 
 /**
  * Resolve the per-project data directory name, honoring the `CODEGRAPH_DIR`
@@ -99,9 +110,9 @@ export function getCodeGraphDir(projectRoot: string): string {
   const configured = configuredDirName();
   const preferred = path.join(projectRoot, configured ?? DEFAULT_CODEGRAPH_DIR);
   if (configured || !legacyCompatibilityEnabled() ||
-      fs.existsSync(path.join(preferred, 'codegraph.db'))) return preferred;
+      (fs.existsSync(path.join(preferred, 'codegraph.db')) || hasCurrentManifest(preferred))) return preferred;
   const legacy = path.join(projectRoot, LEGACY_CODEGRAPH_DIR);
-  return fs.existsSync(path.join(legacy, 'codegraph.db')) ? legacy : preferred;
+  return (fs.existsSync(path.join(legacy, 'codegraph.db')) || hasCurrentManifest(legacy)) ? legacy : preferred;
 }
 
 /**
@@ -114,7 +125,7 @@ export function isInitialized(projectRoot: string): boolean {
     return false;
   }
   // Must have codegraph.db, not just .codegraph folder
-  const dbPath = path.join(codegraphDir, 'codegraph.db');
+  const dbPath = resolveGeneration(codegraphDir).databasePath;
   return fs.existsSync(dbPath);
 }
 
@@ -154,7 +165,7 @@ export function findNearestCodeGraphRoot(startPath: string): string | null {
  */
 export function createDirectory(projectRoot: string): void {
   const codegraphDir = getCodeGraphDir(projectRoot);
-  const dbPath = path.join(codegraphDir, 'codegraph.db');
+  const dbPath = resolveGeneration(codegraphDir).databasePath;
 
   // Only throw if CodeGraph is actually initialized (db exists)
   // .codegraph/ folder alone is fine

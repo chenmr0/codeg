@@ -29,6 +29,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { getCodeGraphDir, isInitialized } from '../directory';
 import { canonicalFilePath } from '../utils';
+import { removeOfflineLock } from '../cli/offline-unlock';
 import { detectWorktreeIndexMismatch, worktreeMismatchWarning } from '../sync/worktree';
 import { createShimmerProgress } from '../ui/shimmer-progress';
 import { getGlyphs } from '../ui/glyphs';
@@ -1446,8 +1447,9 @@ program
  */
 program
   .command('unlock [path]')
-  .description('Remove a stale lock file that is blocking indexing')
-  .action(async (pathArg: string | undefined) => {
+  .description('Remove a stale lock only after all writers and rebuild children are stopped')
+  .option('--offline', 'Confirm all CodeGraph writers and rebuild children for this index are stopped')
+  .action(async (pathArg: string | undefined, options: { offline?: boolean }) => {
     const projectPath = resolveProjectPath(pathArg);
 
     try {
@@ -1458,12 +1460,11 @@ program
 
       const lockPath = path.join(getCodeGraphDir(projectPath), 'codegraph.lock');
 
-      if (!fs.existsSync(lockPath)) {
+      if (!removeOfflineLock(lockPath, options.offline === true)) {
         info(`No lock file found ${getGlyphs().dash} nothing to do`);
         return;
       }
 
-      fs.unlinkSync(lockPath);
       success('Removed lock file. You can now run indexing again.');
     } catch (err) {
       error(`Failed to remove lock: ${err instanceof Error ? err.message : String(err)}`);

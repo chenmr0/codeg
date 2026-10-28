@@ -435,7 +435,7 @@ class SqlJsAdapter implements SqliteDatabase {
  */
 export function createDatabase(
   dbPath: string,
-  options?: { readOnly?: boolean }
+  options?: { readOnly?: boolean; nativeOnly?: boolean }
 ): { db: SqliteDatabase; backend: SqliteBackend } {
   // Try node:sqlite first (full performance, WAL, native).
   // CODEGRAPH_FORCE_WASM=1 skips node:sqlite to test the WASM fallback.
@@ -445,13 +445,13 @@ export function createDatabase(
     } catch (error) {
       // Resolver workers must never open a writable or copied sql.js database:
       // their contract is read-only access to the writer's live WAL snapshot.
-      if (options?.readOnly) throw error;
+      if (options?.readOnly || options?.nativeOnly) throw error;
       // unavailable, try fallback
     }
   }
 
-  if (options?.readOnly) {
-    throw new Error('Read-only SQLite connections require the node:sqlite backend');
+  if (options?.readOnly || options?.nativeOnly) {
+    throw new Error('Generation and read-only SQLite connections require the node:sqlite backend');
   }
 
   // Fallback: sql.js WASM backend (no native deps, no WAL)
