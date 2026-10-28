@@ -242,10 +242,13 @@ import RealCodeGraph from '../src/index';
 import { scanRawSourceEvidence } from '../src/mcp/raw-source-evidence';
 
 describe('MCP published generation with real SQLite facades', () => {
+  let previousExecArgv: string[];
+  beforeEach(() => { previousExecArgv = process.execArgv; process.execArgv = ['--liftoff-only']; });
   const roots: string[] = [];
   const graphs: RealCodeGraph[] = [];
   const handlers: ToolHandler[] = [];
   afterEach(() => {
+    process.execArgv = previousExecArgv;
     handlers.splice(0).forEach(handler => handler.closeAll());
     graphs.splice(0).forEach(graph => graph.close());
     roots.splice(0).forEach(root => fs.rmSync(root, { recursive: true, force: true }));
@@ -270,6 +273,38 @@ describe('MCP published generation with real SQLite facades', () => {
     fs.writeFileSync(path.join(destination, 'READY.json'), manifest);
     fs.writeFileSync(path.join(getCodeGraphDir(root), 'CURRENT'), manifest);
   }
+  it('reuses a hot native reader for the current generation across 100 completed requests', async () => {
+    const original = await fixture('hot_current_symbol');
+    const handler = new ToolHandler(original.graph); handlers.push(handler);
+    const opened = vi.spyOn(RealCodeGraph, 'openReadOnlyAtLease');
+    for (let i = 0; i < 100; i++) {
+      const result = await handler.execute('search', { query: 'hot_current_symbol', limit: 1 });
+      expect(result.isError).toBeFalsy();
+    }
+    expect(opened).toHaveBeenCalledTimes(1);
+    const entry = (handler as any).generationReaders.get(original.root);
+    expect(entry.references).toBe(0);
+    expect(entry.retired).toBe(false);
+    expect(entry.graph.searchNodes('hot_current_symbol').length).toBeGreaterThan(0);
+  });
+
+  it('reuses a current native reader when the project is opened through a directory alias', async () => {
+    const original = await fixture('alias_hot_symbol');
+    const holder = fs.mkdtempSync(path.join(os.tmpdir(), 'cg-reader-alias-')); roots.push(holder);
+    const alias = path.join(holder, 'project'); fs.symlinkSync(original.root, alias, 'junction');
+    const aliased = RealCodeGraph.openSync(alias); graphs.push(aliased);
+    const handler = new ToolHandler(aliased); handlers.push(handler);
+    const opened = vi.spyOn(RealCodeGraph, 'openReadOnlyAtLease');
+    for (let i = 0; i < 10; i++) {
+      const result = await handler.execute('search', { query: 'alias_hot_symbol', limit: 1 });
+      expect(result.isError).toBeFalsy();
+    }
+    expect(opened).toHaveBeenCalledTimes(1);
+    await new Promise(resolve => setTimeout(resolve, 300));
+    const result = await handler.execute('search', { query: 'alias_hot_symbol', limit: 1 });
+    expect(result.isError).toBeFalsy(); expect(opened).toHaveBeenCalledTimes(1);
+  });
+
   it('keeps a legacy data root pinned when a preferred index appears later', async () => {
     const original = await fixture('legacy_owner_symbol');
     const replacement = await fixture('preferred_other_symbol');
@@ -283,12 +318,17 @@ describe('MCP published generation with real SQLite facades', () => {
     fs.copyFileSync(replacementFile, path.join(original.root, '.codegraph-wx', 'codegraph.db'));
     expect(getCodeGraphDir(original.root)).toBe(path.join(original.root, '.codegraph-wx'));
     const handler = new ToolHandler(legacy); handlers.push(handler);
+    const originalFiles = (handler as any).handleFiles.bind(handler);
+    vi.spyOn(handler as any, 'handleFiles').mockImplementationOnce(async args => {
+      const reader = (handler as any).getCodeGraph() as RealCodeGraph;
+      expect(reader.getDataDirectory()).toBe(path.join(original.root, '.codegraph'));
+      expect(reader.searchNodes('legacy_owner_symbol').length).toBeGreaterThan(0);
+      expect(reader.searchNodes('preferred_other_symbol')).toHaveLength(0);
+      return originalFiles(args);
+    });
     const result = await handler.execute('files', {});
     expect(result.isError).toBeFalsy();
-    const reader = [...(handler as any).generationReaders.values()][0].graph as RealCodeGraph;
-    expect(reader.getDataDirectory()).toBe(path.join(original.root, '.codegraph'));
-    expect(reader.searchNodes('legacy_owner_symbol').length).toBeGreaterThan(0);
-    expect(reader.searchNodes('preferred_other_symbol')).toHaveLength(0);
+    expect((handler as any).generationReaders.size).toBe(1);
   });
   it('keeps raw-source cache watcher guards separate from the pinned SQL reader', async () => {
     const original = await fixture('raw_cache_marker');
@@ -428,6 +468,56 @@ describe('MCP published generation with real SQLite facades', () => {
     }
   }, 30000);
 
+  it('reclaims idle native readers after repeated rebuilds but preserves an awaited request generation', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cg-request-rebuild-')); roots.push(root);
+    fs.writeFileSync(path.join(root, 'api.c'), 'int generation_zero_symbol(void) { return 1; }\n');
+    // Real rebuild children are compiled entry points, as in the SDK acceptance suites.
+    const graph = await (require('../dist').CodeGraph as typeof RealCodeGraph).init(root, { index: true });
+    graphs.push(graph);
+    const handler = new ToolHandler(graph); handlers.push(handler);
+    const data = graph.getDataDirectory();
+    const entered = deferred(), resume = deferred();
+    const initial = resolveGeneration(data);
+    const original = (handler as any).handleSearch.bind(handler);
+    vi.spyOn(handler as any, 'handleSearch').mockImplementationOnce(async args => {
+      const reader = (handler as any).getCodeGraph() as RealCodeGraph;
+      entered.resolve(); await resume.promise;
+      expect(reader.getDatabaseFilePath()).toBe(initial.databasePath);
+      expect(reader.searchNodes('generation_zero_symbol').length).toBeGreaterThan(0);
+      expect(reader.searchNodes('generation_latest_symbol')).toHaveLength(0);
+      return original(args);
+    });
+    const pending = handler.execute('search', { query: 'generation_zero_symbol' }); await entered.promise;
+    const waitForCollection = async (databasePath: string) => {
+      const deadline = Date.now() + 5000;
+      while (fs.existsSync(path.dirname(databasePath))) {
+        if (Date.now() > deadline) throw new Error(`Retired generation remains: ${databasePath}`);
+        await new Promise(resolve => setTimeout(resolve, 20));
+      }
+    };
+    let previous = initial;
+    for (let step = 1; step <= 3; step++) {
+      fs.writeFileSync(path.join(root, '.gitignore'), `# rebuild ${step}\n`);
+      fs.writeFileSync(path.join(root, 'api.c'), 'int generation_latest_symbol(void) { return 2; }\n');
+      const rebuilt = await graph.sync();
+      expect(rebuilt.adaptive?.strategy, JSON.stringify(rebuilt)).toBe('rebuild');
+      const current = resolveGeneration(data); expect(current.id).not.toBe(previous.id);
+      const result = await handler.execute('search', { query: 'generation_latest_symbol' });
+      expect(result.isError, result.content[0]!.text).toBeFalsy();
+      expect(result.content[0]!.text).toContain('### generation_latest_symbol (');
+      expect(fs.existsSync(initial.databasePath)).toBe(true);
+      if (previous.id !== initial.id) await waitForCollection(previous.databasePath);
+      previous = current;
+    }
+    resume.resolve(); const result = await pending;
+    expect(result.isError, result.content[0]!.text).toBeFalsy();
+    expect(result.content[0]!.text).toContain('### generation_zero_symbol (');
+    await waitForCollection(initial.databasePath);
+    expect(fs.existsSync(initial.databasePath)).toBe(false);
+    expect((handler as any).generationReaders.size).toBe(1);
+    expect(fs.readdirSync(path.join(data, 'generations'))).toEqual([previous.id]);
+  }, 30000);
+
   it('queries the published whole graph without mutating or closing the legacy owner', async () => {
     const original = await fixture('before_switch');
     const replacement = await fixture('after_switch');
@@ -448,8 +538,8 @@ describe('MCP published generation with real SQLite facades', () => {
       if (tool === 'callers') expect(result.content[0]!.text).toContain('caller');
     }
     expect(original.graph.searchNodes('after_switch').length).toBeGreaterThan(0);
-    expect(path.basename(path.dirname(original.graph.getDatabaseFilePath()))).not.toBe('g-real');
-    const reader = [...(handler as any).generationReaders.values()][0].graph as RealCodeGraph;
+    expect((handler as any).generationReaders.size).toBe(1);
+    const reader = RealCodeGraph.openReadOnlySync(original.root); graphs.push(reader);
     expect(reader.getDatabaseFilePath()).toContain('g-real');
     expect(() => (reader as any).db.getDb().prepare("INSERT INTO metadata (key,value) VALUES ('bad','bad')").run()).toThrow();
   });

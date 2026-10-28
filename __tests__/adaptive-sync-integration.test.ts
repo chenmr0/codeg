@@ -120,8 +120,9 @@ describe('adaptive sync real child lifecycle', () => {
     const current = resolveGeneration(getCodeGraphDir(root));
     expect(current.id).not.toBeNull();
     expect(current.databasePath).not.toBe(oldPath);
-    expect(graph.getDatabaseFilePath()).toBe(oldPath);
+    expect(oldReader.getDatabaseFilePath()).toBe(oldPath);
     expect(names(graph, 'replacement_symbol')).toContain('replacement_symbol');
+    expect(graph.getDatabaseFilePath()).toBe(current.databasePath);
     expect(names(graph, 'original_symbol')).not.toContain('original_symbol');
     expect(names(oldReader, 'original_symbol')).toContain('original_symbol');
     const latest = CodeGraph.openReadOnlySync(root); readers.push(latest);

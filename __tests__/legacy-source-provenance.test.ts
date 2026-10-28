@@ -9,7 +9,7 @@ import * as path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { DatabaseConnection } from '../src/db';
-import { inspectLegacySourceProvenance, isSourceOwned, installSourceOwnership, beginSourceWrite } from '../src/sync/source-ownership';
+import { normalizeLegacySchemaSql, inspectLegacySourceProvenance, isSourceOwned, installSourceOwnership, beginSourceWrite } from '../src/sync/source-ownership';
 
 const legacyDist = process.env.CODEGRAPH_LEGACY_DIST ?? path.resolve(__dirname, '../../adaptive-perf-20261028/codeg-baseline/dist');
 let originalRoot: string;
@@ -24,6 +24,25 @@ function fixture(readOnly = false) {
 }
 afterEach(() => { connections.splice(0).forEach(c => c.close()); roots.splice(0).forEach(r => fs.rmSync(r, { recursive: true, force: true })); });
 afterAll(() => { if (originalRoot) fs.rmSync(originalRoot, { recursive: true, force: true }); });
+
+it('does not equate bare-CR line comments with LF constraints', () => {
+  const { DatabaseSync } = require('node:sqlite');
+  const lf = 'CREATE TABLE t(a INTEGER -- description\n CHECK(a>0)\n)';
+  const crlf = lf.replace(/\n/g, '\r\n');
+  const bare = lf.replace('description\n', 'description\r');
+  const databases = [lf, crlf, bare].map(sql => {
+    const db = new DatabaseSync(':memory:'); db.exec(sql); return db;
+  });
+  try {
+    expect(() => databases[0].exec('INSERT INTO t VALUES(-1)')).toThrow();
+    expect(() => databases[1].exec('INSERT INTO t VALUES(-1)')).toThrow();
+    expect(() => databases[2].exec('INSERT INTO t VALUES(-1)')).not.toThrow();
+    expect(normalizeLegacySchemaSql(crlf)).toBe(normalizeLegacySchemaSql(lf));
+    expect(normalizeLegacySchemaSql(bare)).not.toBe(normalizeLegacySchemaSql(lf));
+    expect(normalizeLegacySchemaSql("CREATE TABLE t(a TEXT DEFAULT 'x\r\ny')"))
+      .not.toBe(normalizeLegacySchemaSql("CREATE TABLE t(a TEXT DEFAULT 'x\ny')"));
+  } finally { databases.forEach(db => db.close()); }
+});
 
 describe.skipIf(!fs.existsSync(path.join(legacyDist, 'index.js')))('supported official legacy source format', () => {
   beforeAll(() => {
@@ -49,6 +68,7 @@ describe.skipIf(!fs.existsSync(path.join(legacyDist, 'index.js')))('supported of
   });
   it.each([
     ['table', "CREATE TABLE user_business_data(value TEXT)"],
+    ['changed official DDL', "ALTER TABLE files ADD COLUMN business_secret TEXT"],
     ['metadata', "INSERT INTO project_metadata VALUES('user:keep','important',1)"],
     ['build', "UPDATE project_metadata SET value='unknown' WHERE key='indexed_with_version'"],
     ['node', "UPDATE nodes SET kind='custom' WHERE kind='function'"],
@@ -68,6 +88,12 @@ describe.skipIf(!fs.existsSync(path.join(legacyDist, 'index.js')))('supported of
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cg-not-legacy-')); roots.push(root);
     const connection = DatabaseConnection.initialize(path.join(root, 'codegraph.db')); connections.push(connection);
     const db = connection.getDb(); expect(installSourceOwnership(db)).toBe(true);
+    // The modern v1 marker remains the exact raw-SQL fingerprint; legacy
+    // newline equivalence must not silently change the existing chain format.
+    const rawSchema = db.prepare(`SELECT type, name, tbl_name, sql FROM sqlite_master
+      WHERE name NOT LIKE 'sqlite_stat%' ORDER BY type, name`).all();
+    const stored = db.prepare("SELECT value FROM project_metadata WHERE key='adaptive:source-owner-v1'").get();
+    expect(stored.value).toBe(createHash('sha256').update(JSON.stringify(rawSchema)).digest('hex'));
     expect(beginSourceWrite(db)).not.toBeNull();
     expect(inspectLegacySourceProvenance(db).reason).toBe('legacy-unknown-or-extended-schema');
   });

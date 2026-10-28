@@ -37,6 +37,16 @@ describe('MCP data readiness during a real refresh', () => {
     releases.push(release.resolve);
     return { entered: entered.promise, release: release.resolve };
   }
+  function pauseNextReaderCode() {
+    const entered = deferred(), release = deferred();
+    const original = CodeGraph.prototype.getCode;
+    vi.spyOn(CodeGraph.prototype, 'getCode').mockImplementationOnce(async function (this: CodeGraph, ...args) {
+      entered.resolve(); await release.promise;
+      return original.apply(this, args);
+    });
+    releases.push(release.resolve);
+    return { entered: entered.promise, release: release.resolve };
+  }
   function sync() {
     const p = cg.sync();
     work.push(p);
@@ -145,10 +155,9 @@ describe('MCP data readiness during a real refresh', () => {
   it('keeps concurrent symbol and relationship requests isolated', async () => {
     edit(); const resolution = pause(internal().resolver, 'resolveFilesAndPersist');
     const p = sync(); await resolution.entered;
-    // MCP uses a pinned native read-only facade, separate from the writer.
-    await text('files', {});
-    const reader = (handler as any).generationReaders.get(path.resolve(folder))?.graph ?? cg;
-    const source = pause(reader, 'getCode');
+    // Native facades live only for their request, so intercept the next
+    // reader's source read rather than relying on a permanent idle cache.
+    const source = pauseNextReaderCode();
     const node = text('node', { symbol: 'added', includeCode: true });
     await source.entered;
     const callers = await text('callers', { symbol: 'target' });
@@ -159,10 +168,9 @@ describe('MCP data readiness during a real refresh', () => {
 
   it('rechecks readiness after an awaited source read', async () => {
     await watchEventsOnly();
-    // MCP uses a pinned native read-only facade, separate from the writer.
-    await text('files', {});
-    const reader = (handler as any).generationReaders.get(path.resolve(folder))?.graph ?? cg;
-    const source = pause(reader, 'getCode');
+    // Native facades live only for their request, so intercept the next
+    // reader's source read rather than relying on a permanent idle cache.
+    const source = pauseNextReaderCode();
     const request = text('node', { symbol: 'target', file: 'api.c', includeCode: true });
     await source.entered;
     edit(); __emitWatchEventForTests(folder, 'api.c');

@@ -6,7 +6,7 @@
  */
 
 import * as path from 'path';
-import { existsSync, statSync, appendFileSync, renameSync, realpathSync } from 'fs';
+import { existsSync, statSync, appendFileSync, renameSync, realpathSync, lstatSync, openSync, fstatSync, readSync, closeSync, constants } from 'fs';
 import {
   Node,
   Edge,
@@ -238,13 +238,62 @@ export class CodeGraph {
   private fileLock: GenerationWriterLock;
   private readonly dataDir: string;
   private readonly shadowCandidate: boolean;
-  private readonly readOnly: boolean;
+  private readOnly: boolean;
   private readonly pinnedRead: boolean;
   private closed = false;
   private generationLease?: GenerationLease;
   private activeBuild: AbortController | null = null;
   private forwardedWriter: CodeGraph | null = null;
-  private generationReaders = new Map<string, CodeGraph>();
+  private generationReaders = new Map<string, { graph: CodeGraph; references: number; retired: boolean }>();
+  private static idleFacades = new Set<CodeGraph>();
+  private static retirementTimer: ReturnType<typeof setInterval> | undefined;
+  private observedCurrent: string | undefined;
+  private observePublication(current: string): void {
+    if (this.closed || this.indexMutex.isLocked() || this.activeBuild || this.forwardedWriter) return;
+    if (current === this.observedCurrent) return;
+    this.refreshIdleFacade();
+    this.observedCurrent = current;
+  }
+  private static readRetirementManifest(dataDir: string): string | null {
+    const file = path.join(dataDir, 'CURRENT');
+    const entry = lstatSync(file);
+    if (!entry.isFile() || entry.size > 4096) return null;
+    // The bounded descriptor read also handles a file growing/replaced after lstat.
+    const fd = openSync(file, constants.O_RDONLY | (constants.O_NONBLOCK ?? 0) | (constants.O_NOFOLLOW ?? 0));
+    try {
+      const stat = fstatSync(fd);
+      if (!stat.isFile() || stat.size > 4096) return null;
+      const bytes = Buffer.alloc(4097);
+      const count = readSync(fd, bytes, 0, bytes.length, 0);
+      return count > 4096 ? null : bytes.toString('utf8', 0, count);
+    } finally { closeSync(fd); }
+  }
+  private static registerIdleFacade(graph: CodeGraph): void {
+    if (graph.pinnedRead || graph.shadowCandidate || graph.db.getBackend() !== 'node-sqlite') return;
+    CodeGraph.idleFacades.add(graph);
+    if (!CodeGraph.retirementTimer) {
+      CodeGraph.retirementTimer = setInterval(() => {
+        const roots = new Map<string, string | null>();
+        for (const facade of CodeGraph.idleFacades) {
+          // One small manifest read per root, regardless of facade count.
+          if (!roots.has(facade.dataDir)) {
+            try { roots.set(facade.dataDir, CodeGraph.readRetirementManifest(facade.dataDir)); }
+            catch { roots.set(facade.dataDir, null); }
+          }
+          const current = roots.get(facade.dataDir);
+          // Retirement is best effort; actual reads always perform strict CURRENT validation.
+          try { if (current != null) facade.observePublication(current); } catch { /* retry; never fall back during a query */ }
+        }
+      }, 250);
+      CodeGraph.retirementTimer.unref();
+    }
+  }
+  private static unregisterIdleFacade(graph: CodeGraph): void {
+    CodeGraph.idleFacades.delete(graph);
+    if (!CodeGraph.idleFacades.size && CodeGraph.retirementTimer) {
+      clearInterval(CodeGraph.retirementTimer); CodeGraph.retirementTimer = undefined;
+    }
+  }
 
   // File watcher for auto-sync on file changes
   private watcher: FileWatcher | null = null;
@@ -284,6 +333,7 @@ export class CodeGraph {
       queries,
       this.traverser
     );
+    CodeGraph.registerIdleFacade(this);
   }
 
   // ===========================================================================
@@ -410,9 +460,9 @@ export class CodeGraph {
    * @returns A CodeGraph instance
    */
   private static openCurrent(root: string, forceReadOnly = false, pinnedRead = false,
-    dataDirectory = getCodeGraphDir(root), writer = false): CodeGraph {
+    dataDirectory = getCodeGraphDir(root), writer = false, acquiredLease?: GenerationLease): CodeGraph {
     // Resolve + register the reader atomically against publication and GC.
-    const lease = acquireCurrentGenerationLease(dataDirectory);
+    const lease = acquiredLease ?? acquireCurrentGenerationLease(dataDirectory);
     let db: DatabaseConnection | undefined;
     try {
       const readOnly = !writer && (forceReadOnly || lease.id !== null);
@@ -483,6 +533,21 @@ export class CodeGraph {
     return CodeGraph.openCurrent(root, true, true, dataDir);
   }
 
+  /** @internal Open the exact admitted generation, without resolving CURRENT again.
+   * The caller retains/releases admission; the returned graph owns an independent lease.
+   */
+  static openReadOnlyAtLease(projectRoot: string, dataDirectory: string, admission: GenerationLease): CodeGraph {
+    const root = path.resolve(projectRoot);
+    const dataDir = path.resolve(dataDirectory);
+    if (path.dirname(dataDir) !== root) throw new Error('Data directory must belong to the project root');
+    const expected = admission.id === null ? path.join(dataDir, 'codegraph.db') :
+      path.join(dataDir, 'generations', admission.id, 'codegraph.db');
+    if (path.resolve(admission.databasePath) !== expected) throw new Error('Reader lease belongs to another generation store');
+    const lease = admission.id === null ? { id: null, databasePath: expected, release() {} } :
+      acquireGenerationLease(dataDir, admission.id, { allowUnmanaged: true });
+    return CodeGraph.openCurrent(root, true, true, dataDir, false, lease);
+  }
+
   /** @internal Only the isolated rebuild child creates an unpublished database. */
   static async createShadow(projectRoot: string, databasePath: string): Promise<CodeGraph> {
     await initGrammars();
@@ -525,6 +590,7 @@ export class CodeGraph {
   close(): void {
     if (this.closed) return;
     this.closed = true;
+    CodeGraph.unregisterIdleFacade(this);
     this.abortActiveWork();
     cancelRawEvidenceScans(this);
     this.unwatch();
@@ -538,12 +604,12 @@ export class CodeGraph {
       this.releaseGenerationLeaseWhenIdle();
       if (this.db.isOpen()) CodeGraph.failedCloses.add(this);
       this.closed = false;
+      CodeGraph.registerIdleFacade(this);
       throw error;
     }
     CodeGraph.failedCloses.delete(this);
     this.releaseGenerationLeaseWhenIdle();
-    for (const reader of this.generationReaders.values()) reader.close();
-    this.generationReaders.clear();
+    this.retireReadViews();
   }
 
   private releaseGenerationLeaseWhenIdle(): void {
@@ -969,26 +1035,81 @@ export class CodeGraph {
   }
 
   private currentDatabasePath(): string {
-    const current = resolveGeneration(this.dataDir).databasePath;
-    // Factories pin canonical managed paths. Only aliases or a new generation
-    // need normalization; ordinary unchanged queries incur no extra filesystem IO.
-    return current === this.db.getPath() ? current : realpathSync(current);
+    const lease = acquireCurrentGenerationLease(this.dataDir);
+    try { return lease.databasePath === this.db.getPath() ? lease.databasePath : realpathSync(lease.databasePath); }
+    finally { lease.release(); }
   }
 
-  /** SDK reads automatically follow publication without rebinding an active async query's layers. */
-  private readView(): CodeGraph {
-    if (this.closed) throw new Error('CodeGraph is closed');
-    if (this.pinnedRead || this.shadowCandidate) return this;
-    const current = this.currentDatabasePath();
-    if (current === this.db.getPath()) return this;
-    let reader = this.generationReaders.get(current);
-    if (!reader) {
-      reader = CodeGraph.openReadOnlySync(this.projectRoot, this.dataDir);
-      this.generationReaders.set(reader.getDatabaseFilePath(), reader);
+  /** Keep only CURRENT hot. Retired entries live solely until their last operation finishes. */
+  private retireReadViews(currentPath?: string): void {
+    for (const [key, entry] of this.generationReaders) {
+      if (key === currentPath) continue;
+      entry.retired = true;
+      this.generationReaders.delete(key);
+      if (entry.references === 0) entry.graph.close();
     }
-    // Old readers are retained until facade.close(): an SDK async call may still
-    // hold its context/traverser. MCP has finer-grained request lease retirement.
-    return reader;
+  }
+
+  /** Each operation pins its entry until its whole synchronous/async result completes. */
+  private withReadView<T>(operation: (view: CodeGraph) => T): T {
+    if (this.closed) throw new Error('CodeGraph is closed');
+    if (this.pinnedRead || this.shadowCandidate || this.db.getBackend() !== 'node-sqlite') return operation(this);
+    const admission = acquireCurrentGenerationLease(this.dataDir);
+    let entry: { graph: CodeGraph; references: number; retired: boolean };
+    try {
+      // Admission validates CURRENT even on hits; malformed manifests never use cached data.
+      const key = realpathSync(admission.databasePath);
+      this.retireReadViews(key);
+      let cached = this.generationReaders.get(key);
+      if (!cached) {
+        cached = { graph: CodeGraph.openReadOnlyAtLease(this.projectRoot, this.dataDir, admission), references: 0, retired: false };
+        this.generationReaders.set(key, cached);
+      }
+      entry = cached;
+      entry.references++;
+    } finally { admission.release(); }
+    let released = false;
+    const release = (): void => {
+      if (released) return;
+      released = true;
+      entry.references--;
+      if (entry.references === 0 && entry.retired) entry.graph.close();
+    };
+    try {
+      this.refreshIdleFacade(entry.graph.getDatabaseFilePath());
+      const result = operation(entry.graph);
+      if (result && typeof (result as any).then === 'function') {
+        return Promise.resolve(result).finally(release) as T;
+      }
+      release();
+      return result;
+    } catch (error) { release(); throw error; }
+  }
+
+  /** Query operations never borrow these layers; writers retain them until they finish. */
+  private refreshIdleFacade(pinnedCurrentPath?: string): void {
+    if (this.closed || this.pinnedRead || this.shadowCandidate || this.indexMutex.isLocked() || this.activeBuild || this.forwardedWriter) return;
+    if (pinnedCurrentPath === this.db.getPath()) return;
+    const admission = acquireCurrentGenerationLease(this.dataDir);
+    let next: CodeGraph;
+    let transferred = false;
+    try {
+      const currentPath = realpathSync(admission.databasePath);
+      this.retireReadViews(currentPath);
+      if (currentPath === this.db.getPath()) return;
+      // openCurrent owns the lease even when opening fails.
+      transferred = true;
+      next = CodeGraph.openCurrent(this.projectRoot, false, false, this.dataDir, false, admission);
+    } finally { if (!transferred) admission.release(); }
+    try { this.db.close(); } catch (error) { next.close(); throw error; }
+    const previousLease = this.generationLease;
+    this.db = next.db; this.queries = next.queries;
+    this.orchestrator = next.orchestrator; this.resolver = next.resolver;
+    this.graphManager = next.graphManager; this.traverser = next.traverser; this.contextBuilder = next.contextBuilder;
+    this.generationLease = next.generationLease; next.generationLease = undefined;
+    this.readOnly = next.readOnly;
+    CodeGraph.unregisterIdleFacade(next);
+    previousLease?.release();
   }
 
   /** Caller holds the root lock. Never rebind an instance borrowed by an in-flight reader. */
@@ -1157,7 +1278,7 @@ export class CodeGraph {
    */
   async sync(options: SyncOptions = {}): Promise<SyncResult> {
     this.assertWritableFacade();
-    return this.syncInternal(options);
+    try { return await this.syncInternal(options); } finally { this.refreshIdleFacade(); }
   }
 
   private async syncInternal(options: SyncOptions, inheritedLock = false): Promise<SyncResult> {
@@ -1901,9 +2022,10 @@ export class CodeGraph {
    * Get files that have changed since last index
    */
   getChangedFiles(): { added: string[]; modified: string[]; removed: string[] } {
-    const view = this.readView();
-    if (view !== this) return view.getChangedFiles();
-    return this.orchestrator.getChangedFiles();
+    return this.withReadView(view => {
+      if (view !== this) return view.getChangedFiles();
+      return this.orchestrator.getChangedFiles();
+    });
   }
 
   /**
@@ -1912,9 +2034,10 @@ export class CodeGraph {
    * freshness without shelling out to `codegraph status --json`. (#329)
    */
   getLastIndexedAt(): number | null {
-    const view = this.readView();
-    if (view !== this) return view.getLastIndexedAt();
-    return this.queries.getLastIndexedAt();
+    return this.withReadView(view => {
+      if (view !== this) return view.getLastIndexedAt();
+      return this.queries.getLastIndexedAt();
+    });
   }
 
   /**
@@ -1924,12 +2047,13 @@ export class CodeGraph {
    * `extraction-version.ts` and `isIndexStale()`.
    */
   getIndexBuildInfo(): { version: string | null; extractionVersion: number | null } {
-    const view = this.readView();
-    if (view !== this) return view.getIndexBuildInfo();
-    const version = this.queries.getMetadata('indexed_with_version');
-    const ev = this.queries.getMetadata('indexed_with_extraction_version');
-    const parsed = ev != null ? parseInt(ev, 10) : NaN;
-    return { version, extractionVersion: Number.isFinite(parsed) ? parsed : null };
+    return this.withReadView(view => {
+      if (view !== this) return view.getIndexBuildInfo();
+      const version = this.queries.getMetadata('indexed_with_version');
+      const ev = this.queries.getMetadata('indexed_with_extraction_version');
+      const parsed = ev != null ? parseInt(ev, 10) : NaN;
+      return { version, extractionVersion: Number.isFinite(parsed) ? parsed : null };
+    });
   }
 
   /** Persisted completeness of the current index, including visible reasons. */
@@ -1939,49 +2063,50 @@ export class CodeGraph {
     /** Usable historical graph; full synthesis has not been verified by this engine. */
     legacyUnverified?: true;
   } {
-    const view = this.readView();
-    if (view !== this) return view.getIndexCompleteness();
-    const rawStatus = this.queries.getMetadata('index_completeness');
-    const status = rawStatus === 'complete' || rawStatus === 'incomplete'
-      ? rawStatus
-      : 'unknown';
-    const diagnostics: ExtractionError[] = [];
-    let invalidDiagnostics = false;
-    try {
-      const parsed: unknown = JSON.parse(this.queries.getMetadata('index_diagnostics') ?? '[]');
-      if (!Array.isArray(parsed)) invalidDiagnostics = true;
-      else for (const value of parsed) {
-        if (value && typeof value === 'object' && typeof value.message === 'string' &&
-            (value.severity === 'error' || value.severity === 'warning') &&
-            (value.code === undefined || typeof value.code === 'string') &&
-            (value.filePath === undefined || typeof value.filePath === 'string')) {
-          diagnostics.push(value);
-        } else invalidDiagnostics = true;
+    return this.withReadView(view => {
+      if (view !== this) return view.getIndexCompleteness();
+      const rawStatus = this.queries.getMetadata('index_completeness');
+      const status = rawStatus === 'complete' || rawStatus === 'incomplete'
+        ? rawStatus
+        : 'unknown';
+      const diagnostics: ExtractionError[] = [];
+      let invalidDiagnostics = false;
+      try {
+        const parsed: unknown = JSON.parse(this.queries.getMetadata('index_diagnostics') ?? '[]');
+        if (!Array.isArray(parsed)) invalidDiagnostics = true;
+        else for (const value of parsed) {
+          if (value && typeof value === 'object' && typeof value.message === 'string' &&
+              (value.severity === 'error' || value.severity === 'warning') &&
+              (value.code === undefined || typeof value.code === 'string') &&
+              (value.filePath === undefined || typeof value.filePath === 'string')) {
+            diagnostics.push(value);
+          } else invalidDiagnostics = true;
+        }
+      } catch { invalidDiagnostics = true; }
+      if (invalidDiagnostics) {
+        diagnostics.push({
+          severity: 'error', code: 'index_diagnostics_invalid',
+          message: 'Stored index coverage diagnostics are invalid; run "codegraph index" to verify coverage again.',
+        });
       }
-    } catch { invalidDiagnostics = true; }
-    if (invalidDiagnostics) {
-      diagnostics.push({
-        severity: 'error', code: 'index_diagnostics_invalid',
-        message: 'Stored index coverage diagnostics are invalid; run "codegraph index" to verify coverage again.',
-      });
-    }
-    if (status === 'complete' && !invalidDiagnostics && diagnostics.length === 0 &&
-        (this.hasLegacySynthesisCompatibility() || this.canAdmitLegacySynthesis()) &&
-        !this.hasSynthesisRecoveryEvidence()) {
-      return { status: 'unknown', diagnostics, legacyUnverified: true };
-    }
-    if (status === 'complete' && (
-      this.queries.getMetadata(SYNTHESIS_PENDING) !== null ||
-      this.queries.getMetadata('index_conformance_pending') !== null ||
-      this.queries.getMetadata(SYNTHESIS_COMPLETED_VERSION) !== SYNTHESIS_VERSION
-    )) {
-      diagnostics.push({
-        severity: 'warning', code: 'synthesis_unverified',
-        message: 'Dynamic-edge synthesis completion is unverified; run "codegraph sync" to finish and verify graph coverage.',
-      });
-      return { status: 'incomplete', diagnostics };
-    }
-    return { status: invalidDiagnostics ? 'incomplete' : status, diagnostics };
+      if (status === 'complete' && !invalidDiagnostics && diagnostics.length === 0 &&
+          (this.hasLegacySynthesisCompatibility() || this.canAdmitLegacySynthesis()) &&
+          !this.hasSynthesisRecoveryEvidence()) {
+        return { status: 'unknown', diagnostics, legacyUnverified: true };
+      }
+      if (status === 'complete' && (
+        this.queries.getMetadata(SYNTHESIS_PENDING) !== null ||
+        this.queries.getMetadata('index_conformance_pending') !== null ||
+        this.queries.getMetadata(SYNTHESIS_COMPLETED_VERSION) !== SYNTHESIS_VERSION
+      )) {
+        diagnostics.push({
+          severity: 'warning', code: 'synthesis_unverified',
+          message: 'Dynamic-edge synthesis completion is unverified; run "codegraph sync" to finish and verify graph coverage.',
+        });
+        return { status: 'incomplete', diagnostics };
+      }
+      return { status: invalidDiagnostics ? 'incomplete' : status, diagnostics };
+    });
   }
 
   /**
@@ -1992,11 +2117,12 @@ export class CodeGraph {
    * hint and `codegraph upgrade`'s reminder.
    */
   isIndexStale(): boolean {
-    const view = this.readView();
-    if (view !== this) return view.isIndexStale();
-    if (this.queries.getLastIndexedAt() == null) return false;
-    const { extractionVersion } = this.getIndexBuildInfo();
-    return extractionVersion == null || extractionVersion < EXTRACTION_VERSION;
+    return this.withReadView(view => {
+      if (view !== this) return view.isIndexStale();
+      if (this.queries.getLastIndexedAt() == null) return false;
+      const { extractionVersion } = this.getIndexBuildInfo();
+      return extractionVersion == null || extractionVersion < EXTRACTION_VERSION;
+    });
   }
 
   /**
@@ -2108,18 +2234,20 @@ export class CodeGraph {
    * sync sweeps these rows in bounded batches.
    */
   getPendingReferenceCount(): number {
-    const view = this.readView();
-    if (view !== this) return view.getPendingReferenceCount();
-    return this.queries.getUnresolvedReferencesCount();
+    return this.withReadView(view => {
+      if (view !== this) return view.getPendingReferenceCount();
+      return this.queries.getUnresolvedReferencesCount();
+    });
   }
 
   /**
    * Get detected frameworks in the project
    */
   getDetectedFrameworks(): string[] {
-    const view = this.readView();
-    if (view !== this) return view.getDetectedFrameworks();
-    return this.resolver.getDetectedFrameworks();
+    return this.withReadView(view => {
+      if (view !== this) return view.getDetectedFrameworks();
+      return this.resolver.getDetectedFrameworks();
+    });
   }
 
   /**
@@ -2137,11 +2265,12 @@ export class CodeGraph {
    * Get statistics about the knowledge graph
    */
   getStats(): GraphStats {
-    const view = this.readView();
-    if (view !== this) return view.getStats();
-    const stats = this.queries.getStats();
-    stats.dbSizeBytes = this.db.getSize();
-    return stats;
+    return this.withReadView(view => {
+      if (view !== this) return view.getStats();
+      const stats = this.queries.getStats();
+      stats.dbSizeBytes = this.db.getSize();
+      return stats;
+    });
   }
 
   /**
@@ -2171,29 +2300,32 @@ export class CodeGraph {
    * Get a node by ID
    */
   getNode(id: string): Node | null {
-    const view = this.readView();
-    if (view !== this) return view.getNode(id);
-    return this.queries.getNodeById(id);
+    return this.withReadView(view => {
+      if (view !== this) return view.getNode(id);
+      return this.queries.getNodeById(id);
+    });
   }
 
   /**
    * Get all nodes in a file
    */
   getNodesInFile(filePath: string): Node[] {
-    const view = this.readView();
-    if (view !== this) return view.getNodesInFile(filePath);
-    // Canonicalize so a caller passing a symlink path resolves to the file's
-    // canonical (realpath-relative) path as stored in the DB.
-    return this.queries.getNodesByFile(canonicalFilePath(this.projectRoot, filePath));
+    return this.withReadView(view => {
+      if (view !== this) return view.getNodesInFile(filePath);
+      // Canonicalize so a caller passing a symlink path resolves to the file's
+      // canonical (realpath-relative) path as stored in the DB.
+      return this.queries.getNodesByFile(canonicalFilePath(this.projectRoot, filePath));
+    });
   }
 
   /**
    * Get all nodes of a specific kind
    */
   getNodesByKind(kind: Node['kind']): Node[] {
-    const view = this.readView();
-    if (view !== this) return view.getNodesByKind(kind);
-    return this.queries.getNodesByKind(kind);
+    return this.withReadView(view => {
+      if (view !== this) return view.getNodesByKind(kind);
+      return this.queries.getNodesByKind(kind);
+    });
   }
 
   /**
@@ -2202,9 +2334,10 @@ export class CodeGraph {
    * definition the caller wants is never dropped below a search cut.
    */
   getNodesByName(name: string): Node[] {
-    const view = this.readView();
-    if (view !== this) return view.getNodesByName(name);
-    return this.queries.getNodesByName(name);
+    return this.withReadView(view => {
+      if (view !== this) return view.getNodesByName(name);
+      return this.queries.getNodesByName(name);
+    });
   }
 
   /** File failure recovery is independent of the optional synthesis tail. */
@@ -2405,18 +2538,20 @@ export class CodeGraph {
    * the requested namespace/module candidate.
    */
   getNodesBySymbolExact(symbol: string): Node[] {
-    const view = this.readView();
-    if (view !== this) return view.getNodesBySymbolExact(symbol);
-    return this.queries.getNodesBySymbolExact(symbol);
+    return this.withReadView(view => {
+      if (view !== this) return view.getNodesBySymbolExact(symbol);
+      return this.queries.getNodesBySymbolExact(symbol);
+    });
   }
 
   /**
    * Search nodes by text
    */
   searchNodes(query: string, options?: SearchOptions): SearchResult[] {
-    const view = this.readView();
-    if (view !== this) return view.searchNodes(query, options);
-    return this.queries.searchNodes(query, options);
+    return this.withReadView(view => {
+      if (view !== this) return view.searchNodes(query, options);
+      return this.queries.searchNodes(query, options);
+    });
   }
 
   /**
@@ -2427,9 +2562,10 @@ export class CodeGraph {
    * embeds the project name.
    */
   getProjectNameTokens(): Set<string> {
-    const view = this.readView();
-    if (view !== this) return view.getProjectNameTokens();
-    return this.queries.getProjectNameTokens();
+    return this.withReadView(view => {
+      if (view !== this) return view.getProjectNameTokens();
+      return this.queries.getProjectNameTokens();
+    });
   }
 
   /**
@@ -2441,9 +2577,10 @@ export class CodeGraph {
    * Glob+Read of `routes.rb`/`urls.py`/etc. otherwise beats codegraph.
    */
   getTopRouteFile(): { filePath: string; routeCount: number; totalRoutes: number } | null {
-    const view = this.readView();
-    if (view !== this) return view.getTopRouteFile();
-    return this.queries.getTopRouteFile();
+    return this.withReadView(view => {
+      if (view !== this) return view.getTopRouteFile();
+      return this.queries.getTopRouteFile();
+    });
   }
 
   /**
@@ -2458,9 +2595,10 @@ export class CodeGraph {
     topHandlerFileCount: number;
     totalRoutes: number;
   } | null {
-    const view = this.readView();
-    if (view !== this) return view.getRoutingManifest(limit);
-    return this.queries.getRoutingManifest(limit);
+    return this.withReadView(view => {
+      if (view !== this) return view.getRoutingManifest(limit);
+      return this.queries.getRoutingManifest(limit);
+    });
   }
 
   // ===========================================================================
@@ -2471,18 +2609,20 @@ export class CodeGraph {
    * Get outgoing edges from a node
    */
   getOutgoingEdges(nodeId: string): Edge[] {
-    const view = this.readView();
-    if (view !== this) return view.getOutgoingEdges(nodeId);
-    return this.queries.getOutgoingEdges(nodeId);
+    return this.withReadView(view => {
+      if (view !== this) return view.getOutgoingEdges(nodeId);
+      return this.queries.getOutgoingEdges(nodeId);
+    });
   }
 
   /**
    * Get incoming edges to a node
    */
   getIncomingEdges(nodeId: string): Edge[] {
-    const view = this.readView();
-    if (view !== this) return view.getIncomingEdges(nodeId);
-    return this.queries.getIncomingEdges(nodeId);
+    return this.withReadView(view => {
+      if (view !== this) return view.getIncomingEdges(nodeId);
+      return this.queries.getIncomingEdges(nodeId);
+    });
   }
 
   /**
@@ -2495,9 +2635,10 @@ export class CodeGraph {
     direction: RelationshipDirection,
     kinds?: EdgeKind[],
   ): DirectRelationshipGroup[] {
-    const view = this.readView();
-    if (view !== this) return view.getDirectRelationshipGroups(nodeId, direction, kinds);
-    return this.traverser.getDirectRelationshipGroups(nodeId, direction, kinds);
+    return this.withReadView(view => {
+      if (view !== this) return view.getDirectRelationshipGroups(nodeId, direction, kinds);
+      return this.traverser.getDirectRelationshipGroups(nodeId, direction, kinds);
+    });
   }
 
   // ===========================================================================
@@ -2508,18 +2649,20 @@ export class CodeGraph {
    * Get a file record by path
    */
   getFile(filePath: string): FileRecord | null {
-    const view = this.readView();
-    if (view !== this) return view.getFile(filePath);
-    return this.queries.getFileByPath(filePath);
+    return this.withReadView(view => {
+      if (view !== this) return view.getFile(filePath);
+      return this.queries.getFileByPath(filePath);
+    });
   }
 
   /**
    * Get all tracked files
    */
   getFiles(): FileRecord[] {
-    const view = this.readView();
-    if (view !== this) return view.getFiles();
-    return this.queries.getAllFiles();
+    return this.withReadView(view => {
+      if (view !== this) return view.getFiles();
+      return this.queries.getAllFiles();
+    });
   }
 
   // ===========================================================================
@@ -2537,9 +2680,10 @@ export class CodeGraph {
    * @returns Context object with all related information
    */
   getContext(nodeId: string): Context {
-    const view = this.readView();
-    if (view !== this) return view.getContext(nodeId);
-    return this.graphManager.getContext(nodeId);
+    return this.withReadView(view => {
+      if (view !== this) return view.getContext(nodeId);
+      return this.graphManager.getContext(nodeId);
+    });
   }
 
   /**
@@ -2553,9 +2697,10 @@ export class CodeGraph {
    * @returns Subgraph containing traversed nodes and edges
    */
   traverse(startId: string, options?: TraversalOptions): Subgraph {
-    const view = this.readView();
-    if (view !== this) return view.traverse(startId, options);
-    return this.traverser.traverseBFS(startId, options);
+    return this.withReadView(view => {
+      if (view !== this) return view.traverse(startId, options);
+      return this.traverser.traverseBFS(startId, options);
+    });
   }
 
   /**
@@ -2569,9 +2714,10 @@ export class CodeGraph {
    * @returns Subgraph containing the call graph
    */
   getCallGraph(nodeId: string, depth: number = 2): Subgraph {
-    const view = this.readView();
-    if (view !== this) return view.getCallGraph(nodeId, depth);
-    return this.traverser.getCallGraph(nodeId, depth);
+    return this.withReadView(view => {
+      if (view !== this) return view.getCallGraph(nodeId, depth);
+      return this.traverser.getCallGraph(nodeId, depth);
+    });
   }
 
   /**
@@ -2584,9 +2730,10 @@ export class CodeGraph {
    * @returns Subgraph containing the type hierarchy
    */
   getTypeHierarchy(nodeId: string): Subgraph {
-    const view = this.readView();
-    if (view !== this) return view.getTypeHierarchy(nodeId);
-    return this.traverser.getTypeHierarchy(nodeId);
+    return this.withReadView(view => {
+      if (view !== this) return view.getTypeHierarchy(nodeId);
+      return this.traverser.getTypeHierarchy(nodeId);
+    });
   }
 
   /**
@@ -2599,9 +2746,10 @@ export class CodeGraph {
    * @returns Array of nodes and edges that reference this symbol
    */
   findUsages(nodeId: string): Array<{ node: Node; edge: Edge }> {
-    const view = this.readView();
-    if (view !== this) return view.findUsages(nodeId);
-    return this.traverser.findUsages(nodeId);
+    return this.withReadView(view => {
+      if (view !== this) return view.findUsages(nodeId);
+      return this.traverser.findUsages(nodeId);
+    });
   }
 
   /**
@@ -2612,9 +2760,10 @@ export class CodeGraph {
    * @returns Array of nodes that call this function
    */
   getCallers(nodeId: string, maxDepth: number = 1): Array<{ node: Node; edge: Edge }> {
-    const view = this.readView();
-    if (view !== this) return view.getCallers(nodeId, maxDepth);
-    return this.traverser.getCallers(nodeId, maxDepth);
+    return this.withReadView(view => {
+      if (view !== this) return view.getCallers(nodeId, maxDepth);
+      return this.traverser.getCallers(nodeId, maxDepth);
+    });
   }
 
   /**
@@ -2625,9 +2774,10 @@ export class CodeGraph {
    * @returns Array of nodes called by this function
    */
   getCallees(nodeId: string, maxDepth: number = 1): Array<{ node: Node; edge: Edge }> {
-    const view = this.readView();
-    if (view !== this) return view.getCallees(nodeId, maxDepth);
-    return this.traverser.getCallees(nodeId, maxDepth);
+    return this.withReadView(view => {
+      if (view !== this) return view.getCallees(nodeId, maxDepth);
+      return this.traverser.getCallees(nodeId, maxDepth);
+    });
   }
 
   /**
@@ -2640,9 +2790,10 @@ export class CodeGraph {
    * @returns Subgraph containing potentially impacted nodes
    */
   getImpactRadius(nodeId: string, maxDepth: number = 3): Subgraph {
-    const view = this.readView();
-    if (view !== this) return view.getImpactRadius(nodeId, maxDepth);
-    return this.traverser.getImpactRadius(nodeId, maxDepth);
+    return this.withReadView(view => {
+      if (view !== this) return view.getImpactRadius(nodeId, maxDepth);
+      return this.traverser.getImpactRadius(nodeId, maxDepth);
+    });
   }
 
   /**
@@ -2658,9 +2809,10 @@ export class CodeGraph {
     toId: string,
     edgeKinds?: Edge['kind'][]
   ): Array<{ node: Node; edge: Edge | null }> | null {
-    const view = this.readView();
-    if (view !== this) return view.findPath(fromId, toId, edgeKinds);
-    return this.traverser.findPath(fromId, toId, edgeKinds);
+    return this.withReadView(view => {
+      if (view !== this) return view.findPath(fromId, toId, edgeKinds);
+      return this.traverser.findPath(fromId, toId, edgeKinds);
+    });
   }
 
   /**
@@ -2670,9 +2822,10 @@ export class CodeGraph {
    * @returns Array of ancestor nodes from immediate parent to root
    */
   getAncestors(nodeId: string): Node[] {
-    const view = this.readView();
-    if (view !== this) return view.getAncestors(nodeId);
-    return this.traverser.getAncestors(nodeId);
+    return this.withReadView(view => {
+      if (view !== this) return view.getAncestors(nodeId);
+      return this.traverser.getAncestors(nodeId);
+    });
   }
 
   /**
@@ -2682,9 +2835,10 @@ export class CodeGraph {
    * @returns Array of child nodes
    */
   getChildren(nodeId: string): Node[] {
-    const view = this.readView();
-    if (view !== this) return view.getChildren(nodeId);
-    return this.traverser.getChildren(nodeId);
+    return this.withReadView(view => {
+      if (view !== this) return view.getChildren(nodeId);
+      return this.traverser.getChildren(nodeId);
+    });
   }
 
   /**
@@ -2694,9 +2848,10 @@ export class CodeGraph {
    * @returns Array of file paths this file depends on
    */
   getFileDependencies(filePath: string): string[] {
-    const view = this.readView();
-    if (view !== this) return view.getFileDependencies(filePath);
-    return this.graphManager.getFileDependencies(filePath);
+    return this.withReadView(view => {
+      if (view !== this) return view.getFileDependencies(filePath);
+      return this.graphManager.getFileDependencies(filePath);
+    });
   }
 
   /**
@@ -2706,11 +2861,12 @@ export class CodeGraph {
    * @returns Array of file paths that depend on this file
    */
   getFileDependents(filePath: string): string[] {
-    const view = this.readView();
-    if (view !== this) return view.getFileDependents(filePath);
-    // Canonicalize so a caller passing a symlink path resolves to the canonical
-    // path the dependency graph is keyed on.
-    return this.graphManager.getFileDependents(canonicalFilePath(this.projectRoot, filePath));
+    return this.withReadView(view => {
+      if (view !== this) return view.getFileDependents(filePath);
+      // Canonicalize so a caller passing a symlink path resolves to the canonical
+      // path the dependency graph is keyed on.
+      return this.graphManager.getFileDependents(canonicalFilePath(this.projectRoot, filePath));
+    });
   }
 
   /**
@@ -2719,9 +2875,10 @@ export class CodeGraph {
    * @returns Array of cycles, each cycle is an array of file paths
    */
   findCircularDependencies(): string[][] {
-    const view = this.readView();
-    if (view !== this) return view.findCircularDependencies();
-    return this.graphManager.findCircularDependencies();
+    return this.withReadView(view => {
+      if (view !== this) return view.findCircularDependencies();
+      return this.graphManager.findCircularDependencies();
+    });
   }
 
   /**
@@ -2731,9 +2888,10 @@ export class CodeGraph {
    * @returns Array of unreferenced nodes
    */
   findDeadCode(kinds?: Node['kind'][]): Node[] {
-    const view = this.readView();
-    if (view !== this) return view.findDeadCode(kinds);
-    return this.graphManager.findDeadCode(kinds);
+    return this.withReadView(view => {
+      if (view !== this) return view.findDeadCode(kinds);
+      return this.graphManager.findDeadCode(kinds);
+    });
   }
 
   /**
@@ -2750,9 +2908,10 @@ export class CodeGraph {
     childCount: number;
     depth: number;
   } {
-    const view = this.readView();
-    if (view !== this) return view.getNodeMetrics(nodeId);
-    return this.graphManager.getNodeMetrics(nodeId);
+    return this.withReadView(view => {
+      if (view !== this) return view.getNodeMetrics(nodeId);
+      return this.graphManager.getNodeMetrics(nodeId);
+    });
   }
 
   // ===========================================================================
@@ -2768,9 +2927,10 @@ export class CodeGraph {
    * @returns Code string or null if not found
    */
   async getCode(nodeId: string): Promise<string | null> {
-    const view = this.readView();
-    if (view !== this) return view.getCode(nodeId);
-    return this.contextBuilder.getCode(nodeId);
+    return this.withReadView(view => {
+      if (view !== this) return view.getCode(nodeId);
+      return this.contextBuilder.getCode(nodeId);
+    });
   }
 
   /**
@@ -2787,9 +2947,10 @@ export class CodeGraph {
     query: string,
     options?: FindRelevantContextOptions
   ): Promise<Subgraph> {
-    const view = this.readView();
-    if (view !== this) return view.findRelevantContext(query, options);
-    return this.contextBuilder.findRelevantContext(query, options);
+    return this.withReadView(view => {
+      if (view !== this) return view.findRelevantContext(query, options);
+      return this.contextBuilder.findRelevantContext(query, options);
+    });
   }
 
   /**
@@ -2809,9 +2970,10 @@ export class CodeGraph {
     input: TaskInput,
     options?: BuildContextOptions
   ): Promise<TaskContext | string> {
-    const view = this.readView();
-    if (view !== this) return view.buildContext(input, options);
-    return this.contextBuilder.buildContext(input, options);
+    return this.withReadView(view => {
+      if (view !== this) return view.buildContext(input, options);
+      return this.contextBuilder.buildContext(input, options);
+    });
   }
 
   // ===========================================================================
