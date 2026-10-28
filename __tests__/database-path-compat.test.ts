@@ -45,8 +45,8 @@ describe('database path compatibility', () => {
   it('creates fresh indexes in .codegraph-wx without creating a legacy database', () => {
     const cg = CodeGraph.initSync(root);
     cg.close();
-    expect(getDatabasePath(root)).toBe(preferred);
-    expect(fs.existsSync(preferred)).toBe(true);
+    expect(getDatabasePath(root)).toContain(path.join('.codegraph-wx', 'generations'));
+    expect(fs.existsSync(getDatabasePath(root))).toBe(true);
     expect(fs.existsSync(legacy)).toBe(false);
   });
 
@@ -141,7 +141,7 @@ describe('database path compatibility', () => {
     expect(() => CodeGraph.openSync(root)).toThrow(/not initialized/);
     const cg = CodeGraph.initSync(root);
     cg.close();
-    expect(fs.existsSync(preferred)).toBe(true);
+    expect(fs.existsSync(getDatabasePath(root))).toBe(true);
     expect(fs.existsSync(legacy)).toBe(true);
   });
 

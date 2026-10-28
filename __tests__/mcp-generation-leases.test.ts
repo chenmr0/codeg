@@ -3,6 +3,8 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { randomUUID } from 'crypto';
+import { spawn } from 'child_process';
+import * as readline from 'readline';
 import { ToolHandler } from '../src/mcp/tools';
 import { MCPEngine } from '../src/mcp/engine';
 import { getCodeGraphDir } from '../src/directory';
@@ -183,6 +185,50 @@ describe('MCP generation request leases', () => {
     expect(base.closeCount).toBe(1);
     engine.stop(); expect(base.closeCount).toBe(1);
   });
+  it('stopAndDrain waits for admitted request postprocessing before resolving', async () => {
+    const engine = new MCPEngine({ watch: false });
+    (engine as any).cg = base;
+    (engine as any).toolHandler = handler;
+    const entered = deferred(), resume = deferred();
+    vi.spyOn(internal(), 'handleFiles').mockImplementationOnce(async () => {
+      internal().getCodeGraph(); entered.resolve(); await resume.promise;
+      return { content: [{ type: 'text', text: 'done' }] };
+    });
+    const pending = handler.execute('files', {}); await entered.promise;
+    let drained = false;
+    const stopping = engine.stopAndDrain().then(() => { drained = true; });
+    await Promise.resolve(); expect(drained).toBe(false); expect(base.closeCount).toBe(0);
+    resume.resolve(); expect((await pending).isError).toBeFalsy(); await stopping;
+    expect(drained).toBe(true); expect(base.closeCount).toBe(1);
+  });
+  it('bounds a stuck request drain without prematurely closing its leased graph', async () => {
+    const engine = new MCPEngine({ watch: false });
+    (engine as any).cg = base;
+    (engine as any).toolHandler = handler;
+    const entered = deferred(), resume = deferred();
+    vi.spyOn(internal(), 'handleFiles').mockImplementationOnce(async () => {
+      internal().getCodeGraph(); entered.resolve(); await resume.promise;
+      return { content: [{ type: 'text', text: 'done' }] };
+    });
+    const pending = handler.execute('files', {}); await entered.promise;
+    await engine.stopAndDrain(10);
+    expect(base.closeCount).toBe(0);
+    resume.resolve(); await pending;
+    expect(base.closeCount).toBe(1);
+  });
+  it('awaits a cancelled writer unwind before closing its default connection', async () => {
+    const engine = new MCPEngine({ watch: false });
+    (engine as any).cg = base;
+    (engine as any).toolHandler = handler;
+    const unwound = deferred();
+    vi.spyOn(base, 'isIndexing').mockReturnValue(true);
+    (base as any).whenIdle = () => unwound.promise;
+    const stopping = engine.stopAndDrain();
+    expect(base.abortActiveWork).toHaveBeenCalledOnce();
+    expect(base.closeCount).toBe(0);
+    unwound.resolve(); await stopping;
+    expect(base.closeCount).toBe(1);
+  });
   it('does not silently fall back to a stale generation if CURRENT is malformed', async () => {
     publish('g-one'); await query();
     fs.writeFileSync(path.join(getCodeGraphDir(root), 'CURRENT'), '{broken');
@@ -289,6 +335,99 @@ describe('MCP published generation with real SQLite facades', () => {
     resume.resolve(); expect((await pending).isError).toBeFalsy();
     expect(() => (pinned as any).db.getDb().prepare('SELECT 1').get()).toThrow();
   });
+  it.each([false, true])('keeps native readiness and SQL facades alive through stop (failure=%s)', async failure => {
+    const { graph } = await fixture('shutdown_symbol');
+    const handler = new ToolHandler(graph); handlers.push(handler);
+    const engine = new MCPEngine({ watch: false });
+    (engine as any).cg = graph;
+    (engine as any).toolHandler = handler;
+    const baseClose = vi.spyOn(graph, 'close');
+    const entered = deferred(), resume = deferred();
+    let reader!: RealCodeGraph;
+    let readerClose!: ReturnType<typeof vi.spyOn>;
+    const original = (handler as any).handleSearch.bind(handler);
+    vi.spyOn(handler as any, 'handleSearch').mockImplementationOnce(async args => {
+      reader = (handler as any).getCodeGraph();
+      expect(reader).not.toBe(graph);
+      readerClose = vi.spyOn(reader, 'close');
+      entered.resolve(); await resume.promise;
+      expect(reader.searchNodes('shutdown_symbol').length).toBeGreaterThan(0);
+      if (failure) throw new Error('injected query failure');
+      return original(args);
+    });
+    const pending = handler.execute('search', { query: 'shutdown_symbol' });
+    await entered.promise;
+    engine.stop(); engine.stop();
+    expect(baseClose).not.toHaveBeenCalled();
+    expect(readerClose).not.toHaveBeenCalled();
+    expect((await handler.execute('search', { query: 'shutdown_symbol' })).isError).toBe(true);
+    resume.resolve();
+    const result = await pending;
+    expect(result.isError ?? false, result.content[0]!.text).toBe(failure);
+    expect(result.content[0]!.text).toContain(failure ? 'injected query failure' : 'shutdown_symbol');
+    expect(result.content[0]!.text).not.toContain('CodeGraph is closed');
+    expect(baseClose).toHaveBeenCalledTimes(1);
+    expect(readerClose).toHaveBeenCalledTimes(1);
+    graphs.splice(graphs.indexOf(graph), 1);
+  });
+
+  it('keeps a separate process request pinned while later MCP requests read the publication', async () => {
+    const original = await fixture('process_old_symbol');
+    const replacement = await fixture('process_new_symbol');
+    const child = spawn(process.execPath, ['--liftoff-only',
+      path.resolve(__dirname, '../node_modules/vite-node/vite-node.mjs'), '--script',
+      path.join(__dirname, 'fixtures/mcp-generation-reader.ts'), original.root],
+    { stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env, NODE_OPTIONS: '' } });
+    const messages = new Map<string, any>();
+    const waiters = new Map<string, (value: any) => void>();
+    let stderr = '';
+    child.stderr.on('data', chunk => { stderr += chunk; });
+    const lines = readline.createInterface({ input: child.stdout });
+    lines.on('line', line => {
+      let value: any;
+      try { value = JSON.parse(line); } catch { return; }
+      const waiter = waiters.get(value.event);
+      if (waiter) { waiters.delete(value.event); waiter(value); }
+      else messages.set(value.event, value);
+    });
+    const receive = (event: string): Promise<any> => {
+      if (messages.has(event)) return Promise.resolve(messages.get(event));
+      return new Promise((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error(`Missing child ${event}: ${stderr}`)), 15000);
+        waiters.set(event, value => { clearTimeout(timer); resolve(value); });
+      });
+    };
+    const send = (value: unknown) => child.stdin.write(JSON.stringify(value) + '\n');
+    try {
+      await receive('ready');
+      send({ id: 'old', args: { query: 'process_old_symbol', pause: true } });
+      const admitted = await receive('admitted');
+      expect(admitted.file).toBe(original.graph.getDatabaseFilePath());
+      await publishCopy(original.root, replacement.graph, 'g-process');
+      const handler = new ToolHandler(original.graph); handlers.push(handler);
+      const newResult = await handler.execute('search', { query: 'process_new_symbol' });
+      expect(newResult.isError, newResult.content[0]!.text).toBeFalsy();
+      expect(newResult.content[0]!.text).toContain('process_new_symbol');
+      send({ id: 'new', args: { query: 'process_new_symbol' } });
+      const newer = await receive('new');
+      expect(newer.result.isError).toBeFalsy();
+      expect(newer.result.content[0].text).toContain('process_new_symbol');
+      send({ action: 'stop' }); await receive('stopped');
+      send({ action: 'release' });
+      const older = await receive('old');
+      expect(older.result.isError, older.result.content[0].text).toBeFalsy();
+      expect(older.result.content[0].text).toContain('process_old_symbol');
+      expect(older.result.content[0].text).not.toContain('process_new_symbol');
+    } finally {
+      lines.close();
+      child.kill('SIGKILL');
+      await new Promise<void>(resolve => {
+        if (child.exitCode !== null || child.signalCode !== null) resolve();
+        else child.once('exit', () => resolve());
+      });
+    }
+  }, 30000);
+
   it('queries the published whole graph without mutating or closing the legacy owner', async () => {
     const original = await fixture('before_switch');
     const replacement = await fixture('after_switch');
@@ -309,7 +448,7 @@ describe('MCP published generation with real SQLite facades', () => {
       if (tool === 'callers') expect(result.content[0]!.text).toContain('caller');
     }
     expect(original.graph.searchNodes('after_switch').length).toBeGreaterThan(0);
-    expect(original.graph.getDatabaseFilePath()).not.toContain('generations');
+    expect(path.basename(path.dirname(original.graph.getDatabaseFilePath()))).not.toBe('g-real');
     const reader = [...(handler as any).generationReaders.values()][0].graph as RealCodeGraph;
     expect(reader.getDatabaseFilePath()).toContain('g-real');
     expect(() => (reader as any).db.getDb().prepare("INSERT INTO metadata (key,value) VALUES ('bad','bad')").run()).toThrow();

@@ -4,7 +4,7 @@ import * as os from 'os';
 import * as path from 'path';
 import {
   createGeneration, GenerationWriterLock, hasRebuildDiskSpace, publishGeneration,
-  resolveGeneration, GenerationPublicationError,
+  resolveGeneration, GenerationPublicationError, cleanupGenerationCandidate, collectRetiredGenerations, GenerationCandidate, collectRetiredGenerations,
 } from '../src/sync/generation-store';
 import { FileLock } from '../src/utils';
 import { getDatabasePath } from '../src/db';
@@ -14,7 +14,9 @@ describe('generation publication protocol', () => {
   let project: string;
   let root: string;
   let lock: GenerationWriterLock;
+  let candidates: GenerationCandidate[];
   beforeEach(() => {
+    candidates = [];
     project = fs.mkdtempSync(path.join(os.tmpdir(), 'cg-generations-'));
     root = path.join(project, '.codegraph-wx');
     fs.mkdirSync(root);
@@ -22,13 +24,16 @@ describe('generation publication protocol', () => {
     lock = new GenerationWriterLock(root);
     lock.acquire();
   });
-  afterEach(() => {
+  afterEach(async () => {
     vi.restoreAllMocks();
+    for (const candidate of candidates) cleanupGenerationCandidate(root, candidate);
+    await collectRetiredGenerations(root);
     try { lock.release(); } catch { /* test replaces lock deliberately */ }
     fs.rmSync(project, { recursive: true, force: true });
   });
   function candidate() {
     const result = createGeneration(root, lock);
+    candidates.push(result);
     fs.writeFileSync(result.databasePath, 'candidate');
     return result;
   }

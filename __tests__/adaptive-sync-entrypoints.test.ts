@@ -103,7 +103,8 @@ describe('adaptive sync production entry points', () => {
       expect(resolveGeneration(getCodeGraphDir(root)).id).toBe(generation);
       const lock = new GenerationWriterLock(getCodeGraphDir(root)); lock.acquire(); lock.release();
       const log = fs.readFileSync(path.join(getCodeGraphDir(root), 'adaptive-sync.log'), 'utf8');
-      expect(log).toContain('scoped-watcher-sync');
+      expect(log).toContain('incremental');
+      expect(log).not.toContain('scoped-watcher-sync');
     } finally { if (timer) clearTimeout(timer); graph.unwatch(); }
   }, 30_000);
 });

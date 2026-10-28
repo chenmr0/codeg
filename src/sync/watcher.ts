@@ -67,6 +67,11 @@ const MAX_RETRY_BACKOFF_MS = 30_000;
 
 /** Above this event-set size a full reconcile is safer and comparably cheap. */
 const SCOPED_SYNC_MAX_PENDING = 500;
+// Keep aligned with adaptiveConfigFingerprint's root controls. Ignore files
+// also affect ancestor policy and are relevant at any project depth.
+const ROOT_CONTROL_FILES = new Set(['.gitignore', '.codegraphignore', '.git/info/exclude',
+  'compile_commands.json', 'compile_flags.txt', 'tsconfig.json', 'jsconfig.json',
+  'package.json', 'CMakeLists.txt']);
 
 function maxDirWatches(): number {
   const raw = process.env.CODEGRAPH_MAX_DIR_WATCHES;
@@ -179,6 +184,8 @@ export class FileWatcher {
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
   /** An uncertain event (notably a directory deletion) requires a full scan. */
   private needsFullScan = false;
+  private fullScanRevision = 0;
+  private controlWatchers = new Map<string, fs.FSWatcher>();
   /**
    * Files seen by the watcher since the last successful sync — populated on
    * every change event, cleared at the start of a sync, and re-populated by
@@ -218,8 +225,8 @@ export class FileWatcher {
    */
   private readyWaiters: Array<() => void> = [];
   // The shared ignore matcher (built-in defaults + project .gitignore), built
-  // once at start(). Same source of truth the indexer uses, so watcher scope
-  // can never diverge from index scope.
+  // at start and refreshed on control changes. Same root-policy source of
+  // truth as the indexer.
   private ignoreMatcher: Ignore | null = null;
 
   private readonly projectRoot: string;
@@ -274,6 +281,7 @@ export class FileWatcher {
         this.startRecursive();
       } else {
         this.startPerDirectory();
+        this.watchGitControls();
       }
 
       // No async crawl to wait on: as soon as the watch set is installed we
@@ -337,29 +345,31 @@ export class FileWatcher {
    * full sync. The initial startup walk passes false (the engine's catch-up
    * sync owns the baseline).
    */
-  private watchTree(dir: string, markExisting: boolean): void {
-    if (this.dirWatchers.has(dir)) return;
-    if (this.dirWatchers.size >= maxDirWatches()) {
-      if (!this.dirCapWarned) {
-        this.dirCapWarned = true;
-        logWarn('File watcher hit directory-watch cap; remaining subtrees rely on manual/periodic sync', {
-          cap: maxDirWatches(),
-        });
+  private watchTree(dir: string, markExisting: boolean, revisit = false): void {
+    if (this.dirWatchers.has(dir) && !revisit) return;
+    if (!this.dirWatchers.has(dir)) {
+      if (this.dirWatchers.size >= maxDirWatches()) {
+        if (!this.dirCapWarned) {
+          this.dirCapWarned = true;
+          logWarn('File watcher hit directory-watch cap; remaining subtrees rely on manual/periodic sync', {
+            cap: maxDirWatches(),
+          });
+        }
+        return;
       }
-      return;
-    }
 
-    let w: fs.FSWatcher;
-    try {
-      w = fs.watch(dir, { persistent: true }, (_event, filename) =>
-        this.handleDirEvent(dir, filename)
-      );
-    } catch {
-      // ENOENT / EACCES / too-many-open-files — skip this directory quietly.
-      return;
+      let w: fs.FSWatcher;
+      try {
+        w = fs.watch(dir, { persistent: true }, (_event, filename) =>
+          this.handleDirEvent(dir, filename)
+        );
+      } catch {
+        // ENOENT / EACCES / too-many-open-files — skip this directory quietly.
+        return;
+      }
+      w.on('error', () => this.unwatchDir(dir));
+      this.dirWatchers.set(dir, w);
     }
-    w.on('error', () => this.unwatchDir(dir));
-    this.dirWatchers.set(dir, w);
 
     let entries: fs.Dirent[];
     try {
@@ -371,7 +381,7 @@ export class FileWatcher {
       const child = path.join(dir, entry.name);
       if (entry.isDirectory()) {
         if (this.shouldIgnoreDir(child)) continue;
-        this.watchTree(child, markExisting);
+        this.watchTree(child, markExisting, revisit);
       } else if (markExisting && entry.isFile()) {
         this.handleChange(normalizePath(path.relative(this.projectRoot, child)));
       }
@@ -386,6 +396,14 @@ export class FileWatcher {
   private handleDirEvent(dir: string, filename: string | Buffer | null): void {
     if (this.stopped || filename == null) return;
     const full = path.join(dir, String(filename));
+    const relative = normalizePath(path.relative(this.projectRoot, full));
+    if (relative === '.git') {
+      for (const watcher of this.controlWatchers.values()) watcher.close();
+      this.controlWatchers.clear();
+      this.watchGitControls();
+      this.handleChange('.git/info/exclude');
+      return;
+    }
 
     // A newly-created directory needs its own watch (recursive isn't available
     // on Linux). statSync is cheap and these events are rare relative to file
@@ -419,6 +437,25 @@ export class FileWatcher {
 
   private handleChangeOutsideScope(rel: string): void {
     if (!rel || rel === '.' || rel.startsWith('..')) return;
+    if (this.isControlFile(rel)) {
+      const ignoreChanged = rel === '.git/info/exclude' ||
+        ['.gitignore', '.codegraphignore'].includes(path.posix.basename(rel));
+      if (ignoreChanged) this.ignoreMatcher = buildDefaultIgnore(this.projectRoot);
+      this.needsFullScan = true;
+      this.fullScanRevision++;
+      this.changeRevision++;
+      if (ignoreChanged && !this.inert && !supportsRecursiveWatch()) {
+        for (const directory of this.dirWatchers.keys()) {
+          if (this.shouldIgnoreDir(directory)) this.unwatchDir(directory);
+        }
+        // Existing watched parents must be revisited: an ignore change may
+        // expose a subtree for which Linux never installed an inotify watch.
+        this.watchTree(this.projectRoot, false, true);
+        this.watchGitControls();
+      }
+      this.scheduleSync();
+      return;
+    }
     if (this.isAlwaysIgnored(rel)) return;
     if (this.ignoreMatcher && this.ignoreMatcher.ignores(rel)) return;
     if (!isSourceFile(rel)) {
@@ -467,8 +504,44 @@ export class FileWatcher {
       path: rel,
     });
     this.needsFullScan = true;
+    this.fullScanRevision++;
     this.changeRevision++;
     this.scheduleSync();
+  }
+
+  private isControlFile(rel: string): boolean {
+    if (rel === '.git/info/exclude') return true;
+    if (this.isAlwaysIgnored(rel)) return false;
+    return ROOT_CONTROL_FILES.has(rel) || ['.gitignore', '.codegraphignore'].includes(path.posix.basename(rel));
+  }
+
+  /** .git remains excluded from the source watch tree. Only these two tiny
+   * directory watches admit info/exclude events (including atomic replacement).
+   * A missing .git is discovered by the root directory watch. */
+  private watchGitControls(): void {
+    if (this.inert || this.stopped || supportsRecursiveWatch()) return;
+    for (const relative of ['.git', '.git/info']) {
+      const directory = path.join(this.projectRoot, relative);
+      if (this.controlWatchers.has(directory)) continue;
+      try {
+        if (!fs.lstatSync(directory).isDirectory()) continue;
+        const watcher = fs.watch(directory, (_event, filename) => {
+          if (this.stopped || filename == null) return;
+          const name = String(filename);
+          if ((relative === '.git' && name === 'info') || (relative === '.git/info' && name === 'exclude')) {
+            if (relative === '.git') {
+              const info = path.join(this.projectRoot, '.git/info');
+              this.controlWatchers.get(info)?.close();
+              this.controlWatchers.delete(info);
+            }
+            this.watchGitControls();
+            this.handleChange('.git/info/exclude');
+          }
+        });
+        watcher.on('error', () => { watcher.close(); this.controlWatchers.delete(directory); });
+        this.controlWatchers.set(directory, watcher);
+      } catch { /* Missing/inaccessible Git metadata is not a source watch failure. */ }
+    }
   }
 
   /** Close and forget the watch for a directory that errored/was removed. */
@@ -536,6 +609,8 @@ export class FileWatcher {
       }
     }
     this.dirWatchers.clear();
+    for (const watcher of this.controlWatchers.values()) watcher.close();
+    this.controlWatchers.clear();
     this.dirCapWarned = false;
     this.syncRetryCount = 0;
     this.inert = false;
@@ -642,6 +717,7 @@ export class FileWatcher {
 
     this.syncStartedMs = Date.now();
     this.syncing = true;
+    const fullScanRevision = this.fullScanRevision;
 
     // Plain file events fully describe the work, so avoid an O(repository)
     // scan. Directory removals, retries without a file set, and branch-sized
@@ -655,7 +731,7 @@ export class FileWatcher {
 
     try {
       const result = await withoutLanguageScope(() => this.syncFn(scopedPaths));
-      if (!scopedPaths) this.needsFullScan = false;
+      if (!scopedPaths && fullScanRevision === this.fullScanRevision) this.needsFullScan = false;
       this.syncRetryCount = 0;
       // Remove entries whose most recent event predates this sync — those
       // edits are now in the DB. Entries with lastSeenMs > syncStartedMs

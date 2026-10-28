@@ -15,6 +15,7 @@ const { GenerationWriterLock, resolveGeneration } =
   require('../dist/sync/generation-store') as typeof import('../src/sync/generation-store');
 
 let root: string;
+let initialGeneration: string | null;
 let graph: CodeGraphInstance;
 let originalArgv: string[];
 let originalNodeOptions: string | undefined;
@@ -30,6 +31,7 @@ beforeEach(async () => {
   fs.writeFileSync(path.join(root, 'main.cpp'), 'int original_symbol() { return 1; }\n');
   fs.writeFileSync(path.join(root, 'other.cpp'), 'int untouched_symbol() { return 2; }\n');
   graph = await CodeGraph.init(root, { index: true });
+  initialGeneration = resolveGeneration(getCodeGraphDir(root)).id;
   expect(graph.getBackend()).toBe('node-sqlite');
   expect(graph.getIndexCompleteness().status).toBe('complete');
 });
@@ -85,17 +87,17 @@ describe('adaptive sync real child lifecycle', () => {
     const reasons: string[] = [];
     const result = await graph.sync({ onAdaptiveDecision: decision => {
       reasons.push(decision.reason);
-      if (decision.reason === 'no-stat-change-candidates') {
+      if (decision.reason === 'no-content-changes') {
         fs.writeFileSync(path.join(root, 'callback.cpp'), 'int callback_created_symbol() { return 4; }\n');
         fs.writeFileSync(path.join(root, '.gitignore'), 'main.cpp\n');
       }
     } });
-    expect(reasons).toContain('no-stat-change-candidates');
+    expect(reasons).toContain('no-content-changes');
     expect(result.complete).toBe(true);
     expect(graph.getFiles().map(file => file.path).sort()).toEqual(['callback.cpp', 'other.cpp']);
     expect(names(graph, 'callback_created_symbol')).toContain('callback_created_symbol');
     expect(names(graph, 'original_symbol')).not.toContain('original_symbol');
-    expect(resolveGeneration(getCodeGraphDir(root)).id).toBeNull();
+    expect(resolveGeneration(getCodeGraphDir(root)).id).toBe(initialGeneration);
     assertRootReleased();
   }, 30_000);
 
@@ -109,7 +111,7 @@ describe('adaptive sync real child lifecycle', () => {
       onProgress: () => {
         observedBuild = true; assertRootLocked();
         expect(names(oldReader, 'original_symbol')).toContain('original_symbol');
-        expect(resolveGeneration(getCodeGraphDir(root)).id).toBeNull();
+        expect(resolveGeneration(getCodeGraphDir(root)).id).toBe(initialGeneration);
       } });
     expect(result.complete).toBe(true);
     expect(observedBuild).toBe(true);
@@ -200,7 +202,7 @@ describe('adaptive sync real child lifecycle', () => {
       expect(names(legacy!, 'pinned_updated_symbol_longer')).toContain('pinned_updated_symbol_longer');
       expect(names(preferred!, 'pinned_original_symbol')).toContain('pinned_original_symbol');
       expect(names(preferred!, 'pinned_updated_symbol_longer')).not.toContain('pinned_updated_symbol_longer');
-      expect(legacy!.getDatabaseFilePath()).toBe(path.join(legacyRoot, 'codegraph.db'));
+      expect(legacy!.getDatabaseFilePath()).toBe(resolveGeneration(legacyRoot).databasePath);
       const legacyLock = new GenerationWriterLock(legacyRoot); legacyLock.acquire(); legacyLock.release();
       preferredLock.assertHeld();
     } finally { preferredLock.release(); }
@@ -215,7 +217,7 @@ describe('adaptive sync real child lifecycle', () => {
       sawProgress = true; assertRootLocked(); abort.abort(); assertRootLocked();
     } })).rejects.toThrow(/cancelled/);
     expect(sawProgress).toBe(true);
-    expect(resolveGeneration(getCodeGraphDir(root)).id).toBeNull();
+    expect(resolveGeneration(getCodeGraphDir(root)).id).toBe(initialGeneration);
     expect(names(graph, 'original_symbol')).toContain('original_symbol');
     assertRootReleased();
   }, 60_000);
@@ -225,7 +227,7 @@ describe('adaptive sync real child lifecycle', () => {
     await expect(graph.sync({ onProgress: () => {
       assertRootLocked(); throw new Error('injected progress-consumer failure');
     } })).rejects.toThrow('injected progress-consumer failure');
-    expect(resolveGeneration(getCodeGraphDir(root)).id).toBeNull();
+    expect(resolveGeneration(getCodeGraphDir(root)).id).toBe(initialGeneration);
     expect(names(graph, 'original_symbol')).toContain('original_symbol');
     assertRootReleased();
   }, 60_000);
@@ -238,7 +240,7 @@ describe('adaptive sync real child lifecycle', () => {
       if (!changed) { changed = true; fs.writeFileSync(path.join(root, 'main.cpp'), 'int concurrently_edited_symbol() { return 55555; }\n'); }
     } })).rejects.toThrow(/validation failed|Source changed/);
     expect(changed).toBe(true);
-    expect(resolveGeneration(getCodeGraphDir(root)).id).toBeNull();
+    expect(resolveGeneration(getCodeGraphDir(root)).id).toBe(initialGeneration);
     expect(names(graph, 'original_symbol')).toContain('original_symbol');
     assertRootReleased();
   }, 60_000);
@@ -261,18 +263,43 @@ describe('adaptive sync real child lifecycle', () => {
 
   it('rechecks cancellation after asynchronous final source validation', async () => {
     await prepareRebuild();
-    const planner = require('../dist/sync/adaptive-plan') as typeof import('../src/sync/adaptive-plan');
-    const validate = planner.validateAdaptiveSnapshot;
+    const controller = require('../dist/sync/rebuild-controller') as typeof import('../src/sync/rebuild-controller');
+    const run = controller.runAdaptiveReadWorker;
     const abort = new AbortController();
-    vi.spyOn(planner, 'validateAdaptiveSnapshot').mockImplementation(async (...args) => {
-      const valid = await validate(...args);
-      // Deterministic abort at the async publication-validation boundary.
-      abort.abort();
-      return valid;
+    vi.spyOn(controller, 'runAdaptiveReadWorker').mockImplementation(async (job, options) => {
+      const result = await run(job, options);
+      // Deterministic abort after the actual off-thread validation has exited.
+      if (job.type === 'validate') abort.abort();
+      return result as any;
     });
     await expect(graph.sync({ signal: abort.signal })).rejects.toThrow(/Source changed|cancelled/);
-    expect(resolveGeneration(getCodeGraphDir(root)).id).toBeNull();
+    expect(resolveGeneration(getCodeGraphDir(root)).id).toBe(initialGeneration);
     assertRootReleased();
+  }, 60_000);
+
+  it.each(['parent-runtime', 'parent-database', 'parent-schema'] as const)('rejects %s changes while off-thread validation awaits', async mutation => {
+    await prepareRebuild();
+    const controller = require('../dist/sync/rebuild-controller') as typeof import('../src/sync/rebuild-controller');
+    const run = controller.runAdaptiveReadWorker;
+    const previous = process.env.CODEGRAPH_PARSE_TIMEOUT_MS;
+    vi.spyOn(controller, 'runAdaptiveReadWorker').mockImplementation(async (job, options) => {
+      const result = await run(job, options);
+      if (job.type === 'validate') {
+        if (mutation === 'parent-runtime') process.env.CODEGRAPH_PARSE_TIMEOUT_MS = '12345';
+        else if (mutation === 'parent-schema') (graph as any).db.getDb().exec('CREATE TABLE custom_while_validating (value TEXT)');
+        else (graph as any).queries.setMetadata('custom:changed-during-validation', 'keep');
+      }
+      return result as any;
+    });
+    try {
+      await expect(graph.sync()).rejects.toThrow(/Source changed/);
+      expect(resolveGeneration(getCodeGraphDir(root)).id).toBe(initialGeneration);
+      expect(names(graph, 'original_symbol')).toContain('original_symbol');
+      assertRootReleased();
+    } finally {
+      if (previous === undefined) delete process.env.CODEGRAPH_PARSE_TIMEOUT_MS;
+      else process.env.CODEGRAPH_PARSE_TIMEOUT_MS = previous;
+    }
   }, 60_000);
 
   it('SDK queries do not revert to an older generation during a forwarded rebuild', async () => {
@@ -316,7 +343,7 @@ describe('adaptive sync real child lifecycle', () => {
       if (!closed) { closed = true; graph.close(); assertRootLocked(); }
     } })).rejects.toThrow(/cancelled/);
     expect(closed).toBe(true);
-    expect(resolveGeneration(getCodeGraphDir(root)).id).toBeNull();
+    expect(resolveGeneration(getCodeGraphDir(root)).id).toBe(initialGeneration);
     const old = CodeGraph.openReadOnlySync(root); readers.push(old);
     expect(names(old, 'original_symbol')).toContain('original_symbol');
     assertRootReleased();

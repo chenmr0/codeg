@@ -230,8 +230,10 @@ export async function runLocalHandshakeProxy(deps: LocalHandshakeDeps): Promise<
     for (const controller of localToolCalls.values()) controller.abort();
     localToolCalls.clear();
     try { daemonSocket?.destroy(); } catch { /* ignore */ }
-    try { engine?.stop(); } catch { /* ignore */ }
-    process.exit(0);
+    void (engine?.stopAndDrain() ?? Promise.resolve()).then(
+      () => process.exit(0),
+      error => { process.stderr.write(`[CodeGraph MCP] Shutdown failed: ${String(error)}\n`); process.exit(1); },
+    );
   };
   const ensureEngine = (): Promise<void> => {
     if (!engine) engine = deps.makeEngine();

@@ -16,7 +16,8 @@ import { getCodeGraphDir } from '../directory';
 import type { FileRecord } from '../types';
 
 const HISTORY_VERSION = 1;
-const MAX_SAMPLES = 24;
+const MAX_SAMPLES = 24; // Per runtime/configuration bucket.
+const MAX_HISTORY_BUCKETS = 4;
 const HISTORY_FILE = 'adaptive-cost-history.json';
 const digest = (value: unknown): string => crypto.createHash('sha256').update(JSON.stringify(value)).digest('hex');
 export type AdaptiveShape = 'modified-only' | 'added-only' | 'removed-only' | 'mixed';
@@ -57,7 +58,49 @@ export interface AdaptiveDecision {
 export interface AdaptiveEligibility {
   /** All blockers are conservative: legacy, recovery, custom data, unsupported backend, etc. */
   blockedReason?: string;
+  /** Fingerprint persisted with the currently published index, if available. */
   configFingerprint?: string;
+  /** Actual policy changes, not merely missing cost observations. */
+  configurationChanged?: boolean;
+  upgradeRequired?: boolean;
+  /** Explicit coverage policy, not a claim of optimal measured cost. */
+  fallback?: Partial<AdaptiveFallbackPolicy>;
+}
+export interface AdaptiveFallbackPolicy {
+  minChangedFiles: number;
+  minChangedFraction: number;
+  minWorkFraction: number;
+  minAffectedOldNodes: number;
+  minAffectedOldNodeFraction: number;
+}
+export const DEFAULT_ADAPTIVE_FALLBACK: Readonly<AdaptiveFallbackPolicy> = Object.freeze({
+  minChangedFiles: 128, minChangedFraction: 0.8, minWorkFraction: 0.8,
+  minAffectedOldNodes: 10_000, minAffectedOldNodeFraction: 0.5,
+});
+function fallbackPolicy(overrides: Partial<AdaptiveFallbackPolicy> = {}): AdaptiveFallbackPolicy {
+  const policy = { ...DEFAULT_ADAPTIVE_FALLBACK, ...overrides };
+  if (!Number.isInteger(policy.minChangedFiles) || policy.minChangedFiles < 1 ||
+    !Number.isInteger(policy.minAffectedOldNodes) || policy.minAffectedOldNodes < 1 ||
+    ![policy.minChangedFraction, policy.minWorkFraction, policy.minAffectedOldNodeFraction].every(value => Number.isFinite(value) && value > 0 && value <= 1)) {
+    throw new Error('Invalid adaptive fallback policy');
+  }
+  return policy;
+}
+/** Broad file+work coverage OR substantial old-node coverage. The latter
+ * independently covers few high-impact files. Absolute minima are cost-policy
+ * floors, not safety restrictions. Removed
+ * files contribute old nodes; pure additions contribute target bytes. */
+export function hasStructuralRebuildWork(plan: AdaptivePlan, overrides?: Partial<AdaptiveFallbackPolicy>): boolean {
+  const policy = fallbackPolicy(overrides);
+  const oldFiles = plan.totalFiles - plan.added.length + plan.removed.length;
+  const fileBase = Math.max(oldFiles, plan.totalFiles);
+  const highImpact = plan.changedFiles > 0 && plan.totalNodes > 0 &&
+    plan.affectedOldNodes >= policy.minAffectedOldNodes &&
+    plan.affectedOldNodes / plan.totalNodes >= policy.minAffectedOldNodeFraction;
+  return highImpact || (plan.changedFiles >= policy.minChangedFiles && fileBase > 0 &&
+    plan.changedFiles / fileBase >= policy.minChangedFraction &&
+    ((plan.totalBytes > 0 && plan.changedBytes / plan.totalBytes >= policy.minWorkFraction) ||
+      (plan.totalNodes > 0 && plan.affectedOldNodes / plan.totalNodes >= policy.minWorkFraction)));
 }
 
 let implementationFingerprint: string | undefined;
@@ -228,7 +271,7 @@ export function readAdaptiveHistory(root: string): AdaptiveCostHistory {
     if (history.version !== HISTORY_VERSION || !Array.isArray(history.samples) || !history.samples.every(validSample)) {
       return { version: HISTORY_VERSION, samples: [] };
     }
-    return { version: HISTORY_VERSION, samples: history.samples.slice(-MAX_SAMPLES) };
+    return { version: HISTORY_VERSION, samples: history.samples.slice(-(MAX_SAMPLES * MAX_HISTORY_BUCKETS)) };
   } catch { return { version: HISTORY_VERSION, samples: [] }; }
 }
 /** Caller must hold the project writer lock; this file is a performance hint, never correctness authority. */
@@ -238,13 +281,20 @@ export function recordAdaptiveSample(root: string, sample: Omit<AdaptiveCostSamp
   const recorded = { ...sample, recordedAt: Date.now() };
   if (!validSample(recorded)) return;
   const history = readAdaptiveHistory(root);
-  // Keep some full observations even after a long run of incremental syncs.
-  const matching = history.samples.filter(previous => previous.runtimeKey === recorded.runtimeKey &&
-    previous.configFingerprint === recorded.configFingerprint);
-  const full = matching.filter(previous => previous.kind === 'full');
-  const incremental = matching.filter(previous => previous.kind === 'incremental');
-  (recorded.kind === 'full' ? full : incremental).push(recorded);
-  history.samples = [...full.slice(-4), ...incremental.slice(-(MAX_SAMPLES - 4))];
+  // Keep independent, bounded LRU buckets: a branch/configuration switch must
+  // not destroy another configuration's full baseline. Never mix their costs.
+  const buckets = new Map<string, AdaptiveCostSample[]>();
+  for (const observation of [...history.samples, recorded]) {
+    const key = JSON.stringify([observation.runtimeKey, observation.configFingerprint]);
+    const bucket = buckets.get(key) ?? [];
+    bucket.push(observation);
+    buckets.delete(key);
+    buckets.set(key, bucket);
+  }
+  history.samples = [...buckets.values()].slice(-MAX_HISTORY_BUCKETS).flatMap(bucket => [
+    ...bucket.filter(previous => previous.kind === 'full').slice(-4),
+    ...bucket.filter(previous => previous.kind === 'incremental').slice(-(MAX_SAMPLES - 4)),
+  ]);
   const target = path.join(getCodeGraphDir(root), HISTORY_FILE);
   const temporary = `${target}.${process.pid}.${crypto.randomUUID()}.tmp`;
   try {
@@ -257,66 +307,102 @@ export function hasAdaptiveCalibration(history: AdaptiveCostHistory, runtimeKey:
   return matching.some(sample => sample.kind === 'full') && matching.filter(sample => sample.kind === 'incremental' && sample.changedFiles > 0).length >= 3;
 }
 
+/** Negative-only shortcut for an authoritative, complete set of scoped paths.
+ * Caller must verify the published configuration against current controls first;
+ * pathsCount includes adds/removes and affectedOldNodes upper-bounds the old
+ * nodes in every supplied path. No cached inventory is passed to ordinary sync.
+ * False means evaluate normally, not permission to rebuild. */
+export function canSkipScopedAdaptivePlan(
+  scope: { pathsCount: number; affectedOldNodes: number; totalOldNodes: number },
+  history: AdaptiveCostHistory, runtimeKey: string, currentConfigFingerprint: string,
+  eligibility: AdaptiveEligibility = {},
+): boolean {
+  if (eligibility.configurationChanged || eligibility.upgradeRequired || eligibility.blockedReason ||
+    !runtimeKey || !currentConfigFingerprint ||
+    (eligibility.configFingerprint !== undefined && eligibility.configFingerprint !== currentConfigFingerprint)) return false;
+  if (!Number.isInteger(scope.pathsCount) || scope.pathsCount < 0 ||
+    !finite(scope.affectedOldNodes) || !finite(scope.totalOldNodes) || scope.affectedOldNodes > scope.totalOldNodes) return false;
+  const valid = history.samples.filter(validSample);
+  const matchingRuntime = valid.filter(sample => sample.runtimeKey === runtimeKey);
+  const matching = matchingRuntime.filter(sample => sample.configFingerprint === currentConfigFingerprint);
+  // A new identity may require a baseline even for tiny edits. In particular,
+  // old full observations must not be hidden by new incremental-only records.
+  if (valid.length > 0 && matching.length === 0) return false;
+  if (!matching.some(sample => sample.kind === 'full') &&
+    matchingRuntime.some(sample => sample.kind === 'full' && sample.configFingerprint !== currentConfigFingerprint)) return false;
+  const policy = fallbackPolicy(eligibility.fallback);
+  const changedCounts = matching.filter(sample => sample.kind === 'incremental' && sample.changedFiles > 0)
+    .map(sample => sample.changedFiles);
+  const minimum = Math.min(policy.minChangedFiles, ...changedCounts);
+  const nodeMinimum = Math.max(policy.minAffectedOldNodes, scope.totalOldNodes * policy.minAffectedOldNodeFraction);
+  return scope.pathsCount < minimum && scope.affectedOldNodes < nodeMinimum;
+}
+
 /** Cheap negative-only gate. Never authorizes rebuilding or supplies cached scan
  * data to ordinary sync: that path must rescan after its recovery/callbacks.
- * The minimum across ALL runtime-matched samples cannot exceed the minimum
+ * Caller must first verify current configuration identity; configuration or
+ * upgrade changes bypass this gate. The minimum across ALL runtime-matched samples cannot exceed the minimum
  * of the compatible subset used by chooseAdaptiveStrategy. Stat mismatches
  * upper-bound changes discoverable by that planner's same stat shortcut
  * (not size/mtime-preserving edits); errors make this gate inconclusive.
  */
 export async function adaptiveChangeGate(root: string, tracked: ReadonlyArray<FileRecord>,
-  history: AdaptiveCostHistory, runtimeKey: string): Promise<{ belowRange: boolean; candidates: number; minimum: number }> {
+  history: AdaptiveCostHistory, runtimeKey: string, eligibility: AdaptiveEligibility = {}): Promise<{ belowRange: boolean; candidates: number; minimum: number }> {
   const samples = history.samples.filter(sample => validSample(sample) && sample.kind === 'incremental' &&
     sample.runtimeKey === runtimeKey && sample.changedFiles > 0);
-  const minimum = samples.length ? Math.min(...samples.map(sample => sample.changedFiles)) : 0;
+  const policy = fallbackPolicy(eligibility.fallback);
+  const minimum = samples.length ? Math.min(policy.minChangedFiles, ...samples.map(sample => sample.changedFiles)) : 0;
+  if (eligibility.configurationChanged || eligibility.upgradeRequired) return { belowRange: false, candidates: 0, minimum };
   if (!minimum) return { belowRange: false, candidates: 0, minimum };
-  // If only modified-only has three observations, every other shape is
-  // ineligible even before configuration/size filtering. A tracked-file stat
-  // upper bound below its minimum therefore rules out EVERY eligible rebuild:
-  // newly added/ignored/removed files could change the shape, but cannot make
-  // an uncalibrated shape eligible. Do not apply this shortcut once another
-  // shape has three observations (even incompatible ones: fail conservatively).
-  const modifications = samples.filter(sample => sample.shape === 'modified-only');
-  if (modifications.length >= 3 && (['added-only', 'removed-only', 'mixed'] as const)
-    .every(shape => samples.filter(sample => sample.shape === shape).length < 3)) {
-    const modifiedMinimum = Math.min(...modifications.map(sample => sample.changedFiles));
-    let candidates = 0;
-    for (let i = 0; i < tracked.length; i++) {
-      const prior = tracked[i]!;
-      const absolute = path.resolve(root, prior.path);
-      if (!absolute.startsWith(path.resolve(root) + path.sep)) throw new Error('Tracked source path escapes root');
-      const stat = fs.statSync(absolute);
-      if (stat.size !== prior.size || Math.floor(stat.mtimeMs) !== Math.floor(prior.modifiedAt)) candidates++;
-      if (candidates >= modifiedMinimum) return { belowRange: false, candidates, minimum: modifiedMinimum };
-      if ((i + 1) % 100 === 0) await new Promise<void>(resolve => setImmediate(resolve));
-    }
-    if (candidates < modifiedMinimum) return { belowRange: true, candidates, minimum: modifiedMinimum };
+  // Enumerate even when only modifications were measured: unobserved additions
+  // may now qualify for structural fallback. The old tracked-only shortcut
+  // would silently hide precisely those first large branch changes.
+  for (const prior of tracked) {
+    if (!path.resolve(root, prior.path).startsWith(path.resolve(root) + path.sep)) throw new Error('Tracked source path escapes root');
   }
   const old = new Map(tracked.map(file => [file.path, file]));
+  const nodeMinimum = Math.max(policy.minAffectedOldNodes,
+    tracked.reduce((n, file) => n + file.nodeCount, 0) * policy.minAffectedOldNodeFraction);
   const visible = await scanDirectoryAsync(root);
-  let candidates = 0;
+  let candidates = 0, candidateNodes = 0;
   for (let i = 0; i < visible.length; i++) {
     const relative = visible[i]!;
     const absolute = path.resolve(root, relative);
     if (!absolute.startsWith(path.resolve(root) + path.sep)) throw new Error('Adaptive source path escapes root');
     const prior = old.get(relative);
     const stat = fs.statSync(absolute); // Any access/race error aborts the gate, never claims unchanged.
-    if (!prior || stat.size !== prior.size || Math.floor(stat.mtimeMs) !== Math.floor(prior.modifiedAt)) candidates++;
+    if (!prior || stat.size !== prior.size || Math.floor(stat.mtimeMs) !== Math.floor(prior.modifiedAt)) {
+      candidates++; candidateNodes += prior?.nodeCount ?? 0;
+    }
     old.delete(relative);
-    if (candidates >= minimum) return { belowRange: false, candidates, minimum };
+    if (candidates >= minimum || candidateNodes >= nodeMinimum) return { belowRange: false, candidates, minimum };
     if ((i + 1) % 100 === 0) await new Promise<void>(resolve => setImmediate(resolve));
   }
   candidates += old.size; // Includes removed or newly ignored tracked files.
-  return { belowRange: candidates < minimum, candidates, minimum };
+  candidateNodes += [...old.values()].reduce((n, file) => n + file.nodeCount, 0);
+  return { belowRange: candidates < minimum && candidateNodes < nodeMinimum, candidates, minimum };
 }
 
 export function chooseAdaptiveStrategy(plan: AdaptivePlan, history: AdaptiveCostHistory,
   eligibility: AdaptiveEligibility = {}): AdaptiveDecision {
   const incremental = (reason: string): AdaptiveDecision => ({ strategy: 'incremental', reason });
   if (eligibility.blockedReason) return incremental(eligibility.blockedReason);
-  if (eligibility.configFingerprint && eligibility.configFingerprint !== plan.snapshot.configFingerprint) return incremental('configuration-changed');
-  if (plan.changedFiles === 0) return incremental('no-content-changes');
+  const rebuild = (reason: string): AdaptiveDecision => ({ strategy: 'rebuild', reason });
   if (!plan.totalFiles || !plan.totalBytes) return incremental('empty-target');
+  const valid = history.samples.filter(validSample);
+  const matchingRuntime = valid.filter(sample => sample.runtimeKey === plan.runtimeKey);
+  const currentFull = matchingRuntime.some(sample => sample.kind === 'full' && sample.configFingerprint === plan.snapshot.configFingerprint);
+  const configurationChanged = eligibility.configurationChanged ||
+    (eligibility.configFingerprint !== undefined && eligibility.configFingerprint !== plan.snapshot.configFingerprint) ||
+    (!currentFull && matchingRuntime.some(sample => sample.kind === 'full' && sample.configFingerprint !== plan.snapshot.configFingerprint));
+  // Policy/version changes are meaningful even when source hashes are equal.
+  // The caller must persist the published policy identity to make this one-shot.
+  if (eligibility.upgradeRequired) return rebuild('index-upgrade-required');
+  if (configurationChanged) return rebuild('configuration-changed');
+  if (plan.changedFiles === 0) return incremental('no-content-changes');
+  if (!matchingRuntime.length && valid.some(sample => sample.kind === 'full')) return rebuild('runtime-baseline-changed');
+  const fallback = (): AdaptiveDecision | undefined => hasStructuralRebuildWork(plan, eligibility.fallback)
+    ? rebuild('structural-large-change') : undefined;
   const samples = history.samples.filter(sample => validSample(sample) && sample.runtimeKey === plan.runtimeKey &&
     sample.configFingerprint === plan.snapshot.configFingerprint);
   const within = (value: number, reference: number): boolean => reference > 0 && value >= reference * 0.8 && value <= reference * 1.2;
@@ -329,21 +415,24 @@ export function chooseAdaptiveStrategy(plan: AdaptivePlan, history: AdaptiveCost
       Math.abs(current! / plan.changedFiles - prior! / sample.changedFiles) <= 0.05);
   const measured = samples.filter(sample => sample.kind === 'incremental' && sample.shape === plan.shape &&
     within(plan.totalFiles, sample.totalFiles) && within(plan.totalBytes, sample.totalBytes) && sample.changedFiles > 0 && matchingMix(sample));
-  if (!full.length || measured.length < 3) return incremental('insufficient-local-calibration');
+  if (!full.length || measured.length < 3) return fallback() ?? incremental('insufficient-local-calibration');
   const work = (entry: Pick<AdaptiveCostSample, 'affectedOldNodes' | 'changedBytes'>): number =>
     plan.shape === 'added-only' ? entry.changedBytes : entry.affectedOldNodes;
   const useful = measured.filter(sample => work(sample) > 0);
   const units = work(plan);
-  if (useful.length < 3 || units === 0) return incremental('insufficient-measured-work');
+  if (useful.length < 3 || units === 0) return fallback() ?? incremental('insufficient-measured-work');
   const maxUnits = Math.max(...useful.map(work)), minUnits = Math.min(...useful.map(work));
-  const maxFiles = Math.max(...useful.map(sample => sample.changedFiles));
   const minFiles = Math.min(...useful.map(sample => sample.changedFiles));
-  if (units < minUnits || units > maxUnits * 2 || plan.changedFiles < minFiles || plan.changedFiles > maxFiles * 2) {
-    return incremental('outside-calibrated-work-range');
+  if (units < minUnits || plan.changedFiles < minFiles) {
+    return fallback() ?? incremental('outside-calibrated-work-range');
   }
   // These modest margins combine with the separate 20%/10s savings gate.
   // They are engineering guardrails, not measured confidence intervals.
-  const estimatedIncrementalMs = Math.min(...useful.map(sample => sample.durationMs / work(sample))) * units * 0.9;
+  // Do not extrapolate without bound, or reverse an already favorable decision
+  // solely because work/file breadth grew. Cap estimated work at the former
+  // supported edge; never divide it by the growing changed-file count.
+  const estimatedUnits = Math.min(units, maxUnits * 2);
+  const estimatedIncrementalMs = Math.min(...useful.map(sample => sample.durationMs / work(sample))) * estimatedUnits * 0.9;
   const estimatedRebuildMs = Math.max(...full.map(sample => sample.durationMs * Math.max(1, plan.totalBytes / sample.totalBytes))) * 1.15;
   const saving = estimatedIncrementalMs - estimatedRebuildMs;
   const beneficial = saving >= 10_000 && estimatedRebuildMs <= estimatedIncrementalMs * 0.8;

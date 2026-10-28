@@ -6,7 +6,7 @@
  */
 
 import * as path from 'path';
-import { existsSync, statSync, appendFileSync, renameSync } from 'fs';
+import { existsSync, statSync, appendFileSync, renameSync, realpathSync } from 'fs';
 import {
   Node,
   Edge,
@@ -27,7 +27,8 @@ import {
   EdgeKind,
   DirectRelationshipGroup,
 } from './types';
-import { DatabaseConnection, getDatabasePath } from './db';
+import { DatabaseConnection, DatabaseOpenError } from './db';
+import { createDatabase } from './db/sqlite-adapter';
 import { WalCheckpointValve } from './db/wal-valve';
 import { QueryBuilder } from './db/queries';
 import {
@@ -53,12 +54,11 @@ import {
 import { GraphTraverser, GraphQueryManager } from './graph';
 import { ContextBuilder, createContextBuilder } from './context';
 import { Mutex, canonicalFilePath } from './utils';
-import { GenerationWriterLock, resolveGeneration, createGeneration, publishGeneration, hasRebuildDiskSpace } from './sync/generation-store';
+import { GenerationWriterLock, resolveGeneration, createGeneration, publishGeneration, publishInitialGeneration, publishInitialGenerationSync, hasRebuildDiskSpace, acquireCurrentGenerationLease, acquireGenerationLease, cleanupGenerationCandidate, collectRetiredGenerations, type GenerationLease, type GenerationCandidate } from './sync/generation-store';
 import { installSourceOwnership, isSourceOwned, beginSourceWrite, finishSourceWrite } from './sync/source-ownership';
-import { adaptiveRuntimeKey, readAdaptiveHistory, hasAdaptiveCalibration, createAdaptivePlan, adaptiveChangeGate,
-  chooseAdaptiveStrategy, validateAdaptiveSnapshot, adaptiveConfigFingerprint, adaptiveSampleFromFiles,
-  recordAdaptiveSample, type AdaptiveDecision } from './sync/adaptive-plan';
-import { runRebuildChild, validateRebuiltDatabase } from './sync/rebuild-controller';
+import { adaptiveRuntimeKey, adaptiveConfigFingerprint, adaptiveSampleFromFiles,
+  recordAdaptiveSample, type AdaptiveDecision, type AdaptivePlan, type AdaptiveFallbackPolicy } from './sync/adaptive-plan';
+import { runRebuildChild, runAdaptiveReadWorker } from './sync/rebuild-controller';
 import { FileWatcher, WatchOptions, PendingFile, LockUnavailableError } from './sync';
 import { EXTRACTION_VERSION } from './extraction/extraction-version';
 import { recoverAppendDeltas } from './extraction/append-delta';
@@ -146,6 +146,12 @@ export class SyncIncompleteError extends Error {
  * Options for initializing a new CodeGraph project
  */
 export interface InitOptions {
+  /** @internal CLI diagnostics; called before publication, never after success. */
+  onIndexResult?: (result: IndexResult) => void;
+  /** Emit detailed indexing diagnostics. */
+  verbose?: boolean;
+  /** Cancel before initial storage publication. */
+  signal?: AbortSignal;
   /** Whether to run initial indexing after init */
   index?: boolean;
 
@@ -189,6 +195,8 @@ export interface SyncOptions extends IndexOptions {
   paths?: string[];
   /** Disable adaptive planning for this invocation; default is conservative automatic selection. */
   adaptive?: boolean;
+  /** Conservative cold-start coverage policy, not a latency guarantee. */
+  adaptiveFallback?: Partial<AdaptiveFallbackPolicy>;
   /** Decision diagnostics; no stdout output is emitted for library/MCP callers. */
   onAdaptiveDecision?: (decision: AdaptiveDecision) => void;
 }
@@ -206,6 +214,11 @@ export interface IndexDataReadiness {
  * Provides the primary interface for interacting with the code knowledge graph.
  */
 export class CodeGraph {
+  // Exceptional native close failures must stay protected until retry/process
+  // exit; GC order must not release a lease before its still-live DB handle.
+  private static failedOpens = new Map<GenerationLease, DatabaseConnection>();
+  private static failedInitializations = new Set<{ db: DatabaseConnection; candidate: GenerationCandidate }>();
+  private static failedCloses = new Set<CodeGraph>();
   private db: DatabaseConnection;
   private queries: QueryBuilder;
   private projectRoot: string;
@@ -228,6 +241,7 @@ export class CodeGraph {
   private readonly readOnly: boolean;
   private readonly pinnedRead: boolean;
   private closed = false;
+  private generationLease?: GenerationLease;
   private activeBuild: AbortController | null = null;
   private forwardedWriter: CodeGraph | null = null;
   private generationReaders = new Map<string, CodeGraph>();
@@ -242,9 +256,11 @@ export class CodeGraph {
     shadowCandidate = false,
     readOnly = false,
     pinnedRead = false,
-    dataDirOverride?: string
+    dataDirOverride?: string,
+    generationLease?: GenerationLease
   ) {
     this.db = db;
+    this.generationLease = generationLease;
     this.queries = queries;
     this.projectRoot = projectRoot;
     this.shadowCandidate = shadowCandidate;
@@ -283,66 +299,107 @@ export class CodeGraph {
    * @param options - Initialization options
    * @returns A new CodeGraph instance
    */
-  static async init(projectRoot: string, options: InitOptions = {}): Promise<CodeGraph> {
-    await initGrammars();
-    const resolvedRoot = path.resolve(projectRoot);
-
-    // Check if already initialized
-    if (isInitialized(resolvedRoot)) {
-      throw new Error(`CodeGraph already initialized in ${resolvedRoot}`);
-    }
-
-    // Create directory structure
-    createDirectory(resolvedRoot);
-
-    // Initialize database
-    const dbPath = getDatabasePath(resolvedRoot);
-    const db = DatabaseConnection.initialize(dbPath);
-    if (db.getBackend() === 'node-sqlite') installSourceOwnership(db.getDb());
-    const queries = new QueryBuilder(db.getDb());
-
-    const instance = new CodeGraph(db, queries, resolvedRoot);
-
-    // Run initial indexing if requested
-    if (options.index) {
-      const result = await instance.indexAll({ onProgress: options.onProgress });
-      // `success` means a usable index was produced. `complete` is a separate
-      // coverage signal: optional synthesis/framework phases may be incomplete
-      // while the base database remains valid and queryable.
-      if (!result.success) {
-        instance.destroy();
-        const errors = result.errors.filter((diagnostic) => diagnostic.severity === 'error');
-        const detail = (errors.length > 0 ? errors : result.errors)
-          .map((diagnostic) => diagnostic.message)
-          .join('; ');
-        throw new Error(detail || 'Initial indexing failed');
-      }
-    }
-
-    return instance;
+  private static nativeInitializationAvailable(): boolean {
+    try {
+      const probe = createDatabase(':memory:', { nativeOnly: true });
+      probe.db.close();
+      return true;
+    } catch { return false; }
   }
 
-  /**
-   * Initialize synchronously (without indexing)
-   */
-  static initSync(projectRoot: string): CodeGraph {
-    const resolvedRoot = path.resolve(projectRoot);
-
-    // Check if already initialized
-    if (isInitialized(resolvedRoot)) {
-      throw new Error(`CodeGraph already initialized in ${resolvedRoot}`);
+  private static assertUninitialized(root: string, dataDir: string): void {
+    if (isInitialized(root) || ['CURRENT', 'codegraph.db', 'codegraph.db-wal', 'codegraph.db-shm', 'codegraph.db-journal']
+      .some(name => existsSync(path.join(dataDir, name)))) {
+      throw new Error(`CodeGraph already initialized in ${root}`);
     }
+  }
 
-    // Create directory structure
-    createDirectory(resolvedRoot);
+  static async init(projectRoot: string, options: InitOptions = {}): Promise<CodeGraph> {
+    await initGrammars();
+    options.signal?.throwIfAborted();
+    const root = path.resolve(projectRoot);
+    createDirectory(root);
+    const dataDir = getCodeGraphDir(root);
+    const lock = new GenerationWriterLock(dataDir);
+    lock.acquire();
+    let instance: CodeGraph | undefined;
+    try {
+      CodeGraph.assertUninitialized(root, dataDir);
+      if (CodeGraph.nativeInitializationAvailable()) {
+        const candidate = createGeneration(dataDir, lock);
+        let shadow: CodeGraph | undefined;
+        const started = performance.now();
+        try {
+          shadow = await CodeGraph.createShadow(root, candidate.databasePath);
+          if (shadow.db.getBackend() !== 'node-sqlite') throw new Error('Managed initialization requires node:sqlite');
+          const result = options.index ? await shadow.indexAll({ onProgress: options.onProgress, signal: options.signal, verbose: options.verbose }) : undefined;
+          if (result) options.onIndexResult?.(result);
+          if (result && !result.success) {
+            throw new Error(result.errors.map(error => error.message).join('; ') || 'Initial indexing failed');
+          }
+          shadow.close();
+          await publishInitialGeneration(dataDir, candidate, { lock, signal: options.signal,
+            validate: () => runAdaptiveReadWorker<boolean>({ type: 'validate-initial', root, databasePath: candidate.databasePath }, { signal: options.signal }) });
+          instance = CodeGraph.openCurrent(root, false, false, dataDir, true);
+          if (result?.complete) {
+            try { await runAdaptiveReadWorker<boolean>({ type: 'record-full', root,
+              databasePath: candidate.databasePath, durationMs: performance.now() - started }); }
+            catch { /* A missing optional cost sample does not invalidate published storage. */ }
+          }
+          return instance;
+        } finally {
+          try { shadow?.close(); } finally { cleanupGenerationCandidate(dataDir, candidate); }
+        }
+      }
+      // Unsupported native runtimes retain the historical flat storage format.
+      // The same root lock prevents racing another initializer into a flat DB.
+      const db = DatabaseConnection.initialize(path.join(dataDir, 'codegraph.db'));
+      instance = new CodeGraph(db, new QueryBuilder(db.getDb()), root, false, false, false, dataDir);
+    } finally { lock.release(); }
+    try {
+      if (options.index) {
+        const result = await instance!.indexAll({ onProgress: options.onProgress, signal: options.signal, verbose: options.verbose });
+        options.onIndexResult?.(result);
+        if (!result.success) throw new Error(result.errors.map(error => error.message).join('; ') || 'Initial indexing failed');
+      }
+    } catch (error) { instance!.close(); throw error; }
+    return instance!;
+  }
 
-    // Initialize database
-    const dbPath = getDatabasePath(resolvedRoot);
-    const db = DatabaseConnection.initialize(dbPath);
-    if (db.getBackend() === 'node-sqlite') installSourceOwnership(db.getDb());
-    const queries = new QueryBuilder(db.getDb());
-
-    return new CodeGraph(db, queries, resolvedRoot);
+  /** Initialize schema-only storage; this does not claim source-index completeness. */
+  static initSync(projectRoot: string): CodeGraph {
+    const root = path.resolve(projectRoot);
+    createDirectory(root);
+    const dataDir = getCodeGraphDir(root);
+    const lock = new GenerationWriterLock(dataDir);
+    lock.acquire();
+    try {
+      CodeGraph.assertUninitialized(root, dataDir);
+      if (!CodeGraph.nativeInitializationAvailable()) {
+        const db = DatabaseConnection.initialize(path.join(dataDir, 'codegraph.db'));
+        return new CodeGraph(db, new QueryBuilder(db.getDb()), root, false, false, false, dataDir);
+      }
+      const candidate = createGeneration(dataDir, lock);
+      let db: DatabaseConnection | undefined;
+      try {
+        db = DatabaseConnection.initialize(candidate.databasePath);
+        if (db.getBackend() !== 'node-sqlite') throw new Error('Managed initialization requires node:sqlite');
+        installSourceOwnership(db.getDb());
+        const valid = db.getDb().pragma('quick_check', { simple: true }) === 'ok';
+        db.close();
+        publishInitialGenerationSync(dataDir, candidate, { lock, validate: () => valid });
+        return CodeGraph.openCurrent(root, false, false, dataDir, true);
+      } catch (error) {
+        if (!db && error instanceof DatabaseOpenError) db = error.connection;
+        throw error;
+      } finally {
+        // A failed close must keep the build lease: GC cannot remove a live DB.
+        try { db?.close(); } finally {
+          if (!db?.isOpen()) cleanupGenerationCandidate(dataDir, candidate);
+          else CodeGraph.failedInitializations.add({ db, candidate });
+        }
+      }
+    } finally { lock.release(); }
   }
 
   /**
@@ -352,6 +409,25 @@ export class CodeGraph {
    * @param options - Open options
    * @returns A CodeGraph instance
    */
+  private static openCurrent(root: string, forceReadOnly = false, pinnedRead = false,
+    dataDirectory = getCodeGraphDir(root), writer = false): CodeGraph {
+    // Resolve + register the reader atomically against publication and GC.
+    const lease = acquireCurrentGenerationLease(dataDirectory);
+    let db: DatabaseConnection | undefined;
+    try {
+      const readOnly = !writer && (forceReadOnly || lease.id !== null);
+      db = readOnly ? DatabaseConnection.openReadOnly(lease.databasePath) :
+        DatabaseConnection.open(lease.databasePath, { nativeOnly: lease.id !== null });
+      const graph = new CodeGraph(db, new QueryBuilder(db.getDb()), root, false, readOnly, pinnedRead, dataDirectory, lease);
+      void collectRetiredGenerations(dataDirectory).catch(() => {});
+      return graph;
+    } catch (error) {
+      if (!db && error instanceof DatabaseOpenError) db = error.connection;
+      try { db?.close(); } finally { if (!db?.isOpen()) lease.release(); else CodeGraph.failedOpens.set(lease, db); }
+      throw error;
+    }
+  }
+
   static async open(projectRoot: string, options: OpenOptions = {}): Promise<CodeGraph> {
     await initGrammars();
     const resolvedRoot = path.resolve(projectRoot);
@@ -368,12 +444,7 @@ export class CodeGraph {
     }
 
     // Open database
-    const dbPath = getDatabasePath(resolvedRoot);
-    const readOnly = options.readOnly === true || resolveGeneration(getCodeGraphDir(resolvedRoot)).id !== null;
-    const db = readOnly ? DatabaseConnection.openReadOnly(dbPath) : DatabaseConnection.open(dbPath);
-    const queries = new QueryBuilder(db.getDb());
-
-    const instance = new CodeGraph(db, queries, resolvedRoot, false, readOnly, options.readOnly === true);
+    const instance = CodeGraph.openCurrent(resolvedRoot, options.readOnly === true, options.readOnly === true);
 
     // Sync if requested
     if (options.sync) {
@@ -401,12 +472,7 @@ export class CodeGraph {
     }
 
     // Open database
-    const dbPath = getDatabasePath(resolvedRoot);
-    const readOnly = resolveGeneration(getCodeGraphDir(resolvedRoot)).id !== null;
-    const db = readOnly ? DatabaseConnection.openReadOnly(dbPath) : DatabaseConnection.open(dbPath);
-    const queries = new QueryBuilder(db.getDb());
-
-    return new CodeGraph(db, queries, resolvedRoot, false, readOnly);
+    return CodeGraph.openCurrent(resolvedRoot);
   }
 
   /** @internal A full reader instance pinned to the currently published generation. */
@@ -414,8 +480,7 @@ export class CodeGraph {
     const root = path.resolve(projectRoot);
     const dataDir = dataDirectory ? path.resolve(dataDirectory) : getCodeGraphDir(root);
     if (path.dirname(dataDir) !== root) throw new Error('Data directory must belong to the project root');
-    const db = DatabaseConnection.openReadOnly(resolveGeneration(dataDir).databasePath);
-    return new CodeGraph(db, new QueryBuilder(db.getDb()), root, false, true, true, dataDir);
+    return CodeGraph.openCurrent(root, true, true, dataDir);
   }
 
   /** @internal Only the isolated rebuild child creates an unpublished database. */
@@ -428,9 +493,17 @@ export class CodeGraph {
     if (path.dirname(dataDir) !== root || path.basename(generations) !== 'generations' || path.basename(databasePath) !== 'codegraph.db' || existsSync(databasePath)) {
       throw new Error('Shadow database must be a new candidate inside the project generation store');
     }
-    const db = DatabaseConnection.initialize(databasePath);
-    if (db.getBackend() === 'node-sqlite') installSourceOwnership(db.getDb());
-    return new CodeGraph(db, new QueryBuilder(db.getDb()), root, true);
+    const lease = acquireGenerationLease(dataDir, path.basename(directory));
+    let db: DatabaseConnection | undefined;
+    try {
+      db = DatabaseConnection.initialize(databasePath);
+      if (db.getBackend() === 'node-sqlite') installSourceOwnership(db.getDb());
+      return new CodeGraph(db, new QueryBuilder(db.getDb()), root, true, false, false, undefined, lease);
+    } catch (error) {
+      if (!db && error instanceof DatabaseOpenError) db = error.connection;
+      try { db?.close(); } finally { if (!db?.isOpen()) lease.release(); else CodeGraph.failedOpens.set(lease, db); }
+      throw error;
+    }
   }
 
   /** Identifies a pinned database; consumers must not derive the logical data root from it. */
@@ -458,9 +531,32 @@ export class CodeGraph {
     // Release file lock if held
     // A child must finish exiting before its owning operation releases the root lock.
     if (!this.indexMutex.isLocked()) this.fileLock.release();
-    this.db.close();
+    try { this.db.close(); }
+    catch (error) {
+      // A failed close may leave native statements/handles alive. Keep their
+      // cross-process protection and allow the caller to retry close.
+      this.releaseGenerationLeaseWhenIdle();
+      if (this.db.isOpen()) CodeGraph.failedCloses.add(this);
+      this.closed = false;
+      throw error;
+    }
+    CodeGraph.failedCloses.delete(this);
+    this.releaseGenerationLeaseWhenIdle();
     for (const reader of this.generationReaders.values()) reader.close();
     this.generationReaders.clear();
+  }
+
+  private releaseGenerationLeaseWhenIdle(): void {
+    if (!this.activeBuild && !this.db.isOpen()) {
+      this.generationLease?.release(); this.generationLease = undefined;
+    }
+  }
+
+  /** Await owned writer/child shutdown without closing an in-flight query's facade. */
+  async whenIdle(): Promise<void> {
+    const forwarded = this.forwardedWriter;
+    await this.indexMutex.withLock(async () => {});
+    if (forwarded) await forwarded.whenIdle();
   }
 
   /** Stop an isolated build without closing a graph still leased by readers. */
@@ -504,7 +600,7 @@ export class CodeGraph {
         return { success: false, filesIndexed: 0, filesSkipped: 0, filesErrored: 0, nodesCreated: 0, edgesCreated: 0, errors: [{ message: 'Could not acquire file lock - another process may be indexing', severity: 'error' as const }], durationMs: 0 };
       }
       try {
-        if (!this.shadowCandidate && (this.readOnly || resolveGeneration(this.dataDir).databasePath !== this.db.getPath())) {
+        if (!this.shadowCandidate && (this.readOnly || this.currentDatabasePath() !== this.db.getPath())) {
           const active = this.openCurrentWriter();
           this.forwardedWriter = active;
           try { return await active.indexAllLocked(options, true); }
@@ -534,6 +630,7 @@ export class CodeGraph {
         // Existing databases and the sql.js fallback retain durable defaults.
         let fastInit =
           freshDb &&
+          this.shadowCandidate &&
           this.db.getBackend() === 'node-sqlite' &&
           process.env.CODEGRAPH_NO_FAST_INIT !== '1';
         if (fastInit) {
@@ -782,6 +879,9 @@ export class CodeGraph {
             );
           } catch { /* the returned diagnostics remain authoritative */ }
 
+          if (ownership !== null && result.success === true && result.complete === true) {
+            this.queries.setMetadata('adaptive:index-config-v1', adaptiveConfigFingerprint(this.projectRoot, this.queries.getAllFiles()));
+          }
           finishSourceWrite(this.db.getDb(), ownership, result.success === true && result.complete === true);
           if (!this.shadowCandidate && result.success && result.complete) {
             this.recordCostSample('full', [], performance.now() - startedAt);
@@ -830,7 +930,7 @@ export class CodeGraph {
         return { success: false, filesIndexed: 0, filesSkipped: 0, filesErrored: 0, nodesCreated: 0, edgesCreated: 0, errors: [{ message: 'Could not acquire file lock - another process may be indexing', severity: 'error' as const }], durationMs: 0 };
       }
       try {
-        if (!this.shadowCandidate && (this.readOnly || resolveGeneration(this.dataDir).databasePath !== this.db.getPath())) {
+        if (!this.shadowCandidate && (this.readOnly || this.currentDatabasePath() !== this.db.getPath())) {
           const active = this.openCurrentWriter();
           this.forwardedWriter = active;
           try { return await active.indexFilesLocked(filePaths); }
@@ -863,16 +963,23 @@ export class CodeGraph {
     this.fileLock.acquire();
     let active: CodeGraph | undefined;
     try {
-      active = this.readOnly || resolveGeneration(this.dataDir).databasePath !== this.db.getPath() ? this.openCurrentWriter() : this;
+      active = this.readOnly || this.currentDatabasePath() !== this.db.getPath() ? this.openCurrentWriter() : this;
       return operation(active);
     } finally { if (active && active !== this) active.close(); this.fileLock.release(); }
+  }
+
+  private currentDatabasePath(): string {
+    const current = resolveGeneration(this.dataDir).databasePath;
+    // Factories pin canonical managed paths. Only aliases or a new generation
+    // need normalization; ordinary unchanged queries incur no extra filesystem IO.
+    return current === this.db.getPath() ? current : realpathSync(current);
   }
 
   /** SDK reads automatically follow publication without rebinding an active async query's layers. */
   private readView(): CodeGraph {
     if (this.closed) throw new Error('CodeGraph is closed');
     if (this.pinnedRead || this.shadowCandidate) return this;
-    const current = resolveGeneration(this.dataDir).databasePath;
+    const current = this.currentDatabasePath();
     if (current === this.db.getPath()) return this;
     let reader = this.generationReaders.get(current);
     if (!reader) {
@@ -886,9 +993,7 @@ export class CodeGraph {
 
   /** Caller holds the root lock. Never rebind an instance borrowed by an in-flight reader. */
   private openCurrentWriter(): CodeGraph {
-    const current = resolveGeneration(this.dataDir);
-    const db = DatabaseConnection.open(current.databasePath, { nativeOnly: current.id !== null });
-    const active = new CodeGraph(db, new QueryBuilder(db.getDb()), this.projectRoot, false, false, false, this.dataDir);
+    const active = CodeGraph.openCurrent(this.projectRoot, false, false, this.dataDir, true);
     active.fileLock = this.fileLock;
     return active;
   }
@@ -916,32 +1021,43 @@ export class CodeGraph {
 
   private async tryAdaptiveRebuild(options: SyncOptions): Promise<SyncResult | null> {
     if (this.shadowCandidate) return null;
-    let decision: AdaptiveDecision = { strategy: 'incremental', reason: 'insufficient-local-calibration' };
-    let plan: Awaited<ReturnType<typeof createAdaptivePlan>> | undefined;
+    const abort = new AbortController();
+    this.activeBuild = abort;
+    const cancel = (): void => abort.abort();
+    options.signal?.addEventListener('abort', cancel, { once: true });
+    if (options.signal?.aborted) abort.abort();
+    try { return await this.tryAdaptiveRebuildActive(options, abort); }
+    finally { options.signal?.removeEventListener('abort', cancel); this.activeBuild = null; this.releaseGenerationLeaseWhenIdle(); }
+  }
+
+  private async tryAdaptiveRebuildActive(options: SyncOptions, abort: AbortController): Promise<SyncResult | null> {
+    let decision: AdaptiveDecision = { strategy: 'incremental', reason: 'planning-unavailable' };
+    let plan: AdaptivePlan | undefined;
+    const sourceEpoch = (): string => JSON.stringify([
+      this.db.getDb().prepare('PRAGMA data_version').get(),
+      this.db.getDb().prepare('PRAGMA schema_version').get(),
+      this.db.getDb().prepare('SELECT total_changes() AS changes').get(),
+    ]);
+    let expectedSourceEpoch: string | undefined;
+    let initiallyOwned = false;
     try {
       if (options.adaptive === false || process.env.CODEGRAPH_ADAPTIVE_SYNC === '0') decision.reason = 'disabled';
       else if (getCodeGraphDir(this.projectRoot) !== this.dataDir) decision.reason = 'data-directory-selection-changed';
-      else if (options.paths) decision.reason = 'scoped-watcher-sync';
       else if (process.execArgv.some(arg => arg !== '--liftoff-only' && !/^--max[-_]old[-_]space[-_]size=\d+$/.test(arg)) || process.env.NODE_OPTIONS?.trim()) decision.reason = 'unsupported-child-runtime-options';
       else if (this.db.getBackend() !== 'node-sqlite') decision.reason = 'unsupported-sqlite-backend';
-      else if (!isSourceOwned(this.db.getDb())) decision.reason = 'unowned-legacy-or-custom-index';
-      else if (this.needsLanguageScopeRebuild() || this.isIndexStale() || this.getIndexCompleteness().status !== 'complete' || this.hasSynthesisRecoveryEvidence()) decision.reason = 'configuration-or-recovery-pending';
       else {
-        const runtimeKey = adaptiveRuntimeKey(this.projectRoot, this.db.getBackend());
-        const history = readAdaptiveHistory(this.projectRoot);
-        if (hasAdaptiveCalibration(history, runtimeKey)) {
-          const tracked = this.queries.getAllFiles();
-          const planningStarted = performance.now();
-          const gate = await adaptiveChangeGate(this.projectRoot, tracked, history, runtimeKey);
-          if (gate.belowRange) decision.reason = gate.candidates === 0 ? 'no-stat-change-candidates' : 'below-calibrated-change-count';
-          else {
-            plan = await createAdaptivePlan(this.projectRoot, tracked, { runtimeKey });
-            plan.planningMs = performance.now() - planningStarted; // Include the preliminary gate, not only the strict plan.
-            decision = chooseAdaptiveStrategy(plan, history);
-          }
-        }
+        expectedSourceEpoch = sourceEpoch();
+        initiallyOwned = isSourceOwned(this.db.getDb());
+        const evaluation = await runAdaptiveReadWorker<{ plan?: AdaptivePlan; decision: AdaptiveDecision }>({
+          type: 'evaluate', root: this.projectRoot, databasePath: this.db.getPath(), paths: options.paths,
+          eligibility: { configurationChanged: this.needsLanguageScopeRebuild(), upgradeRequired: this.isIndexStale(), fallback: options.adaptiveFallback },
+        }, { signal: abort.signal });
+        plan = evaluation.plan; decision = evaluation.decision;
       }
-    } catch (error) { decision = { strategy: 'incremental', reason: `planning-unavailable: ${error instanceof Error ? error.message : String(error)}` }; }
+    } catch (error) {
+      if (abort.signal.aborted || this.closed) throw error;
+      decision = { strategy: 'incremental', reason: `planning-unavailable: ${error instanceof Error ? error.message : String(error)}` };
+    }
     if (decision.strategy !== 'rebuild' || !plan) { this.emitAdaptiveDecision(options, decision); return null; }
     const requiredBytes = Math.ceil(Math.max(statSync(this.db.getPath()).size * 4, plan.totalBytes * 16, 256 * 1024 * 1024));
     if (!hasRebuildDiskSpace(this.dataDir, requiredBytes)) {
@@ -951,11 +1067,6 @@ export class CodeGraph {
     const started = performance.now();
     const prior = resolveGeneration(this.dataDir);
     const candidate = createGeneration(this.dataDir, this.fileLock);
-    const abort = new AbortController();
-    this.activeBuild = abort;
-    const cancel = (): void => abort.abort();
-    options.signal?.addEventListener('abort', cancel, { once: true });
-    if (options.signal?.aborted) abort.abort();
     try {
       const built = await runRebuildChild(this.projectRoot, candidate.databasePath, { signal: abort.signal, onProgress: options.onProgress });
       if (abort.signal.aborted || this.closed) throw new Error('Adaptive rebuild cancelled; old generation retained');
@@ -964,17 +1075,26 @@ export class CodeGraph {
       this.fileLock.assertHeld();
       await publishGeneration(this.dataDir, candidate, { lock: this.fileLock, expectedPreviousId: prior.id,
         success: built.success, complete: built.complete,
-        validate: () => adaptiveRuntimeKey(this.projectRoot, this.db.getBackend()) === plan!.runtimeKey && isSourceOwned(this.db.getDb()) && validateRebuiltDatabase(candidate.databasePath, plan!.snapshot),
+        // Both graph validation and final full source hashing are off-thread.
+        // The writer lock excludes supported writers until the tiny publication.
+        validate: () => !abort.signal.aborted && !this.closed,
         sourceUnchanged: async () => {
-          const unchanged = await validateAdaptiveSnapshot(this.projectRoot, plan!.snapshot);
-          return unchanged && !abort.signal.aborted && !this.closed && adaptiveRuntimeKey(this.projectRoot, this.db.getBackend()) === plan!.runtimeKey && isSourceOwned(this.db.getDb());
+          // data_version detects other-connection commits; total_changes also
+          // detects SDK code mutating this exact connection during the await.
+          // These cheap guards are not a substitute for the worker's legacy
+          // provenance/graph validation or the cooperative writer protocol.
+          const unchanged = await runAdaptiveReadWorker<boolean>({ type: 'validate', root: this.projectRoot,
+            databasePath: candidate.databasePath, sourceDatabasePath: this.db.getPath(),
+            snapshot: plan!.snapshot, runtimeKey: plan!.runtimeKey }, { signal: abort.signal });
+          return unchanged && !abort.signal.aborted && !this.closed && sourceEpoch() === expectedSourceEpoch &&
+            (!initiallyOwned || isSourceOwned(this.db.getDb())) && adaptiveRuntimeKey(this.projectRoot, this.db.getBackend()) === plan!.runtimeKey;
         },
       });
       const durationMs = performance.now() - started + plan.planningMs;
       // Record the whole rebuild (planning, validation and switching), not just extraction.
       try {
-        const current = CodeGraph.openReadOnlySync(this.projectRoot, this.dataDir);
-        try { current.recordCostSample('full', [], durationMs); } finally { current.close(); }
+        await runAdaptiveReadWorker<boolean>({ type: 'record-full', root: this.projectRoot,
+          databasePath: candidate.databasePath, durationMs }, { signal: abort.signal });
       } catch { /* publication already succeeded; history is optional */ }
       this.emitAdaptiveDecision(options, { ...decision, reason: `rebuild-published:${candidate.id};buildMs=${Math.round(buildMs)};validationAndPublishMs=${Math.round(durationMs - buildMs - plan.planningMs)}` });
       return { adaptive: { strategy: 'rebuild', reason: decision.reason, generation: candidate.id, planningMs: plan.planningMs, buildMs, validationAndPublishMs: durationMs - buildMs - plan.planningMs }, complete: true, filesChecked: plan.totalFiles + plan.removed.length,
@@ -985,8 +1105,9 @@ export class CodeGraph {
       this.emitAdaptiveDecision(options, { ...decision, reason: `rebuild-failed: ${error instanceof Error ? error.message : String(error)}` });
       throw error;
     } finally {
-      options.signal?.removeEventListener('abort', cancel);
-      this.activeBuild = null;
+      // Every awaited child/thread operation has exited before its lease can
+      // be released; CURRENT and registered readers protect published data.
+      cleanupGenerationCandidate(this.dataDir, candidate);
     }
   }
 
@@ -1051,7 +1172,7 @@ export class CodeGraph {
         return { filesChecked: 0, filesAdded: 0, filesModified: 0, filesRemoved: 0, nodesUpdated: 0, durationMs: 0 };
       }
       try {
-      if (!this.shadowCandidate && (this.readOnly || resolveGeneration(this.dataDir).databasePath !== this.db.getPath())) {
+      if (!this.shadowCandidate && (this.readOnly || this.currentDatabasePath() !== this.db.getPath())) {
         let active: CodeGraph | undefined;
         try {
           active = this.openCurrentWriter(); this.forwardedWriter = active;
@@ -1064,7 +1185,6 @@ export class CodeGraph {
         if (rebuilt) { this.fileLock.release(); return rebuilt; }
         if (this.db.getBackend() === 'node-sqlite' && isSourceOwned(this.db.getDb())) adaptiveBefore = this.queries.getAllFiles();
       } catch (error) { this.fileLock.release(); throw error; }
-      const ownership = this.db.getBackend() === 'node-sqlite' ? beginSourceWrite(this.db.getDb()) : null;
       let scopeChanged: boolean;
       try {
         scopeChanged = this.needsLanguageScopeRebuild();
@@ -1079,6 +1199,7 @@ export class CodeGraph {
           this.fileLock.release();
         }
       }
+      const ownership = this.db.getBackend() === 'node-sqlite' ? beginSourceWrite(this.db.getDb()) : null;
       // Sync updates the same FTS and secondary-index pages as a full index.
       // On a large existing database, SQLite's default 1000-page automatic
       // checkpoint cadence can therefore repeatedly rewrite hot pages even
@@ -1916,7 +2037,7 @@ export class CodeGraph {
       this.fileLock.acquire();
       let active: CodeGraph | undefined;
       try {
-        active = this.readOnly || resolveGeneration(this.dataDir).databasePath !== this.db.getPath() ? this.openCurrentWriter() : this;
+        active = this.readOnly || this.currentDatabasePath() !== this.db.getPath() ? this.openCurrentWriter() : this;
         return await active.resolveReferencesBatchedLocked(onProgress, onSynthesisProgress, options);
       } finally { if (active && active !== this) active.close(); this.fileLock.release(); }
     });
