@@ -283,8 +283,9 @@ export class MCPServer {
 
   /**
    * Stop the server. In daemon mode this triggers graceful shutdown of every
-   * connected session; in direct mode it mirrors the pre-#411 behavior (close
-   * cg, exit). Proxy mode never routes through here — the proxy exits itself.
+   * connected session; direct mode closes admission then asynchronously drains
+   * active work and retired-generation collection before exiting. Proxy mode
+   * owns the same drain on its local fallback engine.
    */
   stop(): void {
     if (this.stopped) return;
@@ -302,11 +303,12 @@ export class MCPServer {
       this.session.stop();
       this.session = null;
     }
-    if (this.engine) {
-      this.engine.stop();
-      this.engine = null;
-    }
-    process.exit(0);
+    const engine = this.engine;
+    this.engine = null;
+    void (engine?.stopAndDrain() ?? Promise.resolve()).then(
+      () => process.exit(0),
+      error => { process.stderr.write(`[CodeGraph MCP] Shutdown failed: ${String(error)}\n`); process.exit(1); },
+    );
   }
 
   /** Single-process stdio MCP session — the pre-issue-#411 code path. */
@@ -315,7 +317,7 @@ export class MCPServer {
       process.stderr.write(`[CodeGraph MCP] Direct mode: ${reason}.\n`);
     }
     this.engine = new MCPEngine();
-    const transport = new StdioTransport();
+    const transport = new StdioTransport({ exitOnClose: false, onClose: () => this.stop() });
     this.session = new MCPSession(transport, this.engine, {
       explicitProjectPath: this.projectPath,
     });
@@ -328,7 +330,7 @@ export class MCPServer {
     this.session.start();
 
     // Detect parent-process death — same logic as pre-refactor. When stdin
-    // closes we go through StdioTransport's `process.exit(0)` already, but
+    // closes the transport routes through our asynchronous shutdown drain, but
     // SIGKILL of the parent doesn't reliably close stdin on Linux (#277).
     process.stdin.on('end', () => this.stop());
     process.stdin.on('close', () => this.stop());

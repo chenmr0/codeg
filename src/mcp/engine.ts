@@ -14,6 +14,7 @@ import type CodeGraph from '../index';
 import { findNearestCodeGraphRoot } from '../directory';
 import { watchDisabledReason } from '../sync';
 import { ToolHandler } from './tools';
+import { drainGenerationCollections } from '../sync/generation-store';
 
 // Lazy-load the heavy CodeGraph chain (sqlite + query/graph/context layers) OFF
 // the MCP startup path. It's only needed once a tool actually opens a project —
@@ -51,6 +52,8 @@ export class MCPEngine {
   private watcherStarted = false;
   private opts: Required<MCPEngineOptions>;
   private closed = false;
+  private pendingClose: Promise<void> = Promise.resolve();
+  private drainPromise: Promise<void> | null = null;
 
   constructor(opts: MCPEngineOptions = {}) {
     this.opts = { watch: opts.watch ?? true };
@@ -147,15 +150,53 @@ export class MCPEngine {
     this.closed = true;
     if (this.cg) {
       // Stop events and the rebuild child immediately, but let admitted MCP
-      // requests release their legacy-reader lease before closing its DB.
+      // requests finish SQL reads and freshness postprocessing before closing
+      // either their pinned reader or this default readiness facade.
       try { this.cg.unwatch(); } catch { /* continue shutdown */ }
       try { this.cg.abortActiveWork(); } catch { /* continue shutdown */ }
     }
     this.toolHandler.closeAll();
     if (this.cg) {
-      try { this.toolHandler.closeOwnedDefaultWhenIdle(this.cg); } catch { /* ignore */ }
+      const graph = this.cg;
+      if (graph.isIndexing?.()) {
+        // A cancelled child/write still owns its DB and root lock until its
+        // operation unwinds. Closing here would race its final cleanup.
+        this.pendingClose = graph.whenIdle().then(() => {
+          this.toolHandler.closeOwnedDefaultWhenIdle(graph);
+        });
+      } else {
+        try { this.toolHandler.closeOwnedDefaultWhenIdle(graph); } catch { /* ignore */ }
+      }
       this.cg = null;
     }
+  }
+
+  /** Process owners must await this before exit; stop() alone only starts shutdown.
+   * The bound protects clients from a stuck tool. OS lease release on process
+   * death plus startup collection remains the safe fallback, never forced GC. */
+  stopAndDrain(timeoutMs = 10_000): Promise<void> {
+    if (this.drainPromise) return this.drainPromise;
+    this.stop();
+    this.drainPromise = (async () => {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        await Promise.race([
+          (async () => {
+            await this.initPromise;
+            await this.pendingClose;
+            await this.toolHandler.whenIdle();
+            await drainGenerationCollections();
+          })(),
+          new Promise<void>(resolve => {
+            timer = setTimeout(() => {
+              process.stderr.write('[CodeGraph MCP] Shutdown drain timed out; restart will safely reclaim retired generations.\n');
+              resolve();
+            }, timeoutMs);
+          }),
+        ]);
+      } finally { if (timer) clearTimeout(timer); }
+    })();
+    return this.drainPromise;
   }
 
   private async doInitialize(searchFrom: string): Promise<void> {
@@ -170,7 +211,9 @@ export class MCPEngine {
 
     this.projectPath = resolvedRoot;
     try {
-      this.cg = await loadCodeGraph().open(resolvedRoot);
+      const graph = await loadCodeGraph().open(resolvedRoot);
+      if (this.closed) { graph.close(); return; }
+      this.cg = graph;
       this.toolHandler.setDefaultCodeGraph(this.cg);
       this.startWatching();
       this.catchUpSync();

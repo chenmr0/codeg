@@ -636,34 +636,27 @@ program
       }
 
       const { default: CodeGraph } = await loadCodeGraph();
-      const cg = await CodeGraph.init(projectPath, { index: false });
+      // Keep the first index private until initialization succeeds; publishing
+      // an empty generation first would make disposable fast-init unsafe.
+      let result: IndexResult | undefined;
+      const progress = options.verbose ? undefined : createShimmerProgress();
+      let cg: import('../index').default;
+      try {
+        cg = await CodeGraph.init(projectPath, {
+          index: true,
+          verbose: options.verbose,
+          onProgress: options.verbose ? createVerboseProgress() : progress!.onProgress,
+          onIndexResult: value => { result = value; },
+        });
+      } catch (error) {
+        if (result && !result.success) {
+          printIndexResult(clack, result, projectPath);
+          clack.outro('Index incomplete');
+        }
+        throw error;
+      } finally { await progress?.stop(); }
       clack.log.success(`Initialized in ${projectPath}`);
-
-      // Indexing runs by default now. The legacy -i/--index flag is still
-      // accepted (so existing muscle memory and scripts don't break) but is a
-      // no-op — initializing always builds the initial index.
-      let result: IndexResult;
-      if (options.verbose) {
-        result = await cg.indexAll({
-          onProgress: createVerboseProgress(),
-          verbose: true,
-        });
-      } else {
-        process.stdout.write(`${colors.dim}${getGlyphs().rail}${colors.reset}\n`);
-        const progress = createShimmerProgress();
-        result = await cg.indexAll({
-          onProgress: progress.onProgress,
-        });
-        await progress.stop();
-      }
-      printIndexResult(clack, result, projectPath);
-
-      if (!result.success) {
-        clack.outro('Index incomplete');
-        cg.destroy();
-        process.exitCode = 1;
-        return;
-      }
+      if (result) printIndexResult(clack, result, projectPath);
 
       try {
         const { offerWatchFallback } = await import('../installer');
@@ -671,7 +664,7 @@ program
       } catch { /* non-fatal */ }
 
       clack.outro(
-        result.complete === false ? 'Initialized with incomplete graph coverage' : 'Done'
+        result?.complete === false ? 'Initialized with incomplete graph coverage' : 'Done'
       );
       cg.destroy();
     } catch (err) {

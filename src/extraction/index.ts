@@ -2182,6 +2182,7 @@ export class ExtractionOrchestrator {
 
     return {
       success: filesIndexed > 0 || errors.filter((e) => e.severity === 'error').length === 0,
+      complete: filesErrored === 0 && !errors.some(error => error.severity === 'error') && !hasDeclarationMacroRecoverySkipped(errors),
       filesIndexed,
       filesSkipped,
       filesErrored,

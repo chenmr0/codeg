@@ -84,3 +84,44 @@ export function validateRebuiltDatabase(databasePath: string, snapshot: Adaptive
     return ['nodes_fts', 'nodes_ai', 'nodes_ad', 'nodes_au', 'idx_edges_identity', 'idx_nodes_name', 'idx_nodes_kind', 'idx_unresolved_status'].every(name => objects.has(name));
   } finally { connection.close(); }
 }
+
+/** Wait for worker exit on every path: validation cannot outlive writer ownership. */
+export async function runAdaptiveReadWorker<T>(job: import('./rebuild-validation-worker').AdaptiveReadJob,
+  options: { signal?: AbortSignal } = {}): Promise<T> {
+  if (options.signal?.aborted) throw new Error('Adaptive read cancelled');
+  // TypeScript development/tests still execute the explicitly built worker.
+  // Packaged JS always resolves its adjacent, version-matched worker.
+  const workerPath = __filename.endsWith('.ts')
+    ? path.resolve(__dirname, '../../dist/sync/rebuild-validation-worker.js')
+    : path.join(__dirname, 'rebuild-validation-worker.js');
+  if (!fs.existsSync(workerPath)) throw new Error('Adaptive validation worker is not built');
+  const { Worker } = await import('worker_threads');
+  const worker = new Worker(workerPath, { workerData: { job, parentExecArgv: [...process.execArgv] } });
+  return await waitForAdaptiveReadWorker<T>(worker, options.signal);
+}
+
+/** @internal Lifecycle seam tested without starting expensive graph validation. */
+export function waitForAdaptiveReadWorker<T>(worker: import('worker_threads').Worker, signal?: AbortSignal): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    let result: T | undefined;
+    let received = false;
+    let failure: Error | undefined;
+    let cancelled = false;
+    const abort = (): void => { cancelled = true; void worker.terminate().catch(error => { failure = error; }); };
+    signal?.addEventListener('abort', abort, { once: true });
+    worker.on('message', (message: { result?: T; error?: string }) => {
+      if (!message || typeof message !== 'object') failure = new Error('Malformed adaptive worker response');
+      else if (message.error) failure = new Error(message.error);
+      else if (Object.prototype.hasOwnProperty.call(message, 'result')) { result = message.result; received = true; }
+      else failure = new Error('Adaptive worker response has no result');
+    });
+    worker.on('error', error => { failure = error; });
+    worker.once('exit', code => {
+      signal?.removeEventListener('abort', abort);
+      if (cancelled || failure || code !== 0 || !received) reject(failure ?? new Error(cancelled ?
+        'Adaptive read cancelled; old generation retained' : `Adaptive validation worker exited ${code}`));
+      else resolve(result as T);
+    });
+    if (signal?.aborted) abort();
+  });
+}

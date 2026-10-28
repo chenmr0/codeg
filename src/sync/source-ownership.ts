@@ -9,6 +9,7 @@ import { createHash } from 'crypto';
 import { readFileSync } from 'fs';
 import * as path from 'path';
 import type { SqliteDatabase } from '../db/sqlite-adapter';
+import { NODE_KINDS, LANGUAGES } from '../types';
 
 const OWNER_KEY = 'adaptive:source-owner-v1';
 const GUARDED_TABLES = ['nodes', 'edges', 'files', 'unresolved_refs', 'schema_versions', 'project_metadata'] as const;
@@ -112,4 +113,108 @@ export function finishSourceWrite(db: SqliteDatabase, token: SourceWriteToken | 
     putMarker(db, state.fingerprint);
     return true;
   })();
+}
+
+
+export interface LegacySourceProvenance { eligible: boolean; reason: string; }
+
+/**
+ * Read-only admission for the verified official 1.1.2 / extraction-36 format
+ * (1765271 and e1c038a5). This is deliberately NOT an ownership installer.
+ * Invoke in an isolated worker: validation scans graph rows and may be costly.
+ *
+ * The contract is an exclusively tool-managed official legacy index, not an
+ * adversarial SQL store: a user who fabricates indistinguishable official rows
+ * cannot be detected without retained original source/provenance. Unknown
+ * schema, metadata, import provenance and graph extensions fail closed. A
+ * damaged modern ownership chain is never relabeled as legacy.
+ */
+export function inspectLegacySourceProvenance(db: SqliteDatabase): LegacySourceProvenance {
+  const deny = (reason: string): LegacySourceProvenance => ({ eligible: false, reason });
+  const safePath = (value: unknown): value is string => typeof value === 'string' && value.length > 0 &&
+    !value.includes('\\') && !value.includes('\0') && !value.includes(':') && !value.startsWith('/') &&
+    value.split('/').every(part => part !== '' && part !== '.' && part !== '..');
+  const hash = (value: unknown): boolean => typeof value === 'string' && /^[0-9a-f]{64}$/.test(value);
+  const object = (value: string): Record<string, unknown> | null => {
+    try { const parsed = JSON.parse(value); return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : null; }
+    catch { return null; }
+  };
+  try {
+    if (schemaFingerprint(db) !== expectedStockFingerprint()) return deny('legacy-unknown-or-extended-schema');
+    const metadata = new Map((db.prepare('SELECT key,value FROM project_metadata').all() as Array<{key:string;value:string}>)
+      .map(row => [row.key, row.value]));
+    if (metadata.get('indexed_with_version') !== '1.1.2' || metadata.get('indexed_with_extraction_version') !== '36') {
+      return deny('legacy-unsupported-build-stamp');
+    }
+    if (metadata.get('index_completeness') !== 'complete' || metadata.get('index_synthesis_completed_version') !== '1' ||
+        metadata.get('index_synthesis_verification_started') !== '1') return deny('legacy-incomplete-or-unverified');
+    if (!['default-v1', 'all'].includes(metadata.get('indexed_language_scope') ?? '')) return deny('legacy-unknown-language-policy');
+    const fixed = new Set(['indexed_with_version', 'indexed_with_extraction_version', 'indexed_language_scope',
+      'index_completeness', 'index_synthesis_completed_version', 'index_synthesis_verification_started', 'index_diagnostics']);
+    for (const [key, value] of metadata) {
+      if (fixed.has(key)) continue;
+      if (['resolution:cpp-macro-evidence-v1', 'resolution:cpp-macro-evidence-clean-v1'].includes(key) && hash(value)) continue;
+      if (key === 'repair:cpp-include-targets-v1' && value === 'done') continue;
+      if (key.startsWith('sync-retry:done:') && safePath(key.slice('sync-retry:done:'.length))) {
+        const proof = object(value);
+        if (proof && Object.keys(proof).every(k => ['version','contentHash','fingerprint'].includes(k)) &&
+            proof.version === '1:36' && hash(proof.contentHash) && (proof.fingerprint === null || hash(proof.fingerprint))) continue;
+      }
+      return deny('legacy-unknown-or-pending-metadata');
+    }
+    let diagnostics: unknown;
+    try { diagnostics = JSON.parse(metadata.get('index_diagnostics') ?? 'null'); } catch { return deny('legacy-invalid-diagnostics'); }
+    if (!Array.isArray(diagnostics) || diagnostics.some(d => !d || d.code !== 'skipped_macro_data_header' || d.severity !== 'warning')) {
+      return deny('legacy-unverified-diagnostics');
+    }
+    const versions = db.prepare('SELECT version,description FROM schema_versions ORDER BY version').all() as Array<{version:number;description:string}>;
+    if (versions.length !== 2 || versions[0]?.version !== 1 || versions[0]?.description !== 'Initial schema' ||
+        versions[1]?.version !== 9 || versions[1]?.description !== 'Initial schema includes all migrations') {
+      return deny('legacy-unsupported-schema-history');
+    }
+    const files = new Map<string, { language: string; nodeCount: number }>();
+    for (const file of db.prepare('SELECT path,content_hash,language,size,node_count,errors FROM files').iterate()) {
+      if (!safePath(file.path) || !hash(file.content_hash) || !LANGUAGES.includes(file.language) ||
+          !Number.isSafeInteger(file.size) || file.size < 0 || !Number.isSafeInteger(file.node_count) || file.node_count < 0) {
+        return deny('legacy-invalid-file-provenance');
+      }
+      if (file.errors) {
+        let errors: unknown; try { errors = JSON.parse(file.errors); } catch { return deny('legacy-invalid-file-diagnostics'); }
+        if (!Array.isArray(errors) || errors.some(e => !e || e.code !== 'skipped_macro_data_header' || e.severity !== 'warning')) {
+          return deny('legacy-incomplete-file');
+        }
+      }
+      files.set(file.path, { language: file.language, nodeCount: file.node_count });
+    }
+    if (files.size === 0) return deny('legacy-no-source-provenance');
+    const counts = new Map<string, number>();
+    for (const node of db.prepare('SELECT id,kind,file_path,language,start_line,end_line,start_column,end_column FROM nodes').iterate()) {
+      const file = files.get(node.file_path);
+      if (!file || !NODE_KINDS.includes(node.kind) || !LANGUAGES.includes(node.language) ||
+          ![node.start_line,node.end_line,node.start_column,node.end_column].every(n => Number.isSafeInteger(n) && n >= 0) ||
+          node.end_line < node.start_line || (node.kind === 'file' ? node.id !== `file:${node.file_path}` :
+            !new RegExp(`^${node.kind}:[0-9a-f]{32}$`).test(node.id))) return deny('legacy-custom-or-unanchored-node');
+      counts.set(node.file_path, (counts.get(node.file_path) ?? 0) + 1);
+    }
+    if ([...files].some(([name, file]) => (counts.get(name) ?? 0) !== file.nodeCount)) return deny('legacy-node-count-mismatch');
+    const kinds = new Set(['contains','calls','imports','exports','extends','implements','references','type_of','returns',
+      'instantiates','overrides','decorates','defines']);
+    // Narrow observed upstream payloads. Unrecognized optional extensions are
+    // preserved by refusing replacement rather than silently discarding them.
+    const edgeKeys = new Set(['confidence','resolvedBy','refName','refKind','synthesizedBy','framework','type','name',
+      'event','registeredAt','callback','receiver','method','decorator','path','httpMethod','route','handler','source']);
+    for (const edge of db.prepare('SELECT kind,provenance,metadata FROM edges').iterate()) {
+      if (!kinds.has(edge.kind) || ![null,'tree-sitter','heuristic'].includes(edge.provenance)) return deny('legacy-custom-edge');
+      if (edge.metadata) {
+        const data = object(edge.metadata);
+        if (!data || Object.keys(data).some(key => !edgeKeys.has(key))) return deny('legacy-custom-edge-metadata');
+      }
+    }
+    for (const ref of db.prepare('SELECT reference_kind,file_path,language,status FROM unresolved_refs').iterate()) {
+      if (!kinds.has(ref.reference_kind) || !files.has(ref.file_path) || !LANGUAGES.includes(ref.language) ||
+          !['resolved','failed'].includes(ref.status)) return deny('legacy-unverified-reference');
+    }
+    if (db.prepare('PRAGMA foreign_key_check').get()) return deny('legacy-invalid-relationships');
+    return { eligible: true, reason: 'supported-official-legacy-format' };
+  } catch { return deny('legacy-inspection-unavailable'); }
 }

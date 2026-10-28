@@ -74,6 +74,82 @@ describe('FileWatcher', () => {
     }
   });
 
+  describe('configuration-only events', () => {
+    it.each(['compile_commands.json', 'compile_flags.txt', 'tsconfig.json', 'jsconfig.json',
+      'package.json', 'CMakeLists.txt', '.gitignore', '.codegraphignore',
+      'src/.gitignore', 'src/.codegraphignore', '.git/info/exclude'])('full reconciles %s changes and deletion', async control => {
+      const file = path.join(testDir, control);
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.writeFileSync(file, '');
+      const sync = vi.fn().mockResolvedValue({ filesChanged: 0, durationMs: 0 });
+      const watcher = newWatcher(sync, { debounceMs: 10 });
+      watcher.start();
+      try {
+        const revision = watcher.getChangeRevision();
+        watcher.ingestEventForTests(control);
+        await waitFor(() => sync.mock.calls.length === 1);
+        expect(sync.mock.calls[0]).toEqual([undefined]);
+        expect(watcher.getChangeRevision()).toBeGreaterThan(revision);
+        fs.unlinkSync(file);
+        watcher.ingestEventForTests(control);
+        await waitFor(() => sync.mock.calls.length === 2);
+        expect(sync.mock.calls[1]).toEqual([undefined]);
+      } finally { watcher.stop(); }
+    });
+
+    it('does not lose a same-millisecond configuration event during an ongoing full sync', async () => {
+      let release!: () => void;
+      const sync = vi.fn().mockImplementationOnce(() => new Promise(resolve => { release = () => resolve({ filesChanged: 0, durationMs: 0 }); }))
+        .mockResolvedValue({ filesChanged: 0, durationMs: 0 });
+      const watcher = newWatcher(sync, { debounceMs: 10 });
+      watcher.start();
+      try {
+        watcher.ingestEventForTests('compile_commands.json');
+        await waitFor(() => sync.mock.calls.length === 1);
+        watcher.ingestEventForTests('compile_flags.txt');
+        release();
+        await waitFor(() => sync.mock.calls.length === 2);
+        expect(sync.mock.calls).toEqual([[undefined], [undefined]]);
+      } finally { watcher.stop(); }
+    });
+
+    it('refreshes ignore policy and adds native watches for a newly included subtree', async () => {
+      const hidden = path.join(testDir, 'hidden');
+      fs.mkdirSync(hidden); fs.writeFileSync(path.join(hidden, 'new.c'), 'int a;');
+      fs.writeFileSync(path.join(testDir, '.gitignore'), 'hidden/\n');
+      const sync = vi.fn().mockResolvedValue({ filesChanged: 0, durationMs: 0 });
+      const watcher = newWatcher(sync, { inertForTests: false, debounceMs: 20 });
+      watcher.start();
+      try {
+        fs.writeFileSync(path.join(testDir, '.gitignore'), '');
+        await waitFor(() => sync.mock.calls.length > 0);
+        expect(sync.mock.calls[0]).toEqual([undefined]);
+        // The full scan covers preexisting files. Later edits must arrive via
+        // newly installed OS watches, not only the synthetic event seam.
+        const before = watcher.getChangeRevision();
+        fs.writeFileSync(path.join(hidden, 'new.c'), 'int b;');
+        await waitFor(() => watcher.getChangeRevision() > before);
+        await waitFor(() => sync.mock.calls.length > 1);
+      } finally { watcher.stop(); }
+    });
+
+    it('observes native .git/info/exclude changes without watching Git churn', async () => {
+      fs.mkdirSync(path.join(testDir, '.git/info'), { recursive: true });
+      fs.writeFileSync(path.join(testDir, '.git/info/exclude'), '');
+      const sync = vi.fn().mockResolvedValue({ filesChanged: 0, durationMs: 0 });
+      const watcher = newWatcher(sync, { inertForTests: false, debounceMs: 20 });
+      watcher.start();
+      try {
+        fs.writeFileSync(path.join(testDir, '.git/index'), 'noise');
+        await new Promise(resolve => setTimeout(resolve, 70));
+        expect(sync).not.toHaveBeenCalled();
+        fs.writeFileSync(path.join(testDir, '.git/info/exclude'), 'hidden/\n');
+        await waitFor(() => sync.mock.calls.length > 0);
+        expect(sync.mock.calls[0]).toEqual([undefined]);
+      } finally { watcher.stop(); }
+    });
+  });
+
   describe('start/stop lifecycle', () => {
     it('should start and stop without errors', () => {
       const syncFn = vi.fn().mockResolvedValue({ filesChanged: 0, durationMs: 0 });

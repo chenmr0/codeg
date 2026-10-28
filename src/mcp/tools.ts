@@ -471,6 +471,12 @@ interface GenerationReader {
   retired: boolean;
 }
 
+interface GenerationRequest {
+  generations: Map<string, GenerationReader>;
+  // Includes non-query facades used by readiness/staleness postprocessing.
+  retained: Set<GenerationReader>;
+}
+
 const LEGACY_INDEX_COVERAGE_NOTICE =
   '⚠️ Legacy index is usable; synthesis coverage is unverified. ' +
   'Run `codegraph index` to verify and upgrade coverage.';
@@ -1277,10 +1283,18 @@ export class ToolHandler {
   private dataView = new AsyncLocalStorage<QueryDataView>();
   // Pin the whole facade, not just a SQLite handle: traversers, resolvers and
   // prepared statements must all refer to the same published generation.
-  private generationRequest = new AsyncLocalStorage<Map<string, GenerationReader>>();
+  private generationRequest = new AsyncLocalStorage<GenerationRequest>();
   private generationReaders = new Map<string, GenerationReader>();
   private readerEntries = new Map<CodeGraph, GenerationReader>();
   private closing = false;
+  private activeExecutions = 0;
+  private idleWaiters: Array<() => void> = [];
+
+  /** Includes admission waits and all response postprocessing, not only SQL leases. */
+  whenIdle(): Promise<void> {
+    return this.activeExecutions === 0 ? Promise.resolve()
+      : new Promise(resolve => this.idleWaiters.push(resolve));
+  }
 
   constructor(private cg: CodeGraph | null) {}
 
@@ -1472,15 +1486,17 @@ export class ToolHandler {
    */
   private getCodeGraph(projectPath?: string): CodeGraph {
     const request = this.generationRequest.getStore();
-    if (this.closing && !request?.size) throw new Error('CodeGraph tool handler is closing');
+    if (this.closing && !request?.retained.size) throw new Error('CodeGraph tool handler is closing');
     // The default root is stable even while its writer forwards to a newer
     // generation. Explicit aliases are resolved by the existing project cache.
     const base = this.getProjectCodeGraph(projectPath);
     // Keep legacy embedding adapters/test facades working without the newer
     // generation API; only actual generation-aware facades need root lookup.
-    if (!request || typeof base.getDatabaseFilePath !== 'function') return base;
+    if (!request) return base;
+    this.retainRequestFacade(request, base);
+    if (typeof base.getDatabaseFilePath !== 'function') return base;
     const root = resolvePath(base.getProjectRoot());
-    const pinned = request?.get(root);
+    const pinned = request.generations.get(root);
     if (pinned) return pinned.graph;
     if (this.closing) throw new Error('CodeGraph tool handler is closing');
 
@@ -1507,9 +1523,25 @@ export class ToolHandler {
       entry = replacement;
       this.generationReaders.set(root, entry);
     }
-    entry.references++;
-    request.set(root, entry);
+    this.retainRequestEntry(request, entry);
+    request.generations.set(root, entry);
     return entry.graph;
+  }
+
+  private retainRequestEntry(request: GenerationRequest, entry: GenerationReader): void {
+    if (request.retained.has(entry)) return;
+    entry.references++;
+    request.retained.add(entry);
+  }
+
+  private retainRequestFacade(request: GenerationRequest, graph: CodeGraph): void {
+    let entry = this.readerEntries.get(graph);
+    if (!entry) {
+      if (this.closing) throw new Error('CodeGraph tool handler is closing');
+      entry = { graph, owned: graph !== this.cg, references: 0, retired: false };
+      this.readerEntries.set(graph, entry);
+    }
+    this.retainRequestEntry(request, entry);
   }
 
   private retireReader(entry: GenerationReader): void {
@@ -1520,12 +1552,13 @@ export class ToolHandler {
     }
   }
 
-  private releaseGenerationRequest(request: Map<string, GenerationReader>): void {
-    for (const entry of request.values()) {
+  private releaseGenerationRequest(request: GenerationRequest): void {
+    for (const entry of request.retained) {
       entry.references--;
       if (entry.retired && entry.references === 0) this.retireReader(entry);
     }
-    request.clear();
+    request.generations.clear();
+    request.retained.clear();
     if (this.closing && ![...this.readerEntries.values()].some(entry => entry.references > 0)) {
       this.projectCache.clear();
     }
@@ -1535,8 +1568,11 @@ export class ToolHandler {
     // Pending watcher events belong to the project, while SQL reads remain
     // pinned to their request's generation. Never substitute the query facade.
     if (graph === this.cg) return graph;
-    return this.cg && resolvePath(this.cg.getProjectRoot()) === resolvePath(graph.getProjectRoot())
+    const freshness = this.cg && resolvePath(this.cg.getProjectRoot()) === resolvePath(graph.getProjectRoot())
       ? this.cg : graph;
+    const request = this.generationRequest.getStore();
+    if (request) this.retainRequestFacade(request, freshness);
+    return freshness;
   }
 
   private getProjectCodeGraph(projectPath?: string): CodeGraph {
@@ -1632,7 +1668,8 @@ export class ToolHandler {
   /**
    * Engine shutdown transfers the default facade's ownership here after it
    * stops watching and cancels work. Already admitted requests may finish on
-   * their borrowed legacy generation before its connection is closed.
+   * their pinned SQL generation AND readiness/staleness facade before either
+   * connection is closed. Native readers are separate from the default facade.
    */
   closeOwnedDefaultWhenIdle(graph: CodeGraph): void {
     const entry = this.readerEntries.get(graph);
@@ -1893,7 +1930,9 @@ export class ToolHandler {
     args: Record<string, unknown>,
     options: ToolExecutionOptions = {},
   ): Promise<ToolResult> {
-    const request = new Map<string, GenerationReader>();
+    if (this.closing) return this.errorResult('CodeGraph tool handler is closing');
+    this.activeExecutions++;
+    const request: GenerationRequest = { generations: new Map(), retained: new Set() };
     try {
       return await this.generationRequest.run(request, () => this.executionSignal.run(
         options.signal,
@@ -1903,7 +1942,11 @@ export class ToolHandler {
         }, () => this.executeWithSignal(toolName, args)),
       ));
     } finally {
-      this.releaseGenerationRequest(request);
+      try { this.releaseGenerationRequest(request); }
+      finally {
+        this.activeExecutions--;
+        if (this.activeExecutions === 0) this.idleWaiters.splice(0).forEach(resolve => resolve());
+      }
     }
   }
 

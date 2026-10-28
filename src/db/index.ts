@@ -10,7 +10,7 @@ import * as path from 'path';
 import { SchemaVersion } from '../types';
 import { runMigrations, getCurrentVersion, CURRENT_SCHEMA_VERSION } from './migrations';
 import { getCodeGraphDir } from '../directory';
-import { resolveGeneration } from '../sync/generation-store';
+import { resolveGeneration, acquireGenerationLease, GenerationLease } from '../sync/generation-store';
 import {
   WalCheckpointError,
   walCheckpointErrorFrom,
@@ -47,49 +47,82 @@ function configureConnection(db: SqliteDatabase, backend: SqliteBackend): void {
   }
 }
 
+/** A factory failed and its native handle remains open. Lease owners must retain
+ * this connection (and their lease) rather than treating a failed open as closed.
+ */
+export class DatabaseOpenError extends Error {
+  constructor(readonly connection: DatabaseConnection, readonly cause: unknown, readonly closeCause: unknown) {
+    super('Database opening failed and its SQLite connection could not be closed');
+    this.name = 'DatabaseOpenError';
+  }
+}
+
+/** Public low-level SDK readers participate too; custom/flat databases are untouched. */
+function acquireDatabaseLease(databasePath: string): GenerationLease | undefined {
+  let resolved = path.resolve(databasePath);
+  try { resolved = fs.realpathSync(resolved); }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    // initialize() can target a new file inside an existing managed directory.
+    try { resolved = path.join(fs.realpathSync(path.dirname(resolved)), path.basename(resolved)); }
+    catch (parentError) { if ((parentError as NodeJS.ErrnoException).code !== 'ENOENT') throw parentError; }
+  }
+  const directory = path.dirname(resolved);
+  if (path.basename(resolved) !== 'codegraph.db' || path.basename(path.dirname(directory)) !== 'generations' ||
+      !/^g-[a-zA-Z0-9-]{1,100}$/.test(path.basename(directory))) return undefined;
+  const root = path.dirname(path.dirname(directory));
+  if (!fs.existsSync(path.join(root, '.generation-lifecycle.sqlite'))) return undefined;
+  // Unknown historical/custom directories are never collected. Registered IDs
+  // must still acquire the real lock; sealed/deleting IDs always fail closed.
+  return acquireGenerationLease(root, path.basename(directory), { allowUnmanaged: true });
+}
+
 /**
  * Database connection wrapper with lifecycle management
  */
 export class DatabaseConnection {
+  // SDK callers can retain only getDb() or discard an opening error. Explicit
+  // close owns lease release; independent JS finalizers must not reorder it.
+  private static readonly managedOrFailedConnections = new Set<DatabaseConnection>();
   private db: SqliteDatabase;
   private dbPath: string;
   private backend: SqliteBackend;
+  private storageLease?: GenerationLease;
 
-  private constructor(db: SqliteDatabase, dbPath: string, backend: SqliteBackend) {
+  private constructor(db: SqliteDatabase, dbPath: string, backend: SqliteBackend, storageLease?: GenerationLease) {
     this.db = db;
     this.dbPath = dbPath;
     this.backend = backend;
+    this.storageLease = storageLease;
+    if (storageLease) DatabaseConnection.managedOrFailedConnections.add(this);
   }
 
   /**
    * Initialize a new database at the given path
    */
   static initialize(dbPath: string): DatabaseConnection {
-    // Ensure parent directory exists
-    const dir = path.dirname(dbPath);
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
-    }
-
-    // Create and configure database
-    const { db, backend } = createDatabase(dbPath);
-
-    configureConnection(db, backend);
-
-    // Run schema initialization
-    const schemaPath = path.join(__dirname, 'schema.sql');
-    const schema = fs.readFileSync(schemaPath, 'utf-8');
-    db.exec(schema);
-
-    // Record current schema version so migrations aren't re-applied on open
-    const currentVersion = getCurrentVersion(db);
-    if (currentVersion < CURRENT_SCHEMA_VERSION) {
-      db.prepare(
-        'INSERT OR IGNORE INTO schema_versions (version, applied_at, description) VALUES (?, ?, ?)'
-      ).run(CURRENT_SCHEMA_VERSION, Date.now(), 'Initial schema includes all migrations');
-    }
-
-    return new DatabaseConnection(db, dbPath, backend);
+    const lease = acquireDatabaseLease(dbPath);
+    dbPath = lease?.databasePath ?? dbPath; // Open the same canonical target we pinned.
+    let created: ReturnType<typeof createDatabase>;
+    try {
+      const dir = path.dirname(dbPath);
+      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+      created = createDatabase(dbPath, lease ? { nativeOnly: true } : undefined);
+    } catch (error) { lease?.release(); throw error; }
+    const { db, backend } = created;
+    // Wrap immediately: configuration/schema failures must not strand a raw handle.
+    const connection = new DatabaseConnection(db, dbPath, backend, lease);
+    try {
+      configureConnection(db, backend);
+      const schema = fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf-8');
+      db.exec(schema);
+      const currentVersion = getCurrentVersion(db);
+      if (currentVersion < CURRENT_SCHEMA_VERSION) {
+        db.prepare('INSERT OR IGNORE INTO schema_versions (version, applied_at, description) VALUES (?, ?, ?)')
+          .run(CURRENT_SCHEMA_VERSION, Date.now(), 'Initial schema includes all migrations');
+      }
+      return connection;
+    } catch (error) { return DatabaseConnection.closeFailedOpen(connection, error); }
   }
 
   /**
@@ -100,38 +133,54 @@ export class DatabaseConnection {
       throw new Error(`Database not found: ${dbPath}`);
     }
 
-    const { db, backend } = createDatabase(dbPath, options);
-
-    configureConnection(db, backend);
-
-    // Check and run migrations if needed
-    const conn = new DatabaseConnection(db, dbPath, backend);
-    const currentVersion = getCurrentVersion(db);
-
-    if (currentVersion < CURRENT_SCHEMA_VERSION) {
-      runMigrations(db, currentVersion);
-    }
-
-    // Repair a process that died inside either fresh-index bulk window.
-    // FTS triggers and secondary indexes are schema objects, so a crash can
-    // leave the database queryable but permanently slow or with stale FTS.
-    conn.healBulkNodeLoad();
-    conn.healBulkParseIndexes();
-
-    return conn;
+    const lease = acquireDatabaseLease(dbPath);
+    dbPath = lease?.databasePath ?? dbPath; // Open the same canonical target we pinned.
+    let created: ReturnType<typeof createDatabase>;
+    try {
+      // Recheck after acquisition: a retired path may have been collected while
+      // waiting for the gate. Never let SQLite recreate that removed database.
+      if (!fs.existsSync(dbPath)) throw new Error(`Database not found: ${dbPath}`);
+      created = createDatabase(dbPath, lease ? { ...options, nativeOnly: true } : options);
+    } catch (error) { lease?.release(); throw error; }
+    const { db, backend } = created;
+    const connection = new DatabaseConnection(db, dbPath, backend, lease);
+    try {
+      configureConnection(db, backend);
+      const currentVersion = getCurrentVersion(db);
+      if (currentVersion < CURRENT_SCHEMA_VERSION) runMigrations(db, currentVersion);
+      // Repair processes interrupted inside fresh-index bulk windows.
+      connection.healBulkNodeLoad();
+      connection.healBulkParseIndexes();
+      return connection;
+    } catch (error) { return DatabaseConnection.closeFailedOpen(connection, error); }
   }
 
   /** Native, non-migrating connection for generation-pinned readers and validation. */
   static openReadOnly(dbPath: string): DatabaseConnection {
-    const { db, backend } = createDatabase(dbPath, { readOnly: true });
+    const lease = acquireDatabaseLease(dbPath);
+    dbPath = lease?.databasePath ?? dbPath; // Open the same canonical target we pinned.
+    let created: ReturnType<typeof createDatabase>;
+    try { created = createDatabase(dbPath, { readOnly: true }); }
+    catch (error) { lease?.release(); throw error; }
+    const { db, backend } = created;
+    const connection = new DatabaseConnection(db, dbPath, backend, lease);
     try {
       db.pragma('busy_timeout = 5000');
       db.pragma('query_only = ON');
       if (getCurrentVersion(db) !== CURRENT_SCHEMA_VERSION) {
         throw new Error('Read-only generation requires the current schema version');
       }
-      return new DatabaseConnection(db, dbPath, backend);
-    } catch (error) { db.close(); throw error; }
+      return connection;
+    } catch (error) { return DatabaseConnection.closeFailedOpen(connection, error); }
+  }
+
+  private static closeFailedOpen(connection: DatabaseConnection, cause: unknown): never {
+    let closeCause: unknown;
+    try { connection.close(); } catch (error) { closeCause = error; }
+    let stillOpen = true;
+    try { stillOpen = connection.isOpen(); } catch (error) { closeCause ??= error; }
+    if (stillOpen) throw new DatabaseOpenError(connection, cause, closeCause ?? new Error('SQLite handle remained open after close'));
+    throw cause;
   }
 
   private static readonly FTS_TRIGGER_NAMES = ['nodes_ai', 'nodes_ad', 'nodes_au'] as const;
@@ -652,7 +701,14 @@ export class DatabaseConnection {
    * Close the database connection
    */
   close(): void {
-    this.db.close();
+    DatabaseConnection.managedOrFailedConnections.add(this);
+    try { this.db.close(); }
+    finally {
+      if (!this.db.open) {
+        this.storageLease?.release(); this.storageLease = undefined;
+        DatabaseConnection.managedOrFailedConnections.delete(this);
+      }
+    }
   }
 
   /**
