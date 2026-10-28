@@ -15,6 +15,7 @@ const OWNER_KEY = 'adaptive:source-owner-v1';
 const GUARDED_TABLES = ['nodes', 'edges', 'files', 'unresolved_refs', 'schema_versions', 'project_metadata'] as const;
 const graphTables = ['nodes', 'edges', 'files', 'unresolved_refs'] as const;
 let stockFingerprint: string | undefined;
+let legacyStockFingerprint: string | undefined;
 
 function schemaFingerprint(db: Pick<SqliteDatabase, 'prepare'>): string {
   // ANALYZE is allowed to add SQLite's own statistics, not application data.
@@ -33,6 +34,36 @@ function expectedStockFingerprint(): string {
     db.exec(readFileSync(path.join(__dirname, '../db/schema.sql'), 'utf8'));
     stockFingerprint = schemaFingerprint(db);
     return stockFingerprint;
+  } finally { db.close(); }
+}
+
+/** Legacy-only textual equivalence: leave the modern marker algorithm unchanged.
+ * Preserve quoted SQL content, where a newline can be semantic data; all
+ * non-newline differences still reject extended or changed definitions. */
+export function normalizeLegacySchemaSql(sql: string): string {
+  // SQLite line comments end at LF, not at a bare CR. Only CRLF/LF are
+  // interchangeable here; CR-only text can change which constraints execute.
+  return sql.replace(
+    /'(?:''|[^'])*'|"(?:""|[^"])*"|`(?:``|[^`])*`|\[[^\]]*\]|--[^\n]*(?:\n|$)|\/\*[\s\S]*?\*\/|\r\n/g,
+    token => token === '\r\n' ? '\n'
+      : token.startsWith('--') || token.startsWith('/*') ? token.replace(/\r\n/g, '\n') : token,
+  );
+}
+function legacySchemaFingerprint(db: Pick<SqliteDatabase, 'prepare'>): string {
+  const schema = db.prepare(`SELECT type, name, tbl_name, sql FROM sqlite_master
+    WHERE name NOT LIKE 'sqlite_stat%' ORDER BY type, name`).all();
+  const normalized = schema.map(row => ({
+    ...row, sql: typeof row.sql === 'string' ? normalizeLegacySchemaSql(row.sql) : row.sql,
+  }));
+  return createHash('sha256').update(JSON.stringify(normalized)).digest('hex');
+}
+function expectedLegacyStockFingerprint(): string {
+  if (legacyStockFingerprint !== undefined) return legacyStockFingerprint;
+  const { DatabaseSync } = require('node:sqlite');
+  const db = new DatabaseSync(':memory:');
+  try {
+    db.exec(readFileSync(path.join(__dirname, '../db/schema.sql'), 'utf8'));
+    return legacyStockFingerprint = legacySchemaFingerprint(db);
   } finally { db.close(); }
 }
 
@@ -140,7 +171,7 @@ export function inspectLegacySourceProvenance(db: SqliteDatabase): LegacySourceP
     catch { return null; }
   };
   try {
-    if (schemaFingerprint(db) !== expectedStockFingerprint()) return deny('legacy-unknown-or-extended-schema');
+    if (legacySchemaFingerprint(db) !== expectedLegacyStockFingerprint()) return deny('legacy-unknown-or-extended-schema');
     const metadata = new Map((db.prepare('SELECT key,value FROM project_metadata').all() as Array<{key:string;value:string}>)
       .map(row => [row.key, row.value]));
     if (metadata.get('indexed_with_version') !== '1.1.2' || metadata.get('indexed_with_extraction_version') !== '36') {

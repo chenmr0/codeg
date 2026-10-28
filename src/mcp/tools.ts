@@ -8,7 +8,7 @@ import type CodeGraph from '../index';
 import type { IndexDataReadiness } from '../index';
 import { AsyncLocalStorage } from 'async_hooks';
 import { findNearestCodeGraphRoot, getCodeGraphDir } from '../directory';
-import { resolveGeneration } from '../sync/generation-store';
+import { acquireCurrentGenerationLease } from '../sync/generation-store';
 // Lazy-load the heavy CodeGraph chain off the MCP startup path — see the same
 // helper in engine.ts. ToolHandler must load to answer tools/list (static
 // schemas), but it must NOT drag in sqlite/query layers before the daemon binds;
@@ -39,6 +39,7 @@ import {
 import {
   existsSync,
   readFileSync,
+  lstatSync, openSync, fstatSync, readSync, closeSync, realpathSync, constants,
 } from 'fs';
 import { clamp, validatePathWithinRoot, validateProjectPath, isConfigLeafNode, CONFIG_LEAF_LANGUAGES, canonicalFilePath } from '../utils';
 import { isGeneratedFile } from '../extraction/generated-detection';
@@ -47,7 +48,7 @@ import {
   cppParameterKey,
   cppParameterKeysMatch,
 } from '../resolution/cpp-signature';
-import { resolve as resolvePath } from 'path';
+import { resolve as resolvePath, join as joinPath } from 'path';
 import {
   boundNumberedSource,
   CONTAINER_NODE_KINDS,
@@ -1286,6 +1287,43 @@ export class ToolHandler {
   private generationRequest = new AsyncLocalStorage<GenerationRequest>();
   private generationReaders = new Map<string, GenerationReader>();
   private readerEntries = new Map<CodeGraph, GenerationReader>();
+  private readerRoots = new Map<string, { dataDirectory: string; observed?: string }>();
+  private readerRetirementTimer?: ReturnType<typeof setInterval>;
+
+  private observeReaderRoot(root: string, dataDirectory: string): void {
+    if (!this.readerRoots.has(root)) this.readerRoots.set(root, { dataDirectory });
+    if (this.readerRetirementTimer) return;
+    this.readerRetirementTimer = setInterval(() => {
+      for (const [key, state] of this.readerRoots) {
+        try {
+          const file = joinPath(state.dataDirectory, 'CURRENT');
+          const stat = lstatSync(file);
+          if (!stat.isFile() || stat.size > 4096) continue;
+          const fd = openSync(file, constants.O_RDONLY | (constants.O_NONBLOCK ?? 0) | (constants.O_NOFOLLOW ?? 0));
+          let manifest: string | undefined;
+          try {
+            const opened = fstatSync(fd);
+            if (!opened.isFile() || opened.size > 4096) continue;
+            const bytes = Buffer.alloc(4097);
+            const count = readSync(fd, bytes, 0, bytes.length, 0);
+            if (count <= 4096) manifest = bytes.toString('utf8', 0, count);
+          } finally { closeSync(fd); }
+          if (manifest === undefined || manifest === state.observed) continue;
+          // Manifest text is only a cheap change detector. Strict admission
+          // validates and pins the target atomically against publication/GC.
+          const current = acquireCurrentGenerationLease(state.dataDirectory);
+          try {
+            const entry = this.generationReaders.get(key);
+            if (entry && entry.graph.getDatabaseFilePath() !== current.databasePath &&
+                entry.graph.getDatabaseFilePath() !== realpathSync(current.databasePath)) this.retireReader(entry);
+            state.observed = manifest;
+          } finally { current.release(); }
+        } catch { /* retry later; requests still perform strict admission */ }
+      }
+    }, 250);
+    this.readerRetirementTimer.unref();
+  }
+
   private closing = false;
   private activeExecutions = 0;
   private idleWaiters: Array<() => void> = [];
@@ -1502,30 +1540,40 @@ export class ToolHandler {
 
     const dataDirectory = typeof base.getDataDirectory === 'function'
       ? base.getDataDirectory() : getCodeGraphDir(root);
-    const currentPath = resolveGeneration(dataDirectory).databasePath;
-    let entry = this.generationReaders.get(root);
-    if (!entry || entry.graph.getDatabaseFilePath() !== currentPath) {
-      // SDK facades may forward reads after publication. Native MCP readers
-      // must therefore be independently pinned even for the first/legacy DB.
-      // Their WAL connection still observes ordinary same-generation syncs.
-      const graph = base.getBackend?.() === 'node-sqlite' || base.getDatabaseFilePath() !== currentPath
-        ? (base.constructor as typeof import('../index').CodeGraph).openReadOnlySync(root, dataDirectory) : base;
-      let replacement = this.readerEntries.get(graph);
-      if (!replacement) {
-        replacement = { graph, owned: graph !== this.cg, references: 0, retired: false };
-        this.readerEntries.set(graph, replacement);
+    // Protect the manifest target while comparing cached readers. A naked
+    // resolve can validate a directory after another process has reclaimed it.
+    const admission = acquireCurrentGenerationLease(dataDirectory);
+    try {
+      const currentPath = admission.databasePath;
+      let entry = this.generationReaders.get(root);
+      if (!entry || (entry.graph.getDatabaseFilePath() !== currentPath &&
+          entry.graph.getDatabaseFilePath() !== realpathSync(currentPath))) {
+        // SDK facades may forward reads after publication. Native MCP readers
+        // must therefore be independently pinned even for the first/legacy DB.
+        // Their WAL connection still observes ordinary same-generation syncs.
+        const constructor = base.constructor as typeof import('../index').CodeGraph;
+        const graph = base.getBackend?.() === 'node-sqlite' || base.getDatabaseFilePath() !== currentPath
+          ? (typeof constructor.openReadOnlyAtLease === 'function'
+            ? constructor.openReadOnlyAtLease(root, dataDirectory, admission)
+            : constructor.openReadOnlySync(root, dataDirectory)) : base;
+        let replacement = this.readerEntries.get(graph);
+        if (!replacement) {
+          replacement = { graph, owned: graph !== this.cg, references: 0, retired: false };
+          this.readerEntries.set(graph, replacement);
+        }
+        // The engine owns the default facade and its watcher; never close it
+        // here. Cross-project base facades remain in projectCache until shutdown.
+        if (entry && entry !== replacement && ![...this.projectCache.values()].includes(entry.graph)) {
+          this.retireReader(entry);
+        }
+        entry = replacement;
+        this.generationReaders.set(root, entry);
+        this.observeReaderRoot(root, dataDirectory);
       }
-      // The engine owns the default facade and its watcher; never close it
-      // here. Cross-project base facades remain in projectCache until shutdown.
-      if (entry && entry !== replacement && ![...this.projectCache.values()].includes(entry.graph)) {
-        this.retireReader(entry);
-      }
-      entry = replacement;
-      this.generationReaders.set(root, entry);
-    }
-    this.retainRequestEntry(request, entry);
-    request.generations.set(root, entry);
-    return entry.graph;
+      this.retainRequestEntry(request, entry);
+      request.generations.set(root, entry);
+      return entry.graph;
+    } finally { admission.release(); }
   }
 
   private retainRequestEntry(request: GenerationRequest, entry: GenerationReader): void {
@@ -1548,6 +1596,9 @@ export class ToolHandler {
     entry.retired = true;
     if (entry.references === 0) {
       this.readerEntries.delete(entry.graph);
+      for (const [root, cached] of this.generationReaders) {
+        if (cached === entry) this.generationReaders.delete(root);
+      }
       if (entry.owned) entry.graph.close();
     }
   }
@@ -1650,6 +1701,9 @@ export class ToolHandler {
   closeAll(): void {
     this.setCatchUpGate(null);
     this.closing = true;
+    if (this.readerRetirementTimer) clearInterval(this.readerRetirementTimer);
+    this.readerRetirementTimer = undefined;
+    this.readerRoots.clear();
     for (const cg of new Set(this.projectCache.values())) {
       let entry = this.readerEntries.get(cg);
       if (!entry) {
@@ -7272,7 +7326,9 @@ export class ToolHandler {
               try {
                 const dataDirectory = typeof cg.getDataDirectory === 'function'
                   ? cg.getDataDirectory() : getCodeGraphDir(cg.getProjectRoot());
-                return resolveGeneration(dataDirectory).databasePath === cg.getDatabaseFilePath();
+                const lease = acquireCurrentGenerationLease(dataDirectory);
+                try { return lease.databasePath === cg.getDatabaseFilePath(); }
+                finally { lease.release(); }
               } catch { return false; }
             },
           },
