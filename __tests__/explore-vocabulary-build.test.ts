@@ -3,7 +3,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import CodeGraph from '../src';
-import { createDatabase, type SqliteDatabase } from '../src/db/sqlite-adapter';
+import { createDatabase, ensureSqlJsReady, type SqliteDatabase } from '../src/db/sqlite-adapter';
 import { QueryBuilder } from '../src/upstream-explore/db/queries';
 import { createUpstreamExploreGraph } from '../src/mcp/upstream-explore-adapter';
 import { ToolHandler } from '../src/mcp/tools';
@@ -54,11 +54,14 @@ function seed(db: SqliteDatabase, names: string[], kind = 'function') {
   db.transaction(() => addNames(db, names, kind))();
 }
 function sourceNames(db: SqliteDatabase): string[] {
-  return db.prepare("SELECT DISTINCT name FROM nodes WHERE kind NOT IN ('file','import') ORDER BY name COLLATE BINARY")
-    .all().map((r: { name: string }) => r.name);
+  // Independent full-scan oracle: hex avoids the TEXT reader's NUL truncation
+  // without sharing the product's blob transport or keyset pagination.
+  return db.prepare("SELECT DISTINCT hex(name) AS name_hex FROM nodes WHERE kind NOT IN ('file','import') ORDER BY name COLLATE BINARY")
+    .all().map((r: { name_hex: string }) => Buffer.from(r.name_hex, 'hex').toString('utf8'));
 }
 function vocab(db: SqliteDatabase): Array<{ segment: string; name: string }> {
-  return db.prepare('SELECT segment, name FROM temp.name_segment_vocab ORDER BY segment COLLATE BINARY, name COLLATE BINARY').all();
+  return db.prepare('SELECT segment, hex(name) AS name_hex FROM temp.name_segment_vocab ORDER BY segment COLLATE BINARY, name COLLATE BINARY')
+    .all().map((r: { segment: string; name_hex: string }) => ({ segment: r.segment, name: Buffer.from(r.name_hex, 'hex').toString('utf8') }));
 }
 function expectedVocab(db: SqliteDatabase) {
   return sourceNames(db).flatMap(name => splitIdentifierSegments(name).map(segment => ({ segment, name })))
@@ -80,11 +83,42 @@ function buildCounter() {
   return counter;
 }
 
+async function wasmFixture() {
+  // Exercise the real fallback, not a native connection with a mocked
+  // inTransaction getter. Source tests need the installed WASM binary.
+  const fsModule = require('fs') as typeof fs;
+  const originalRead = fsModule.readFileSync;
+  const wasm = originalRead(require.resolve('sql.js-fts5/dist/sql-wasm.wasm'));
+  const read = vi.spyOn(fsModule, 'readFileSync').mockImplementation(((file: fs.PathOrFileDescriptor, ...args: any[]) =>
+    typeof file === 'string' && file.endsWith('sql-wasm.wasm') ? wasm : (originalRead as any)(file, ...args)) as any);
+  try { await ensureSqlJsReady(); } finally { read.mockRestore(); }
+  vi.stubEnv('CODEGRAPH_FORCE_WASM', '1');
+  const result = fixture();
+  expect(result.db.inTransaction).toBeUndefined();
+  return result;
+}
+
+function assertIndexedPages(db: SqliteDatabase) {
+  const prepared = vi.spyOn(db, 'prepare');
+  const queries = new QueryBuilder(db);
+  queries.getDistinctNodeNamesAfter(2);
+  queries.getDistinctNodeNamesAfter(2, 'A\u0000Tail');
+  const statements = prepared.mock.calls.map(([sql]) => sql).filter(sql => /SELECT CAST\(name AS BLOB\) AS name_bytes/.test(sql));
+  expect(statements).toHaveLength(2);
+  for (const sql of statements) {
+    const laterPage = sql.includes('name COLLATE BINARY > ?');
+    const plan = db.prepare(`EXPLAIN QUERY PLAN ${sql}`).all(...(laterPage ? ['A\u0000Tail', 2] : [2]));
+    const details = plan.map(row => row.detail as string).join('\n');
+    expect(details).toMatch(laterPage ? /SEARCH (?:TABLE )?nodes USING INDEX idx_nodes_name \(name>\?\)/ : /SCAN (?:TABLE )?nodes USING INDEX idx_nodes_name/);
+    expect(details).not.toMatch(/TEMP B-TREE/i);
+  }
+}
+
 describe('keyset name pages', () => {
   it.each([1, 2, 7, 2000])('matches one full DISTINCT BINARY scan for page size %i', limit => {
     const { db } = fixture();
-    seed(db, ['', '', 'AlphaState', 'AlphaState', 'alphaState', 'ZetaState', 'ÉclairStore',
-      'e\u0301clairStore', '中文Store', '\ue000Store', '𐀀Store', '𐀀Store', '💡Factory', '123', '_']);
+    seed(db, ['', '', '\u0000', 'A\u0000', 'A\u0000Tail', 'A\u0000Tail\u0000', 'AlphaState', 'AlphaState', 'alphaState', 'ZetaState', 'ÉclairStore',
+      'e\u0301clairStore', '中文Store', '\ue000Store', '𐀀Store', '𐀀Store', '💡Factory', '\ufeffStore', '123', '_']);
     seed(db, ['ImportOnlyName', 'AlphaState'], 'import'); seed(db, ['FileOnlyName'], 'file');
     const queries = new QueryBuilder(db);
     const all: string[] = [];
@@ -114,18 +148,94 @@ describe('keyset name pages', () => {
     expect(db.prepare("SELECT name FROM main.sqlite_schema WHERE name='name_segment_vocab'").get()).toBeUndefined();
   });
 
-  it('fails and rolls back instead of looping when a damaged name cannot round-trip as a keyset cursor', () => {
+  it.each([1, 2, 2000])('preserves NUL names at page boundaries and inside pages while rebuilding (%i)', pageSize => {
+    const { db, build } = fixture(); seed(db, ['StableOrderStore']); build();
+    seed(db, ['A', 'A\u0000Tail', 'A\u0000Tail\u0000Store', '\u0000PrefixStore', 'Z\u0000LastStore', '\ufeffBomStore']);
+    const queries = new QueryBuilder(db);
+    queries.rebuildTemporaryNameSegmentVocab(pageSize);
+    expect(db.inTransaction).toBe(false);
+    expect(vocab(db)).toEqual(expectedVocab(db));
+    expect(vocab(db).some(row => row.name === 'A\u0000Tail\u0000Store')).toBe(true);
+    expect(db.prepare('SELECT hex(?) AS value').get('A\u0000Tail').value).toBe('41005461696C');
+  });
+
+  it('retains indexed keyset seeks and does not add a temporary DISTINCT or ORDER BY tree', () => {
+    const { db } = fixture(); seed(db, ['A', 'A\u0000Tail', 'BStore']);
+    assertIndexedPages(db);
+  });
+
+  it.each(['UTF-16le', 'UTF-16be'])('decodes blob names in the database encoding without stripping a BOM (%s)', encoding => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cg-explore-vocabulary-encoding-')); roots.push(root);
+    const db = createDatabase(path.join(root, 'encoding.db')).db; writers.push(db);
+    db.exec(`PRAGMA encoding='${encoding}'; CREATE TABLE nodes(name TEXT,kind TEXT); CREATE INDEX idx_nodes_name ON nodes(name);`);
+    const names = ['', 'A\u0000Tail', 'ÉclairStore', '\ufeffBomStore', '💡Factory'];
+    for (const name of names) db.prepare('INSERT INTO nodes VALUES (?,?)').run(name, 'function');
+    const queries = new QueryBuilder(db);
+    const first = queries.getDistinctNodeNamesAfter(100);
+    const paged: string[] = [];
+    let after: string | undefined;
+    for (let guard = 0; guard < 10; guard++) {
+      const page = queries.getDistinctNodeNamesAfter(1, after);
+      if (!page.length) break;
+      paged.push(...page); after = page[0];
+    }
+    expect(paged).toEqual(first);
+    expect(new Set(paged)).toEqual(new Set(names));
+  });
+
+  it('rejects invalid encoded TEXT atomically instead of silently substituting another identifier', () => {
     const { db, build } = fixture(); seed(db, ['StableOrderStore']); build(); const previous = vocab(db);
-    // node:sqlite currently reads this TEXT as "A" while SQLite compares the
-    // stored bytes 41005461696C. Returning "A" again must not hang the build.
-    addNames(db, ['A\u0000Tail']);
+    addNames(db, ['DamagedOrderStore']);
+    db.prepare("UPDATE nodes SET name=CAST(X'80' AS TEXT) WHERE name=?").run('DamagedOrderStore');
     const queries = new QueryBuilder(db);
     expect(() => queries.rebuildTemporaryNameSegmentVocab(1)).toThrow();
-    expect(db.inTransaction).toBe(false);
-    expect(vocab(db)).toEqual(previous);
-    db.prepare('DELETE FROM nodes WHERE hex(name)=?').run('41005461696C');
+    expect(db.inTransaction).toBe(false); expect(vocab(db)).toEqual(previous);
+    db.prepare("DELETE FROM nodes WHERE hex(name)='80'").run();
     queries.rebuildTemporaryNameSegmentVocab(1);
     expect(vocab(db)).toEqual(expectedVocab(db));
+  });
+});
+
+describe('real sql.js vocabulary construction', () => {
+  it('builds the complete TEMP vocabulary through the adapter with lossless names and indexed keyset pages', async () => {
+    const { db, build } = await wasmFixture();
+    seed(db, Array.from({ length: 2105 }, (_, i) => `Order${i.toString().padStart(5, '0')}Store`));
+    seed(db, ['', '\u0000', 'A\u0000Tail', 'A\u0000Tail\u0000Store', 'ÉclairStore', 'e\u0301clairStore', '中文Store', '💡Factory', '\ufeffBomStore']);
+    seed(db, ['ImportOnlyName'], 'import'); seed(db, ['FileOnlyName'], 'file');
+    build(); expect(vocab(db)).toEqual(expectedVocab(db));
+    expect(vocab(db).some(row => row.name === 'A\u0000Tail\u0000Store')).toBe(true);
+    expect(db.prepare("SELECT name FROM main.sqlite_master WHERE name='name_segment_vocab'").get()).toBeUndefined();
+    assertIndexedPages(db);
+    const queries = new QueryBuilder(db);
+    expect(queries.getDistinctNodeNamesAfter(2, 'A\u0000Tail')).toEqual(sourceNames(db).filter(name => Buffer.compare(Buffer.from(name), Buffer.from('A\u0000Tail')) > 0).slice(0, 2));
+  });
+
+  it.each(['BEGIN', 'SAVEPOINT caller_scope'])('keeps the real WASM caller transaction open and removes rolled-back names (%s)', async command => {
+    const { db, build } = await wasmFixture(); seed(db, ['StableOrderStore']); build(); const previous = vocab(db);
+    db.exec(command); addNames(db, ['Uncommitted\u0000OrderStore']);
+    const exec = vi.spyOn(db, 'exec');
+    build(); expect(vocab(db)).toEqual(expectedVocab(db));
+    expect(exec.mock.calls.some(([sql]) => /^BEGIN\b/i.test(sql))).toBe(false);
+    if (command === 'BEGIN') db.exec('ROLLBACK');
+    else { db.exec('ROLLBACK TO caller_scope'); db.exec('RELEASE caller_scope'); }
+    expect(vocab(db)).toEqual(previous);
+    build(); expect(vocab(db)).toEqual(expectedVocab(db));
+    expect(vocab(db).some(row => row.name === 'Uncommitted\u0000OrderStore')).toBe(false);
+  });
+
+  it('restores the previous complete table after a real WASM rebuild failure and retries every name', async () => {
+    const { db, build } = await wasmFixture(); seed(db, ['StableOrderStore']); build(); const previous = vocab(db);
+    seed(db, Array.from({ length: 2105 }, (_, i) => `AddedOrder${i.toString().padStart(5, '0')}Store`));
+    seed(db, ['A\u0000Tail']);
+    const original = QueryBuilder.prototype.getDistinctNodeNamesAfter;
+    let pages = 0;
+    const fault = vi.spyOn(QueryBuilder.prototype, 'getDistinctNodeNamesAfter').mockImplementation(function(limit, after) {
+      if (++pages === 2) throw new Error('injected WASM vocabulary page failure');
+      return original.call(this, limit, after);
+    });
+    expect(() => build()).toThrow('injected WASM vocabulary page failure');
+    expect(vocab(db)).toEqual(previous);
+    fault.mockRestore(); build(); expect(vocab(db)).toEqual(expectedVocab(db));
   });
 });
 

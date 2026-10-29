@@ -315,6 +315,7 @@ export class QueryBuilder {
     getDistinctNodeNamesFirst?: SqliteStatement;
     getDistinctNodeNamesAfter?: SqliteStatement;
     getDominantFile?: SqliteStatement;
+    getDominantFileSourceFirst?: SqliteStatement;
     getChangeStamp?: SqliteStatement;
     getTopRouteFile?: SqliteStatement;
     getRoutingManifest?: SqliteStatement;
@@ -821,19 +822,30 @@ export class QueryBuilder {
    * name index uses BINARY collation, so DISTINCT, cursor and ordering agree. */
   getDistinctNodeNamesAfter(limit: number, after?: string): string[] {
     if (!Number.isSafeInteger(limit) || limit <= 0) throw new RangeError('Name page size must be a positive integer');
-    let rows: Array<{ name: string }>;
+    // Some bindings read TEXT only up to its first NUL. Keep the DISTINCT,
+    // range predicate and ordering on the indexed TEXT column, then transport
+    // each selected name as bytes. Casting inside DISTINCT would require an
+    // extra temporary B-tree; casting the predicate would lose the range seek.
+    let rows: Array<{ name_bytes: Uint8Array }>;
     if (after === undefined) {
       this.stmts.getDistinctNodeNamesFirst ??= this.db.prepare(
-        "SELECT DISTINCT name COLLATE BINARY AS name FROM nodes WHERE kind NOT IN ('file', 'import') ORDER BY name COLLATE BINARY LIMIT ?",
+        "SELECT CAST(name AS BLOB) AS name_bytes FROM (SELECT DISTINCT name COLLATE BINARY AS name FROM nodes WHERE kind NOT IN ('file', 'import') ORDER BY name COLLATE BINARY LIMIT ?)",
       );
-      rows = this.stmts.getDistinctNodeNamesFirst.all(limit) as Array<{ name: string }>;
+      rows = this.stmts.getDistinctNodeNamesFirst.all(limit) as Array<{ name_bytes: Uint8Array }>;
     } else {
       this.stmts.getDistinctNodeNamesAfter ??= this.db.prepare(
-        "SELECT DISTINCT name COLLATE BINARY AS name FROM nodes WHERE kind NOT IN ('file', 'import') AND name COLLATE BINARY > ? ORDER BY name COLLATE BINARY LIMIT ?",
+        "SELECT CAST(name AS BLOB) AS name_bytes FROM (SELECT DISTINCT name COLLATE BINARY AS name FROM nodes WHERE kind NOT IN ('file', 'import') AND name COLLATE BINARY > ? ORDER BY name COLLATE BINARY LIMIT ?)",
       );
-      rows = this.stmts.getDistinctNodeNamesAfter.all(after, limit) as Array<{ name: string }>;
+      // Both supported backends bind string lengths explicitly, preserving
+      // embedded NUL in the cursor as well as in vocabulary INSERT values.
+      rows = this.stmts.getDistinctNodeNamesAfter.all(after, limit) as Array<{ name_bytes: Uint8Array }>;
     }
-    return rows.map(row => row.name);
+    // CAST(TEXT AS BLOB) uses the database's text encoding. Preserve an initial
+    // BOM as part of the identifier and reject invalid bytes rather than turn
+    // them into a different name/cursor through replacement characters.
+    const encoding = this.db.pragma('encoding', { simple: true }) as string;
+    const decoder = new TextDecoder(encoding, { fatal: true, ignoreBOM: true });
+    return rows.map(row => decoder.decode(row.name_bytes));
   }
 
   /** Rebuild only the connection-local vocabulary over one SQLite snapshot.
@@ -853,9 +865,7 @@ export class QueryBuilder {
         const names = this.getDistinctNodeNamesAfter(pageSize, after);
         if (!names.length) break;
         const next = names[names.length - 1]!;
-        // Some SQLite bindings truncate malformed TEXT containing NUL. Such
-        // a decoded cursor can repeat even though SQLite selected name > ?.
-        // Fail atomically rather than hang or silently skip names. Do not use
+        // Guard against a backend returning a nonadvancing cursor. Do not use
         // JS lexical ordering here: UTF-16 order differs from SQLite BINARY.
         if (next === after) throw new Error('Explore vocabulary name cursor did not advance; index name encoding is unsupported.');
         this.insertNameSegmentsBatch(names);
@@ -1242,7 +1252,7 @@ export class QueryBuilder {
   }
 
   private computeDominantFileCandidates(): Array<{ file_path: string; edge_count: number }> {
-    if (!this.stmts.getDominantFile) {
+    if (!this.stmts.getDominantFileSourceFirst) {
       // Pull top 20 candidates; we then filter out test/generated files
       // in code (regex-grade matching that SQL LIKE can't express). The
       // generated-file filter is critical — without it, etcd's
@@ -1250,6 +1260,33 @@ export class QueryBuilder {
       // protobuf stub) outranks the real `server/etcdserver/server.go`
       // (470 edges) by 4×, and the boost would push the agent toward
       // generated code.
+      // Keep source nodes outermost: their file-path index can stream the
+      // GROUP BY, and the edge identity index can supply both endpoints from
+      // a source lookup. Letting SQLite start from target nodes instead can
+      // choose target/kind probes that fetch every wide edge row. CROSS JOIN
+      // fixes only join order; its ON clauses retain the same inner joins,
+      // raw edge multiplicity and orphan exclusion. No index name is required
+      // so legacy schemas remain valid. Read one extra candidate to detect a
+      // tie at the LIMIT boundary, in addition to ties within the top 20.
+      this.stmts.getDominantFileSourceFirst = this.db.prepare(`
+        SELECT n.file_path AS file_path, COUNT(*) AS edge_count
+        FROM nodes n
+        CROSS JOIN edges e ON e.source = n.id
+        CROSS JOIN nodes m ON e.target = m.id
+        WHERE n.file_path = m.file_path
+        GROUP BY n.file_path
+        ORDER BY edge_count DESC
+        LIMIT 21
+      `);
+    }
+    const rows = this.stmts.getDominantFileSourceFirst.all() as Array<{ file_path: string; edge_count: number }>;
+    // The original ORDER BY deliberately has no secondary key. A join-plan
+    // change can reorder equal counts or choose different files at LIMIT 20.
+    // Preserve its observed result by using the exact original query whenever
+    // such a tie could affect the returned candidates. For distinct counts,
+    // the first 20 are uniquely ranked and need no second graph scan.
+    if (!rows.some((row, i) => i > 0 && row.edge_count === rows[i - 1]!.edge_count)) return rows.slice(0, 20);
+    if (!this.stmts.getDominantFile) {
       this.stmts.getDominantFile = this.db.prepare(`
         SELECT n.file_path AS file_path, COUNT(*) AS edge_count
         FROM edges e
