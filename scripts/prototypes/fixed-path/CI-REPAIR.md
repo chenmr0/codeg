@@ -65,3 +65,21 @@ Neither the 500 ms gate retry deadline nor 1 second drain/short-query budgets
 changes. This is not a switch to the experimental shared-read admission mode.
 The frozen 11ea183a evidence is retained; new cross-process tests, actual large
 DB cold-open comparisons, and Windows runs must establish the follow-up result.
+
+The cold-open change passed Linux 102/102 and actual 3.38 GB five-process cold
+opening (three fixed rounds, 15/15 success, versus 10/15 in the instrumented
+baseline). However Windows CI 40904686177 failed 101/102: four cold admissions
+hit BEGIN contention before action. Open time accumulated 392–430 ms through
+repeated close/reopen attempts. The same publisher also held successive durable
+state transactions for about 628 ms (COMMIT 91–111 ms each), so this is not
+proof that repeated open is the only cause.
+
+The next isolated change reuses a successfully opened gate connection only
+within one gate call's pre-action BEGIN retries. Read-only pre-SELECT contention
+rolls back the started transaction before retry; rollback failure closes and
+throws rather than reusing unknown state. Each call still closes its connection;
+there is no persistent connection cache. The original absolute 500 ms deadline,
+lease policies, one-shot action, and COMMIT retry semantics are unchanged.
+Publication-phase labels now distinguish the durable transactions in telemetry.
+This reduces unnecessary open work but does not claim to cure writer starvation
+or make filesystem I/O a hard real-time deadline. New Windows evidence is required.

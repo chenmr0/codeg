@@ -63,20 +63,27 @@ function gateDiagnostic(p,metrics,error){
 export function gate(p, action, options = {}) {
   // Retry lock acquisition / COMMIT only; never replay an action with side effects.
   const started=now(),metrics={label:options.label??'gate',readOnly:!!options.readOnly,startedAtMs:Date.now(),phase:'open',actionStarted:false,openMs:0,beginMs:0,actionMs:0,commitMs:0,closeMs:0,retries:0};
-  const deadline=started+500;let g;
+  const deadline=started+500;let g,transactionStarted=false;
   while(true){
     try{
-      metrics.phase='open';let t=now();try{g=db(p.gate,true,0);}finally{metrics.openMs+=now()-t;}
+      metrics.phase='open';let t=now();if(!g){try{g=db(p.gate,true,0);}finally{metrics.openMs+=now()-t;}}
       metrics.phase='begin';t=now();try{
         if(options.readOnly)g.exec('PRAGMA query_only=ON');
-        g.exec(options.readOnly?'BEGIN':'BEGIN IMMEDIATE');
+        g.exec(options.readOnly?'BEGIN':'BEGIN IMMEDIATE');transactionStarted=true;
         // Acquire SHARED before action, so retries cannot replay partial work.
         if(options.readOnly)g.prepare('SELECT id FROM state WHERE id=1').get();
       }finally{metrics.beginMs+=now()-t;}
       metrics.acquiredAtMs=Date.now();break;
     }catch(error){
-      const t=now();g?.close();metrics.closeMs+=now()-t;g=null;
-      if(!String(error.message).includes('locked')||now()>=deadline){metrics.totalMs=now()-started;gateDiagnostic(p,metrics,error);p.gateMetrics?.push(metrics);throw error;}
+      // BEGIN contention does not require reopening the coordination file.
+      // A read gate can BEGIN before its pre-action SELECT fails; roll that
+      // transaction back before retry. Never reuse an uncertain transaction.
+      let failure=error;
+      if(transactionStarted){try{g.exec('ROLLBACK');transactionStarted=false;}catch(rollbackError){failure=new AggregateError([error,rollbackError],'Gate pre-action rollback failed');}}
+      if(failure!==error || !String(error.message).includes('locked')||now()>=deadline){
+        const t=now();g?.close();metrics.closeMs+=now()-t;g=null;
+        metrics.totalMs=now()-started;gateDiagnostic(p,metrics,failure);p.gateMetrics?.push(metrics);throw failure;
+      }
       metrics.retries++;Atomics.wait(pause,0,0,2);
     }
   }
@@ -151,7 +158,7 @@ function operationPaths(p, record) {
 }
 function checkpoint(p, record, phase, hook) {
   record.phase = phase;
-  gate(p, g => put(g, record));
+  gate(p, g => put(g, record),{label:`publish-${phase}`});
   hook?.(phase);
 }
 function move(from, to, hook, point) {
@@ -290,7 +297,7 @@ export async function publish(op, options = {}) {
       const s = g.prepare('SELECT * FROM state WHERE id=1').get();
       if (s.mode !== 'idle' || s.revision !== record.expectedRevision) throw new Error('Active database changed during preflight');
       record.phase = 'draining'; put(g, record); g.prepare("UPDATE state SET mode='draining', operation=?, cancel=0 WHERE id=1").run(record.id);
-    });
+    },{label:'publish-draining'});
     admissionClosed = true; hook?.('draining'); preparedConnection.close(); preparedConnection = null;
     while (true) {
       const s = state(p);
@@ -303,7 +310,7 @@ export async function publish(op, options = {}) {
       const s = g.prepare('SELECT * FROM state WHERE id=1').get();
       if (s.cancel || s.revision !== record.expectedRevision || now() >= deadline) throw Object.assign(new Error('Drain cancelled before replacement'), { code: 'DRAIN_CANCELLED' });
       record.phase = 'replacing'; put(g, record); g.prepare("UPDATE state SET mode='replacing' WHERE id=1").run();
-    });
+    },{label:'publish-replacing'});
     hook?.('replacing');
     // Last readonly closer can leave empty WAL/SHM. Let SQLite remove its own
     // logs; heavy checkpoint ran before drain while writes were excluded.
@@ -323,9 +330,9 @@ export async function publish(op, options = {}) {
     try { check.prepare('SELECT count(*) FROM sqlite_master').get(); } finally { check.close(); }
     metrics.reopenMs = now() - t;
     hook?.('before-commit');
-    gate(p, g => { record.phase = 'committed'; put(g, record); g.prepare('DELETE FROM costs').run(); });
+    gate(p, g => { record.phase = 'committed'; put(g, record); g.prepare('DELETE FROM costs').run(); },{label:'publish-committed'});
     committed = true; hook?.('committed'); t = now();
-    gate(p, g => g.prepare("UPDATE state SET mode='idle', operation=NULL, cancel=0, revision=revision+1 WHERE id=1").run());
+    gate(p, g => g.prepare("UPDATE state SET mode='idle', operation=NULL, cancel=0, revision=revision+1 WHERE id=1").run(),{label:'publish-resumed'});
     admissionClosed = false; fence.close(); fence = null; writers.close(); writers = null;
     metrics.resumeMs = now() - t; metrics.admissionPauseMs = now() - drainStart;
     hook?.('resumed');
