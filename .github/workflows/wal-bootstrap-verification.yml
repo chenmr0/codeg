@@ -1,0 +1,44 @@
+name: WAL bootstrap three fixed repetitions
+on:
+  push:
+    branches: [verify/fixed-path-wal-bootstrap-20261029]
+permissions:
+  contents: read
+jobs:
+  bootstrap:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2022, ubuntu-22.04]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    env:
+      STRICT_SYMLINK_TESTS: '1'
+      GATE_DIAGNOSTICS_DIR: artifacts/bootstrap/gate-diagnostics
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+      - name: Run exactly three cold-bootstrap attempts and retain every result
+        shell: pwsh
+        run: |
+          $failed = $false
+          foreach ($i in 1..3) {
+            $dir = "artifacts/bootstrap/attempt-$i"
+            New-Item -ItemType Directory -Force $dir | Out-Null
+            $env:FIXED_PATH_EVIDENCE_DIR = $dir
+            node --liftoff-only --test --test-reporter=tap --test-name-pattern="^simultaneous cold clients initialize protocol metadata" scripts/prototypes/fixed-path/acceptance.test.mjs 2>&1 | Tee-Object -FilePath "$dir/run.log"
+            $code = $LASTEXITCODE
+            Set-Content -Path "$dir/exit-code.txt" -Value $code
+            if ($code -ne 0) { $failed = $true }
+          }
+          if ($failed) { exit 1 }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: wal-bootstrap-${{ matrix.os }}
+          path: artifacts/bootstrap/
+          retention-days: 14
