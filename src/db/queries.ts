@@ -351,6 +351,24 @@ export class QueryBuilder {
   // Node cache for frequently accessed nodes (LRU-style, max 1000 entries)
   private nodeCache: Map<string, Node> = new Map();
   private readonly maxCacheSize = 1000;
+  // Reader connections can outlive commits made by another connection/process.
+  // data_version is connection-local and follows SQLite's read-transaction view;
+  // never compare it between two different connections.
+  private externalCacheVersion: number | undefined;
+
+  enableExternalCacheInvalidation(): void {
+    this.clearCache();
+    this.externalCacheVersion = Number(this.db.pragma('data_version', { simple: true }));
+  }
+
+  invalidateExternalCaches(): boolean {
+    if (this.externalCacheVersion === undefined) return false;
+    const version = Number(this.db.pragma('data_version', { simple: true }));
+    if (version === this.externalCacheVersion) return false;
+    this.clearCache();
+    this.externalCacheVersion = version;
+    return true;
+  }
 
   // Prepared statements (lazily initialized)
   private stmts: {
@@ -821,6 +839,7 @@ export class QueryBuilder {
    * Get a node by ID
    */
   getNodeById(id: string): Node | null {
+    this.invalidateExternalCaches();
     // Check cache first
     if (this.nodeCache.has(id)) {
       const cached = this.nodeCache.get(id)!;
@@ -859,6 +878,7 @@ export class QueryBuilder {
    * the SQL query only touches the misses.
    */
   getNodesByIds(ids: readonly string[]): Map<string, Node> {
+    this.invalidateExternalCaches();
     const out = new Map<string, Node>();
     if (ids.length === 0) return out;
 

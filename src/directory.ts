@@ -6,7 +6,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { resolveGeneration } from './sync/generation-store';
+import { acquireCurrentGenerationLease } from './sync/generation-store';
 
 /** New indexes use wx; existing indexes remain readable during the transition. */
 const DEFAULT_CODEGRAPH_DIR = '.codegraph-wx';
@@ -124,9 +124,12 @@ export function isInitialized(projectRoot: string): boolean {
   if (!fs.existsSync(codegraphDir) || !fs.statSync(codegraphDir).isDirectory()) {
     return false;
   }
-  // Must have codegraph.db, not just .codegraph folder
-  const dbPath = resolveGeneration(codegraphDir).databasePath;
-  return fs.existsSync(dbPath);
+  // A published target must remain pinned through the existence check.
+  // Callers opening a DB subsequently acquire their own fresh CURRENT lease;
+  // this probe never hands an unprotected generation path to them.
+  const lease = acquireCurrentGenerationLease(codegraphDir);
+  try { return fs.existsSync(lease.databasePath); }
+  finally { lease.release(); }
 }
 
 /**
@@ -165,13 +168,14 @@ export function findNearestCodeGraphRoot(startPath: string): string | null {
  */
 export function createDirectory(projectRoot: string): void {
   const codegraphDir = getCodeGraphDir(projectRoot);
-  const dbPath = resolveGeneration(codegraphDir).databasePath;
-
-  // Only throw if CodeGraph is actually initialized (db exists)
-  // .codegraph/ folder alone is fine
-  if (fs.existsSync(dbPath)) {
-    throw new Error(`CodeGraph already initialized in ${projectRoot}`);
-  }
+  // The probe must pin its resolved generation until validation finishes.
+  // A concurrent publication may retire it immediately after this check.
+  const lease = acquireCurrentGenerationLease(codegraphDir);
+  try {
+    if (fs.existsSync(lease.databasePath)) {
+      throw new Error(`CodeGraph already initialized in ${projectRoot}`);
+    }
+  } finally { lease.release(); }
 
   // Create main directory (if it doesn't exist)
   fs.mkdirSync(codegraphDir, { recursive: true });
@@ -330,6 +334,14 @@ export function validateDirectory(projectRoot: string): {
   if (!fs.statSync(codegraphDir).isDirectory()) {
     errors.push('.codegraph exists but is not a directory');
     return { valid: false, errors };
+  }
+
+  // Published state is strict: malformed CURRENT/READY or a genuinely missing
+  // target is corruption, not an uninitialized project or a legacy fallback.
+  // Pin before validating so normal concurrent GC cannot cause ENOENT.
+  if (hasCurrentManifest(codegraphDir)) {
+    const lease = acquireCurrentGenerationLease(codegraphDir);
+    lease.release();
   }
 
   // Auto-repair missing .gitignore (non-critical file)

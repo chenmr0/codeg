@@ -5,6 +5,7 @@ const path = require('node:path');
 const [moduleRoot, root, role] = process.argv.slice(2);
 const { CodeGraph } = require(path.join(moduleRoot, 'dist'));
 const store = require(path.join(moduleRoot, 'dist/sync/generation-store'));
+const directory = require(path.join(moduleRoot, 'dist/directory'));
 const lifecycle = require(path.join(moduleRoot, 'dist/sync/generation-lifecycle'));
 const { ContextBuilder } = require(path.join(moduleRoot, 'dist/context'));
 const data = path.join(root, '.codegraph-wx');
@@ -29,7 +30,7 @@ fs.readFileSync = function (file, ...args) {
   const value = originalRead.call(this, file, ...args);
   const stack = manifestBarrier ? new Error().stack : '';
   if (manifestBarrier && String(file) === path.join(data, 'CURRENT') &&
-      stack.includes('resolveGeneration') && /withReadView|readView|getCodeGraph/.test(stack)) {
+      stack.includes('resolveGeneration') && /withReadView|readView|getCodeGraph|isInitialized|validateDirectory|createDirectory/.test(stack)) {
     const release = manifestBarrier; manifestBarrier = undefined;
     send({ event: 'manifest-read-under-test' });
     // Parent receives IPC, probes the gate in another process, then creates this
@@ -50,6 +51,32 @@ process.on('message', async message => {
       case 'arm-context': contextBarrier = { method: message.method }; reply(true); return;
       case 'resume-context': global.activeBarrier?.resume(); global.activeBarrier = undefined; reply(true); return;
       case 'arm-manifest': manifestBarrier = message.release; reply(true); return;
+      case 'cold-probe': {
+        const method = message.method;
+        if (method === 'open' || method === 'openSync') {
+          graph = method === 'open' ? await CodeGraph.open(root) : CodeGraph.openSync(root);
+          reply(graph.searchNodes('generation_').map(row => row.node.name));
+        } else if (method === 'createDirectory') {
+          try { directory.createDirectory(root); reply(false); }
+          catch (error) { if (!error.message.startsWith('CodeGraph already initialized')) throw error; reply(true); }
+        } else reply(directory[method](root));
+        return;
+      }
+      case 'arm-after-preflight': {
+        const original = directory.isInitialized;
+        directory.isInitialized = (...args) => {
+          const result = original(...args);
+          directory.isInitialized = original;
+          send({ event: 'preflight-complete' });
+          const deadline = Date.now() + 10000, sleep = new Int32Array(new SharedArrayBuffer(4));
+          while (!fs.existsSync(message.release)) {
+            if (Date.now() > deadline) throw Error('Preflight release timed out');
+            Atomics.wait(sleep, 0, 0, 5);
+          }
+          return result;
+        };
+        reply(true); return;
+      }
       case 'query': reply(graph.searchNodes(message.query).map(row => ({ id: row.node.id, name: row.node.name }))); return;
       case 'get-code': reply(await graph.getCode(message.nodeId)); return;
       case 'build-context': reply(await graph.buildContext('generation_B', { includeCode: false })); return;
