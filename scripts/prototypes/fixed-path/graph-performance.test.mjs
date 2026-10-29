@@ -12,7 +12,7 @@ const here=path.dirname(fileURLToPath(import.meta.url));
 function launch(script,args){
  const child=fork(path.join(here,script),args,{execArgv:['--liftoff-only'],stdio:['ignore','pipe','pipe','ipc'],env:{...process.env,CODEGRAPH_ALL_LANGUAGES:'1'}}), messages=[];let stderr='';child.stderr.on('data',b=>stderr+=b);child.stdout.resume();let readyResolve;
  const ready=new Promise(r=>readyResolve=r);child.on('message',m=>{messages.push(m);if(m.type==='ready')readyResolve(m);});
- const done=new Promise((resolve,reject)=>{child.on('error',reject);child.on('exit',code=>{if(code!==0)reject(new Error(`${script} exited ${code}: ${stderr}`));else resolve(messages.find(m=>m.type==='result'));});});
+ const done=new Promise((resolve,reject)=>{child.on('error',reject);child.on('close',code=>{const result=messages.find(m=>m.type==='result');if(code!==0||!result)reject(new Error(`${script} closed ${code}, missing result=${!result}: ${stderr}`));else resolve(result);});});
  return{child,ready,done,messages};
 }
 function q(samples){const a=samples.slice().sort((a,b)=>a-b);const at=f=>a[Math.ceil(a.length*f)-1];return{count:a.length,p50Ms:at(.5),p95Ms:at(.95),p99Ms:at(.99),maxMs:a.at(-1)};}

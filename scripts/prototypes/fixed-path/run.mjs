@@ -15,4 +15,4 @@ const child=spawn(process.execPath,['--liftoff-only','--test','--test-concurrenc
 const log=path.join(evidence,'run.log');
 for(const [stream,dest] of [[child.stdout,process.stdout],[child.stderr,process.stderr]])stream.on('data',chunk=>{dest.write(chunk);fs.appendFileSync(log,chunk);});
 child.on('error',e=>{fs.appendFileSync(log,e.stack);process.exitCode=1;});
-child.on('exit',(code,signal)=>{fs.writeFileSync(path.join(evidence,'exit.json'),JSON.stringify({code,signal,completedAt:new Date().toISOString()},null,2));console.log(`Evidence: ${evidence}`);process.exitCode=code??1;});
+child.on('close',(code,signal)=>{fs.writeFileSync(path.join(evidence,'exit.json'),JSON.stringify({code,signal,completedAt:new Date().toISOString()},null,2));console.log(`Evidence: ${evidence}`);process.exitCode=code??1;});

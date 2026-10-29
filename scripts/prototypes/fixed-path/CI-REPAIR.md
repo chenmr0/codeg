@@ -18,3 +18,9 @@ Windows六失败不能当作门禁通过，也不能仅用重跑隐藏：三例�
 新增7项：IPC延迟callback/真实4MiB背压/发送失败三项；恢复重试不初始化、未提交draining下只读观察、缺租约拒绝、损坏state拒绝四项。最新runner为每模式80项。Linux通过仍不能代替Windows复测；需同专用分支CI继续执行并保留原失败证据。
 
 真实大仓基线仍在独立旧worktree运行，未修改其protocol/adapter/source实现。比较报告必须记录代码hash，不将新CI候选结果冒充旧大仓版本已验收。
+
+## 第二轮及父端完成顺序
+
+第二轮远端e0f70679042c96f77c67b94ca89f862e74abaae4/run40885305611：Windows专项symlink5/5零跳过，exclusive79/80，唯一剩gate-read父端在exit时检查终态消息。旧锁错误、补查超时和其余IPC失败本轮未出现，但全门禁仍未通过。
+
+再补父端修复：OS exit不等于IPC/stdio已排空，所有依赖最终消息或stdout的父端改在close之后判定；新增确定性exit→最后消息/日志→close成功及close仍无结果拒绝两项。没有加固定sleep，没有放松子进程exit code或结果断言。当前累计每模式82项，仍须Windows复测。

@@ -33,7 +33,7 @@ function controls(p,label){const dir=path.join(p.runtime,'source-test-controls',
 async function until(predicate,label,timeout=20000){const end=performance.now()+timeout;while(performance.now()<end){if(await predicate())return;await delay(15);}throw new Error(`Timed out: ${label}`);}
 function launch(mode,root,config={}){
  const child=fork(worker,[mode,root,JSON.stringify(config)],{execArgv:['--liftoff-only'],env:{...process.env,CODEGRAPH_ALL_LANGUAGES:'1'},stdio:['ignore','pipe','pipe','ipc']});let stdout='',stderr='',ended=false;const messages=[];child.stdout.on('data',x=>stdout+=x);child.stderr.on('data',x=>stderr+=x);child.on('message',m=>messages.push(m));
- const exited=new Promise(resolve=>child.on('exit',(exitCode,signal)=>{ended=true;const result={mode,exitCode,signal,stdout,stderr,messages};report.workers.push(result);resolve(result);}));
+ const exited=new Promise(resolve=>child.on('close',(exitCode,signal)=>{ended=true;const result={mode,exitCode,signal,stdout,stderr,messages};report.workers.push(result);resolve(result);}));
  return {child,messages,exited,async wait(predicate,timeout=20000){await until(()=>messages.some(predicate),`${mode} message: ${JSON.stringify(config)}`,timeout);return messages.find(predicate);},async stop(){if(!ended){child.send('stop');await exited;}},kill(){if(!ended)child.kill('SIGKILL');}};
 }
 async function oneShot(mode,root,config={}){const task=launch(mode,root,config),end=await task.exited;const result=end.messages.find(m=>m.event==='result')?.result;assert.equal(end.exitCode,0,JSON.stringify(end));assert.ok(result,JSON.stringify(end));return result;}

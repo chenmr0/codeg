@@ -11,7 +11,7 @@ for(const [mode,flag]of[['exclusive','0'],['shared-read','1']]){
  const destination=path.join(evidence,mode);
  const code=await new Promise((resolve,reject)=>{
   const child=spawn(process.execPath,[path.join(here,'run-source.mjs')],{cwd:root,env:{...process.env,CODEGRAPH_PROTOTYPE_READ_GATES:flag,CODEGRAPH_PROTOTYPE_MEASURE_GATES:'1',SOURCE_EVIDENCE_DIR:destination},stdio:'inherit'});
-  child.on('error',reject);child.on('exit',code=>resolve(code??1));
+  child.on('error',reject);child.on('close',code=>resolve(code??1));
  });
  if(code===0){
   const input=JSON.parse(fs.readFileSync(path.join(destination,`graph-performance-${process.platform}.json`),'utf8'));

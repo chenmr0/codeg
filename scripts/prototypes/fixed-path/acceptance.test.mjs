@@ -27,7 +27,7 @@ function launch(mode, project, config={}) {
   let out='',err='',ended=false; const messages=[],pending=new Map(), waiters=[];
   child.stdout.on('data',b=>out+=b); child.stderr.on('data',b=>err+=b);
   child.on('message',m=>{messages.push(m); if(m.id&&!m.event&&pending.has(m.id)){const p=pending.get(m.id); pending.delete(m.id);m.error?p.reject(new Error(m.error)):p.resolve(m.value);} for(const w of [...waiters])if(w.predicate(m)){waiters.splice(waiters.indexOf(w),1);clearTimeout(w.timer);w.resolve(m);}});
-  const exited=new Promise(resolve=>child.on('exit',(code,signal)=>{ended=true;for(const p of pending.values())p.reject(new Error(`Child exited ${code}/${signal}: ${err}`));pending.clear();resolve({code,signal,out,err,messages});}));
+  const exited=new Promise(resolve=>child.on('close',(code,signal)=>{ended=true;for(const p of pending.values())p.reject(new Error(`Child exited ${code}/${signal}: ${err}`));pending.clear();resolve({code,signal,out,err,messages});}));
   return {child,messages,exited, request(command,args={}){const id=String(++sequence);return new Promise((resolve,reject)=>{pending.set(id,{resolve,reject});child.send({id,command,...args});});},
     wait(predicate,timeout=10000){const found=messages.find(predicate);if(found)return Promise.resolve(found);return new Promise((resolve,reject)=>{const entry={predicate,resolve,reject,timer:setTimeout(()=>{waiters.splice(waiters.indexOf(entry),1);reject(new Error(`Message wait timed out (${mode}): ${err}; messages=${JSON.stringify(messages)}`));},timeout)};waiters.push(entry);});},
     async stop(){if(!ended){await this.request('close');await exited;}}, kill(){if(!ended)child.kill('SIGKILL');}};

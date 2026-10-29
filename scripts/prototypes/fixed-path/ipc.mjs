@@ -18,3 +18,12 @@ export function createIpcChannel(endpoint=process){
  }
  return{send,close};
 }
+
+/** Exit reports OS termination, not drained IPC/stdio. Only close is final. */
+export function waitForChildClose(child){
+ return new Promise((resolve,reject)=>{
+  const onError=error=>{child.removeListener('close',onClose);reject(error);};
+  const onClose=(code,signal)=>{child.removeListener('error',onError);resolve({code,signal});};
+  child.once('error',onError);child.once('close',onClose);
+ });
+}

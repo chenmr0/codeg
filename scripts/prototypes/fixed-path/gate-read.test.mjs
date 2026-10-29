@@ -1,3 +1,4 @@
+import {waitForChildClose} from './ipc.mjs';
 /** Opt-in read-gate protocol tests; fixture adapters, not production integration. */
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -12,7 +13,7 @@ import {initialize,Participant,state,lease} from './protocol.mjs';
 import {fixture,snapshot} from './worker.mjs';
 const worker=fileURLToPath(new URL('./worker.mjs',import.meta.url));
 function setup(t,options={}){const root=fs.mkdtempSync(path.join(os.tmpdir(),'read-gate-')),p=initialize(root);fixture(p.active,'A');const participant=new Participant(root,f=>new DatabaseSync(f),{readGates:true,measureGates:true,pollMs:5,...options});t.after(()=>{participant.close();fs.rmSync(root,{recursive:true,force:true});});return{root,p,participant};}
-function publisher(t,root,config={}){const c=fork(config.workerFile??worker,['publisher',root,JSON.stringify(config)],{execArgv:['--liftoff-only'],stdio:['ignore','ignore','pipe','ipc']});const messages=[];let stderr='';c.stderr.on('data',b=>stderr+=b);c.on('message',m=>messages.push(m));const done=new Promise((resolve,reject)=>{c.on('error',reject);c.on('exit',(code,signal)=>{const r=messages.find(m=>m.event==='result')?.result;if(code!==0||!r)reject(new Error(`publisher ${code}/${signal} ${stderr} ${JSON.stringify(messages)}`));else resolve(r);});});done.catch(()=>{});t.after(()=>{if(c.exitCode===null&&c.signalCode===null)c.kill('SIGKILL');});return{done,messages};}
+function publisher(t,root,config={}){const c=fork(config.workerFile??worker,['publisher',root,JSON.stringify(config)],{execArgv:['--liftoff-only'],stdio:['ignore','ignore','pipe','ipc']});const messages=[];let stderr='';c.stderr.on('data',b=>stderr+=b);c.on('message',m=>messages.push(m));const done=waitForChildClose(c).then(({code,signal})=>{const r=messages.find(m=>m.event==='result')?.result;if(code!==0||!r)throw new Error(`publisher ${code}/${signal} ${stderr} ${JSON.stringify(messages)}`);return r;});done.catch(()=>{});t.after(()=>{if(c.exitCode===null&&c.signalCode===null)c.kill('SIGKILL');});return{done,messages};}
 async function until(fn){const end=Date.now()+10000;while(!fn()){if(Date.now()>end)throw Error('deterministic barrier timeout');await delay(2);}}
 function warm(participant){assert.deepEqual(participant.requestSync(snapshot),{first:'A',second:'A'});assert.deepEqual(participant.requestSync(snapshot),{first:'A',second:'A'});assert(participant.p.gateMetrics.some(m=>m.label==='admit-warm-read'&&m.readOnly));}
 
