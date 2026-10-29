@@ -40,3 +40,28 @@ Windows六失败不能当作门禁通过，也不能仅用重跑隐藏：三例�
 慢/失败样本显示等待主要在open/BEGIN/COMMIT，而非暖准入action（约0.07ms）；一例单次BEGIN墙钟264.9ms、外层retries0，不能将SQLite busy_timeout=25误作25ms墙钟保证。针对性修改仅gate：open/BEGIN与COMMIT的原生busy_timeout=0，由既有同一started+500ms的JS重试统一管理；action仍25ms且只执行一次；lease库策略不变。单次原生文件IO仍可能超出墙钟预算，不能声称已证明硬实时。
 
 另同一个IMMEDIATE gate内先检查costs是否有行，仅非空才DELETE。SQLite实测空DELETE仍增加data_version；跳过避免冷开重复持久化无效写，有旧历史仍必须清空。两项联合修改的Windows收益需实测，不能单独归因，也尚未证明原失败根因完全关闭。新增7项真实子进程锁/预算/错误回滚/costs回归，默认累计96项。默认全套后固定3轮原五进程切换场景，全部保留、任一失败即失败，禁止挑绿重跑。
+
+## Real OceanBase cold-reopen follow-up (after 11ea183a)
+
+The Windows/Linux 96-case suite and three contention repeats passed at
+`11ea183a` / remote `576ce129`; that did not establish the large-repository gate.
+The subsequent OceanBase 10 QPS run completed publication and source verification,
+but one of five processes failed cold admission with `database is locked` after
+502 ms (action had not begun). This run remains a failure, despite its 109 ms
+publication pause and successful other queries.
+
+The cold graph factory previously ran while the global coordination IMMEDIATE
+transaction was held. Opening a multi-gigabyte graph serialized other processes'
+admission behind native graph initialization. The isolated follow-up moves only
+this synchronous factory call after successful gate COMMIT. The gate still
+checks idle, acquires the real connection lease, persists any write intent, and
+increments the local active count before releasing admission authority. The
+connection lease protects the path throughout opening, query execution, and
+closing: a concurrent publisher must drain/cancel rather than rename under it.
+The factory must be synchronous, non-reentrant, and close internal handles if it
+throws before returning. Gate COMMIT failure does not invoke the factory.
+
+Neither the 500 ms gate retry deadline nor 1 second drain/short-query budgets
+changes. This is not a switch to the experimental shared-read admission mode.
+The frozen 11ea183a evidence is retained; new cross-process tests, actual large
+DB cold-open comparisons, and Windows runs must establish the follow-up result.

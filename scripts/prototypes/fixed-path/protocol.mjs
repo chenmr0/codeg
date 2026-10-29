@@ -353,7 +353,10 @@ export async function publish(op, options = {}) {
   } finally { preparedConnection?.close(); fence?.close(); writers?.close(); owner.close(); }
 }
 
-/** All graph handles (including cached readers) MUST be owned by factory's close(). */
+/** All graph handles (including cached readers) MUST be owned by factory's close().
+ * Factory is synchronous and must not reenter this Participant. If it throws,
+ * it must close any internal native handles that it has not returned to us.
+ */
 export class Participant {
   constructor(project, factory, options = {}) {
     this.p = initialize(project);this.p.readGates=options.readGates??process.env.CODEGRAPH_PROTOTYPE_READ_GATES==='1';if(options.measureGates??process.env.CODEGRAPH_PROTOTYPE_MEASURE_GATES==='1')this.p.gateMetrics=[]; this.factory = factory; this.options = options; this.active = 0; this.handle = null; this.holder = null; this.closed = false; this.reopens = 0; this.reopenDurationsMs = []; this.admissionWaitMs = [];
@@ -375,14 +378,15 @@ export class Participant {
     if (this.closed) throw new Error('Participant closed');
     const previousHandle=this.handle, previousHolder=this.holder;
     // Only an existing native handle AND its real cross-process connection lease
-    // permit read admission; opening/retiring handles and durable writes stay exclusive.
+    // permit read admission; cold admission/lease acquisition and durable writes
+    // still use the exclusive gate (native opening follows gate COMMIT).
     let writeLease, counted=false;const warm=!!(this.handle&&this.holder),readOnly=!!(this.p.readGates&&!writing&&warm);
-    try { return gate(this.p, g => {
+    try { const admitted=gate(this.p, g => {
       const s = g.prepare('SELECT * FROM state WHERE id=1').get();
       if (s.mode !== 'idle') return false;
       if (writing) { writeLease = lease(this.p.writers); if (!writeLease) return false; }
       if (!this.holder) { this.holder = lease(this.p.connections); if (!this.holder) { writeLease?.close(); writeLease=null; return false; } }
-      if (!this.handle) { regular(this.p.active); const openedAt=now(); this.handle = this.factory(this.p.active); this.reopenDurationsMs.push(now()-openedAt); this.reopens++;
+      if (!this.handle) { regular(this.p.active);
         // Empty DELETE still commits a SQLite write. The gate already excludes
         // concurrent insertions; only a nonempty history needs invalidation.
         if(g.prepare('SELECT 1 FROM costs LIMIT 1').get())g.prepare('DELETE FROM costs').run(); }
@@ -390,7 +394,18 @@ export class Participant {
       // but before callback/finally cannot make the publisher miss that mutation.
       if(writing)g.prepare('UPDATE state SET revision=revision+1 WHERE id=1').run();
       this.active++; counted=true; return writing ? writeLease : true;
-    },{readOnly,label:writing?'admit-write':readOnly?'admit-warm-read':warm?'admit-warm-exclusive':'admit-cold'}); } catch(error) {
+    },{readOnly,label:writing?'admit-write':readOnly?'admit-warm-read':warm?'admit-warm-exclusive':'admit-cold'});
+      if (admitted && !this.handle) {
+        // The committed admission already owns a real connection lease and is
+        // counted active. A publisher may start draining, but cannot rename the
+        // database until this operation and native handle release that lease.
+        // Opening a large graph must NOT serialize every process under gate.
+        // No await is allowed here: same-process retirement cannot interleave.
+        const openedAt=now(); this.handle=this.factory(this.p.active);
+        this.reopenDurationsMs.push(now()-openedAt); this.reopens++;
+      }
+      return admitted;
+    } catch(error) {
       // A coordination COMMIT can fail AFTER action allocated native resources.
       // Undo only this admission; never close a handle borrowed by an older request.
       if(counted)this.active--;
