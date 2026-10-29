@@ -11,7 +11,7 @@ class Peer {
   private pending = new Map<number, { resolve: (v: any) => void; reject: (e: Error) => void; timer: ReturnType<typeof setTimeout> }>();
   private events: any[] = []; private waits: Array<{ name: string; resolve: (v: any) => void; reject: (e: Error) => void; timer: ReturnType<typeof setTimeout> }> = [];
   private rpcPending = new Map<number, { resolve: (v: any) => void; reject: (e: Error) => void; timer: ReturnType<typeof setTimeout> }>();
-  constructor(root: string, readonly role: 'sdk' | 'mcp' | 'publisher') {
+  constructor(root: string, readonly role: 'sdk' | 'mcp' | 'publisher' | 'cold') {
     const env = { ...process.env, NODE_OPTIONS: '', CODEGRAPH_NO_DAEMON: '1', CODEGRAPH_NO_WATCH: '1', CODEGRAPH_MCP_CATCHUP_BUDGET_MS: '10000' };
     delete env.CODEGRAPH_ADAPTIVE_SYNC;
     this.child = fork(path.join(__dirname, 'fixtures/generation-admission-ipc.cjs'), [moduleRoot, root, role],
@@ -169,3 +169,58 @@ it.each(['sdk', 'mcp'] as const)('%s rejects malformed, mismatched, missing, and
   }
   await reader.stop();
 }, 45000);
+
+
+it.each(['openSync', 'open', 'isInitialized', 'findNearestCodeGraphRoot', 'validateDirectory', 'createDirectory'])(
+  'cold %s protects directory admission with the cross-process gate', async method => {
+    const f = await fixture(), reader = new Peer(f.root, 'cold'), publisher = new Peer(f.root, 'publisher');
+    await reader.ready(); await publisher.ready();
+    const marker = path.join(f.root, '.release-cold-manifest'); releaseMarkers.push(marker);
+    await reader.call('arm-manifest', { release: marker });
+    const request = reader.call('cold-probe', { method }); void request.catch(() => {});
+    await reader.event('manifest-read-under-test');
+    const attempt = await publisher.call('probe-gate');
+    fs.writeFileSync(marker, 'release');
+    expect(attempt.acquired).toBe(false);
+    const result = await request;
+    if (method.startsWith('open')) expect(result).toContain('generation_B');
+    else if (method === 'validateDirectory') expect(result.valid).toBe(true);
+    else expect(result).toBeTruthy();
+    const published = await publisher.call('publish');
+    expect(published.result.adaptive?.strategy).toBe('rebuild');
+    await reader.stop(); await publisher.stop();
+  }, 45000);
+
+it.each(['openSync', 'open'])('cold %s re-admits CURRENT after its earlier preflight generation is collected', async method => {
+  const f = await fixture(), reader = new Peer(f.root, 'cold'), publisher = new Peer(f.root, 'publisher');
+  await reader.ready(); await publisher.ready();
+  const marker = path.join(f.root, '.release-after-preflight'); releaseMarkers.push(marker);
+  await reader.call('arm-after-preflight', { release: marker });
+  const request = reader.call('cold-probe', { method }); void request.catch(() => {});
+  await reader.event('preflight-complete');
+  const published = await publisher.call('publish');
+  expect(published.result.adaptive?.strategy).toBe('rebuild');
+  await until(() => !fs.existsSync(f.old.databasePath));
+  fs.writeFileSync(marker, 'release');
+  expect(await request).toEqual(['generation_C']);
+  await reader.stop(); await publisher.stop();
+}, 45000);
+
+it.each(['openSync', 'open', 'isInitialized', 'findNearestCodeGraphRoot', 'validateDirectory', 'createDirectory'])(
+  'cold %s rejects genuine published-state corruption without legacy fallback', async method => {
+    const f = await fixture(), reader = new Peer(f.root, 'cold'); await reader.ready();
+    const currentPath = path.join(f.data, 'CURRENT'), readyPath = path.join(path.dirname(f.old.databasePath), 'READY.json');
+    const current = fs.readFileSync(currentPath, 'utf8'), ready = fs.readFileSync(readyPath, 'utf8');
+    const original = JSON.parse(current);
+    for (const mutate of [
+      () => fs.writeFileSync(currentPath, '{broken'),
+      () => fs.writeFileSync(readyPath, JSON.stringify({ ...JSON.parse(ready), token: '00000000-0000-0000-0000-000000000000' })),
+      () => fs.writeFileSync(currentPath, JSON.stringify({ ...original, generation: 'g-missing-target' })),
+      () => fs.writeFileSync(currentPath, JSON.stringify({ ...original, generation: '../unsafe-target' })),
+    ]) {
+      try { mutate(); await expect(reader.call('cold-probe', { method })).rejects.toThrow(); }
+      finally { fs.writeFileSync(currentPath, current); fs.writeFileSync(readyPath, ready); }
+    }
+    await expect(reader.call('cold-probe', { method })).resolves.toBeTruthy();
+    await reader.stop();
+  }, 45000);

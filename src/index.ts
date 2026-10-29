@@ -311,6 +311,7 @@ export class CodeGraph {
     this.db = db;
     this.generationLease = generationLease;
     this.queries = queries;
+    if (readOnly && db.getBackend() === 'node-sqlite') this.queries.enableExternalCacheInvalidation();
     this.projectRoot = projectRoot;
     this.shadowCandidate = shadowCandidate;
     this.readOnly = readOnly;
@@ -1053,7 +1054,12 @@ export class CodeGraph {
   /** Each operation pins its entry until its whole synchronous/async result completes. */
   private withReadView<T>(operation: (view: CodeGraph) => T): T {
     if (this.closed) throw new Error('CodeGraph is closed');
-    if (this.pinnedRead || this.shadowCandidate || this.db.getBackend() !== 'node-sqlite') return operation(this);
+    if (this.pinnedRead || this.shadowCandidate || this.db.getBackend() !== 'node-sqlite') {
+      // This also covers independently cached MCP request readers. Generation
+      // leases pin files, not a perpetual SQLite transaction/snapshot.
+      if (this.queries.invalidateExternalCaches()) this.resolver.clearCaches();
+      return operation(this);
+    }
     const admission = acquireCurrentGenerationLease(this.dataDir);
     let entry: { graph: CodeGraph; references: number; retired: boolean };
     try {
