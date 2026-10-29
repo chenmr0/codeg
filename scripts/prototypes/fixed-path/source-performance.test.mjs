@@ -1,3 +1,4 @@
+import { verifiedAfterPublication } from './source-observation-sequence.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -29,7 +30,7 @@ function q(samples){const a=samples.slice().sort((a,b)=>a-b),at=f=>a[Math.ceil(a
 test('continuous full-hash checker + compensation: 1001 files, five live query processes',{timeout:120000},async()=>{
  const root=fs.mkdtempSync(path.join(os.tmpdir(),'source-watch-load-')),p=initialize(root),count=1000;
  fs.writeFileSync(path.join(root,'main.py'),'def old_marker():\n    return 1\n');for(let i=0;i<count;i++)fs.writeFileSync(path.join(root,`file_${i}.py`),`def item_${i}(value=1):\n    return value\n`);await buildGraph(root,p.active);
- const clients=[];let watcher,writer;
+ const clients=[];let watcher,writer,verificationReader;
  try{
   for(const role of ['CLI','MCP','daemon','SDK','worker']){const c=launch('graph-client.mjs',[root,role]);clients.push(c);await until(()=>c.messages.some(m=>m.type==='ready'));}
   watcher=launch('source-worker.mjs',['watch',root,JSON.stringify({pollMs:100,maxBuilds:2,holdWritersDuringCheck})]);
@@ -37,14 +38,18 @@ test('continuous full-hash checker + compensation: 1001 files, five live query p
   writer=new Participant(root,file=>graphAt(root,file));const writeStarted=now();
   const admittedWrite=writer.write(g=>g.getStats()).then(()=>now()-writeStarted);
   await until(()=>watcher.messages.some(m=>m.event==='tick'&&m.result.status==='verified-observation'));const writeAdmissionMs=await admittedWrite;writer.close();writer=null;
-  const editsStartedAtMs=Date.now();for(let i=0;i<count;i++)fs.writeFileSync(path.join(root,`file_${i}.py`),`def item_${i}(value=2,extra=3):\n    return value+extra\n`);fs.writeFileSync(path.join(root,'main.py'),'def new_marker():\n    return 2\n');const editCompleted=now(),editsCompletedAtMs=Date.now();
-  await until(()=>watcher.messages.some(m=>m.event==='tick'&&m.result.status==='verified-observation'&&m.result.builds>=1));const convergenceMs=now()-editCompleted,convergenceObservedAtMs=Date.now();
+  const observationStart=watcher.messages.length;const editsStartedAtMs=Date.now();for(let i=0;i<count;i++)fs.writeFileSync(path.join(root,`file_${i}.py`),`def item_${i}(value=2,extra=3):\n    return value+extra\n`);fs.writeFileSync(path.join(root,'main.py'),'def new_marker():\n    return 2\n');const editCompleted=now(),editsCompletedAtMs=Date.now();
+  const convergenceEvidence=await until(()=>verifiedAfterPublication(watcher.messages,observationStart));
+  verificationReader=new Participant(root,file=>graphAt(root,file,{readOnly:true}));
+  const verifiedMarkers=await verificationReader.request(g=>({old:g.searchNodes('old_marker').some(r=>r.node.name==='old_marker'),next:g.searchNodes('new_marker').some(r=>r.node.name==='new_marker')}));
+  assert.deepEqual(verifiedMarkers,{old:false,next:true},'post-publication verification must agree with actual new graph');verificationReader.close();verificationReader=null;
+  const convergenceMs=now()-editCompleted,convergenceObservedAtMs=Date.now();
   const ticksAfterChange=watcher.messages.filter(m=>m.event==='tick').length;await until(()=>watcher.messages.filter(m=>m.event==='tick').length>=ticksAfterChange+2);
   watcher.child.send('stop');await watcher.done;for(const c of clients)c.child.send('stop');const responses=await Promise.all(clients.map(c=>c.done));
   for(const r of responses){assert.deepEqual(r.errors,[]);assert(r.states.includes('old')&&r.states.includes('new'));}
   const ticks=watcher.messages.filter(m=>m.event==='tick').map(m=>m.result),checks=ticks.flatMap(t=>t.outcomes.filter(o=>o.type==='check')),publishes=ticks.flatMap(t=>t.outcomes.filter(o=>o.type==='publish'));
-  const queries=q(responses.flatMap(r=>r.samples));const report={platform:process.platform,node:process.version,files:1001,timeline:{editsStartedAtMs,editsCompletedAtMs,convergenceObservedAtMs},pollMs:100,holdWritersDuringCheck,queries,checkTimes:q(checks.map(c=>c.checkMs).filter(Number.isFinite)),writeAdmissionMs,convergenceMs,publishes,checks:checks.map(c=>({status:c.status,changedFiles:c.changedFiles,checkMs:c.checkMs,startedAtMs:c.startedAtMs,finishedAtMs:c.finishedAtMs,stages:c.stages})),scope:'full-hash checker enabled; synthetic Python fixtures; writeAdmissionMs includes a no-op graph read under write admission, not mutation execution cost; no strict filesystem linearizability'};
+  const queries=q(responses.flatMap(r=>r.samples));const report={platform:process.platform,node:process.version,files:1001,convergenceEvidence,verifiedMarkers,timeline:{editsStartedAtMs,editsCompletedAtMs,convergenceObservedAtMs},pollMs:100,holdWritersDuringCheck,queries,checkTimes:q(checks.map(c=>c.checkMs).filter(Number.isFinite)),writeAdmissionMs,convergenceMs,publishes,checks:checks.map(c=>({status:c.status,changedFiles:c.changedFiles,checkMs:c.checkMs,startedAtMs:c.startedAtMs,finishedAtMs:c.finishedAtMs,stages:c.stages})),scope:'full-hash checker enabled; synthetic Python fixtures; writeAdmissionMs includes a no-op graph read under write admission, not mutation execution cost; no strict filesystem linearizability'};
   const out=process.env.SOURCE_EVIDENCE_DIR??path.resolve('artifacts/fixed-path-source-reconciliation');fs.mkdirSync(out,{recursive:true});fs.writeFileSync(path.join(out,`source-performance-${holdWritersDuringCheck?'hold-writers-':''}${process.platform}.json`),JSON.stringify(report,null,2));
   assert(queries.maxMs<=1000,JSON.stringify(report));for(const pub of publishes)if(pub.status==='published')assert(pub.metrics.admissionPauseMs<=1000,JSON.stringify(pub));
- }finally{writer?.close();for(const c of clients)if(c.child.connected)c.child.kill('SIGKILL');if(watcher?.child.connected)watcher.child.kill('SIGKILL');}
+ }finally{verificationReader?.close();writer?.close();for(const c of clients)if(c.child.connected)c.child.kill('SIGKILL');if(watcher?.child.connected)watcher.child.kill('SIGKILL');}
 });

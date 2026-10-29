@@ -24,3 +24,7 @@ Windows六失败不能当作门禁通过，也不能仅用重跑隐藏：三例�
 第二轮远端e0f70679042c96f77c67b94ca89f862e74abaae4/run40885305611：Windows专项symlink5/5零跳过，exclusive79/80，唯一剩gate-read父端在exit时检查终态消息。旧锁错误、补查超时和其余IPC失败本轮未出现，但全门禁仍未通过。
 
 再补父端修复：OS exit不等于IPC/stdio已排空，所有依赖最终消息或stdout的父端改在close之后判定；新增确定性exit→最后消息/日志→close成功及close仍无结果拒绝两项。没有加固定sleep，没有放松子进程exit code或结果断言。当前累计每模式82项，仍须Windows复测。
+
+## 第三轮结果与范围收敛
+
+第三轮a4b78c9/run40886508106：Windows默认exclusive82/82、0skip，strict symlink5/5；shared-read79/82。shared两项冷路径锁失败保留，实验保持关闭，不继续扩大优化。其补查超时经原始事件回放确认是观察谓词要求同一tick的误报：发布成功后另一tick才verified是允许的。修复测试按编辑后outcomes序列确认published→后续verified，实际查询新marker有/旧marker无；新增4项顺序回归。当前默认累计86项，协议及时间预算均未修改，不用此测试修正宣称两项锁错误已修复。

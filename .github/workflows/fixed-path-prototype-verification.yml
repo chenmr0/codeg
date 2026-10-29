@@ -1,4 +1,5 @@
-name: Fixed-path prototype verification
+name: Fixed-path default protocol verification
+# Optional shared-read experiment is disabled; failures remain recorded in run 40886508106.
 on:
   push:
     branches:
@@ -16,7 +17,8 @@ jobs:
     timeout-minutes: 30
     env:
       STRICT_SYMLINK_TESTS: '1'
-      GATE_EVIDENCE_DIR: artifacts/ci-fixed-path
+      SOURCE_EVIDENCE_DIR: artifacts/ci-fixed-path
+      CODEGRAPH_PROTOTYPE_READ_GATES: '0'
       CODEGRAPH_ALL_LANGUAGES: '1'
     steps:
       - uses: actions/checkout@v6
@@ -39,8 +41,8 @@ jobs:
           node --liftoff-only --test --test-reporter=tap scripts/prototypes/fixed-path/source-snapshot.test.mjs 2>&1 | Tee-Object -FilePath artifacts/source-snapshot-strict.tap
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           if (Select-String -Path artifacts/source-snapshot-strict.tap -Pattern '# SKIP' -CaseSensitive -Quiet) { throw 'Skipped snapshot regression is forbidden' }
-      - name: Run full isolated prototype gates in both admission modes
-        run: node --liftoff-only scripts/prototypes/fixed-path/run-gates.mjs
+      - name: Run full isolated DEFAULT exclusive protocol gates
+        run: node --liftoff-only scripts/prototypes/fixed-path/run-source.mjs
       - name: Preserve exact runner evidence
         if: always()
         uses: actions/upload-artifact@v4
