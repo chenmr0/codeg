@@ -312,6 +312,8 @@ export class QueryBuilder {
     deleteRefsByRowIdsFull?: SqliteStatement;
     getAllFilePaths?: SqliteStatement;
     getAllNodeNames?: SqliteStatement;
+    getDistinctNodeNamesFirst?: SqliteStatement;
+    getDistinctNodeNamesAfter?: SqliteStatement;
     getDominantFile?: SqliteStatement;
     getChangeStamp?: SqliteStatement;
     getTopRouteFile?: SqliteStatement;
@@ -325,6 +327,8 @@ export class QueryBuilder {
   // correctness backstop. Bounded so a pathological repo can't grow it forever.
   private segmentedNames: Set<string> = new Set();
   private static readonly MAX_SEGMENTED_NAMES = 65536;
+  private temporaryVocabularyDepth = 0;
+  private static temporaryVocabularySequence = 0;
 
   // Multi-row INSERT statements, cached per (statement kind × row count). The
   // bulk write path decomposes N rows into a few fixed batch sizes so each
@@ -812,6 +816,66 @@ export class QueryBuilder {
     return rows.map((r) => r.name);
   }
 
+  /** Seek by the last returned name, rather than rescanning every prior page.
+   * Undefined is the first page: an empty name must not be skipped. The native
+   * name index uses BINARY collation, so DISTINCT, cursor and ordering agree. */
+  getDistinctNodeNamesAfter(limit: number, after?: string): string[] {
+    if (!Number.isSafeInteger(limit) || limit <= 0) throw new RangeError('Name page size must be a positive integer');
+    let rows: Array<{ name: string }>;
+    if (after === undefined) {
+      this.stmts.getDistinctNodeNamesFirst ??= this.db.prepare(
+        "SELECT DISTINCT name COLLATE BINARY AS name FROM nodes WHERE kind NOT IN ('file', 'import') ORDER BY name COLLATE BINARY LIMIT ?",
+      );
+      rows = this.stmts.getDistinctNodeNamesFirst.all(limit) as Array<{ name: string }>;
+    } else {
+      this.stmts.getDistinctNodeNamesAfter ??= this.db.prepare(
+        "SELECT DISTINCT name COLLATE BINARY AS name FROM nodes WHERE kind NOT IN ('file', 'import') AND name COLLATE BINARY > ? ORDER BY name COLLATE BINARY LIMIT ?",
+      );
+      rows = this.stmts.getDistinctNodeNamesAfter.all(after, limit) as Array<{ name: string }>;
+    }
+    return rows.map(row => row.name);
+  }
+
+  /** Rebuild only the connection-local vocabulary over one SQLite snapshot.
+   * SAVEPOINT works both standalone and inside a caller's transaction, even
+   * when a backend cannot expose its transaction state. A failed page restores
+   * the previous TEMP table; no persistent index/schema is written here. */
+  rebuildTemporaryNameSegmentVocab(pageSize = 2000): void {
+    if (!Number.isSafeInteger(pageSize) || pageSize <= 0) throw new RangeError('Name page size must be a positive integer');
+    const savepoint = `codegraph_explore_vocab_${++QueryBuilder.temporaryVocabularySequence}`;
+    this.db.exec(`SAVEPOINT ${savepoint}`);
+    this.temporaryVocabularyDepth++;
+    try {
+      this.db.exec('CREATE TEMP TABLE IF NOT EXISTS name_segment_vocab (segment TEXT NOT NULL, name TEXT NOT NULL, PRIMARY KEY(segment,name)) WITHOUT ROWID');
+      this.clearNameSegmentVocab();
+      let after: string | undefined;
+      for (;;) {
+        const names = this.getDistinctNodeNamesAfter(pageSize, after);
+        if (!names.length) break;
+        const next = names[names.length - 1]!;
+        // Some SQLite bindings truncate malformed TEXT containing NUL. Such
+        // a decoded cursor can repeat even though SQLite selected name > ?.
+        // Fail atomically rather than hang or silently skip names. Do not use
+        // JS lexical ordering here: UTF-16 order differs from SQLite BINARY.
+        if (next === after) throw new Error('Explore vocabulary name cursor did not advance; index name encoding is unsupported.');
+        this.insertNameSegmentsBatch(names);
+        after = next;
+      }
+      this.db.exec(`RELEASE SAVEPOINT ${savepoint}`);
+    } catch (error) {
+      // Do not release (and thereby commit) a partially rebuilt table if the
+      // rollback itself fails. Propagate failure; the caller cannot mark ready.
+      this.db.exec(`ROLLBACK TO SAVEPOINT ${savepoint}`);
+      this.db.exec(`RELEASE SAVEPOINT ${savepoint}`);
+      throw error;
+    } finally {
+      this.temporaryVocabularyDepth--;
+      // total_changes and this write-side cache do not roll back with SQLite.
+      // Clear even after success because an enclosing transaction may roll back.
+      this.segmentedNames.clear();
+    }
+  }
+
   /** Insert segments for a batch of names in one transaction (vocab heal path). */
   insertNameSegmentsBatch(names: string[]): void {
     const insert = () => {
@@ -826,7 +890,7 @@ export class QueryBuilder {
     };
     // A native adapter may already be inside a raw BEGIN/SAVEPOINT. Reuse
     // that transaction instead of asking its helper to issue another BEGIN.
-    if (this.db.inTransaction === true) insert();
+    if (this.temporaryVocabularyDepth > 0 || this.db.inTransaction === true) insert();
     else this.db.transaction(insert)();
   }
 

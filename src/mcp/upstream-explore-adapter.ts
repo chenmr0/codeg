@@ -101,24 +101,35 @@ class NativeExploreQueries extends QueryBuilder {
 
 const vocabStamps = new WeakMap<SqliteDatabase, string>();
 const queryCaches = new WeakMap<CodeGraph, { db: SqliteDatabase; queries: NativeExploreQueries }>();
-function changeStamp(db: SqliteDatabase): string {
-  return `${db.pragma('data_version', { simple: true })}:${db.prepare('SELECT total_changes() AS n').get().n}`
-    + `:${db.pragma('schema_version', { simple: true })}:${db.pragma('temp.schema_version', { simple: true })}`;
+function vocabularyStamp(db: SqliteDatabase): { mainVersion: string; value: string } {
+  const dataVersion = db.pragma('data_version', { simple: true });
+  const schemaVersion = db.pragma('schema_version', { simple: true });
+  const changes = db.prepare('SELECT total_changes() AS n').get().n;
+  const tempSchemaVersion = db.pragma('temp.schema_version', { simple: true });
+  return { mainVersion: `${dataVersion}:${schemaVersion}`, value: `${dataVersion}:${changes}:${schemaVersion}:${tempSchemaVersion}` };
 }
 
 /** TEMP vocabulary avoids upgrading/mutating a native index from a read tool.
  * Rebuild on either same-connection writes or another connection's commit. */
 function ensureVocabulary(db: SqliteDatabase, queries: QueryBuilder): void {
-  if (db.inTransaction === false && vocabStamps.get(db) === changeStamp(db)) return;
-  db.exec('CREATE TEMP TABLE IF NOT EXISTS name_segment_vocab (segment TEXT NOT NULL, name TEXT NOT NULL, PRIMARY KEY(segment,name)) WITHOUT ROWID');
-  queries.clearNameSegmentVocab();
-  for (let offset = 0; ; offset += 2000) {
-    const names = queries.getDistinctNodeNames(2000, offset);
-    if (!names.length) break;
-    queries.insertNameSegmentsBatch(names);
+  const current = vocabularyStamp(db);
+  if (db.inTransaction === false && vocabStamps.get(db) === current.value) return;
+  vocabStamps.delete(db);
+  let before = current;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const beganOutsideTransaction = db.inTransaction === false;
+    queries.rebuildTemporaryNameSegmentVocab();
+    // Read exactly one post-release stamp. A writer can commit while the
+    // source snapshot is pinned or just after RELEASE: never label that old
+    // snapshot with a separately read newer version. Retry once if it changed.
+    const after = vocabularyStamp(db);
+    if (before.mainVersion === after.mainVersion) {
+      if (beganOutsideTransaction && db.inTransaction === false) vocabStamps.set(db, after.value);
+      return;
+    }
+    before = after;
   }
-  if (db.inTransaction === false) vocabStamps.set(db, changeStamp(db));
-  else vocabStamps.delete(db);
+  throw new Error('CodeGraph index changed repeatedly while rebuilding the Explore vocabulary; retry the query.');
 }
 
 export function createUpstreamExploreGraph(cg: CodeGraph): ExploreGraph {
