@@ -1,0 +1,322 @@
+{
+  "normal": {
+    "status": "verified-observation",
+    "service": {
+      "count": 966,
+      "p50Ms": 113.22379899999942,
+      "p95Ms": 193.43988099999842,
+      "p99Ms": 220.54048799999873,
+      "maxMs": 408.865209999989
+    },
+    "errors": [],
+    "firstB": [
+      {
+        "at": 1793305989848,
+        "scheduledDelayMs": -0.3523589999967953,
+        "wallMs": 408.865209999989,
+        "latencyMs": 408.51322100000107,
+        "a": "ea3e67daabd13368babe0ee77c99d401fea2348a8a91def514fe1eedbc6aa6b2",
+        "b": "ea3e67daabd13368babe0ee77c99d401fea2348a8a91def514fe1eedbc6aa6b2",
+        "hits": 5,
+        "missing": 0,
+        "stages": {
+          "fileAMs": 0.09734600000956561,
+          "searchMs": 169.99171799999021,
+          "nodesMs": 0.3130290000117384,
+          "fileBMs": 0.021851999990758486,
+          "actionMs": 170.42394500000228,
+          "actionStart": 91422.746653,
+          "actionEnd": 91593.170598
+        },
+        "pattern": "ObServer",
+        "client": 0,
+        "admissionMs": 237.85910400000284,
+        "finishResidualMs": 0.5821609999838984
+      },
+      {
+        "at": 1793305990081,
+        "scheduledDelayMs": -0.8619960000069113,
+        "wallMs": 295.82686600000306,
+        "latencyMs": 294.96518999998807,
+        "a": "ea3e67daabd13368babe0ee77c99d401fea2348a8a91def514fe1eedbc6aa6b2",
+        "b": "ea3e67daabd13368babe0ee77c99d401fea2348a8a91def514fe1eedbc6aa6b2",
+        "hits": 5,
+        "missing": 0,
+        "stages": {
+          "fileAMs": 0.12007900000025984,
+          "searchMs": 184.86803900000814,
+          "nodesMs": 0.26946299998962786,
+          "fileBMs": 0.02155200000561308,
+          "actionMs": 185.27913300000364,
+          "actionStart": 91336.705882,
+          "actionEnd": 91521.985015
+        },
+        "pattern": "ObServer",
+        "client": 1,
+        "admissionMs": 110.17976199999976,
+        "finishResidualMs": 0.3679709999996703
+      },
+      {
+        "at": 1793305990311,
+        "scheduledDelayMs": 0.15626699999847915,
+        "wallMs": 361.743404000008,
+        "latencyMs": 361.90017100000114,
+        "a": "ea3e67daabd13368babe0ee77c99d401fea2348a8a91def514fe1eedbc6aa6b2",
+        "b": "ea3e67daabd13368babe0ee77c99d401fea2348a8a91def514fe1eedbc6aa6b2",
+        "hits": 5,
+        "missing": 0,
+        "stages": {
+          "fileAMs": 0.09912900000927038,
+          "searchMs": 202.48105199998827,
+          "nodesMs": 0.406278000009479,
+          "fileBMs": 0.031057000000146218,
+          "actionMs": 203.01751600000716,
+          "actionStart": 91381.885782,
+          "actionEnd": 91584.903298
+        },
+        "pattern": "ObServer",
+        "client": 2,
+        "admissionMs": 158.38677199999802,
+        "finishResidualMs": 0.33911600000283215
+      },
+      {
+        "at": 1793305990050,
+        "scheduledDelayMs": 0.6724910000048112,
+        "wallMs": 290.9930389999936,
+        "latencyMs": 291.6658310000057,
+        "a": "ea3e67daabd13368babe0ee77c99d401fea2348a8a91def514fe1eedbc6aa6b2",
+        "b": "ea3e67daabd13368babe0ee77c99d401fea2348a8a91def514fe1eedbc6aa6b2",
+        "hits": 5,
+        "missing": 0,
+        "stages": {
+          "fileAMs": 0.11300899999332614,
+          "searchMs": 177.58906300000672,
+          "nodesMs": 0.42483599999104626,
+          "fileBMs": 0.022093000006861985,
+          "actionMs": 178.14900099999795,
+          "actionStart": 90847.4232,
+          "actionEnd": 91025.572201
+        },
+        "pattern": "ObServer",
+        "client": 3,
+        "admissionMs": 112.50038500000664,
+        "finishResidualMs": 0.3436529999889899
+      },
+      {
+        "at": 1793305990277,
+        "scheduledDelayMs": -0.7522360000002664,
+        "wallMs": 282.0290280000045,
+        "latencyMs": 281.27709299999697,
+        "a": "ea3e67daabd13368babe0ee77c99d401fea2348a8a91def514fe1eedbc6aa6b2",
+        "b": "ea3e67daabd13368babe0ee77c99d401fea2348a8a91def514fe1eedbc6aa6b2",
+        "hits": 5,
+        "missing": 0,
+        "stages": {
+          "fileAMs": 0.1498940000019502,
+          "searchMs": 166.86746900000435,
+          "nodesMs": 0.4517959999939194,
+          "fileBMs": 0.0319279999966966,
+          "actionMs": 167.50108699999691,
+          "actionStart": 90837.270307,
+          "actionEnd": 91004.771394
+        },
+        "pattern": "ObServer",
+        "client": 4,
+        "admissionMs": 114.15178900001047,
+        "finishResidualMs": 0.3761519999970915
+      }
+    ],
+    "phaseEvents": [
+      {
+        "at": 1793305989937,
+        "pid": 60,
+        "event": "phase",
+        "phase": "resumed"
+      },
+      {
+        "at": 1793305989937,
+        "pid": 60,
+        "event": "phase",
+        "phase": "cleanup-hash-start"
+      },
+      {
+        "at": 1793305992158,
+        "pid": 60,
+        "event": "phase",
+        "phase": "cleanup-hash-end"
+      },
+      {
+        "at": 1793305992158,
+        "pid": 60,
+        "event": "phase",
+        "phase": "cleanup"
+      }
+    ]
+  },
+  "deferred": {
+    "status": "verified-observation",
+    "service": {
+      "count": 962,
+      "p50Ms": 114.37068899998849,
+      "p95Ms": 189.58870800000295,
+      "p99Ms": 231.1750350000002,
+      "maxMs": 353.35116500000004
+    },
+    "errors": [],
+    "firstB": [
+      {
+        "at": 1793306095352,
+        "scheduledDelayMs": -0.554495999997016,
+        "wallMs": 301.4299800000008,
+        "latencyMs": 300.8758450000023,
+        "a": "ea3e67daabd13368babe0ee77c99d401fea2348a8a91def514fe1eedbc6aa6b2",
+        "b": "ea3e67daabd13368babe0ee77c99d401fea2348a8a91def514fe1eedbc6aa6b2",
+        "hits": 5,
+        "missing": 0,
+        "stages": {
+          "fileAMs": 0.14898299999185838,
+          "searchMs": 178.85990900000616,
+          "nodesMs": 0.3844959999987623,
+          "fileBMs": 0.02311399999598507,
+          "actionMs": 179.41650199999276,
+          "actionStart": 90811.392865,
+          "actionEnd": 90990.809367
+        },
+        "pattern": "ObServer",
+        "client": 0,
+        "admissionMs": 121.75672399999166,
+        "finishResidualMs": 0.2567540000163717
+      },
+      {
+        "at": 1793306095053,
+        "scheduledDelayMs": 1.0227049999957671,
+        "wallMs": 350.8490310000052,
+        "latencyMs": 351.872126000002,
+        "a": "ea3e67daabd13368babe0ee77c99d401fea2348a8a91def514fe1eedbc6aa6b2",
+        "b": "ea3e67daabd13368babe0ee77c99d401fea2348a8a91def514fe1eedbc6aa6b2",
+        "hits": 5,
+        "missing": 0,
+        "stages": {
+          "fileAMs": 0.1431940000038594,
+          "searchMs": 204.74259099998744,
+          "nodesMs": 0.4424120000039693,
+          "fileBMs": 0.03145700000459328,
+          "actionMs": 205.35965399999986,
+          "actionStart": 90340.369997,
+          "actionEnd": 90545.729651
+        },
+        "pattern": "ObServer",
+        "client": 1,
+        "admissionMs": 145.1152269999875,
+        "finishResidualMs": 0.3741500000178348
+      },
+      {
+        "at": 1793306095292,
+        "scheduledDelayMs": -0.35991899999498855,
+        "wallMs": 353.35116500000004,
+        "latencyMs": 352.9917370000039,
+        "a": "ea3e67daabd13368babe0ee77c99d401fea2348a8a91def514fe1eedbc6aa6b2",
+        "b": "ea3e67daabd13368babe0ee77c99d401fea2348a8a91def514fe1eedbc6aa6b2",
+        "hits": 5,
+        "missing": 0,
+        "stages": {
+          "fileAMs": 0.14522700000088662,
+          "searchMs": 210.92992200001027,
+          "nodesMs": 0.42475599999306723,
+          "fileBMs": 0.03041500000108499,
+          "actionMs": 211.5303200000053,
+          "actionStart": 90375.43942,
+          "actionEnd": 90586.96974
+        },
+        "pattern": "ObServer",
+        "client": 2,
+        "admissionMs": 141.44042600000103,
+        "finishResidualMs": 0.380418999993708
+      },
+      {
+        "at": 1793306095016,
+        "scheduledDelayMs": 0.708980999988853,
+        "wallMs": 336.74522500000603,
+        "latencyMs": 337.4545259999868,
+        "a": "ea3e67daabd13368babe0ee77c99d401fea2348a8a91def514fe1eedbc6aa6b2",
+        "b": "ea3e67daabd13368babe0ee77c99d401fea2348a8a91def514fe1eedbc6aa6b2",
+        "hits": 5,
+        "missing": 0,
+        "stages": {
+          "fileAMs": 0.1333489999960875,
+          "searchMs": 215.16770000000542,
+          "nodesMs": 0.31428999999479856,
+          "fileBMs": 0.022513999996590428,
+          "actionMs": 215.6378529999929,
+          "actionStart": 89838.890033,
+          "actionEnd": 90054.527886
+        },
+        "pattern": "ObServer",
+        "client": 3,
+        "admissionMs": 120.56212499999674,
+        "finishResidualMs": 0.5452470000163885
+      },
+      {
+        "at": 1793306095249,
+        "scheduledDelayMs": -0.21604800000204705,
+        "wallMs": 323.46200800000224,
+        "latencyMs": 323.2463909999933,
+        "a": "ea3e67daabd13368babe0ee77c99d401fea2348a8a91def514fe1eedbc6aa6b2",
+        "b": "ea3e67daabd13368babe0ee77c99d401fea2348a8a91def514fe1eedbc6aa6b2",
+        "hits": 5,
+        "missing": 0,
+        "stages": {
+          "fileAMs": 0.09735599999839906,
+          "searchMs": 191.28718600000138,
+          "nodesMs": 0.46044899999105837,
+          "fileBMs": 0.030055000010179356,
+          "actionMs": 191.87504600000102,
+          "actionStart": 89856.312399,
+          "actionEnd": 90048.187445
+        },
+        "pattern": "ObServer",
+        "client": 4,
+        "admissionMs": 131.23979300000065,
+        "finishResidualMs": 0.3471690000005765
+      }
+    ],
+    "phaseEvents": [
+      {
+        "at": 1793306095032,
+        "pid": 129,
+        "event": "phase",
+        "phase": "resumed"
+      },
+      {
+        "at": 1793306095032,
+        "pid": 129,
+        "event": "phase",
+        "phase": "diagnostic-cleanup-wait-start"
+      },
+      {
+        "at": 1793306095657,
+        "pid": 129,
+        "event": "phase",
+        "phase": "diagnostic-cleanup-wait-end"
+      },
+      {
+        "at": 1793306095657,
+        "pid": 129,
+        "event": "phase",
+        "phase": "cleanup-hash-start"
+      },
+      {
+        "at": 1793306097852,
+        "pid": 129,
+        "event": "phase",
+        "phase": "cleanup-hash-end"
+      },
+      {
+        "at": 1793306097852,
+        "pid": 129,
+        "event": "phase",
+        "phase": "cleanup"
+      }
+    ]
+  }
+}

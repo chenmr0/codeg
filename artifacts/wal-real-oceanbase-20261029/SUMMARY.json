@@ -1,0 +1,91 @@
+{
+  "testedCommit": "ae76291ac273b2b90824cb5a03122d85e5cb9b2c",
+  "sourceB": "9bdfa9e22b618cc4ad0a724010b1bb9567629399",
+  "operationMs": 937251.9504839999,
+  "status": "verified-observation",
+  "stats": {
+    "nodeCount": 812129,
+    "edgeCount": 5362580,
+    "fileCount": 13565,
+    "dbSizeBytes": 3385122816
+  },
+  "completeness": {
+    "status": "complete",
+    "diagnostics": []
+  },
+  "query": {
+    "service": {
+      "count": 9382,
+      "p50Ms": 111.27907499996945,
+      "p95Ms": 187.52964500000235,
+      "p99Ms": 215.2286740000127,
+      "maxMs": 1267.6435180000262
+    },
+    "scheduledLatency": {
+      "count": 9382,
+      "p50Ms": 110.97158500002115,
+      "p95Ms": 187.82539400004316,
+      "p99Ms": 217.47285000002012,
+      "maxMs": 1266.488852999988
+    },
+    "errors": [],
+    "mixedHashReads": 0,
+    "missingNodeReads": 0,
+    "reopens": [
+      2,
+      2,
+      2,
+      2,
+      2
+    ],
+    "offeredRequests": 9429,
+    "completedRequests": 9429,
+    "pendingScheduled": 0,
+    "observedHashes": [
+      "d14e9edd9bcfe0e6718d4c20ec80778eb97c748277c749d490a230bdeee38dd9",
+      "ea3e67daabd13368babe0ee77c99d401fea2348a8a91def514fe1eedbc6aa6b2"
+    ]
+  },
+  "metrics": {
+    "coordinatorKeeper": {
+      "openedAtMs": 1793304574764,
+      "attachedAtMs": 1793304574764,
+      "closedAtMs": 1793305500800
+    },
+    "buildMs": 864757.613959,
+    "validationMs": 52068.415582000045,
+    "checkpointMs": 2356.5546619999222,
+    "drainMs": 89.41199299995787,
+    "replaceMs": 1.8083499999484047,
+    "reopenMs": 0.6562429999466985,
+    "resumeMs": 0.08848200005013496,
+    "checkpointFinalMs": 0.35920800000894815,
+    "admissionPauseMs": 94.60219100001268,
+    "coordinatorCheckpoint": {
+      "busy": 0,
+      "log": 314,
+      "checkpointed": 314,
+      "deferred": false
+    }
+  },
+  "sourceChecksMs": [
+    5997.229224,
+    5181.980517000076
+  ],
+  "idle": {
+    "service": {
+      "count": 150,
+      "p50Ms": 109.45375000000058,
+      "p95Ms": 166.4460170000002,
+      "p99Ms": 177.45992399999886,
+      "maxMs": 178.74087599999984
+    },
+    "errors": [],
+    "pendingScheduled": 0
+  },
+  "sampledPeakDiskBytes": 6459235732,
+  "sampledPeakAggregateRssBytes": 5052600320,
+  "sameCountsAsIndependentInit": true,
+  "verdict": "Correct complete publication; switching-period end-to-end tail exceeded 1 second, not accepted as complete performance pass; diagnosis ongoing",
+  "isolation": "Fresh real .git clone; standalone trusted A only, empty runtime at start. Prior git worktree attempt blocked with ENOTDIR and was retained separately."
+}

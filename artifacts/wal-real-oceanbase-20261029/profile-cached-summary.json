@@ -1,0 +1,148 @@
+{
+  "diagnosticOnly": true,
+  "cachedCandidate": true,
+  "codeBase": "ae76291",
+  "operationMs": 111313.757153,
+  "status": "verified-observation",
+  "service": {
+    "count": 1119,
+    "p50Ms": 115.18188000000009,
+    "p95Ms": 196.8774010000052,
+    "p99Ms": 231.67478600000322,
+    "maxMs": 338.091242999988
+  },
+  "queryErrorCount": 0,
+  "phases": [
+    {
+      "at": 1793305644927,
+      "pid": 57,
+      "event": "phase",
+      "phase": "hash-start"
+    },
+    {
+      "at": 1793305649061,
+      "pid": 57,
+      "event": "phase",
+      "phase": "observed"
+    },
+    {
+      "at": 1793305651668,
+      "pid": 57,
+      "event": "phase",
+      "phase": "before-build"
+    },
+    {
+      "at": 1793305655239,
+      "pid": 57,
+      "event": "phase",
+      "phase": "after-build"
+    },
+    {
+      "at": 1793305743532,
+      "pid": 57,
+      "event": "phase",
+      "phase": "prepared"
+    },
+    {
+      "at": 1793305748450,
+      "pid": 57,
+      "event": "phase",
+      "phase": "draining"
+    },
+    {
+      "at": 1793305748547,
+      "pid": 57,
+      "event": "phase",
+      "phase": "replacing"
+    },
+    {
+      "at": 1793305748548,
+      "pid": 57,
+      "event": "phase",
+      "phase": "before-old-rename"
+    },
+    {
+      "at": 1793305748549,
+      "pid": 57,
+      "event": "phase",
+      "phase": "after-old-rename"
+    },
+    {
+      "at": 1793305748549,
+      "pid": 57,
+      "event": "phase",
+      "phase": "old-moved"
+    },
+    {
+      "at": 1793305748549,
+      "pid": 57,
+      "event": "phase",
+      "phase": "before-new-rename"
+    },
+    {
+      "at": 1793305748550,
+      "pid": 57,
+      "event": "phase",
+      "phase": "after-new-rename"
+    },
+    {
+      "at": 1793305748550,
+      "pid": 57,
+      "event": "phase",
+      "phase": "new-moved"
+    },
+    {
+      "at": 1793305748550,
+      "pid": 57,
+      "event": "phase",
+      "phase": "before-commit"
+    },
+    {
+      "at": 1793305748551,
+      "pid": 57,
+      "event": "phase",
+      "phase": "committed"
+    },
+    {
+      "at": 1793305748551,
+      "pid": 57,
+      "event": "phase",
+      "phase": "resumed"
+    },
+    {
+      "at": 1793305748551,
+      "pid": 57,
+      "event": "phase",
+      "phase": "cleanup-hash-start"
+    },
+    {
+      "at": 1793305750708,
+      "pid": 57,
+      "event": "phase",
+      "phase": "cleanup-hash-end"
+    },
+    {
+      "at": 1793305750708,
+      "pid": 57,
+      "event": "phase",
+      "phase": "cleanup"
+    },
+    {
+      "at": 1793305750885,
+      "pid": 57,
+      "event": "phase",
+      "phase": "hash-start"
+    },
+    {
+      "at": 1793305756107,
+      "pid": 57,
+      "event": "phase",
+      "phase": "observed"
+    }
+  ],
+  "limitations": [
+    "Did not reproduce full-build 1.268s tail",
+    "Cached-candidate round has different memory/cache state and first-new query pattern",
+    "Does not supersede full-run failure or prove cleanup hash causation"
+  ]
+}

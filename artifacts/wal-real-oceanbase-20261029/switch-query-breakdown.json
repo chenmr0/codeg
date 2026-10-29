@@ -1,0 +1,182 @@
+[
+  {
+    "client": 0,
+    "index": 1865,
+    "at": 1793305498157,
+    "serviceMs": 227.03679800010286,
+    "admissionMs": 0.1439760000212118,
+    "postAdmissionMs": 226.89282200008165,
+    "new": false
+  },
+  {
+    "client": 0,
+    "index": 1866,
+    "at": 1793305498658,
+    "serviceMs": 833.4903489999706,
+    "admissionMs": 160.67156799999066,
+    "postAdmissionMs": 672.8187809999799,
+    "new": true
+  },
+  {
+    "client": 0,
+    "index": 1867,
+    "at": 1793305499492,
+    "serviceMs": 442.1204039999284,
+    "admissionMs": 0.08760099997743964,
+    "postAdmissionMs": 442.03280299995095,
+    "new": true
+  },
+  {
+    "client": 0,
+    "index": 1868,
+    "at": 1793305499936,
+    "serviceMs": 630.5847029999131,
+    "admissionMs": 0.07648499996867031,
+    "postAdmissionMs": 630.5082179999445,
+    "new": true
+  },
+  {
+    "client": 1,
+    "index": 1865,
+    "at": 1793305498360,
+    "serviceMs": 159.29366299998946,
+    "admissionMs": 0.10069099999964237,
+    "postAdmissionMs": 159.19297199998982,
+    "new": false
+  },
+  {
+    "client": 1,
+    "index": 1866,
+    "at": 1793305498861,
+    "serviceMs": 635.55185300007,
+    "admissionMs": 166.75399699993432,
+    "postAdmissionMs": 468.79785600013565,
+    "new": true
+  },
+  {
+    "client": 1,
+    "index": 1867,
+    "at": 1793305499497,
+    "serviceMs": 462.12997600005474,
+    "admissionMs": 0.0990979999769479,
+    "postAdmissionMs": 462.0308780000778,
+    "new": true
+  },
+  {
+    "client": 1,
+    "index": 1868,
+    "at": 1793305499961,
+    "serviceMs": 619.2893649999751,
+    "admissionMs": 0.07791700004599988,
+    "postAdmissionMs": 619.2114479999291,
+    "new": true
+  },
+  {
+    "client": 2,
+    "index": 1864,
+    "at": 1793305498078,
+    "serviceMs": 93.90318299992941,
+    "admissionMs": 0.1201500000897795,
+    "postAdmissionMs": 93.78303299983963,
+    "new": false
+  },
+  {
+    "client": 2,
+    "index": 1865,
+    "at": 1793305498576,
+    "serviceMs": 1267.6435180000262,
+    "admissionMs": 135.91050600004382,
+    "postAdmissionMs": 1131.7330119999824,
+    "new": true
+  },
+  {
+    "client": 2,
+    "index": 1866,
+    "at": 1793305499845,
+    "serviceMs": 119.96722900005989,
+    "admissionMs": 0.07575400010682642,
+    "postAdmissionMs": 119.89147499995306,
+    "new": true
+  },
+  {
+    "client": 2,
+    "index": 1867,
+    "at": 1793305499966,
+    "serviceMs": 137.04911699995864,
+    "admissionMs": 0.061452000052668154,
+    "postAdmissionMs": 136.98766499990597,
+    "new": true
+  },
+  {
+    "client": 3,
+    "index": 1864,
+    "at": 1793305498300,
+    "serviceMs": 93.8495680000633,
+    "admissionMs": 0.1434649999719113,
+    "postAdmissionMs": 93.70610300009139,
+    "new": false
+  },
+  {
+    "client": 3,
+    "index": 1865,
+    "at": 1793305498800,
+    "serviceMs": 1055.4281329999212,
+    "admissionMs": 213.82549400010612,
+    "postAdmissionMs": 841.6026389998151,
+    "new": true
+  },
+  {
+    "client": 3,
+    "index": 1866,
+    "at": 1793305499856,
+    "serviceMs": 115.32795000006445,
+    "admissionMs": 0.0862790000392124,
+    "postAdmissionMs": 115.24167100002524,
+    "new": true
+  },
+  {
+    "client": 3,
+    "index": 1867,
+    "at": 1793305499973,
+    "serviceMs": 127.44183200004045,
+    "admissionMs": 0.07706499996129423,
+    "postAdmissionMs": 127.36476700007915,
+    "new": true
+  },
+  {
+    "client": 4,
+    "index": 1863,
+    "at": 1793305498047,
+    "serviceMs": 108.46919099998195,
+    "admissionMs": 0.04936399997677654,
+    "postAdmissionMs": 108.41982700000517,
+    "new": false
+  },
+  {
+    "client": 4,
+    "index": 1864,
+    "at": 1793305498548,
+    "serviceMs": 872.1212749999249,
+    "admissionMs": 143.20431599998847,
+    "postAdmissionMs": 728.9169589999365,
+    "new": true
+  },
+  {
+    "client": 4,
+    "index": 1865,
+    "at": 1793305499421,
+    "serviceMs": 440.2763859999832,
+    "admissionMs": 0.047221000073477626,
+    "postAdmissionMs": 440.2291649999097,
+    "new": true
+  },
+  {
+    "client": 4,
+    "index": 1866,
+    "at": 1793305499863,
+    "serviceMs": 126.65148299990688,
+    "admissionMs": 0.0835750000551343,
+    "postAdmissionMs": 126.56790799985174,
+    "new": true
+  }
+]
