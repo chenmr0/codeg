@@ -364,6 +364,10 @@ export async function publish(op, options = {}) {
   } finally { preparedConnection?.close(); fence?.close(); writers?.close(); owner.close(); }
 }
 
+function preActionBusy(error){
+  const d=error.gateDiagnostic;
+  return error.errcode===5 && !!d && !d.actionStarted && ['open','begin'].includes(d.phase);
+}
 function admissionTimeout(){return Object.assign(new Error('Admission exceeded total 1000ms budget; no unsafe fallback'),{code:'ADMISSION_TIMEOUT'});}
 
 /** All graph handles (including cached readers) MUST be owned by factory's close().
@@ -452,8 +456,7 @@ export class Participant {
     },{deadline,label:'admission-deadline-cancel'});
   }
   publisherContention(error) {
-    const diagnostic=error.gateDiagnostic;
-    if(error.errcode!==5 || !diagnostic || diagnostic.actionStarted || !['open','begin'].includes(diagnostic.phase))return false;
+    if(!preActionBusy(error))return false;
     const owner=lease(this.p.owner,true);
     if(owner){owner.close();return false;}
     return true;
@@ -461,9 +464,11 @@ export class Participant {
   retryableAdmission(error, deadline) {
     // A held publisher/recovery OS lease authorizes only another bounded attempt,
     // never a fallback database or a change to persistent publication state.
-    if(!this.publisherContention(error))return false;
+    if(!preActionBusy(error))return false;
     if(now()>=deadline)throw admissionTimeout();
-    return true;
+    const retry=this.publisherContention(error);
+    if(now()>=deadline)throw admissionTimeout();
+    return retry;
   }
   async request(action, writing = false) {
     const started=now(),deadline=started+Math.min(this.options.waitMs??1000,1000);let admission;

@@ -13,3 +13,19 @@ for(const kind of ['action-BUSY','COMMIT-IOERR'])test(`${kind} is not retried an
 });
 test('remaining request budget bounds recovery and observer retries as well as admit',async t=>{const{p,participant}=setup(t,{waitMs:650}),{done}=await blocker(t,p,{duration:1200});let actions=0;const start=performance.now();try{await assert.rejects(participant.request(()=>actions++),e=>e.code==='ADMISSION_TIMEOUT');const elapsed=performance.now()-start;t.diagnostic(`admissionMs=${elapsed}; requestBudgetMs=650; child cleanup excluded`);assert(elapsed<800,`650ms request budget acquired a second full 500ms gate: ${elapsed}`);assert.equal(actions,0);}finally{await done;}});
 test('corrupt coordination database fails immediately even with publisher owner held',async t=>{const{p,participant}=setup(t),owner=lease(p.owner,true),originalBytes=fs.readFileSync(p.gate),exec=DatabaseSync.prototype.exec;let opens=0,actions=0;try{fs.writeFileSync(p.gate,'not a SQLite database');DatabaseSync.prototype.exec=function(sql){if(sql==='PRAGMA busy_timeout=0; PRAGMA synchronous=FULL')opens++;return exec.call(this,sql);};await assert.rejects(participant.request(()=>actions++),e=>e.errcode!==5&&/not a database|malformed/i.test(e.message));}finally{DatabaseSync.prototype.exec=exec;fs.writeFileSync(p.gate,originalBytes);owner.close();}assert.equal(opens,1,'corruption must not trigger another admission attempt');assert.equal(actions,0);assert.equal(participant.active,0);});
+
+test('expired pre-action BUSY budget does not perform an owner probe',()=>{
+ const participant=Object.create(Participant.prototype);let probes=0;participant.publisherContention=()=>{probes++;return true;};
+ const error=Object.assign(Error('busy'),{errcode:5,gateDiagnostic:{phase:'open',actionStarted:false}});
+ assert.throws(()=>participant.retryableAdmission(error,performance.now()-1),e=>e.code==='ADMISSION_TIMEOUT');assert.equal(probes,0);
+});
+test('deadline order preserves non-retryable I/O and ambiguous COMMIT errors',()=>{
+ const participant=Object.create(Participant.prototype);let probes=0;participant.publisherContention=()=>{probes++;return true;};
+ for(const error of [{errcode:10,gateDiagnostic:{phase:'open',actionStarted:false}},{errcode:5,gateDiagnostic:{phase:'commit',actionStarted:true}}])assert.equal(participant.retryableAdmission(error,performance.now()-1),false);
+ assert.equal(probes,0);
+});
+test('a probe that finishes after deadline fails even if owner has released',()=>{
+ const participant=Object.create(Participant.prototype);participant.publisherContention=()=>{Atomics.wait(new Int32Array(new SharedArrayBuffer(4)),0,0,10);return false;};
+ const error=Object.assign(Error('busy'),{errcode:5,gateDiagnostic:{phase:'begin',actionStarted:false}});
+ assert.throws(()=>participant.retryableAdmission(error,performance.now()+2),e=>e.code==='ADMISSION_TIMEOUT');
+});

@@ -1,6 +1,6 @@
 # 当前验证入口与范围（第一阶段）
 
-本目录是独立可运行原型；生产 `src` 不引用。所有活动图数据库由原型实际存放在 `.codegraph-wx/codegraph.db`，不是 CURRENT 兼容副本。基础协议说明见 README.md；该说明中的51项数字为早期记录，最新累计测试数为125项。
+本目录是独立可运行原型；生产 `src` 不引用。所有活动图数据库由原型实际存放在 `.codegraph-wx/codegraph.db`，不是 CURRENT 兼容副本。基础协议说明见 README.md；该说明中的51项数字为早期记录，最新累计测试数为128项。
 
 ## 当前验收与复跑
 
@@ -12,7 +12,7 @@ node scripts/prototypes/fixed-path/run-source.mjs
 
 **当前shared-read实验未通过Windows完整负载门禁，保持关闭；主验收使用 `CODEGRAPH_PROTOTYPE_READ_GATES=0 node scripts/prototypes/fixed-path/run-source.mjs`（PowerShell用环境变量赋值）。**
 
-`run-gates.mjs` 仅供明确需要的实验A/B，顺序运行 exclusive 和 opt-in shared-read 两种模式，每种125项；输出完整日志、阶段时间、查询分位数和细分gate指标。`run-source.mjs` 单独运行当前默认（exclusive）一次125项。
+`run-gates.mjs` 仅供明确需要的实验A/B，顺序运行 exclusive 和 opt-in shared-read 两种模式，每种128项；输出完整日志、阶段时间、查询分位数和细分gate指标。`run-source.mjs` 单独运行当前默认（exclusive）一次128项。
 
 Windows严格验证必须设置 `STRICT_SYMLINK_TESTS=1`。它要求真实创建文件/目录符号链接并验证拒绝行为；EPERM不允许被skip视作验收通过。没有权限时应修复验收环境权限或换可用runner，而不是放松断言。不要在用户真实数据目录运行夹具。
 
@@ -37,3 +37,5 @@ query samples是闭环负载（完成后休息再发），不是固定到达率�
 ## 第二阶段边界
 
 只有上述门禁通过后才允许受控接入生产初始化、读取、后台sync和迁移。生产入口与迁移冲突/异常恢复验收前，不默认开启，不发布正式包。当前本目录代码不能直接当作生产API使用。
+
+当前 Windows 总门禁未通过，原因及有界方案比较见 `WINDOWS-BLOCKER.md`；本目录不构成阶段二或合并批准。
