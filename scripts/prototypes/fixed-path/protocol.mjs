@@ -53,6 +53,7 @@ export function initialize(project) {
 }
 function gateDiagnostic(p,metrics,error){
   const record={...metrics,pid:process.pid,project:p.project,finishedAtMs:Date.now(),error:error?.message,code:error?.code,errcode:error?.errcode};
+  if(error)error.gateDiagnostic=record;
   if(error)error.stack=`${error.stack??error.message}\nGate diagnostic: ${JSON.stringify(record)}`;
   const directory=process.env.GATE_DIAGNOSTICS_DIR;
   if(!directory || (!error && record.totalMs<25))return;
@@ -63,9 +64,11 @@ function gateDiagnostic(p,metrics,error){
 export function gate(p, action, options = {}) {
   // Retry lock acquisition / COMMIT only; never replay an action with side effects.
   const started=now(),metrics={label:options.label??'gate',readOnly:!!options.readOnly,startedAtMs:Date.now(),phase:'open',actionStarted:false,openMs:0,beginMs:0,actionMs:0,commitMs:0,closeMs:0,retries:0};
-  const deadline=started+500;let g,transactionStarted=false;
+  const requestDeadline=options.deadline??p.requestDeadline;
+  const deadline=Math.min(started+500,requestDeadline??Infinity);let g,transactionStarted=false;
   while(true){
     try{
+      if(requestDeadline!==undefined && now()>=requestDeadline)throw admissionTimeout();
       metrics.phase='open';let t=now();if(!g){try{g=db(p.gate,true,0);}finally{metrics.openMs+=now()-t;}}
       metrics.phase='begin';t=now();try{
         if(options.readOnly)g.exec('PRAGMA query_only=ON');
@@ -73,6 +76,7 @@ export function gate(p, action, options = {}) {
         // Acquire SHARED before action, so retries cannot replay partial work.
         if(options.readOnly)g.prepare('SELECT id FROM state WHERE id=1').get();
       }finally{metrics.beginMs+=now()-t;}
+      if(requestDeadline!==undefined && now()>=requestDeadline)throw admissionTimeout();
       metrics.acquiredAtMs=Date.now();break;
     }catch(error){
       // BEGIN contention does not require reopening the coordination file.
@@ -301,7 +305,7 @@ export async function publish(op, options = {}) {
     admissionClosed = true; hook?.('draining'); preparedConnection.close(); preparedConnection = null;
     while (true) {
       const s = state(p);
-      if (s.cancel || now() >= deadline) throw Object.assign(new Error(s.cancel ? 'Synchronous caller cancelled drain to avoid self-deadlock' : 'Drain budget exceeded'), { code: 'DRAIN_CANCELLED' });
+      if (s.cancel || now() >= deadline) throw Object.assign(new Error(s.cancel ? (s.cancel===2?'Admission budget requested drain cancellation':'Synchronous caller cancelled drain to avoid self-deadlock') : 'Drain budget exceeded'), { code: 'DRAIN_CANCELLED' });
       fence = lease(p.connections, true); if (fence) break;
       await delay(5);
     }
@@ -360,6 +364,8 @@ export async function publish(op, options = {}) {
   } finally { preparedConnection?.close(); fence?.close(); writers?.close(); owner.close(); }
 }
 
+function admissionTimeout(){return Object.assign(new Error('Admission exceeded total 1000ms budget; no unsafe fallback'),{code:'ADMISSION_TIMEOUT'});}
+
 /** All graph handles (including cached readers) MUST be owned by factory's close().
  * Factory is synchronous and must not reenter this Participant. If it throws,
  * it must close any internal native handles that it has not returned to us.
@@ -370,18 +376,27 @@ export class Participant {
     recoverInitialized(this.p);
     this.timer = setInterval(() => { try { this.retireIfNeeded(); } catch (e) { this.backgroundError = e; } }, options.pollMs ?? 10); this.timer.unref();
   }
-  retireIfNeeded() {
+  retireIfNeeded(deadline) {
     if(this.active!==0 || (!this.handle && !this.holder))return;
     // Observation cannot admit a request or release a live reader. It never needs
     // a reserved write lock, including in the exclusive-admission baseline.
-    const observed=gate(this.p,g=>g.prepare('SELECT mode FROM state WHERE id=1').get(),{readOnly:true,label:'retire-state'});
+    let observed;
+    try{observed=gate(this.p,g=>g.prepare('SELECT mode FROM state WHERE id=1').get(),{readOnly:true,deadline,label:'retire-state'});}
+    catch(error){
+      // No request owns this handle. On confirmed pre-action publisher contention
+      // retiring it is safe even if mode was idle, and helps drain rather than
+      // turning successful application work into a maintenance lock error.
+      // Corruption, unknown owners, and native close failures still propagate.
+      if(!this.publisherContention(error))throw error;
+      this.closeHandle();return;
+    }
     if(observed.mode!=='idle')this.closeHandle();
   }
   closeHandle() {
     if (this.handle) { this.handle.close(); this.handle = null; }
     this.holder?.close(); this.holder = null;
   }
-  admit(writing = false) {
+  admit(writing = false, deadline = Infinity) {
     if (this.closed) throw new Error('Participant closed');
     const previousHandle=this.handle, previousHolder=this.holder;
     // Only an existing native handle AND its real cross-process connection lease
@@ -401,7 +416,8 @@ export class Participant {
       // but before callback/finally cannot make the publisher miss that mutation.
       if(writing)g.prepare('UPDATE state SET revision=revision+1 WHERE id=1').run();
       this.active++; counted=true; return writing ? writeLease : true;
-    },{readOnly,label:writing?'admit-write':readOnly?'admit-warm-read':warm?'admit-warm-exclusive':'admit-cold'});
+    },{readOnly,deadline,label:writing?'admit-write':readOnly?'admit-warm-read':warm?'admit-warm-exclusive':'admit-cold'});
+      if(admitted && now()>=deadline)throw admissionTimeout();
       if (admitted && !this.handle) {
         // The committed admission already owns a real connection lease and is
         // counted active. A publisher may start draining, but cannot rename the
@@ -411,6 +427,7 @@ export class Participant {
         const openedAt=now(); this.handle=this.factory(this.p.active);
         this.reopenDurationsMs.push(now()-openedAt); this.reopens++;
       }
+      if(admitted && now()>=deadline)throw admissionTimeout();
       return admitted;
     } catch(error) {
       // A coordination COMMIT can fail AFTER action allocated native resources.
@@ -425,9 +442,39 @@ export class Participant {
     }
   }
   finish() { this.active--; this.retireIfNeeded(); }
+  cancelDrainNearDeadline(deadline) {
+    if(deadline-now()>250)return;
+    // Cancel only before replacement, leaving time for the publisher to restore
+    // admission. A timeout must never roll back a committed/new writable DB.
+    gate(this.p,g=>{
+      const s=g.prepare('SELECT mode,cancel FROM state WHERE id=1').get();
+      if(s.mode==='draining' && !s.cancel)g.prepare('UPDATE state SET cancel=2 WHERE id=1').run();
+    },{deadline,label:'admission-deadline-cancel'});
+  }
+  publisherContention(error) {
+    const diagnostic=error.gateDiagnostic;
+    if(error.errcode!==5 || !diagnostic || diagnostic.actionStarted || !['open','begin'].includes(diagnostic.phase))return false;
+    const owner=lease(this.p.owner,true);
+    if(owner){owner.close();return false;}
+    return true;
+  }
+  retryableAdmission(error, deadline) {
+    // A held publisher/recovery OS lease authorizes only another bounded attempt,
+    // never a fallback database or a change to persistent publication state.
+    if(!this.publisherContention(error))return false;
+    if(now()>=deadline)throw admissionTimeout();
+    return true;
+  }
   async request(action, writing = false) {
-    const started = now(); let admission;
-    while (!(admission = this.admit(writing))) { this.retireIfNeeded(); recoverInitialized(this.p); if (now()-started > (this.options.waitMs ?? 5000)) throw new Error('Admission timeout; no unsafe fallback'); await delay(5); }
+    const started=now(),deadline=started+Math.min(this.options.waitMs??1000,1000);let admission;
+    while(!admission){
+      if(now()>=deadline)throw admissionTimeout();
+      try{admission=this.admit(writing,deadline);}catch(error){if(!this.retryableAdmission(error,deadline))throw error;}
+      if(admission)break;
+      try{this.cancelDrainNearDeadline(deadline);this.retireIfNeeded(deadline);recoverInitialized({...this.p,requestDeadline:deadline});}catch(error){if(!this.retryableAdmission(error,deadline))throw error;}
+      if(now()>=deadline)throw admissionTimeout();
+      await delay(Math.min(5,deadline-now()));
+    }
     this.admissionWaitMs.push(now()-started);
     try { return await action(this.handle); } finally {
       // Intent was durable before action. No post-COMMIT revision write is needed.
@@ -435,8 +482,14 @@ export class Participant {
     }
   }
   requestSync(action) {
-    const started = now();
-    while (!this.admit()) {
+    const started=now(),deadline=started+Math.min(this.options.waitMs??1000,1000);
+    while(true){
+      if(now()>=deadline)throw admissionTimeout();
+      let admitted=false;
+      try{admitted=this.admit(false,deadline);}catch(error){if(!this.retryableAdmission(error,deadline))throw error;}
+      if(admitted)break;
+      try{
+      this.cancelDrainNearDeadline(deadline);
       // Never wait on this event loop's own unfinished async operation. Publication
       // is in another process and can cancel without waiting for us to finish.
       if (this.active > 0) gate(this.p, g => {
@@ -448,10 +501,11 @@ export class Participant {
         }
         if (s.mode !== 'draining') throw new Error('Illegal replacement with a live local request');
         g.prepare('UPDATE state SET cancel=1 WHERE id=1').run();
-      });
-      else this.retireIfNeeded();
-      recoverInitialized(this.p);
-      if (now()-started > (this.options.waitMs ?? 5000)) throw new Error('Synchronous admission timeout; publisher must be an independent process');
+      },{deadline});
+      else this.retireIfNeeded(deadline);
+      recoverInitialized({...this.p,requestDeadline:deadline});
+      }catch(error){if(!this.retryableAdmission(error,deadline))throw error;}
+      if(now()>=deadline)throw admissionTimeout();
       Atomics.wait(pause, 0, 0, 2);
     }
     this.admissionWaitMs.push(now()-started);

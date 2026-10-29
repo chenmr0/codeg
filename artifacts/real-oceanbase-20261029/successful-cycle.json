@@ -1,0 +1,242 @@
+{
+  "cycle": [
+    "offline public A",
+    "one real file modification and successful ordinary sync",
+    "B large change; reuse independently complete B candidate, fully validate and publish",
+    "offline public B overwrite retaining runtime",
+    "query B and ordinary no-change sync"
+  ],
+  "smallSync": {
+    "mode": "sync",
+    "startedAt": 1793290153287,
+    "operationFinishedAt": 1793290164486,
+    "operationMs": 11199.324388,
+    "finishedAt": 1793290164930,
+    "wallMs": 11643.296302,
+    "result": {
+      "complete": true,
+      "filesChecked": 12674,
+      "filesAdded": 0,
+      "filesModified": 1,
+      "filesRemoved": 0,
+      "filesErrored": 0,
+      "nodesUpdated": 165,
+      "durationMs": 10992,
+      "errors": [],
+      "changedFilePaths": [
+        "src/observer/ob_server.cpp"
+      ]
+    },
+    "stats": {
+      "nodeCount": 748267,
+      "edgeCount": 4862886,
+      "fileCount": 12674,
+      "nodesByKind": {
+        "class": 29908,
+        "constant": 17397,
+        "enum": 2775,
+        "enum_member": 27247,
+        "field": 101376,
+        "file": 12660,
+        "function": 23572,
+        "import": 52213,
+        "macro": 36320,
+        "method": 383422,
+        "namespace": 25106,
+        "struct": 12987,
+        "type_alias": 7410,
+        "variable": 15874
+      },
+      "edgesByKind": {
+        "calls": 2492443,
+        "contains": 747109,
+        "defines": 107644,
+        "extends": 8632,
+        "imports": 48637,
+        "instantiates": 16053,
+        "references": 1442368
+      },
+      "filesByLanguage": {
+        "c": 498,
+        "cpp": 12009,
+        "lua": 1,
+        "php": 41,
+        "python": 111,
+        "yaml": 14
+      },
+      "dbSizeBytes": 3074592768,
+      "lastUpdated": 1793290164929
+    },
+    "completeness": {
+      "status": "complete",
+      "diagnostics": []
+    },
+    "node": "v24.22.1",
+    "platform": "linux"
+  },
+  "publication": {
+    "cachedBuild": true,
+    "sourceSha256": "94a4a9c8c51671b8f4e3e7000e03386cb07360882309038cf98ef05eebc33b05",
+    "substitution": "Only buildGraph call replaced with copy of previously complete standalone B; no validation or source fence bypassed",
+    "wallMs": 114549.061778
+  },
+  "publicationOutcomes": [
+    {
+      "type": "check",
+      "status": "dirty",
+      "reason": "observed-source-or-config-diff",
+      "checks": 7,
+      "lastObservedAt": "2026-10-29T16:09:31.667Z",
+      "databaseRevision": 5,
+      "startedAtMs": 1793290167136,
+      "finishedAtMs": 1793290171667,
+      "checkMs": 4530.6932959999995,
+      "stages": {
+        "beforeSnapshotMs": 1103.2386390000001,
+        "trackedFilesMs": 22.250567000000046,
+        "adaptivePlanMs": 2602.5331990000004,
+        "compatibilityMs": 2.691229000000021,
+        "afterSnapshotMs": 628.1848340000006
+      },
+      "matches": false,
+      "sourceChangedDuringCheck": false,
+      "fullSourceDigest": "b4d73c6ebbf44a35790f563af36bf97a0224cd6168d3e5f69f6720cd82fc4860",
+      "changedFiles": 8004,
+      "configChanged": true,
+      "upgrade": false,
+      "observedDigest": "e28f06a15145c22a4de480c796a6519537eaaa86e66e237604e2559d75e497ef"
+    },
+    {
+      "type": "publish",
+      "status": "published",
+      "operation": "d0c012da-d037-45f6-8ae2-4e8fd6600b20",
+      "metrics": {
+        "buildMs": 3374.6749649999992,
+        "validationMs": 90532.868057,
+        "checkpointMs": 2764.914783,
+        "drainMs": 3.776933999994071,
+        "replaceMs": 7.608849999989616,
+        "reopenMs": 0.4604479999979958,
+        "resumeMs": 1.3708480000059353,
+        "checkpointFinalMs": 0.45005299999320414,
+        "admissionPauseMs": 17.170918999996502
+      },
+      "directoryFsync": true,
+      "startedAtMs": 1793290171678,
+      "finishedAtMs": 1793290275179,
+      "preparation": {
+        "sourceSnapshotMs": 649.4399910000002,
+        "expectedIndexMs": 2289.976479,
+        "activeEligibilityMs": 94.16915600000357,
+        "validateSourceMs": 853.5251560000033,
+        "finalSourceFenceMs": 63.72207000000344
+      }
+    },
+    {
+      "type": "check",
+      "status": "verified-observation",
+      "reason": "indexed-content-matched-full-observation",
+      "checks": 8,
+      "lastObservedAt": "2026-10-29T16:11:21.573Z",
+      "databaseRevision": 6,
+      "startedAtMs": 1793290275184,
+      "finishedAtMs": 1793290281573,
+      "checkMs": 6389.233183999997,
+      "stages": {
+        "beforeSnapshotMs": 2909.866842999996,
+        "trackedFilesMs": 21.641495000003488,
+        "adaptivePlanMs": 2681.2703510000138,
+        "compatibilityMs": 2.645873000001302,
+        "afterSnapshotMs": 625.1779880000104
+      },
+      "matches": true,
+      "sourceChangedDuringCheck": false,
+      "fullSourceDigest": "b4d73c6ebbf44a35790f563af36bf97a0224cd6168d3e5f69f6720cd82fc4860",
+      "changedFiles": 0,
+      "configChanged": false,
+      "upgrade": false,
+      "observedDigest": "e28f06a15145c22a4de480c796a6519537eaaa86e66e237604e2559d75e497ef"
+    }
+  ],
+  "finalQuery": {
+    "service": {
+      "count": 150,
+      "p50Ms": 124.8514299999988,
+      "p95Ms": 208.42037700000037,
+      "p99Ms": 223.98554400000012,
+      "maxMs": 224.1926569999996
+    },
+    "errors": [],
+    "observedHashes": [
+      "ea3e67daabd13368babe0ee77c99d401fea2348a8a91def514fe1eedbc6aa6b2"
+    ],
+    "pendingScheduled": 0
+  },
+  "finalSync": {
+    "mode": "sync",
+    "startedAt": 1793290305865,
+    "operationFinishedAt": 1793290309469,
+    "operationMs": 3604.4837070000003,
+    "finishedAt": 1793290309903,
+    "wallMs": 4038.7804950000004,
+    "result": {
+      "complete": true,
+      "filesChecked": 13565,
+      "filesAdded": 0,
+      "filesModified": 0,
+      "filesRemoved": 0,
+      "filesErrored": 0,
+      "nodesUpdated": 0,
+      "durationMs": 3435,
+      "errors": []
+    },
+    "stats": {
+      "nodeCount": 812129,
+      "edgeCount": 5362580,
+      "fileCount": 13565,
+      "nodesByKind": {
+        "class": 33439,
+        "constant": 24959,
+        "enum": 2782,
+        "enum_member": 29041,
+        "field": 111549,
+        "file": 13546,
+        "function": 21322,
+        "import": 59392,
+        "macro": 35364,
+        "method": 423073,
+        "namespace": 27529,
+        "struct": 13536,
+        "type_alias": 7479,
+        "variable": 9118
+      },
+      "edgesByKind": {
+        "calls": 2768625,
+        "contains": 811333,
+        "defines": 116213,
+        "extends": 9333,
+        "imports": 55320,
+        "instantiates": 18720,
+        "references": 1583036
+      },
+      "filesByLanguage": {
+        "c": 358,
+        "cpp": 13029,
+        "lua": 1,
+        "php": 40,
+        "python": 118,
+        "yaml": 19
+      },
+      "dbSizeBytes": 3385147392,
+      "lastUpdated": 1793290309903
+    },
+    "completeness": {
+      "status": "complete",
+      "diagnostics": []
+    },
+    "node": "v24.22.1",
+    "platform": "linux"
+  },
+  "runtimeRetained": true,
+  "allAssertionsPassed": true
+}

@@ -83,3 +83,55 @@ lease policies, one-shot action, and COMMIT retry semantics are unchanged.
 Publication-phase labels now distinguish the durable transactions in telemetry.
 This reduces unnecessary open work but does not claim to cure writer starvation
 or make filesystem I/O a hard real-time deadline. New Windows evidence is required.
+
+## Bounded admission experiment after e1690eaf
+
+Windows CI 40906448655 passed 106/107, not the gate. A publisher/recovery process
+held one real coordination COMMIT for 556.7 ms and then another for 97 ms; the
+reader failed in SQLite initialization before its action began. Linux 107/107
+and the large Linux run do not override this Windows failure. Connection-open
+optimizations cannot eliminate a single durable COMMIT longer than 500 ms.
+
+The next isolated experiment changes the *request admission* policy, not SQLite
+publication ordering: a genuine SQLITE_BUSY is eligible for another attempt only
+when a gate diagnostic proves that no action started (open/BEGIN phase), and an
+actual publisher/recovery OS owner lease is held. This does not prove the owner
+is draining; it authorizes only a bounded attempt, never changing state, choosing
+another database, ignoring corruption, or replaying an action. Errors without
+that owner, SQL-body errors, and unknown COMMIT outcomes remain errors.
+
+A gate attempt still has its 500 ms retry limit. The previous 5-second request
+admission loop is now capped at **1,000 ms from request arrival**, including all
+retries, observation, recovery, and cold opening. Subsequent gate calls receive
+the remaining absolute deadline. Expiry produces ADMISSION_TIMEOUT and no
+application action; if the factory already returned, its handle and this
+admission's leases/count are unwound. Long native I/O cannot be forcibly
+interrupted, so expiry is detected when it returns, not advertised as hard
+real-time termination. Requests never get a fresh one-second allowance per retry.
+The 1-second drain budget and measured short-query acceptance gate are unchanged.
+
+Tests use real independent owner + SQLite exclusive locks to model a slow COMMIT
+(600 ms), verify async/sync successful admission within the original one-second
+budget, and verify longer locks time out without an application action. The
+shorter configured deadline, no-owner BUSY, SQL-body BUSY, COMMIT IOERR, and slow
+factory cleanup are separate cases. New Windows execution is still necessary;
+this is not production default integration or a claim that the gate has passed.
+
+A queued request whose admission deadline has at most 250 ms remaining may ask
+the publisher to cancel only while mode is still DRAINING. This reserves a
+recovery window rather than letting the 1-second drain and 1-second request
+budgets expire simultaneously. The original long-request regression still
+requires the old request to finish and the queued new request to read the old
+complete database; it is not rewritten to accept an admission error. REPLACING
+and committed publication cannot be cancelled by this deadline request. The
+250 ms reserve is a scheduling policy, not a guarantee against uninterruptible
+slow filesystem calls; Windows measurements must still meet the unchanged gate.
+
+Idle retirement is not a business-operation retry: when there are no active
+requests and its observer encounters the same confirmed pre-action publisher
+contention, it safely closes the idle native handle and then releases its lease.
+This helps the publisher drain and avoids replacing a completed query result
+with a maintenance lock error. An active reader is never retired; unknown
+owners, corruption, and native close failures still propagate. A close failure
+retains the connection lease. This maintenance predicate does not reset or
+extend a request deadline and does not clear an earlier background error.

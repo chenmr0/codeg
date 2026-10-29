@@ -63,9 +63,9 @@ test('five independent prototype participant processes remain consistent across 
 
 test('long request cancels bounded drain; old request and queued new request complete',()=>record('long-request-timeout',async()=>{
  const p=root(),c=await client(p);try{
-  const held=c.request('hold',{ms:1500});held.catch(()=>{});await c.wait(m=>m.event==='held');const pub=launch('publisher',p);await pub.wait(m=>m.phase==='draining');const started=performance.now();const queued=c.request('query');queued.catch(()=>{});
+  const held=c.request('hold',{ms:1500});held.catch(()=>{});await c.wait(m=>m.event==='held');const pub=launch('publisher',p);await pub.wait(m=>m.phase==='draining');const started=performance.now();const queued=c.request('query').then(value=>({value,waitMs:performance.now()-started}));queued.catch(()=>{});
   const result=(await pub.wait(m=>m.event==='result')).result;await pub.exited;assert.equal(result.status,'cancelled');assert.equal(result.code,'DRAIN_CANCELLED');assert.match(result.error,/budget/);assert.ok(performance.now()-started<1350,'Drain cancellation was unbounded');
-  assert.equal((await queued).first,'A');assert.deepEqual(await held,{before:{first:'A',second:'A'},after:{first:'A',second:'A'}});assert.equal((await c.request('query')).first,'A');noOld(p);
+  const queuedResult=await queued;assert.equal(queuedResult.value.first,'A');assert.ok(queuedResult.waitMs<1000,`Queued request exceeded total 1s: ${queuedResult.waitMs}ms`);evidence.queries.push({scenario:'queued-after-long-request-cancel',waitMs:queuedResult.waitMs});assert.deepEqual(await held,{before:{first:'A',second:'A'},after:{first:'A',second:'A'}});assert.equal((await c.request('query')).first,'A');noOld(p);
  }finally{await c.stop().catch(()=>c.kill());}
 }));
 

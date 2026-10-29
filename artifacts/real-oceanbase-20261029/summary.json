@@ -1,0 +1,661 @@
+{
+  "environment": {
+    "platform": "Linux-6.18.55-x86_64-with-glibc2.41",
+    "cpu": "\t: AMD EPYC 9V74 80-Core Processor",
+    "cpus": 9,
+    "node": "v24.22.1",
+    "codeCommit": "d7eec5fc8eb8c9fbb752aacf9ff305904c601d0f",
+    "sourceA": "7e2de11a0e3c328dddaaaefedd6e911be36fb58d",
+    "sourceB": "9bdfa9e22b618cc4ad0a724010b1bb9567629399",
+    "diffStat": " 8431 files changed, 1923241 insertions(+), 3587527 deletions(-)\n",
+    "sourceFilesA": 14568,
+    "workerLimits": {
+      "CODEGRAPH_PARSE_WORKERS": "2",
+      "CODEGRAPH_RESOLVE_WORKERS": "2",
+      "CODEGRAPH_RUST_MACROS_WORKERS": "2",
+      "CODEGRAPH_PARSE_TIMEOUT_MS": "180000"
+    },
+    "note": "Fresh full index under 2 workers and 180s parse budget; no marker/ownership forgery. Prior incomplete baseline and repair preserved separately."
+  },
+  "stress": {
+    "idle": {
+      "startedAt": 1793283353007,
+      "finishedAt": 1793283368009,
+      "operation": "idle",
+      "offeredQps": 50,
+      "clients": 5,
+      "service": {
+        "count": 514,
+        "p50Ms": 126.49981900000057,
+        "p95Ms": 211.22945499999878,
+        "p99Ms": 218.31623600000057,
+        "maxMs": 254.09356200000002
+      },
+      "scheduledLatency": {
+        "count": 514,
+        "p50Ms": 3701.543278,
+        "p95Ms": 5771.572324000001,
+        "p99Ms": 6121.293736,
+        "maxMs": 6323.734323000001
+      },
+      "errors": [],
+      "mixedHashReads": 0,
+      "observedHashes": [
+        "d14e9edd9bcfe0e6718d4c20ec80778eb97c748277c749d490a230bdeee38dd9"
+      ],
+      "reopens": [
+        1,
+        1,
+        1,
+        1,
+        1
+      ],
+      "offeredRequests": 981,
+      "completedRequests": 662,
+      "pendingScheduled": 319,
+      "missingNodeReads": 0,
+      "events": [
+        {
+          "at": 1793283349948,
+          "pid": 117,
+          "type": "ready"
+        },
+        {
+          "at": 1793283350207,
+          "pid": 125,
+          "type": "ready"
+        },
+        {
+          "at": 1793283350470,
+          "pid": 133,
+          "type": "ready"
+        },
+        {
+          "at": 1793283350730,
+          "pid": 141,
+          "type": "ready"
+        },
+        {
+          "at": 1793283351002,
+          "pid": 149,
+          "type": "ready"
+        },
+        {
+          "at": 1793283370027,
+          "pid": 141,
+          "type": "result"
+        },
+        {
+          "at": 1793283370028,
+          "pid": 133,
+          "type": "result"
+        },
+        {
+          "at": 1793283370029,
+          "pid": 125,
+          "type": "result"
+        },
+        {
+          "at": 1793283370065,
+          "pid": 149,
+          "type": "result"
+        },
+        {
+          "at": 1793283370106,
+          "pid": 117,
+          "type": "result"
+        }
+      ]
+    },
+    "sync": {
+      "query": {
+        "service": {
+          "count": 60824,
+          "p50Ms": 139.18310899999778,
+          "p95Ms": 255.81952999997884,
+          "p99Ms": 276.56570499995723,
+          "maxMs": 903.4374450000469
+        },
+        "scheduledLatency": {
+          "count": 60824,
+          "p50Ms": 306188.373225,
+          "p95Ms": 635807.2974769999,
+          "p99Ms": 664410.314792,
+          "maxMs": 674807.445382
+        },
+        "offeredQps": 50,
+        "intervalMs": null,
+        "offeredRequests": 94581,
+        "completedRequests": 60974,
+        "pendingScheduled": 33607,
+        "mixedHashReads": 5,
+        "missingNodeReads": 9,
+        "observedHashes": [
+          "d14e9edd9bcfe0e6718d4c20ec80778eb97c748277c749d490a230bdeee38dd9",
+          "ea3e67daabd13368babe0ee77c99d401fea2348a8a91def514fe1eedbc6aa6b2"
+        ],
+        "reopens": [
+          1,
+          1,
+          1,
+          1,
+          1
+        ]
+      },
+      "errorCount": 0,
+      "operationMs": 1884518.1284150002,
+      "completeness": {
+        "status": "incomplete",
+        "diagnostics": [
+          {
+            "severity": "error",
+            "code": "synthesis_skipped_memory",
+            "message": "Dynamic-edge synthesis was skipped to avoid an out-of-memory crash (reason=heap-headroom, nodes=812249, requiredHeadroomMB=1536). The index is incomplete."
+          }
+        ]
+      },
+      "status": null,
+      "stats": {
+        "nodeCount": 812249,
+        "edgeCount": 5242574,
+        "fileCount": 13565,
+        "dbSizeBytes": 3674415104
+      },
+      "outcomes": null,
+      "peakSampledDiskBytes": 4868603209,
+      "peakAggregateRssBytes": null
+    },
+    "rebuild": {
+      "query": {
+        "service": {
+          "count": 41172,
+          "p50Ms": 123.56059400003869,
+          "p95Ms": 209.36203800002113,
+          "p99Ms": 223.87194300000556,
+          "maxMs": 947.3592809999827
+        },
+        "scheduledLatency": {
+          "count": 41172,
+          "p50Ms": 152519.77929500001,
+          "p95Ms": 272648.2626479999,
+          "p99Ms": 284429.0155679999,
+          "maxMs": 294572.8828569999
+        },
+        "offeredQps": 50,
+        "intervalMs": 100,
+        "offeredRequests": 55705,
+        "completedRequests": 41268,
+        "pendingScheduled": 14437,
+        "mixedHashReads": 0,
+        "missingNodeReads": 0,
+        "observedHashes": [
+          "d14e9edd9bcfe0e6718d4c20ec80778eb97c748277c749d490a230bdeee38dd9",
+          "ea3e67daabd13368babe0ee77c99d401fea2348a8a91def514fe1eedbc6aa6b2"
+        ],
+        "reopens": [
+          2,
+          2,
+          2,
+          2,
+          2
+        ]
+      },
+      "errorCount": 0,
+      "operationMs": 1108484.744796,
+      "completeness": {
+        "status": "complete",
+        "diagnostics": []
+      },
+      "status": "verified-observation",
+      "stats": {
+        "nodeCount": 812129,
+        "edgeCount": 5362580,
+        "fileCount": 13565,
+        "dbSizeBytes": 3385122816
+      },
+      "outcomes": [
+        {
+          "type": "check",
+          "status": "dirty",
+          "reason": "observed-source-or-config-diff",
+          "checks": 1,
+          "lastObservedAt": "2026-10-29T15:03:17.588Z",
+          "databaseRevision": 0,
+          "startedAtMs": 1793286191779,
+          "finishedAtMs": 1793286197588,
+          "checkMs": 5808.6826,
+          "stages": {
+            "beforeSnapshotMs": 1466.312892,
+            "trackedFilesMs": 81.37944500000003,
+            "adaptivePlanMs": 3289.0905680000005,
+            "compatibilityMs": 3.1191280000002735,
+            "afterSnapshotMs": 758.7310630000002
+          },
+          "matches": false,
+          "sourceChangedDuringCheck": false,
+          "fullSourceDigest": "b4d73c6ebbf44a35790f563af36bf97a0224cd6168d3e5f69f6720cd82fc4860",
+          "changedFiles": 8004,
+          "configChanged": true,
+          "upgrade": false,
+          "observedDigest": "e28f06a15145c22a4de480c796a6519537eaaa86e66e237604e2559d75e497ef",
+          "addedCount": 1256,
+          "modifiedCount": 6383,
+          "removedCount": 365
+        },
+        {
+          "type": "publish",
+          "status": "published",
+          "operation": "d3cc1b0f-8f29-48b2-bccd-e16519a0135a",
+          "metrics": {
+            "buildMs": 1030045.2744130001,
+            "validationMs": 55112.74984699988,
+            "checkpointMs": 2739.823242999846,
+            "drainMs": 152.64745700010099,
+            "replaceMs": 5.164721000008285,
+            "reopenMs": 0.4379340000450611,
+            "resumeMs": 2.300004000077024,
+            "checkpointFinalMs": 0.37363799987360835,
+            "admissionPauseMs": 164.64926599990577
+          },
+          "directoryFsync": true,
+          "startedAtMs": 1793286197597,
+          "finishedAtMs": 1793287293610,
+          "preparation": {
+            "sourceSnapshotMs": 704.4154269999999,
+            "expectedIndexMs": 2541.1410479999995,
+            "activeEligibilityMs": 180.23225700017065,
+            "validateSourceMs": 1355.1505619999953,
+            "finalSourceFenceMs": 69.58021199982613
+          }
+        },
+        {
+          "type": "check",
+          "status": "verified-observation",
+          "reason": "indexed-content-matched-full-observation",
+          "checks": 2,
+          "lastObservedAt": "2026-10-29T15:21:40.252Z",
+          "databaseRevision": 1,
+          "startedAtMs": 1793287293617,
+          "finishedAtMs": 1793287300252,
+          "checkMs": 6635.621845999965,
+          "stages": {
+            "beforeSnapshotMs": 2238.0536409998313,
+            "trackedFilesMs": 49.151847000001,
+            "adaptivePlanMs": 3477.5686329999007,
+            "compatibilityMs": 2.9740639999508858,
+            "afterSnapshotMs": 702.48114300007
+          },
+          "matches": true,
+          "sourceChangedDuringCheck": false,
+          "fullSourceDigest": "b4d73c6ebbf44a35790f563af36bf97a0224cd6168d3e5f69f6720cd82fc4860",
+          "changedFiles": 0,
+          "configChanged": false,
+          "upgrade": false,
+          "observedDigest": "e28f06a15145c22a4de480c796a6519537eaaa86e66e237604e2559d75e497ef",
+          "addedCount": 0,
+          "modifiedCount": 0,
+          "removedCount": 0
+        }
+      ],
+      "peakSampledDiskBytes": 6458736692,
+      "peakAggregateRssBytes": 5147455488
+    }
+  },
+  "normal": {
+    "idle": {
+      "startedAt": 1793288746809,
+      "finishedAt": 1793288761812,
+      "operation": "idle",
+      "offeredQps": 10,
+      "intervalMs": 500,
+      "clients": 5,
+      "service": {
+        "count": 150,
+        "p50Ms": 127.00061599999935,
+        "p95Ms": 213.96038899999985,
+        "p99Ms": 253.53261999999995,
+        "maxMs": 339.4173489999994
+      },
+      "scheduledLatency": {
+        "count": 150,
+        "p50Ms": 127.2298410000003,
+        "p95Ms": 214.13769599999978,
+        "p99Ms": 253.5150700000013,
+        "maxMs": 339.1322990000008
+      },
+      "errors": [],
+      "mixedHashReads": 0,
+      "observedHashes": [
+        "d14e9edd9bcfe0e6718d4c20ec80778eb97c748277c749d490a230bdeee38dd9"
+      ],
+      "reopens": [
+        1,
+        1,
+        1,
+        1,
+        1
+      ],
+      "offeredRequests": 199,
+      "completedRequests": 199,
+      "pendingScheduled": 0,
+      "missingNodeReads": 0,
+      "events": [
+        {
+          "at": 1793288743724,
+          "pid": 23,
+          "type": "ready"
+        },
+        {
+          "at": 1793288743994,
+          "pid": 31,
+          "type": "ready"
+        },
+        {
+          "at": 1793288744282,
+          "pid": 39,
+          "type": "ready"
+        },
+        {
+          "at": 1793288744546,
+          "pid": 47,
+          "type": "ready"
+        },
+        {
+          "at": 1793288744805,
+          "pid": 55,
+          "type": "ready"
+        },
+        {
+          "at": 1793288763997,
+          "pid": 31,
+          "type": "result"
+        },
+        {
+          "at": 1793288764047,
+          "pid": 47,
+          "type": "result"
+        },
+        {
+          "at": 1793288764225,
+          "pid": 23,
+          "type": "result"
+        },
+        {
+          "at": 1793288764283,
+          "pid": 39,
+          "type": "result"
+        },
+        {
+          "at": 1793288764306,
+          "pid": 55,
+          "type": "result"
+        }
+      ]
+    },
+    "rebuild": {
+      "query": {
+        "service": {
+          "count": 10137,
+          "p50Ms": 125.78323000000091,
+          "p95Ms": 217.92186499998206,
+          "p99Ms": 257.1696140000131,
+          "maxMs": 840.4035479999147
+        },
+        "scheduledLatency": {
+          "count": 10137,
+          "p50Ms": 125.59623600007035,
+          "p95Ms": 218.07148899999993,
+          "p99Ms": 259.7372820000164,
+          "maxMs": 840.7282879999839
+        },
+        "offeredQps": 10,
+        "intervalMs": 500,
+        "offeredRequests": 10187,
+        "completedRequests": 10187,
+        "pendingScheduled": 0,
+        "mixedHashReads": 0,
+        "missingNodeReads": 0,
+        "observedHashes": [
+          "d14e9edd9bcfe0e6718d4c20ec80778eb97c748277c749d490a230bdeee38dd9",
+          "ea3e67daabd13368babe0ee77c99d401fea2348a8a91def514fe1eedbc6aa6b2"
+        ],
+        "reopens": [
+          2,
+          2,
+          2,
+          2,
+          2
+        ]
+      },
+      "errorCount": 0,
+      "operationMs": 1012512.068756,
+      "completeness": {
+        "status": "complete",
+        "diagnostics": []
+      },
+      "status": "verified-observation",
+      "stats": {
+        "nodeCount": 812129,
+        "edgeCount": 5362580,
+        "fileCount": 13565,
+        "dbSizeBytes": 3385122816
+      },
+      "outcomes": [
+        {
+          "type": "check",
+          "status": "dirty",
+          "reason": "observed-source-or-config-diff",
+          "checks": 5,
+          "lastObservedAt": "2026-10-29T15:46:14.765Z",
+          "databaseRevision": 2,
+          "startedAtMs": 1793288768815,
+          "finishedAtMs": 1793288774765,
+          "checkMs": 5949.82497,
+          "stages": {
+            "beforeSnapshotMs": 894.823764,
+            "trackedFilesMs": 35.627545000000055,
+            "adaptivePlanMs": 3830.981123,
+            "compatibilityMs": 2.9862499999999272,
+            "afterSnapshotMs": 873.4907970000004
+          },
+          "matches": false,
+          "sourceChangedDuringCheck": false,
+          "fullSourceDigest": "b4d73c6ebbf44a35790f563af36bf97a0224cd6168d3e5f69f6720cd82fc4860",
+          "changedFiles": 8004,
+          "configChanged": true,
+          "upgrade": false,
+          "observedDigest": "e28f06a15145c22a4de480c796a6519537eaaa86e66e237604e2559d75e497ef",
+          "addedCount": 1256,
+          "modifiedCount": 6383,
+          "removedCount": 365
+        },
+        {
+          "type": "publish",
+          "status": "published",
+          "operation": "77f8de56-4b23-493c-8581-a1c31c5d3123",
+          "metrics": {
+            "buildMs": 937743.048393,
+            "validationMs": 50683.52231100004,
+            "checkpointMs": 2501.000250000041,
+            "drainMs": 88.45728000008967,
+            "replaceMs": 4.638624999905005,
+            "reopenMs": 0.3560140000190586,
+            "resumeMs": 3.812707000062801,
+            "checkpointFinalMs": 0.34971500001847744,
+            "admissionPauseMs": 101.72286000009626
+          },
+          "directoryFsync": true,
+          "startedAtMs": 1793288774777,
+          "finishedAtMs": 1793289773961,
+          "preparation": {
+            "sourceSnapshotMs": 806.5661720000007,
+            "expectedIndexMs": 2627.222584,
+            "activeEligibilityMs": 157.4765409999527,
+            "validateSourceMs": 1530.7836470000912,
+            "finalSourceFenceMs": 70.65714099991601
+          }
+        },
+        {
+          "type": "check",
+          "status": "verified-observation",
+          "reason": "indexed-content-matched-full-observation",
+          "checks": 6,
+          "lastObservedAt": "2026-10-29T16:03:01.319Z",
+          "databaseRevision": 3,
+          "startedAtMs": 1793289773974,
+          "finishedAtMs": 1793289781319,
+          "checkMs": 7344.960771000013,
+          "stages": {
+            "beforeSnapshotMs": 3114.198345999932,
+            "trackedFilesMs": 55.34454399999231,
+            "adaptivePlanMs": 3221.138311000075,
+            "compatibilityMs": 2.9725890000117943,
+            "afterSnapshotMs": 664.0711519999895
+          },
+          "matches": true,
+          "sourceChangedDuringCheck": false,
+          "fullSourceDigest": "b4d73c6ebbf44a35790f563af36bf97a0224cd6168d3e5f69f6720cd82fc4860",
+          "changedFiles": 0,
+          "configChanged": false,
+          "upgrade": false,
+          "observedDigest": "e28f06a15145c22a4de480c796a6519537eaaa86e66e237604e2559d75e497ef",
+          "addedCount": 0,
+          "modifiedCount": 0,
+          "removedCount": 0
+        }
+      ],
+      "peakSampledDiskBytes": 6458736692,
+      "peakAggregateRssBytes": 5190332416
+    }
+  },
+  "init-a": {
+    "operationMs": 910965.247198,
+    "indexMs": 877810.412479,
+    "completeness": {
+      "status": "complete",
+      "diagnostics": []
+    },
+    "stats": {
+      "nodeCount": 748267,
+      "edgeCount": 4862886,
+      "fileCount": 12674,
+      "nodesByKind": {
+        "class": 29908,
+        "constant": 17397,
+        "enum": 2775,
+        "enum_member": 27247,
+        "field": 101376,
+        "file": 12660,
+        "function": 23572,
+        "import": 52213,
+        "macro": 36320,
+        "method": 383422,
+        "namespace": 25106,
+        "struct": 12987,
+        "type_alias": 7410,
+        "variable": 15874
+      },
+      "edgesByKind": {
+        "calls": 2492443,
+        "contains": 747109,
+        "defines": 107644,
+        "extends": 8632,
+        "imports": 48637,
+        "instantiates": 16053,
+        "references": 1442368
+      },
+      "filesByLanguage": {
+        "c": 498,
+        "cpp": 12009,
+        "lua": 1,
+        "php": 41,
+        "python": 111,
+        "yaml": 14
+      },
+      "dbSizeBytes": 3072741376,
+      "lastUpdated": 1793283339692
+    },
+    "peakSampledDiskBytes": 3072823296,
+    "peakRssBytes": 4508258304
+  },
+  "init-b": {
+    "operationMs": 913769.896436,
+    "indexMs": 878246.1599430001,
+    "completeness": {
+      "status": "complete",
+      "diagnostics": []
+    },
+    "stats": {
+      "nodeCount": 812129,
+      "edgeCount": 5362580,
+      "fileCount": 13565,
+      "nodesByKind": {
+        "class": 33439,
+        "constant": 24959,
+        "enum": 2782,
+        "enum_member": 29041,
+        "field": 111549,
+        "file": 13546,
+        "function": 21322,
+        "import": 59392,
+        "macro": 35364,
+        "method": 423073,
+        "namespace": 27529,
+        "struct": 13536,
+        "type_alias": 7479,
+        "variable": 9118
+      },
+      "edgesByKind": {
+        "calls": 2768625,
+        "contains": 811333,
+        "defines": 116213,
+        "extends": 9333,
+        "imports": 55320,
+        "instantiates": 18720,
+        "references": 1583036
+      },
+      "filesByLanguage": {
+        "c": 358,
+        "cpp": 13029,
+        "lua": 1,
+        "php": 40,
+        "python": 118,
+        "yaml": 19
+      },
+      "dbSizeBytes": 3385122816,
+      "lastUpdated": 1793286183504
+    },
+    "peakSampledDiskBytes": 3385204736,
+    "peakRssBytes": 4637663232
+  },
+  "normalAcceptance": {
+    "verifiedTerminal": true,
+    "published": true,
+    "complete": true,
+    "sameCountsAsInit": true,
+    "observedTargetHash": true,
+    "allFiveReopened": true,
+    "noQueryErrors": true,
+    "noMixedHashReads": true,
+    "noMissingNodes": true,
+    "idleNoBacklog": true,
+    "normalNoBacklog": true,
+    "pauseWithinOneSecond": true,
+    "allObservedServiceWithinOneSecond": true,
+    "allObservedScheduledLatencyWithinOneSecond": true,
+    "allPassed": true
+  },
+  "metricLimitations": [
+    "single run per condition",
+    "stress50QPS exceeds idle capacity; backlog explicitly retained",
+    "old stress protocol and new normal protocol differ; no attribution across groups",
+    "init comparator has no query load, while sync/rebuild do",
+    "same-count comparison is not exhaustive node/edge semantic equality proof",
+    "500ms disk/RSS sampling can miss shorter peaks",
+    "RSS is aggregate resident size, not proportional physical RAM",
+    "old multi-process resource discovery incomplete, RSS/CPU/IO not usable for sync or old idle",
+    "scheduling timers have approximately 1ms precision",
+    "all five roles are protocol adapters, not production entrypoints",
+    "no power-loss test"
+  ]
+}

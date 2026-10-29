@@ -1,0 +1,41 @@
+{
+  "before": {
+    "successCount": 10,
+    "requestCount": 15,
+    "successPerRound": [
+      3,
+      3,
+      4
+    ],
+    "maxWallMs": 649.286944,
+    "maxGateActionMs": 171.24061699999993,
+    "maxGateTotalMs": 642.29474,
+    "observedHashes": [
+      "ea3e67daabd13368babe0ee77c99d401fea2348a8a91def514fe1eedbc6aa6b2"
+    ]
+  },
+  "after": {
+    "successCount": 15,
+    "requestCount": 15,
+    "successPerRound": [
+      5,
+      5,
+      5
+    ],
+    "maxWallMs": 240.02065300000004,
+    "maxGateActionMs": 0.5203579999999874,
+    "maxGateTotalMs": 7.899483000000032,
+    "observedHashes": [
+      "ea3e67daabd13368babe0ee77c99d401fea2348a8a91def514fe1eedbc6aa6b2"
+    ]
+  },
+  "protocolSha256": {
+    "protocol-11ea.mjs": "31ec3d34c968a9c2c668642aab8e622e88c309fd64cee552dc5dd257f0347e8e",
+    "protocol-after.mjs": "a1e0388cfb109bceae1a809148f34116ec3506b0cdb99dea11655734b4631e81"
+  },
+  "limitations": [
+    "3 fixed rounds, 5 simultaneous protocol-adapter processes per round",
+    "real 3.38GB complete B database; readonly indexed-file query",
+    "not a substitute for full build/publish or production entrypoint acceptance"
+  ]
+}
