@@ -23,11 +23,11 @@ function regular(file, missing = false) {
   catch (e) { if (!(missing && e.code === 'ENOENT')) throw e; }
 }
 function directory(file) { if (!fs.lstatSync(file).isDirectory()) throw new Error(`Unsafe directory: ${file}`); }
-function db(file, validateMode = true) {
+function db(file, validateMode = true, busyMs = 25) {
   regular(file, true); regular(file + '-journal', true);
   const connection = new DatabaseSync(file);
   try {
-    connection.exec('PRAGMA busy_timeout=25; PRAGMA synchronous=FULL');
+    connection.exec(`PRAGMA busy_timeout=${busyMs}; PRAGMA synchronous=FULL`);
     if (validateMode && Object.values(connection.prepare('PRAGMA journal_mode').get())[0] !== 'delete') throw new Error('Coordination database must use DELETE journal mode');
     return connection;
   } catch (e) { connection.close(); throw e; }
@@ -66,7 +66,7 @@ export function gate(p, action, options = {}) {
   const deadline=started+500;let g;
   while(true){
     try{
-      metrics.phase='open';let t=now();try{g=db(p.gate);}finally{metrics.openMs+=now()-t;}
+      metrics.phase='open';let t=now();try{g=db(p.gate,true,0);}finally{metrics.openMs+=now()-t;}
       metrics.phase='begin';t=now();try{
         if(options.readOnly)g.exec('PRAGMA query_only=ON');
         g.exec(options.readOnly?'BEGIN':'BEGIN IMMEDIATE');
@@ -82,8 +82,12 @@ export function gate(p, action, options = {}) {
   }
   let failure;
   try{
+    // Keep the existing action SQL wait policy, but do not stack SQLite's
+    // internal busy handler with the outer BEGIN/COMMIT retry deadline.
+    metrics.phase='action-setup';g.exec('PRAGMA busy_timeout=25');
     metrics.phase='action';metrics.actionStarted=true;let result;const t=now();
     try{result=action(g);}finally{metrics.actionMs=now()-t;metrics.actionEndedAtMs=Date.now();}
+    metrics.phase='commit-setup';g.exec('PRAGMA busy_timeout=0');
     metrics.phase='commit';
     while(true){const t=now();try{g.exec('COMMIT');break;}catch(error){if(!String(error.message).includes('locked')||now()>=deadline)throw error;metrics.retries++;Atomics.wait(pause,0,0,2);}finally{metrics.commitMs+=now()-t;}}
     metrics.phase='complete';return result;
@@ -378,7 +382,10 @@ export class Participant {
       if (s.mode !== 'idle') return false;
       if (writing) { writeLease = lease(this.p.writers); if (!writeLease) return false; }
       if (!this.holder) { this.holder = lease(this.p.connections); if (!this.holder) { writeLease?.close(); writeLease=null; return false; } }
-      if (!this.handle) { regular(this.p.active); const openedAt=now(); this.handle = this.factory(this.p.active); this.reopenDurationsMs.push(now()-openedAt); this.reopens++; g.prepare('DELETE FROM costs').run(); }
+      if (!this.handle) { regular(this.p.active); const openedAt=now(); this.handle = this.factory(this.p.active); this.reopenDurationsMs.push(now()-openedAt); this.reopens++;
+        // Empty DELETE still commits a SQLite write. The gate already excludes
+        // concurrent insertions; only a nonempty history needs invalidation.
+        if(g.prepare('SELECT 1 FROM costs LIMIT 1').get())g.prepare('DELETE FROM costs').run(); }
       // Durable intent precedes ANY application write. A crash after SQLite COMMIT
       // but before callback/finally cannot make the publisher miss that mutation.
       if(writing)g.prepare('UPDATE state SET revision=revision+1 WHERE id=1').run();

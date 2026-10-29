@@ -44,6 +44,10 @@ jobs:
           if (Select-String -Path artifacts/source-snapshot-strict.tap -Pattern '# SKIP' -CaseSensitive -Quiet) { throw 'Skipped snapshot regression is forbidden' }
       - name: Run full isolated DEFAULT exclusive protocol gates
         run: node --liftoff-only scripts/prototypes/fixed-path/run-source.mjs
+      - name: Repeat fixed five-process contention cases three times
+        env:
+          CONTENTION_EVIDENCE_DIR: artifacts/ci-fixed-path/contention-repeat
+        run: node scripts/prototypes/fixed-path/repeat-contention.mjs
       - name: Preserve exact runner evidence
         if: always()
         uses: actions/upload-artifact@v4

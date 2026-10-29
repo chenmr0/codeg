@@ -44,15 +44,18 @@ test('no readers: actual fixed path publishes and old/candidate are reclaimed',(
 }));
 
 test('five independent prototype participant processes remain consistent across repeated switches',()=>record('multi-process-query-and-idle',async()=>{
- const p=root(), clients=[];
+ const p=root(), clients=[], roles=['CLI','MCP','daemon','SDK','worker'], explicitObserved=roles.map(role=>({role,tags:[]})), explicitSamples=[];
+ async function observeAll(tag){await Promise.all(clients.map(async(c,index)=>{const started=performance.now(),value=await c.request('query');explicitSamples.push(performance.now()-started);assert.deepEqual(value,{first:tag,second:tag},`${roles[index]} must explicitly observe published ${tag} before the next publication`);explicitObserved[index].tags.push(tag);}));}
  try{
-  for(const role of ['CLI','MCP','daemon','SDK','worker'])clients.push(await client(p,role));
-  for(const c of clients)assert.equal((await c.request('query')).first,'A');
+  for(const role of roles)clients.push(await client(p,role));
+  await observeAll('A');
   await Promise.all(clients.map(c=>c.request('startLoop',{intervalMs:2})));await delay(200);
-  for(const tag of ['B','C','D']){const result=await published(p,{tag});assert.equal(result.status,'published',JSON.stringify(result));assert.ok(result.metrics.admissionPauseMs<=1000,`Switch pause exceeded 1s: ${result.metrics.admissionPauseMs}`);await delay(80);}
+  // A fixed sleep cannot prove that every process visited an intermediate database.
+  // Keep background traffic running, but require explicit per-process acknowledgement.
+  for(const tag of ['B','C','D']){const result=await published(p,{tag});assert.equal(result.status,'published',JSON.stringify(result));assert.ok(result.metrics.admissionPauseMs<=1000,`Switch pause exceeded 1s: ${result.metrics.admissionPauseMs}`);await observeAll(tag);}
   const results=await Promise.all(clients.map(c=>c.request('stopLoop')));
-  for(const r of results){assert.deepEqual(r.errors,[]);assert.equal(r.backgroundError,undefined);assert.ok(r.reopens>=4,`Expected reopen after each cutover: ${r.reopens}`);assert.ok(r.tags.includes('A')&&r.tags.includes('D'));}
-  const q=quantiles(results.flatMap(r=>r.samples));evidence.queries.push({scenario:'five-process repeated switch',...q});assert.ok(q.maxMs<=1000,`Observed short query wait exceeds 1s: ${q.maxMs}`);
+  for(const [index,r] of results.entries()){assert.deepEqual(r.errors,[]);assert.equal(r.backgroundError,undefined);assert.ok(r.reopens>=4,`Expected reopen after each explicitly observed cutover: ${r.reopens}`);assert.deepEqual(explicitObserved[index].tags,['A','B','C','D']);assert(r.tags.every(tag=>['A','B','C','D'].includes(tag)),'Background observations remain valid even if they skip a generation');}
+  const q=quantiles(results.flatMap(r=>r.samples)), explicitQueries=quantiles(explicitSamples);evidence.queries.push({scenario:'five-process repeated switch',...q,explicitObserved,explicitQueries,explicitTimingScope:'parent request-to-reply including IPC'});assert.ok(q.maxMs<=1000,`Observed short query wait exceeds 1s: ${q.maxMs}`);assert.ok(explicitQueries.maxMs<=1000,`Explicit query acknowledgement exceeds 1s: ${explicitQueries.maxMs}`);
   // Leave all five native handles idle and prove automatic closure, no EOF/restart/GC.
   const last=await published(p,{tag:'E'});assert.equal(last.status,'published');for(const c of clients)assert.equal((await c.request('query')).first,'E');noOld(p);
  }finally{await Promise.all(clients.map(c=>c.stop().catch(()=>c.kill())));}

@@ -32,3 +32,11 @@ Windows六失败不能当作门禁通过，也不能仅用重跑隐藏：三例�
 ## 默认第四轮锁失败：先补根因诊断
 
 默认-only第四轮run40889950358 Windows85/86（0skip）在五进程重复切换查询出现gate BEGIN阶段database locked；默认不能因第三轮曾通过就放行。Linux86/86。此轮仅补最终open/begin失败及慢gate诊断，记录cold/warm、各阶段耗时、重试、action是否开始和同机时间线；日志在gate关闭后写，诊断写失败不影响真实操作结果。500ms/1秒保持不变。新增3项确定性测试，最新默认89项。需要依据Windows实际失败证据定位后修复，不以重跑一次绿灯掩盖间歇风险。
+
+## 第五轮诊断与最小等待策略修复
+
+诊断run40892224762：Windows88/89，未复现真实锁错误，不能视为旧间歇错误已修复。唯一测试失败是每次发布后等待80ms便假定所有客户端访问过中间代；Windows查询本身可超过80ms，读者合法跳过未查询的代。现改每次发布后显式全部客户端查询当前tag再继续，保留reopens>=4及1秒预算，并记录各客户端A/B/C/D访问。
+
+慢/失败样本显示等待主要在open/BEGIN/COMMIT，而非暖准入action（约0.07ms）；一例单次BEGIN墙钟264.9ms、外层retries0，不能将SQLite busy_timeout=25误作25ms墙钟保证。针对性修改仅gate：open/BEGIN与COMMIT的原生busy_timeout=0，由既有同一started+500ms的JS重试统一管理；action仍25ms且只执行一次；lease库策略不变。单次原生文件IO仍可能超出墙钟预算，不能声称已证明硬实时。
+
+另同一个IMMEDIATE gate内先检查costs是否有行，仅非空才DELETE。SQLite实测空DELETE仍增加data_version；跳过避免冷开重复持久化无效写，有旧历史仍必须清空。两项联合修改的Windows收益需实测，不能单独归因，也尚未证明原失败根因完全关闭。新增7项真实子进程锁/预算/错误回滚/costs回归，默认累计96项。默认全套后固定3轮原五进程切换场景，全部保留、任一失败即失败，禁止挑绿重跑。
