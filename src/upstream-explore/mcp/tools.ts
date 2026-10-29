@@ -18,6 +18,7 @@ import { EXPLORE_EMISSION_KEY, EXPLORE_SESSION_VIEW_ARG, ExploreSessionState, re
 import { EXPLORE_DEDUP, dedupeRange, exploreDedupEnabled, fileFingerprint, formatBackReference, mergeRanges, servedRangesForFile, symbolsInSpans } from './explore-dedup';
 import { indexedHashInput } from '../file-limits';
 import { CppTargetIdentity, cppIdentityRankingView } from './cpp-target-identity';
+import { CppSignatureTypeEvidence } from './cpp-signature-evidence';
 
 
 
@@ -2378,6 +2379,7 @@ export class ToolHandler {
     const CALLABLE_KINDS = new Set(['method', 'function', 'component', 'constructor']);
     const TYPE_KINDS = new Set(['class', 'struct', 'union', 'interface', 'trait', 'protocol', 'enum', 'type_alias']);
     const SIG_EDGE = new Set(['references', 'type_of', 'returns']);
+    const cppSignatureEvidence = new CppSignatureTypeEvidence(cg);
     const changeSurfaceCandidates: Node[] = [];
     const seenChangeSurface = new Set<string>();
     for (const seedId of tierSeedIds) {
@@ -2395,6 +2397,11 @@ export class ToolHandler {
         const tgt = cg.getNode(e.target);
         if (!tgt || !TYPE_KINDS.has(tgt.kind) || namedSeedIds.has(tgt.id)) continue;
         if (seenChangeSurface.has(tgt.id)) continue;
+        // The native C/C++ graph includes references from function bodies.
+        // Only source-verified signature types may receive change-surface
+        // rescue. Inspect the original source node, including paired headers.
+        const origin = e.source === seedNode.id ? seedNode : cg.getNode(e.source);
+        if (!origin || !await cppSignatureEvidence.contains(origin, tgt, e)) continue;
         seenChangeSurface.add(tgt.id);
         changeSurfaceCandidates.push(tgt);
       }

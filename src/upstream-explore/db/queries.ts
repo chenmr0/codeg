@@ -262,11 +262,10 @@ export class QueryBuilder {
   private nodeCache: Map<string, Node> = new Map();
   private readonly maxCacheSize = 1000;
 
-  // getDominantFile()'s answer, tagged with the database change stamp it was
-  // computed under (see getChangeStamp). Query-independent, so one value
-  // serves every explore until the database changes (#1864).
+  // Only the graph aggregation is reusable across explorations. The generated
+  // file predicate may use current source bytes in a native-index adapter.
   private dominantFileMemo:
-    | { stamp: string; value: { filePath: string; edgeCount: number; nextEdgeCount: number } | null }
+    | { stamp: string; value: Array<{ file_path: string; edge_count: number }> }
     | undefined;
 
   // Prepared statements (lazily initialized)
@@ -374,9 +373,12 @@ export class QueryBuilder {
 
   constructor(db: SqliteDatabase) {
     this.db = db;
-    // Detect FTS5 availability once (#1532)
+    this.detectFts5();
+  }
+
+  private detectFts5(): void {
     try {
-      db.prepare("SELECT * FROM nodes_fts LIMIT 0").get();
+      this.db.prepare("SELECT * FROM nodes_fts LIMIT 0").get();
       this._fts5Available = true;
     } catch {
       this._fts5Available = false;
@@ -404,6 +406,9 @@ export class QueryBuilder {
     // different databases report the same one — the memo goes with the old
     // connection, or a worker following a rebuilt index keeps its answer (#1864).
     this.dominantFileMemo = undefined;
+    // Rebuilt schemas may add or remove FTS on this same connection. A
+    // long-lived Explore query must not retain the old constructor result.
+    this.detectFts5();
   }
 
   private edgeKindStmt(sql: string): SqliteStatement {
@@ -809,7 +814,7 @@ export class QueryBuilder {
 
   /** Insert segments for a batch of names in one transaction (vocab heal path). */
   insertNameSegmentsBatch(names: string[]): void {
-    this.db.transaction(() => {
+    const insert = () => {
       const rows: unknown[][] = [];
       for (const name of names) this.collectNameSegmentRows(name, rows);
       this.runBatched(
@@ -818,7 +823,11 @@ export class QueryBuilder {
         '(?,?)',
         rows
       );
-    })();
+    };
+    // A native adapter may already be inside a raw BEGIN/SAVEPOINT. Reuse
+    // that transaction instead of asking its helper to issue another BEGIN.
+    if (this.db.inTransaction === true) insert();
+    else this.db.transaction(insert)();
   }
 
   /**
@@ -1121,17 +1130,29 @@ export class QueryBuilder {
    * stamp: recomputed only after something wrote to the database.
    */
   getDominantFile(): { filePath: string; edgeCount: number; nextEdgeCount: number } | null {
+    const rows = this.dominantFileCandidates();
+    const generated = this.getGeneratedPathsAmong(rows.map(r => r.file_path));
+    const filtered = rows.filter(r => !isLowValueFile(r.file_path, generated));
+    if (filtered.length === 0 || filtered[0]!.edge_count < 20) return null;
+    return {
+      filePath: filtered[0]!.file_path,
+      edgeCount: filtered[0]!.edge_count,
+      nextEdgeCount: filtered[1]?.edge_count ?? 0,
+    };
+  }
+
+  private dominantFileCandidates(): Array<{ file_path: string; edge_count: number }> {
     // total_changes() counts writes that are later rolled back, so a result
     // read inside a transaction could outlive a ROLLBACK under an unchanged
     // stamp. Never keep one; `undefined` (a runtime without the getter) is
     // treated the same way.
     if (this.db.inTransaction !== false) {
       this.dominantFileMemo = undefined;
-      return this.computeDominantFile();
+      return this.computeDominantFileCandidates();
     }
     const stamp = this.getChangeStamp();
     if (this.dominantFileMemo?.stamp === stamp) return this.dominantFileMemo.value;
-    const value = this.computeDominantFile();
+    const value = this.computeDominantFileCandidates();
     this.dominantFileMemo = { stamp, value };
     return value;
   }
@@ -1156,7 +1177,7 @@ export class QueryBuilder {
     return `${row.changes}:${row.version}`;
   }
 
-  private computeDominantFile(): { filePath: string; edgeCount: number; nextEdgeCount: number } | null {
+  private computeDominantFileCandidates(): Array<{ file_path: string; edge_count: number }> {
     if (!this.stmts.getDominantFile) {
       // Pull top 20 candidates; we then filter out test/generated files
       // in code (regex-grade matching that SQL LIKE can't express). The
@@ -1176,15 +1197,7 @@ export class QueryBuilder {
         LIMIT 20
       `);
     }
-    const rows = this.stmts.getDominantFile.all() as Array<{ file_path: string; edge_count: number }>;
-    const generated = this.getGeneratedPathsAmong(rows.map(r => r.file_path));
-    const filtered = rows.filter(r => !isLowValueFile(r.file_path, generated));
-    if (filtered.length === 0 || filtered[0]!.edge_count < 20) return null;
-    return {
-      filePath: filtered[0]!.file_path,
-      edgeCount: filtered[0]!.edge_count,
-      nextEdgeCount: filtered[1]?.edge_count ?? 0,
-    };
+    return this.stmts.getDominantFile.all() as Array<{ file_path: string; edge_count: number }>;
   }
 
   /**

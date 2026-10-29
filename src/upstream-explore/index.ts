@@ -14,6 +14,8 @@ export interface ExploreGraph extends Pick<QueryBuilder,
  getProjectRoot(): string;
  getFile(path: string): FileRecord | null;
  getFiles(): FileRecord[];
+ /** Hash-verified bytes shared within this exploration only. */
+ getVerifiedSource?(path: string): string | undefined;
  generatedFilePredicate(paths: Iterable<string>): (path: string) => boolean;
  ambientDeclarationFilePredicate(paths: Iterable<string>): (path: string) => boolean;
 }

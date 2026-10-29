@@ -1,4 +1,3 @@
-import type CodeGraph from '../index';
 import { createHash } from 'crypto';
 import { readFileSync } from 'fs';
 import * as path from 'path';
@@ -14,6 +13,12 @@ export interface ExploreSourceSnapshot {
   readonly reason?: string;
 }
 
+/** Minimal read boundary; native and adapted graphs share the same verifier. */
+export interface ExploreSourceGraph {
+  getProjectRoot(): string;
+  getFile(file: string): { contentHash: string } | null | undefined;
+}
+
 /**
  * One read-only source snapshot per exploration. Semantic recovery, target
  * lookup and rendering share these exact bytes, rather than verifying one
@@ -23,7 +28,7 @@ export interface ExploreSourceSnapshot {
 export class ExploreSourceSnapshots {
   private snapshots = new Map<string, ExploreSourceSnapshot>();
 
-  constructor(private cg: CodeGraph) {}
+  constructor(private cg: ExploreSourceGraph) {}
 
   get(file: string): ExploreSourceSnapshot {
     let relative = file;
