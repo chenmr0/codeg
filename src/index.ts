@@ -1057,7 +1057,7 @@ export class CodeGraph {
     if (this.pinnedRead || this.shadowCandidate || this.db.getBackend() !== 'node-sqlite') {
       // This also covers independently cached MCP request readers. Generation
       // leases pin files, not a perpetual SQLite transaction/snapshot.
-      if (this.queries.invalidateExternalCaches()) this.resolver.clearCaches();
+      this.resolver.invalidateExternalCaches();
       return operation(this);
     }
     const admission = acquireCurrentGenerationLease(this.dataDir);
