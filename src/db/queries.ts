@@ -355,6 +355,10 @@ export class QueryBuilder {
   // data_version is connection-local and follows SQLite's read-transaction view;
   // never compare it between two different connections.
   private externalCacheVersion: number | undefined;
+  private externalCacheEpoch = 0;
+
+  /** Independent consumers must not lose invalidation when a node lookup probes first. */
+  getExternalCacheEpoch(): number { return this.externalCacheEpoch; }
 
   enableExternalCacheInvalidation(): void {
     this.clearCache();
@@ -367,6 +371,7 @@ export class QueryBuilder {
     if (version === this.externalCacheVersion) return false;
     this.clearCache();
     this.externalCacheVersion = version;
+    this.externalCacheEpoch++;
     return true;
   }
 

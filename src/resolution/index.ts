@@ -224,6 +224,8 @@ export class ReferenceResolver {
   private context: ResolutionContext;
   private frameworks: FrameworkResolver[] = [];
   private frameworkScopeKey = getLanguageScopeKey();
+  private frameworksDirty = false;
+  private externalCacheEpoch = 0;
   private frameworkDiagnostics: import('./types').ResolutionDiagnostic[] = [];
   // Chained static-factory/fluent call refs the first pass couldn't resolve,
   // collected in-memory (the batched resolver deletes unresolved refs from the
@@ -295,6 +297,7 @@ export class ReferenceResolver {
    * Initialize the resolver (detect frameworks, etc.)
    */
   initialize(): void {
+    this.invalidateExternalCaches();
     this.clearCaches();
     // Frameworks keep WeakMap caches keyed by context (RN, Swift/ObjC, Rust).
     // A new context prevents a scope switch or reindex from reusing old maps.
@@ -311,10 +314,22 @@ export class ReferenceResolver {
       });
     });
     this.clearCaches();
+    this.frameworksDirty = false;
+  }
+
+  /** Invalidate cheaply now; defer framework/context rebuilding until actually needed. */
+  invalidateExternalCaches(): void {
+    this.queries.invalidateExternalCaches();
+    const epoch = this.queries.getExternalCacheEpoch();
+    if (epoch === this.externalCacheEpoch) return;
+    this.externalCacheEpoch = epoch;
+    this.clearCaches();
+    this.frameworksDirty = true;
   }
 
   private ensureFrameworkScope(): void {
-    if (this.frameworkScopeKey !== getLanguageScopeKey()) this.initialize();
+    this.invalidateExternalCaches();
+    if (this.frameworksDirty || this.frameworkScopeKey !== getLanguageScopeKey()) this.initialize();
   }
 
   /**
@@ -989,6 +1004,7 @@ export class ReferenceResolver {
    * Resolve a single reference
    */
   resolveOne(ref: UnresolvedRef): ResolvedRef | null {
+    this.ensureFrameworkScope();
     // Skip built-in/external references
     if (this.isBuiltInOrExternal(ref)) {
       return null;
