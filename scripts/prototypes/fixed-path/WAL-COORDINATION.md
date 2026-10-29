@@ -103,3 +103,21 @@ state table is rejected and preserved for explicit diagnosis; it is not silently
 reinitialized as idle. This prototype does not promise automatic repair of that
 incomplete setup or arbitrary coordinator corruption. Normal offline graph
 replacement does not delete or recreate an established coordinator.
+
+## First Windows structural run: retained failures
+
+CI `40938607438` passed Linux 152/152 and Windows 150/152 (strict symlinks
+passed). Windows still failed simultaneous first bootstrap and the existing
+650 ms replacement-fence admission test (814 ms observed, unchanged test limit).
+Normal 1001-file query max/pause were 165/82 ms and source-checker max/pause
+170/64 ms; those measurements do not override the two failed functional gates.
+
+The next minimal correction makes lease probes nonblocking from their initial
+SQLite PRAGMA (`busy_timeout=0`), rather than first using 25 ms and changing to
+zero afterward. It also initializes each new lease's table and row in a single
+FULL-durability transaction rather than two auto-commits inside the coordinator
+bootstrap writer transaction. Neither change increases an admission/drain budget,
+weakens a lease lock, removes a failure assertion, or changes the test load.
+CREATE/INSERT/COMMIT fault tests preserve already committed earlier lease files,
+roll back the current incomplete lease and never commit coordination state.
+Remnants are retained and rejected on restart, not deleted to force success.

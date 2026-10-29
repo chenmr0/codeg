@@ -80,7 +80,7 @@ export function initialize(project) {
     for(const file of[p.connections,p.owner,p.writers]){
       if(fs.existsSync(file)){regular(file);continue;}
       if(exists)throw new Error('Missing protocol lease database; cannot safely reconstruct live locks');
-      const l=db(file);try{l.exec('CREATE TABLE lease(value INTEGER); INSERT INTO lease VALUES(1)');}finally{l.close();}
+      const l=db(file);try{l.exec('BEGIN IMMEDIATE; CREATE TABLE lease(value INTEGER); INSERT INTO lease VALUES(1); COMMIT');}finally{l.close();}
     }
     if(!exists)g.exec(`CREATE TABLE state(id INTEGER PRIMARY KEY CHECK(id=1), mode TEXT NOT NULL, operation TEXT, cancel INTEGER NOT NULL DEFAULT 0, revision INTEGER NOT NULL DEFAULT 0);
       INSERT INTO state(id,mode) VALUES(1,'idle');
@@ -152,7 +152,7 @@ export function records(p) { return gate(p, g => g.prepare('SELECT record FROM o
 export function lease(file, exclusive = false) {
   regular(file);
   let d;
-  try { d = db(file, false); d.exec('PRAGMA busy_timeout=0'); d.exec(exclusive ? 'BEGIN EXCLUSIVE' : 'BEGIN'); if (!exclusive) d.prepare('SELECT value FROM lease').get(); if (Object.values(d.prepare('PRAGMA journal_mode').get())[0] !== 'delete') throw new Error('Lease database must use DELETE mode'); }
+  try { d = db(file, false, 0); d.exec('PRAGMA busy_timeout=0'); d.exec(exclusive ? 'BEGIN EXCLUSIVE' : 'BEGIN'); if (!exclusive) d.prepare('SELECT value FROM lease').get(); if (Object.values(d.prepare('PRAGMA journal_mode').get())[0] !== 'delete') throw new Error('Lease database must use DELETE mode'); }
   catch (e) { d?.close(); if (String(e.message).includes('locked')) return null; throw e; }
   let closed = false;
   return { close() { if (!closed) { d.close(); closed = true; } } };
