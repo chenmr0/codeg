@@ -51,25 +51,47 @@ export function initialize(project) {
   });
   return p;
 }
+function gateDiagnostic(p,metrics,error){
+  const record={...metrics,pid:process.pid,project:p.project,finishedAtMs:Date.now(),error:error?.message,code:error?.code,errcode:error?.errcode};
+  if(error)error.stack=`${error.stack??error.message}\nGate diagnostic: ${JSON.stringify(record)}`;
+  const directory=process.env.GATE_DIAGNOSTICS_DIR;
+  if(!directory || (!error && record.totalMs<25))return;
+  // Diagnostics only after lock release, never a recovery/admission authority.
+  try{fs.mkdirSync(directory,{recursive:true});fs.appendFileSync(path.join(directory,`gate-${process.pid}.jsonl`),JSON.stringify(record)+'\n');}
+  catch(diagnosticError){process.stderr.write(`Gate diagnostic write failed: ${diagnosticError.message}\n`);}
+}
 export function gate(p, action, options = {}) {
-  // Retry ONLY lock admission / COMMIT, never rerun an action with native-handle
-  // side effects. No gate transaction contains awaits or waits on a participant.
-  // Experimental read gates acquire SHARED BEFORE action. A publisher may reserve
-  // a write concurrently, but cannot commit DRAINING past this read transaction.
-  // query_only prevents accidental writes; the connection remains read/write so
-  // SQLite may recover a hot journal. No cached state authorizes admission.
-  const started=now(), metrics={label:options.label??'gate',readOnly:!!options.readOnly,openMs:0,beginMs:0,actionMs:0,commitMs:0,closeMs:0,retries:0};
-  const deadline = started + 500; let g;
-  while (true) {
-    try { let t=now();g = db(p.gate);metrics.openMs+=now()-t;t=now();try{if(options.readOnly)g.exec('PRAGMA query_only=ON');g.exec(options.readOnly?'BEGIN':'BEGIN IMMEDIATE');if(options.readOnly)g.prepare('SELECT id FROM state WHERE id=1').get();}finally{metrics.beginMs+=now()-t;}break; }
-    catch (e) { g?.close(); g = null; if (!String(e.message).includes('locked') || now() >= deadline) throw e; metrics.retries++;Atomics.wait(pause,0,0,2); }
+  // Retry lock acquisition / COMMIT only; never replay an action with side effects.
+  const started=now(),metrics={label:options.label??'gate',readOnly:!!options.readOnly,startedAtMs:Date.now(),phase:'open',actionStarted:false,openMs:0,beginMs:0,actionMs:0,commitMs:0,closeMs:0,retries:0};
+  const deadline=started+500;let g;
+  while(true){
+    try{
+      metrics.phase='open';let t=now();try{g=db(p.gate);}finally{metrics.openMs+=now()-t;}
+      metrics.phase='begin';t=now();try{
+        if(options.readOnly)g.exec('PRAGMA query_only=ON');
+        g.exec(options.readOnly?'BEGIN':'BEGIN IMMEDIATE');
+        // Acquire SHARED before action, so retries cannot replay partial work.
+        if(options.readOnly)g.prepare('SELECT id FROM state WHERE id=1').get();
+      }finally{metrics.beginMs+=now()-t;}
+      metrics.acquiredAtMs=Date.now();break;
+    }catch(error){
+      const t=now();g?.close();metrics.closeMs+=now()-t;g=null;
+      if(!String(error.message).includes('locked')||now()>=deadline){metrics.totalMs=now()-started;gateDiagnostic(p,metrics,error);p.gateMetrics?.push(metrics);throw error;}
+      metrics.retries++;Atomics.wait(pause,0,0,2);
+    }
   }
-  try {
-    const actionStarted=now();let result;try{result=action(g);}finally{metrics.actionMs=now()-actionStarted;}
-    while (true) { const t=now();try { g.exec('COMMIT'); break; } catch (e) { if (!String(e.message).includes('locked') || now() >= deadline) throw e;metrics.retries++;Atomics.wait(pause,0,0,2); }finally{metrics.commitMs+=now()-t;} }
-    return result;
-  } catch (e) { try { g.exec('ROLLBACK'); } catch {} throw e; }
-  finally {const t=now();g.close();metrics.closeMs=now()-t;metrics.totalMs=now()-started;p.gateMetrics?.push(metrics);}
+  let failure;
+  try{
+    metrics.phase='action';metrics.actionStarted=true;let result;const t=now();
+    try{result=action(g);}finally{metrics.actionMs=now()-t;metrics.actionEndedAtMs=Date.now();}
+    metrics.phase='commit';
+    while(true){const t=now();try{g.exec('COMMIT');break;}catch(error){if(!String(error.message).includes('locked')||now()>=deadline)throw error;metrics.retries++;Atomics.wait(pause,0,0,2);}finally{metrics.commitMs+=now()-t;}}
+    metrics.phase='complete';return result;
+  }catch(error){failure=error;try{g.exec('ROLLBACK');}catch{}throw error;}
+  finally{
+    const t=now();g.close();metrics.closeMs+=now()-t;metrics.totalMs=now()-started;
+    gateDiagnostic(p,metrics,failure);p.gateMetrics?.push(metrics);
+  }
 }
 export function state(p) { return gate(p, g => g.prepare('SELECT * FROM state WHERE id=1').get(),{readOnly:!!p.readGates,label:'state'}); }
 function put(g, record) { g.prepare('INSERT OR REPLACE INTO operations VALUES (?,?)').run(record.id, JSON.stringify(record)); }

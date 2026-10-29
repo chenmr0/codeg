@@ -28,3 +28,7 @@ Windows六失败不能当作门禁通过，也不能仅用重跑隐藏：三例�
 ## 第三轮结果与范围收敛
 
 第三轮a4b78c9/run40886508106：Windows默认exclusive82/82、0skip，strict symlink5/5；shared-read79/82。shared两项冷路径锁失败保留，实验保持关闭，不继续扩大优化。其补查超时经原始事件回放确认是观察谓词要求同一tick的误报：发布成功后另一tick才verified是允许的。修复测试按编辑后outcomes序列确认published→后续verified，实际查询新marker有/旧marker无；新增4项顺序回归。当前默认累计86项，协议及时间预算均未修改，不用此测试修正宣称两项锁错误已修复。
+
+## 默认第四轮锁失败：先补根因诊断
+
+默认-only第四轮run40889950358 Windows85/86（0skip）在五进程重复切换查询出现gate BEGIN阶段database locked；默认不能因第三轮曾通过就放行。Linux86/86。此轮仅补最终open/begin失败及慢gate诊断，记录cold/warm、各阶段耗时、重试、action是否开始和同机时间线；日志在gate关闭后写，诊断写失败不影响真实操作结果。500ms/1秒保持不变。新增3项确定性测试，最新默认89项。需要依据Windows实际失败证据定位后修复，不以重跑一次绿灯掩盖间歇风险。

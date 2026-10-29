@@ -18,6 +18,7 @@ jobs:
     env:
       STRICT_SYMLINK_TESTS: '1'
       SOURCE_EVIDENCE_DIR: artifacts/ci-fixed-path
+      GATE_DIAGNOSTICS_DIR: artifacts/ci-fixed-path/gate-diagnostics
       CODEGRAPH_PROTOTYPE_READ_GATES: '0'
       CODEGRAPH_ALL_LANGUAGES: '1'
     steps:
