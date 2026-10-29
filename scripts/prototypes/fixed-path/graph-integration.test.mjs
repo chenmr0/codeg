@@ -16,7 +16,7 @@ process.env.CODEGRAPH_ALL_LANGUAGES='1';
 function forkPublish(root) {
   const child=fork(path.join(here,'graph-publish.mjs'),[root],{execArgv:['--liftoff-only'],stdio:['ignore','pipe','pipe','ipc'],env:{...process.env,CODEGRAPH_ALL_LANGUAGES:'1'}});
   let stdout='',stderr='',result;child.stdout.on('data',b=>stdout+=b);child.stderr.on('data',b=>stderr+=b);
-  return new Promise((resolve,reject)=>{child.on('message',m=>{if(m.type==='result')result=m.result;});child.on('error',reject);child.on('exit',code=>{if(result?.status==='published')resolve({...result,stdout,stderr});else reject(new Error(JSON.stringify({code,result,stderr,stdout})));});});
+  return new Promise((resolve,reject)=>{child.on('message',m=>{if(m.type==='result')result=m.result;});child.on('error',reject);child.on('close',code=>{if(code===0&&result?.status==='published')resolve({...result,stdout,stderr});else reject(new Error(JSON.stringify({code,result,stderr,stdout})));});});
 }
 async function automaticSync(root,participant) {
   const tracked=await participant.request(g=>g.queries.getAllFiles());

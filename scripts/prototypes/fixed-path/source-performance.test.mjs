@@ -10,8 +10,21 @@ import { initialize, Participant, now } from './protocol.mjs';
 import { buildGraph, graphAt } from './graph-adapter.mjs';
 const here=path.dirname(fileURLToPath(import.meta.url));
 const holdWritersDuringCheck=process.env.SOURCE_HOLD_WRITERS==='1';
-function launch(script,args){const child=fork(path.join(here,script),args,{execArgv:['--liftoff-only'],stdio:['ignore','pipe','pipe','ipc'],env:{...process.env,CODEGRAPH_ALL_LANGUAGES:'1'}}),messages=[];let stderr='';child.stderr.on('data',b=>stderr+=b);child.stdout.resume();child.on('message',m=>messages.push(m));const done=new Promise((resolve,reject)=>{child.on('error',reject);child.on('exit',code=>code===0?resolve(messages.find(m=>m.type==='result'||m.event==='result')):reject(new Error(`${script} ${code}: ${stderr}`)));});done.catch(()=>{});return{child,messages,done};}
-async function until(fn){const deadline=Date.now()+30000;while(Date.now()<deadline){const v=fn();if(v)return v;await delay(5);}throw new Error('Timed out waiting for source-check event');}
+const children=[];
+function launch(script,args){
+ const child=fork(path.join(here,script),args,{execArgv:['--liftoff-only'],stdio:['ignore','pipe','pipe','ipc'],env:{...process.env,CODEGRAPH_ALL_LANGUAGES:'1'}}),messages=[];
+ const diagnostic={script,args,pid:child.pid,messages,stderr:'',stdout:'',exitCode:null,signal:null,ended:false,expectedStop:false,error:null};children.push(diagnostic);
+ const out=process.env.SOURCE_EVIDENCE_DIR??path.resolve('artifacts/fixed-path-source-reconciliation'),file=path.join(out,`source-child-${process.pid}-${children.length}-${script}.json`);
+ function save(){fs.mkdirSync(out,{recursive:true});fs.writeFileSync(file,JSON.stringify(diagnostic,null,2));}
+ function failure(){return new Error(`Source workload child failed; diagnostic=${file}: ${JSON.stringify(diagnostic)}`);}
+ const send=child.send.bind(child);child.send=function(message,...rest){if(message==='stop')diagnostic.expectedStop=true;return send(message,...rest);};
+ child.stderr.on('data',b=>diagnostic.stderr+=b);child.stdout.on('data',b=>diagnostic.stdout+=b);
+ let rejectDone;
+ child.on('message',m=>{messages.push(m);if(m.event==='error'||m.event==='fatal'||m.type==='error'){diagnostic.error=m.error??JSON.stringify(m);save();rejectDone?.(failure());}});
+ const done=new Promise((resolve,reject)=>{rejectDone=reject;child.on('error',error=>{diagnostic.error=error.stack;save();reject(failure());});child.on('exit',(code,signal)=>{diagnostic.exitCode=code;diagnostic.signal=signal;diagnostic.ended=true;save();});child.on('close',()=>{save();const result=messages.find(m=>m.type==='result'||m.event==='result');if(diagnostic.error||diagnostic.exitCode!==0||!result)reject(failure());else resolve(result);});});done.catch(()=>{});
+ return{child,messages,done};
+}
+async function until(fn){const deadline=Date.now()+30000;while(Date.now()<deadline){const failed=children.find(c=>c.error||(c.ended&&!c.expectedStop));if(failed)throw new Error(`Source workload child ended before expected event: ${JSON.stringify(failed)}`);const v=fn();if(v)return v;await delay(5);}const out=process.env.SOURCE_EVIDENCE_DIR??path.resolve('artifacts/fixed-path-source-reconciliation');fs.mkdirSync(out,{recursive:true});const file=path.join(out,`source-timeout-${process.pid}.json`);fs.writeFileSync(file,JSON.stringify(children,null,2));throw new Error(`Timed out waiting for source-check event; diagnostics=${file}`);}
 function q(samples){const a=samples.slice().sort((a,b)=>a-b),at=f=>a[Math.ceil(a.length*f)-1]??0;return{count:a.length,p50Ms:at(.5),p95Ms:at(.95),p99Ms:at(.99),maxMs:a.at(-1)??0};}
 test('continuous full-hash checker + compensation: 1001 files, five live query processes',{timeout:120000},async()=>{
  const root=fs.mkdtempSync(path.join(os.tmpdir(),'source-watch-load-')),p=initialize(root),count=1000;

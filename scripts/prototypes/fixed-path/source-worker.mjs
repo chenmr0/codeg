@@ -1,10 +1,12 @@
+import { createIpcChannel } from './ipc.mjs';
+const {send,close:closeIpc}=createIpcChannel();
 import fs from 'node:fs';
 import { publishObserved, reconcileSource, checkSource, watchSource, sourceState } from './source-reconciliation.mjs';
 const [mode,root,encoded='{}']=process.argv.slice(2),options=JSON.parse(encoded),pause=new Int32Array(new SharedArrayBuffer(4));
 let hookCount=0;const controller=new AbortController();
 process.on('message',message=>{if(message==='stop')controller.abort();});
 const hook=phase=>{
-  process.send?.({event:'phase',phase});
+  send({event:'phase',phase});
   if(options.crashAt===phase)process.kill(process.pid,'SIGKILL');
   if(options.pauseAt===phase && hookCount++===0){
     fs.writeFileSync(options.pausedFile,phase);const limit=Date.now()+10000;
@@ -19,10 +21,10 @@ try{
   else if(mode==='check')result=await checkSource(root,config);
   else if(mode==='reconcile')result=await reconcileSource(root,config);
   else if(mode==='watch'){
-    process.send?.({event:'ready'});
-    await watchSource(root,{...config,signal:controller.signal,onResult:value=>process.send?.({event:'tick',result:value})});
+    send({event:'ready'});
+    await watchSource(root,{...config,signal:controller.signal,onResult:value=>send({event:'tick',result:value})});
     result=sourceState(root);
   }else throw new Error(`Unknown source worker mode ${mode}`);
-  process.send?.({event:'result',result});
-}catch(error){process.send?.({event:'error',error:error.stack});process.exitCode=1;}
-finally{process.disconnect?.();}
+  await send({event:'result',result});
+}catch(error){process.exitCode=1;await send({event:'error',error:error.stack});}
+finally{await closeIpc();}

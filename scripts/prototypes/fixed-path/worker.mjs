@@ -1,3 +1,4 @@
+import { createIpcChannel } from './ipc.mjs';
 /** Acceptance-only child processes. These roles are protocol adapters, not production CLI/MCP entrypoints. */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -15,7 +16,7 @@ export function fixture(file, tag) {
 export function snapshot(db) { const row = db.prepare('SELECT first,second FROM snapshot WHERE id=1').get(); if (row.first !== row.second) throw new Error(`Mixed database: ${JSON.stringify(row)}`); return { first: row.first, second: row.second }; }
 const [mode, project, encoded = '{}'] = process.argv.slice(2);
 const config = JSON.parse(encoded);
-function send(value) { process.send?.(value); }
+const { send, close: closeIpc } = createIpcChannel();
 function die() { process.kill(process.pid, 'SIGKILL'); }
 if (mode === 'publisher') {
   const op = beginOperation(project);
@@ -45,18 +46,18 @@ if (mode === 'publisher') {
     const result = await publish(op, { buildMs:performance.now()-started, fail:config.fail, drainBudgetMs:config.budget ?? 1000, hook,
       validate:config.failValidation ? () => { throw new Error('Injected index validation failure'); } : undefined,
       validateSource:config.failSource ? () => { throw new Error('Source changed before publication'); } : undefined });
-    send({event:'result',result}); process.disconnect?.();
-  } catch (error) { send({event:'fatal',error:error.stack}); process.exitCode=1; process.disconnect?.(); }
+    await send({event:'result',result}); await closeIpc();
+  } catch (error) { process.exitCode=1; try { await send({event:'fatal',error:error.stack}); } finally { await closeIpc(); } }
 } else if (mode === 'recover') {
-  try { const value = recover(project,{hook:phase=>{send({event:'phase',phase});if(config.pauseAt===phase){fs.writeFileSync(config.pausedFile,phase);const limit=performance.now()+10000;while(!fs.existsSync(config.resumeFile)){if(performance.now()>limit)throw new Error('Recovery test pause timed out');Atomics.wait(new Int32Array(new SharedArrayBuffer(4)),0,0,2);}}}}); send({event:'result',result:value}); process.disconnect?.(); }
-  catch (error) { send({event:'fatal',error:error.stack}); process.exitCode=1; process.disconnect?.(); }
+  try { const value = recover(project,{hook:phase=>{send({event:'phase',phase});if(config.pauseAt===phase){fs.writeFileSync(config.pausedFile,phase);const limit=performance.now()+10000;while(!fs.existsSync(config.resumeFile)){if(performance.now()>limit)throw new Error('Recovery test pause timed out');Atomics.wait(new Int32Array(new SharedArrayBuffer(4)),0,0,2);}}}}); await send({event:'result',result:value}); await closeIpc(); }
+  catch (error) { process.exitCode=1; try { await send({event:'fatal',error:error.stack}); } finally { await closeIpc(); } }
 } else if (mode === 'client') {
   if(config.startFile){send({event:'boot-waiting'});const deadline=performance.now()+10000;while(!fs.existsSync(config.startFile)){if(performance.now()>deadline)throw new Error('Bootstrap barrier timeout');Atomics.wait(new Int32Array(new SharedArrayBuffer(4)),0,0,1);}}
   let participant;
   try {
     participant = new Participant(project, file => { const db = new DatabaseSync(file); if(config.wal) db.exec('PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL'); return db; }, {pollMs:config.pollMs??5});
     send({event:'ready',role:config.role??'SDK'});
-  } catch(error) { send({event:'fatal',error:error.stack}); process.exitCode=1; process.disconnect?.(); }
+  } catch(error) { process.exitCode=1; try { await send({event:'fatal',error:error.stack}); } finally { await closeIpc(); } }
   if (participant) {
     let loopPromise = null, looping = false, samples = [], tags = [], errors = [];
     process.on('message', async message => {
@@ -79,8 +80,8 @@ if (mode === 'publisher') {
         else if(command==='stats') value={reopens:participant.reopens,active:participant.active,backgroundError:participant.backgroundError?.message};
         else if(command==='close') {looping=false; await loopPromise; participant.close(); value=true;}
         else throw new Error(`Unknown command ${command}`);
-        send({id,value}); if(command==='close') process.disconnect?.();
-      } catch(error) {send({id,error:error.stack});}
+        if(command==='close'){try{await send({id,value});}finally{await closeIpc();}}else await send({id,value});
+      } catch(error) { try{await send({id,error:error.stack});}catch(transportError){process.exitCode=1;console.error(transportError);await closeIpc().catch(e=>console.error(e));} }
     });
   }
 }

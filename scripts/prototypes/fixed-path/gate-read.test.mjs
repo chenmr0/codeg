@@ -30,7 +30,7 @@ test('read gates: publisher-first blocks warm request and it reads only new data
 
 test('read gates keep writes exclusive with durable intent and explicit off keeps original gate mode',async t=>{
  const {p,participant}=setup(t);warm(participant);const revision=state(p).revision;await participant.write(db=>{assert.equal(state(p).revision,revision+1,'intent durable before action');db.prepare('UPDATE snapshot SET first=?,second=?').run('W','W');});assert.equal(state(p).revision,revision+1);assert(participant.p.gateMetrics.some(m=>m.label==='admit-write'&&!m.readOnly));assert.deepEqual(participant.requestSync(snapshot),{first:'W',second:'W'});assert.equal(state(p).revision,revision+1,'reads do not increment revision');
- const legacy=new Participant(p.project,f=>new DatabaseSync(f),{readGates:false,measureGates:true});try{legacy.requestSync(snapshot);legacy.requestSync(snapshot);assert(!legacy.p.gateMetrics.some(m=>m.readOnly));}finally{legacy.close();}
+ const legacy=new Participant(p.project,f=>new DatabaseSync(f),{readGates:false,measureGates:true});try{legacy.requestSync(snapshot);legacy.requestSync(snapshot);assert(!legacy.p.gateMetrics.some(m=>m.label.startsWith('admit-')&&m.readOnly));assert(legacy.p.gateMetrics.some(m=>m.label==='retire-state'&&m.readOnly));}finally{legacy.close();}
 });
 
 test('read-only admission COMMIT failure does not replay callback or release older request',async t=>{
@@ -49,7 +49,7 @@ test('warm SHARED admission blocks draining COMMIT until its own admission compl
  const op=beginOperation(${JSON.stringify(root)});{const d=new DatabaseSync(op.record.candidate);d.exec("CREATE TABLE snapshot(id INTEGER PRIMARY KEY,first TEXT,second TEXT);INSERT INTO snapshot VALUES(1,'B','B')");d.close();}let draining=false;const prepare=DatabaseSync.prototype.prepare,exec=DatabaseSync.prototype.exec;
  DatabaseSync.prototype.prepare=function(sql){if(sql.includes("UPDATE state SET mode='draining'"))draining=true;return prepare.call(this,sql);};
  DatabaseSync.prototype.exec=function(sql){if(draining&&sql==='COMMIT')fs.writeFileSync(${JSON.stringify(attempt)},'attempt');const r=exec.call(this,sql);if(draining&&sql==='COMMIT'){draining=false;fs.writeFileSync(${JSON.stringify(committed)},'committed');}return r;};
- const result=await publish(op,{finalSourceFence(){fs.writeFileSync(${JSON.stringify(ready)},'ready');const end=Date.now()+5000;while(!fs.existsSync(${JSON.stringify(go)})){if(Date.now()>end)throw Error('preflight barrier timeout');Atomics.wait(new Int32Array(new SharedArrayBuffer(4)),0,0,1);}}});process.send({event:'result',result});process.disconnect();`);
+ const result=await publish(op,{finalSourceFence(){fs.writeFileSync(${JSON.stringify(ready)},'ready');const end=Date.now()+5000;while(!fs.existsSync(${JSON.stringify(go)})){if(Date.now()>end)throw Error('preflight barrier timeout');Atomics.wait(new Int32Array(new SharedArrayBuffer(4)),0,0,1);}}});await new Promise((resolve,reject)=>process.send({event:'result',result},error=>error?reject(error):resolve()));process.disconnect();`);
  const pub=publisher(t,root,{workerFile:script});await until(()=>fs.existsSync(ready));
  const prepare=DatabaseSync.prototype.prepare;let armed=true,sawCommitBlocked=false,release;const hold=new Promise(r=>release=r);let old;
  try{

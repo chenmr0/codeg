@@ -188,7 +188,12 @@ function resolveOperation(p, record, hook) {
   record.phase = 'aborted'; setIdle(p, record);
 }
 export function recover(project, options = {}) {
-  const p = initialize(project);
+  return recoverInitialized(initialize(project),options);
+}
+// Existing participants already validated the layout; do not acquire the gate
+// merely to discover that a live publisher owns recovery. Missing lock files
+// still fail in lease(), and external callers retain full initialize validation.
+function recoverInitialized(p, options = {}) {
   const owner = lease(p.owner, true);
   if (!owner) return false;
   let fence;
@@ -326,11 +331,15 @@ export async function publish(op, options = {}) {
 export class Participant {
   constructor(project, factory, options = {}) {
     this.p = initialize(project);this.p.readGates=options.readGates??process.env.CODEGRAPH_PROTOTYPE_READ_GATES==='1';if(options.measureGates??process.env.CODEGRAPH_PROTOTYPE_MEASURE_GATES==='1')this.p.gateMetrics=[]; this.factory = factory; this.options = options; this.active = 0; this.handle = null; this.holder = null; this.closed = false; this.reopens = 0; this.reopenDurationsMs = []; this.admissionWaitMs = [];
-    recover(project);
+    recoverInitialized(this.p);
     this.timer = setInterval(() => { try { this.retireIfNeeded(); } catch (e) { this.backgroundError = e; } }, options.pollMs ?? 10); this.timer.unref();
   }
   retireIfNeeded() {
-    if (this.active === 0 && (!this.p.readGates || this.handle || this.holder) && state(this.p).mode !== 'idle') this.closeHandle();
+    if(this.active!==0 || (!this.handle && !this.holder))return;
+    // Observation cannot admit a request or release a live reader. It never needs
+    // a reserved write lock, including in the exclusive-admission baseline.
+    const observed=gate(this.p,g=>g.prepare('SELECT mode FROM state WHERE id=1').get(),{readOnly:true,label:'retire-state'});
+    if(observed.mode!=='idle')this.closeHandle();
   }
   closeHandle() {
     if (this.handle) { this.handle.close(); this.handle = null; }
@@ -367,7 +376,7 @@ export class Participant {
   finish() { this.active--; this.retireIfNeeded(); }
   async request(action, writing = false) {
     const started = now(); let admission;
-    while (!(admission = this.admit(writing))) { this.retireIfNeeded(); recover(this.p.project); if (now()-started > (this.options.waitMs ?? 5000)) throw new Error('Admission timeout; no unsafe fallback'); await delay(5); }
+    while (!(admission = this.admit(writing))) { this.retireIfNeeded(); recoverInitialized(this.p); if (now()-started > (this.options.waitMs ?? 5000)) throw new Error('Admission timeout; no unsafe fallback'); await delay(5); }
     this.admissionWaitMs.push(now()-started);
     try { return await action(this.handle); } finally {
       // Intent was durable before action. No post-COMMIT revision write is needed.
@@ -390,7 +399,7 @@ export class Participant {
         g.prepare('UPDATE state SET cancel=1 WHERE id=1').run();
       });
       else this.retireIfNeeded();
-      recover(this.p.project);
+      recoverInitialized(this.p);
       if (now()-started > (this.options.waitMs ?? 5000)) throw new Error('Synchronous admission timeout; publisher must be an independent process');
       Atomics.wait(pause, 0, 0, 2);
     }
