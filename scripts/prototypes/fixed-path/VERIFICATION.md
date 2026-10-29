@@ -2,7 +2,7 @@
 
 本分支为独立 WAL 协调原型；先读 `WAL-COORDINATION.md` 和 `WAL-TEST-MAPPING.md`。只有协调状态库使用 WAL，三个租约库仍为 DELETE。生产入口与迁移均未接入。
 
-当前完整 runner 包含 162 项（保留旧 128 项目标并按新机制适配，新增确定性 fence、活动路径、WAL 恢复/维护及兼容拒绝验证）。运行：
+当前完整 runner 包含 180 项（保留旧 128 项目标并按新机制适配，新增确定性 fence、活动路径、WAL 恢复/维护及兼容拒绝验证）。运行：
 
 ```sh
 npm ci

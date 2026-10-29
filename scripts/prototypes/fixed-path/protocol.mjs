@@ -49,12 +49,43 @@ function coordinatorDb(p, bootstrap=false){
     return d;
   }catch(error){d.close();throw error;}
 }
+// Extended SQLite result codes retain the primary code in their low byte.
+// This classifier is used ONLY before a coordinator/protocol action begins.
+// https://www.sqlite.org/rescode.html#busy_recovery
+function coordinatorOpenBusy(error){return Number.isInteger(error.errcode)&&error.errcode>=0&&(error.errcode&255)===5;}
 function openCoordinatorBounded(p,deadline=now()+500){
   const end=Math.min(deadline,now()+500);
   while(true){
     if(now()>=end)throw admissionTimeout();
-    try{return coordinatorDb(p);}catch(error){if(error.errcode!==5||now()>=end)throw error;Atomics.wait(pause,0,0,2);}
+    try{return coordinatorDb(p);}catch(error){if(!coordinatorOpenBusy(error)||now()>=end)throw error;Atomics.wait(pause,0,0,2);}
   }
+}
+// A publisher/recovery keeps one initialized WAL connection alive while it
+// owns the operation. It holds no read transaction: snapshots remain fresh.
+// This prevents our short metadata connections from repeatedly becoming the
+// last WAL client when another process exits during publication.
+function coordinatedOwner(p){
+  const lock=lease(p.owner,true);if(!lock)return null;
+  let keeper;
+  const diagnostic={openedAtMs:Date.now(),attachedAtMs:null,closedAtMs:null};
+  try{
+    keeper=openCoordinatorBounded(p,p.requestDeadline??Infinity);
+    keeper.exec('PRAGMA query_only=ON');
+    if(keeper.prepare('SELECT id FROM state WHERE id=1').get()?.id!==1)throw new Error('Coordination state row missing');
+    diagnostic.attachedAtMs=Date.now();
+  }catch(error){
+    let failure=error;
+    try{keeper?.close();}catch(closeError){failure=new AggregateError([error,closeError],'Owner keeper initialization cleanup failed');}
+    finally{lock.close();}
+    throw failure;
+  }
+  let keeperClosed=false,lockClosed=false;
+  return {diagnostic,close(){
+    let failure;
+    if(!keeperClosed){try{keeper.close();keeperClosed=true;diagnostic.closedAtMs=Date.now();}catch(error){failure=error;diagnostic.closeError=error.message;}}
+    if(!lockClosed){try{lock.close();lockClosed=true;}catch(error){failure=failure?new AggregateError([failure,error],'Publisher owner cleanup failed'):error;}}
+    if(failure)throw failure;
+  }};
 }
 export function checkpointCoordinator(projectOrPaths){
   const p=typeof projectOrPaths==='string'?paths(projectOrPaths):projectOrPaths;
@@ -70,7 +101,7 @@ export function initialize(project) {
   // Established startup validates without taking a writer transaction. No online
   // DELETE->WAL conversion, and never recreate a missing established lease file.
   let d;const bootstrapDeadline=now()+500;
-  while(!d){try{d=coordinatorDb(p,true);}catch(error){if(error.errcode!==5||now()>=bootstrapDeadline)throw error;Atomics.wait(pause,0,0,2);}}
+  while(!d){try{d=coordinatorDb(p,true);}catch(error){if(!coordinatorOpenBusy(error)||now()>=bootstrapDeadline)throw error;Atomics.wait(pause,0,0,2);}}
   let established;
   try{established=!!d.prepare("SELECT name FROM sqlite_master WHERE name='state'").get();}finally{d.close();}
   if(established){for(const file of[p.connections,p.owner,p.writers])regular(file);return p;}
@@ -269,8 +300,8 @@ export function recover(project, options = {}) {
 // merely to discover that a live publisher owns recovery. Missing lock files
 // still fail in lease(), and external callers retain full initialize validation.
 function recoverInitialized(p, options = {}) {
-  const owner = lease(p.owner, true);
-  if (!owner) return false;
+  const owner=coordinatedOwner(p);
+  if(!owner)return false;
   let fence,recoveryCompleted=false;
   try {
     const s = state(p);
@@ -290,15 +321,17 @@ function recoverInitialized(p, options = {}) {
     }
     recoveryCompleted=true;return true;
   } finally {
-    fence?.close();owner.close();
-    if(recoveryCompleted&&!options.deferMaintenance){
-      try{p.lastCoordinatorCheckpoint=checkpointCoordinator(p);if(options.maintenance)options.maintenance.checkpoint=p.lastCoordinatorCheckpoint;}
-      catch(error){p.coordinatorMaintenanceError=error.message;if(options.maintenance)options.maintenance.error=error.message;else process.stderr.write(`Coordinator recovery maintenance deferred: ${error.message}\n`);}
-    }
+    fence?.close();
+    try{
+      if(recoveryCompleted&&!options.deferMaintenance){
+        try{p.lastCoordinatorCheckpoint=checkpointCoordinator(p);if(options.maintenance)options.maintenance.checkpoint=p.lastCoordinatorCheckpoint;}
+        catch(error){p.coordinatorMaintenanceError=error.message;if(options.maintenance)options.maintenance.error=error.message;else process.stderr.write(`Coordinator recovery maintenance deferred: ${error.message}\n`);}
+      }
+    }finally{owner.close();}
   }
 }
 export function beginOperation(project) {
-  const p = initialize(project), owner = lease(p.owner, true);
+  const p=initialize(project),owner=coordinatedOwner(p);
   if (!owner) throw new Error('Another publisher/recovery owns this project');
   let baselineFence;
   try {
@@ -316,7 +349,7 @@ export function beginOperation(project) {
 /** Invoke in a distinct publisher process, never on a participant's event loop. */
 export async function publish(op, options = {}) {
   const { p, record, owner } = op;
-  const metrics = { buildMs: options.buildMs ?? 0, validationMs: 0, checkpointMs: 0, drainMs: 0, replaceMs: 0, reopenMs: 0, resumeMs: 0 };
+  const metrics = { coordinatorKeeper:owner.diagnostic, buildMs: options.buildMs ?? 0, validationMs: 0, checkpointMs: 0, drainMs: 0, replaceMs: 0, reopenMs: 0, resumeMs: 0 };
   const hook = options.hook; let writers, fence, preparedConnection; let committed = false, admissionClosed = false, drainStart;
   try {
     operationPaths(p, record);
@@ -411,10 +444,14 @@ export async function publish(op, options = {}) {
     if(drainStart!==undefined){ if(!metrics.drainMs)metrics.drainMs=now()-drainStart; metrics.admissionPauseMs=now()-drainStart; }
     return { status: committed ? 'published' : 'cancelled', error: e.message, code: e.code, operation: record.id, metrics };
   } finally {
-    preparedConnection?.close();fence?.close();writers?.close();owner.close();
-    // Post-release SQLite maintenance never changes committed graph authority.
-    // PASSIVE may make partial progress; it does not promise file truncation.
-    try{if(state(p).mode==='idle')metrics.coordinatorCheckpoint=checkpointCoordinator(p);else metrics.coordinatorCheckpointDeferred='unresolved publication';}catch(error){metrics.coordinatorMaintenanceError=error.message;}
+    preparedConnection?.close();fence?.close();writers?.close();
+    // Post-fence maintenance keeps the same WAL lifetime anchor, but never a
+    // snapshot. Closing it afterward must not reinterpret an acknowledged B.
+    try{
+      try{if(state(p).mode==='idle')metrics.coordinatorCheckpoint=checkpointCoordinator(p);else metrics.coordinatorCheckpointDeferred='unresolved publication';}catch(error){metrics.coordinatorMaintenanceError=error.message;}
+    }finally{
+      try{owner.close();}catch(error){metrics.coordinatorKeeperCloseError=error.message;}
+    }
   }
 }
 
