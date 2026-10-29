@@ -19,9 +19,9 @@ test('BEGIN locked exhausts existing 500ms gate budget without action or error-c
 });
 
 test('successful slow action diagnostic is emitted only after releasing its gate',t=>{
- const {p,directory}=setup(t),append=fs.appendFileSync;let appended=0,exclusiveProven=false;
- try{fs.appendFileSync=function(file,...args){if(file===path.join(directory,`gate-${process.pid}.jsonl`)){appended++;const probe=new DatabaseSync(p.gate);try{probe.exec('PRAGMA busy_timeout=0; BEGIN EXCLUSIVE');exclusiveProven=true;probe.exec('ROLLBACK');}finally{probe.close();}}return append.call(this,file,...args);};const result=gate(p,g=>{g.prepare('UPDATE state SET revision=revision+1 WHERE id=1').run();Atomics.wait(pause,0,0,35);return 'committed-result';},{label:'diagnostic-slow-success'});assert.equal(result,'committed-result');}
- finally{fs.appendFileSync=append;}
+ const {p,directory}=setup(t),append=fs.appendFileSync,close=DatabaseSync.prototype.close;let appended=0,exclusiveProven=false,ownedGate;const closed=new Set();
+ try{DatabaseSync.prototype.close=function(){const result=close.call(this);closed.add(this);return result;};fs.appendFileSync=function(file,...args){if(file===path.join(directory,`gate-${process.pid}.jsonl`)){appended++;assert(closed.has(ownedGate),'diagnostics are emitted only after the actual coordinator connection closes');const probe=new DatabaseSync(p.gate);try{probe.exec('PRAGMA busy_timeout=0; BEGIN EXCLUSIVE');exclusiveProven=true;probe.exec('ROLLBACK');}finally{probe.close();}}return append.call(this,file,...args);};const result=gate(p,g=>{ownedGate=g;g.prepare('UPDATE state SET revision=revision+1 WHERE id=1').run();Atomics.wait(pause,0,0,35);return 'committed-result';},{label:'diagnostic-slow-success'});assert.equal(result,'committed-result');}
+ finally{fs.appendFileSync=append;DatabaseSync.prototype.close=close;}
  assert.equal(appended,1);assert.equal(exclusiveProven,true);const [record]=records(directory);assert.equal(record.phase,'complete');assert.equal(record.actionStarted,true);assert(record.actionMs>=25);assert.equal(record.error,undefined);const db=new DatabaseSync(p.gate);try{assert.equal(db.prepare('SELECT revision FROM state').get().revision,1);}finally{db.close();}
 });
 

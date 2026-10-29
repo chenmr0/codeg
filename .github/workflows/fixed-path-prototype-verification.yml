@@ -1,9 +1,9 @@
-name: Fixed-path default protocol verification
+name: Fixed-path WAL coordination verification
 # Optional shared-read experiment is disabled; failures remain recorded in run 40886508106.
 on:
   push:
     branches:
-      - verify/fixed-path-runtime-20261029
+      - verify/fixed-path-wal-coordination-20261029
   workflow_dispatch: {}
 permissions:
   contents: read
@@ -42,7 +42,7 @@ jobs:
           node --liftoff-only --test --test-reporter=tap scripts/prototypes/fixed-path/source-snapshot.test.mjs 2>&1 | Tee-Object -FilePath artifacts/source-snapshot-strict.tap
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           if (Select-String -Path artifacts/source-snapshot-strict.tap -Pattern '# SKIP' -CaseSensitive -Quiet) { throw 'Skipped snapshot regression is forbidden' }
-      - name: Run full isolated DEFAULT exclusive protocol gates
+      - name: Run full isolated WAL coordination protocol gates
         run: node --liftoff-only scripts/prototypes/fixed-path/run-source.mjs
       - name: Repeat fixed five-process contention cases three times
         env:

@@ -32,19 +32,57 @@ function db(file, validateMode = true, busyMs = 25) {
     return connection;
   } catch (e) { connection.close(); throw e; }
 }
-export function initialize(project) {
-  const p = paths(project);
-  fs.mkdirSync(p.runtime, { recursive: true });
-  directory(p.data); directory(path.dirname(p.runtime)); directory(p.runtime);
-  gate(p, g => {
-    const established=!!g.prepare("SELECT name FROM sqlite_master WHERE name='state'").get();
-    for (const file of [p.connections, p.owner, p.writers]) {
-      if (fs.existsSync(file)) { regular(file); continue; }
-      if(established)throw new Error('Missing protocol lease database; cannot safely reconstruct live locks');
-      const d = db(file);
-      try { d.exec('CREATE TABLE lease(value INTEGER); INSERT INTO lease VALUES(1)'); } finally { d.close(); }
+// Only the durable coordinator uses WAL. Lease files must remain DELETE.
+function coordinatorDb(p, bootstrap=false){
+  if(!bootstrap)regular(p.gate);
+  for(const suffix of ['', '-wal', '-shm', '-journal'])regular(p.gate+suffix,bootstrap||suffix!=='');
+  const d=db(p.gate,false,0);
+  try{
+    let mode=d.prepare('PRAGMA journal_mode').get().journal_mode;
+    if(mode!=='wal'){
+      const initialized=d.prepare("SELECT name FROM sqlite_master WHERE name='state'").get();
+      if(!bootstrap || initialized || [p.owner,p.connections,p.writers].some(f=>fs.existsSync(f)))throw new Error('Incompatible DELETE coordinator: offline isolated WAL experiment required; no live migration');
+      mode=d.prepare('PRAGMA journal_mode=WAL').get().journal_mode;
+      if(mode!=='wal')throw new Error('Unable to initialize WAL coordinator');
     }
-    if (!g.prepare("SELECT name FROM sqlite_master WHERE name='state'").get()) g.exec(`CREATE TABLE state(id INTEGER PRIMARY KEY CHECK(id=1), mode TEXT NOT NULL, operation TEXT, cancel INTEGER NOT NULL DEFAULT 0, revision INTEGER NOT NULL DEFAULT 0);
+    d.exec('PRAGMA wal_autocheckpoint=0');
+    return d;
+  }catch(error){d.close();throw error;}
+}
+function openCoordinatorBounded(p,deadline=now()+500){
+  const end=Math.min(deadline,now()+500);
+  while(true){
+    if(now()>=end)throw admissionTimeout();
+    try{return coordinatorDb(p);}catch(error){if(error.errcode!==5||now()>=end)throw error;Atomics.wait(pause,0,0,2);}
+  }
+}
+export function checkpointCoordinator(projectOrPaths){
+  const p=typeof projectOrPaths==='string'?paths(projectOrPaths):projectOrPaths;
+  const d=coordinatorDb(p);
+  try{
+    const result=d.prepare('PRAGMA wal_checkpoint(PASSIVE)').get();
+    return {...result,deferred:result.busy!==0 || result.checkpointed<result.log};
+  }finally{d.close();}
+}
+export function initialize(project) {
+  const p=paths(project);
+  fs.mkdirSync(p.runtime,{recursive:true});directory(p.data);directory(path.dirname(p.runtime));directory(p.runtime);
+  // Established startup validates without taking a writer transaction. No online
+  // DELETE->WAL conversion, and never recreate a missing established lease file.
+  let d;const bootstrapDeadline=now()+500;
+  while(!d){try{d=coordinatorDb(p,true);}catch(error){if(error.errcode!==5||now()>=bootstrapDeadline)throw error;Atomics.wait(pause,0,0,2);}}
+  let established;
+  try{established=!!d.prepare("SELECT name FROM sqlite_master WHERE name='state'").get();}finally{d.close();}
+  if(established){for(const file of[p.connections,p.owner,p.writers])regular(file);return p;}
+  gate(p,g=>{
+    const exists=!!g.prepare("SELECT name FROM sqlite_master WHERE name='state'").get();
+    if(!exists && [p.connections,p.owner,p.writers].some(file=>fs.existsSync(file)))throw new Error('Missing coordination state with existing leases; refusing unsafe reinitialization');
+    for(const file of[p.connections,p.owner,p.writers]){
+      if(fs.existsSync(file)){regular(file);continue;}
+      if(exists)throw new Error('Missing protocol lease database; cannot safely reconstruct live locks');
+      const l=db(file);try{l.exec('CREATE TABLE lease(value INTEGER); INSERT INTO lease VALUES(1)');}finally{l.close();}
+    }
+    if(!exists)g.exec(`CREATE TABLE state(id INTEGER PRIMARY KEY CHECK(id=1), mode TEXT NOT NULL, operation TEXT, cancel INTEGER NOT NULL DEFAULT 0, revision INTEGER NOT NULL DEFAULT 0);
       INSERT INTO state(id,mode) VALUES(1,'idle');
       CREATE TABLE operations(id TEXT PRIMARY KEY, record TEXT NOT NULL);
       CREATE TABLE costs(identity TEXT PRIMARY KEY, value TEXT NOT NULL)`);
@@ -69,7 +107,7 @@ export function gate(p, action, options = {}) {
   while(true){
     try{
       if(requestDeadline!==undefined && now()>=requestDeadline)throw admissionTimeout();
-      metrics.phase='open';let t=now();if(!g){try{g=db(p.gate,true,0);}finally{metrics.openMs+=now()-t;}}
+      metrics.phase='open';let t=now();if(!g){try{g=coordinatorDb(p);}finally{metrics.openMs+=now()-t;}}
       metrics.phase='begin';t=now();try{
         if(options.readOnly)g.exec('PRAGMA query_only=ON');
         g.exec(options.readOnly?'BEGIN':'BEGIN IMMEDIATE');transactionStarted=true;
@@ -108,9 +146,9 @@ export function gate(p, action, options = {}) {
     gateDiagnostic(p,metrics,failure);p.gateMetrics?.push(metrics);
   }
 }
-export function state(p) { return gate(p, g => g.prepare('SELECT * FROM state WHERE id=1').get(),{readOnly:!!p.readGates,label:'state'}); }
+export function state(p) { return gate(p, g => g.prepare('SELECT * FROM state WHERE id=1').get(),{readOnly:true,label:'state'}); }
 function put(g, record) { g.prepare('INSERT OR REPLACE INTO operations VALUES (?,?)').run(record.id, JSON.stringify(record)); }
-export function records(p) { return gate(p, g => g.prepare('SELECT record FROM operations').all().map(r => JSON.parse(r.record))); }
+export function records(p) { return gate(p, g => g.prepare('SELECT record FROM operations').all().map(r => JSON.parse(r.record)),{readOnly:true,label:'records'}); }
 export function lease(file, exclusive = false) {
   regular(file);
   let d;
@@ -233,7 +271,7 @@ export function recover(project, options = {}) {
 function recoverInitialized(p, options = {}) {
   const owner = lease(p.owner, true);
   if (!owner) return false;
-  let fence;
+  let fence,recoveryCompleted=false;
   try {
     const s = state(p);
     if (s.mode !== 'idle') {
@@ -250,8 +288,14 @@ function recoverInitialized(p, options = {}) {
       if (r.phase === 'building' || r.phase === 'prepared') { r.phase = 'aborted'; gate(p,g=>put(g,r)); }
       if (['committed', 'aborted', 'cleaned'].includes(r.phase)) { try { cleanup(p, r); } catch { /* preserve exact owned evidence for retry */ } }
     }
-    return true;
-  } finally { fence?.close(); owner.close(); }
+    recoveryCompleted=true;return true;
+  } finally {
+    fence?.close();owner.close();
+    if(recoveryCompleted&&!options.deferMaintenance){
+      try{p.lastCoordinatorCheckpoint=checkpointCoordinator(p);if(options.maintenance)options.maintenance.checkpoint=p.lastCoordinatorCheckpoint;}
+      catch(error){p.coordinatorMaintenanceError=error.message;if(options.maintenance)options.maintenance.error=error.message;else process.stderr.write(`Coordinator recovery maintenance deferred: ${error.message}\n`);}
+    }
+  }
 }
 export function beginOperation(project) {
   const p = initialize(project), owner = lease(p.owner, true);
@@ -326,18 +370,23 @@ export async function publish(op, options = {}) {
     noSidecars(p.active); noSidecars(record.candidate);
     t = now();
     if (options.fail === 'rename') throw Object.assign(new Error('Injected rename permission failure'), { code: 'EACCES' });
-    move(p.active, record.backup, hook, 'old-rename'); checkpoint(p, record, 'old-moved', hook);
-    move(record.candidate, p.active, hook, 'new-rename'); checkpoint(p, record, 'new-moved', hook);
+    move(p.active, record.backup, hook, 'old-rename'); hook?.('old-moved');
+    move(record.candidate, p.active, hook, 'new-rename'); hook?.('new-moved');
     metrics.replaceMs = now() - t; t = now();
     // Only cheap availability check in window; full integrity/index checks already completed.
     const check = new DatabaseSync(p.active, { readOnly: true });
     try { check.prepare('SELECT count(*) FROM sqlite_master').get(); } finally { check.close(); }
     metrics.reopenMs = now() - t;
     hook?.('before-commit');
-    gate(p, g => { record.phase = 'committed'; put(g, record); g.prepare('DELETE FROM costs').run(); },{label:'publish-committed'});
-    committed = true; hook?.('committed'); t = now();
-    gate(p, g => g.prepare("UPDATE state SET mode='idle', operation=NULL, cancel=0, revision=revision+1 WHERE id=1").run(),{label:'publish-resumed'});
-    admissionClosed = false; fence.close(); fence = null; writers.close(); writers = null;
+    gate(p, g => {
+      record.phase='committed';put(g,record);g.prepare('DELETE FROM costs').run();
+      g.prepare("UPDATE state SET mode='idle', operation=NULL, cancel=0, revision=revision+1 WHERE id=1").run();
+    },{label:'publish-committed'});
+    committed=true;hook?.('committed');t=now();
+    // Commit is durable before releasing the file fence, even though WAL readers
+    // may already observe idle. They cannot acquire a connection lease yet.
+    fence.close();fence=null;
+    admissionClosed=false;writers.close();writers=null;
     metrics.resumeMs = now() - t; metrics.admissionPauseMs = now() - drainStart;
     hook?.('resumed');
     let cleanupError;
@@ -361,7 +410,12 @@ export async function publish(op, options = {}) {
     try { cleanup(p, persisted); } catch { /* evidence retained, retry after restart */ }
     if(drainStart!==undefined){ if(!metrics.drainMs)metrics.drainMs=now()-drainStart; metrics.admissionPauseMs=now()-drainStart; }
     return { status: committed ? 'published' : 'cancelled', error: e.message, code: e.code, operation: record.id, metrics };
-  } finally { preparedConnection?.close(); fence?.close(); writers?.close(); owner.close(); }
+  } finally {
+    preparedConnection?.close();fence?.close();writers?.close();owner.close();
+    // Post-release SQLite maintenance never changes committed graph authority.
+    // PASSIVE may make partial progress; it does not promise file truncation.
+    try{if(state(p).mode==='idle')metrics.coordinatorCheckpoint=checkpointCoordinator(p);else metrics.coordinatorCheckpointDeferred='unresolved publication';}catch(error){metrics.coordinatorMaintenanceError=error.message;}
+  }
 }
 
 function preActionBusy(error){
@@ -377,23 +431,39 @@ function admissionTimeout(){return Object.assign(new Error('Admission exceeded t
 export class Participant {
   constructor(project, factory, options = {}) {
     this.p = initialize(project);this.p.readGates=options.readGates??process.env.CODEGRAPH_PROTOTYPE_READ_GATES==='1';if(options.measureGates??process.env.CODEGRAPH_PROTOTYPE_MEASURE_GATES==='1')this.p.gateMetrics=[]; this.factory = factory; this.options = options; this.active = 0; this.handle = null; this.holder = null; this.closed = false; this.reopens = 0; this.reopenDurationsMs = []; this.admissionWaitMs = [];
-    recoverInitialized(this.p);
+    recoverInitialized(this.p,{deferMaintenance:true});
+    this.coordination=openCoordinatorBounded(this.p);
+    this.coordinationIdentity=fs.statSync(this.p.gate,{bigint:true});
+    // Conservative startup invalidation is outside query admission. A missing
+    // history never triggers indexing; publication invalidates in its commit.
+    try{if(this.coordination.prepare('SELECT 1 FROM costs LIMIT 1').get())gate(this.p,g=>{if(g.prepare('SELECT 1 FROM costs LIMIT 1').get())g.prepare('DELETE FROM costs').run();},{label:'startup-cost-invalidation'});}
+    catch(error){this.coordination.close();this.coordination=null;throw error;}
     this.timer = setInterval(() => { try { this.retireIfNeeded(); } catch (e) { this.backgroundError = e; } }, options.pollMs ?? 10); this.timer.unref();
+  }
+  readSnapshot(action,deadline=Infinity,label='read-state') {
+    const start=now(),metrics={label,readOnly:true,startedAtMs:Date.now(),phase:'begin',actionStarted:false,openMs:0,beginMs:0,actionMs:0,commitMs:0,closeMs:0,retries:0};
+    regular(this.p.gate);const identity=fs.statSync(this.p.gate,{bigint:true});
+    if(identity.dev!==this.coordinationIdentity.dev || identity.ino!==this.coordinationIdentity.ino)throw new Error('Coordination file identity changed; restart/recovery required');
+    if(!this.coordination)this.coordination=openCoordinatorBounded(this.p,deadline);
+    const d=this.coordination;let began=false,committed=false,failure;
+    try{
+      if(now()>=deadline)throw admissionTimeout();
+      d.exec('PRAGMA query_only=ON; PRAGMA busy_timeout=0');
+      let t=now();d.exec('BEGIN');began=true;metrics.beginMs=now()-t;
+      metrics.phase='action';metrics.actionStarted=true;t=now();const result=action(d);metrics.actionMs=now()-t;
+      if(now()>=deadline)throw admissionTimeout();
+      metrics.phase='commit';t=now();d.exec('COMMIT');committed=true;metrics.commitMs=now()-t;metrics.phase='complete';return result;
+    }catch(error){failure=error;
+      if(began&&!committed){try{d.exec('ROLLBACK');}catch(rollbackError){failure=new AggregateError([error,rollbackError],'WAL read rollback failed');}}
+      try{d.close();this.coordination=null;}catch(closeError){failure=new AggregateError([failure,closeError],'WAL read connection close failed');}
+      throw failure;
+    }finally{metrics.totalMs=now()-start;gateDiagnostic(this.p,metrics,failure);this.p.gateMetrics?.push(metrics);}
   }
   retireIfNeeded(deadline) {
     if(this.active!==0 || (!this.handle && !this.holder))return;
-    // Observation cannot admit a request or release a live reader. It never needs
-    // a reserved write lock, including in the exclusive-admission baseline.
-    let observed;
-    try{observed=gate(this.p,g=>g.prepare('SELECT mode FROM state WHERE id=1').get(),{readOnly:true,deadline,label:'retire-state'});}
-    catch(error){
-      // No request owns this handle. On confirmed pre-action publisher contention
-      // retiring it is safe even if mode was idle, and helps drain rather than
-      // turning successful application work into a maintenance lock error.
-      // Corruption, unknown owners, and native close failures still propagate.
-      if(!this.publisherContention(error))throw error;
-      this.closeHandle();return;
-    }
+    // A fresh WAL snapshot observes durable mode without taking a writer gate.
+    // A concurrent uncommitted draining state is safe: our lease blocks rename.
+    const observed=this.readSnapshot(g=>g.prepare('SELECT mode FROM state WHERE id=1').get(),deadline,'retire-state');
     if(observed.mode!=='idle')this.closeHandle();
   }
   closeHandle() {
@@ -406,21 +476,32 @@ export class Participant {
     // Only an existing native handle AND its real cross-process connection lease
     // permit read admission; cold admission/lease acquisition and durable writes
     // still use the exclusive gate (native opening follows gate COMMIT).
-    let writeLease, counted=false;const warm=!!(this.handle&&this.holder),readOnly=!!(this.p.readGates&&!writing&&warm);
-    try { const admitted=gate(this.p, g => {
-      const s = g.prepare('SELECT * FROM state WHERE id=1').get();
-      if (s.mode !== 'idle') return false;
-      if (writing) { writeLease = lease(this.p.writers); if (!writeLease) return false; }
-      if (!this.holder) { this.holder = lease(this.p.connections); if (!this.holder) { writeLease?.close(); writeLease=null; return false; } }
-      if (!this.handle) { regular(this.p.active);
-        // Empty DELETE still commits a SQLite write. The gate already excludes
-        // concurrent insertions; only a nonempty history needs invalidation.
-        if(g.prepare('SELECT 1 FROM costs LIMIT 1').get())g.prepare('DELETE FROM costs').run(); }
-      // Durable intent precedes ANY application write. A crash after SQLite COMMIT
-      // but before callback/finally cannot make the publisher miss that mutation.
-      if(writing)g.prepare('UPDATE state SET revision=revision+1 WHERE id=1').run();
-      this.active++; counted=true; return writing ? writeLease : true;
-    },{readOnly,deadline,label:writing?'admit-write':readOnly?'admit-warm-read':warm?'admit-warm-exclusive':'admit-cold'});
+    let writeLease,counted=false;
+    try {
+      let admitted;
+      if(!writing){
+        // Lease first, then begin a NEW snapshot. A prior cached/preliminary idle
+        // observation is never authority to open the graph after publication.
+        this.options.hook?.('before-read-lease');
+        if(!this.holder){this.holder=lease(this.p.connections);if(!this.holder)return false;}
+        this.options.hook?.('after-read-lease');
+        admitted=this.readSnapshot(g=>{
+          const state=g.prepare('SELECT * FROM state WHERE id=1').get();
+          this.options.hook?.('read-state',state);
+          if(state.mode!=='idle')return false;
+          this.active++;counted=true;return true;
+        },deadline,'admit-wal-read');
+        if(!admitted && !previousHolder){this.holder.close();this.holder=null;}
+      }else{
+        admitted=gate(this.p,g=>{
+          const state=g.prepare('SELECT * FROM state WHERE id=1').get();
+          if(state.mode!=='idle')return false;
+          writeLease=lease(this.p.writers);if(!writeLease)return false;
+          if(!this.holder){this.holder=lease(this.p.connections);if(!this.holder){writeLease.close();writeLease=null;return false;}}
+          g.prepare('UPDATE state SET revision=revision+1 WHERE id=1').run();
+          this.active++;counted=true;return writeLease;
+        },{deadline,label:'admit-write'});
+      }
       if(admitted && now()>=deadline)throw admissionTimeout();
       if (admitted && !this.handle) {
         // The committed admission already owns a real connection lease and is
@@ -428,7 +509,8 @@ export class Participant {
         // database until this operation and native handle release that lease.
         // Opening a large graph must NOT serialize every process under gate.
         // No await is allowed here: same-process retirement cannot interleave.
-        const openedAt=now(); this.handle=this.factory(this.p.active);
+        regular(this.p.active);
+        const openedAt=now();this.handle=this.factory(this.p.active);
         this.reopenDurationsMs.push(now()-openedAt); this.reopens++;
       }
       if(admitted && now()>=deadline)throw admissionTimeout();
@@ -476,7 +558,7 @@ export class Participant {
       if(now()>=deadline)throw admissionTimeout();
       try{admission=this.admit(writing,deadline);}catch(error){if(!this.retryableAdmission(error,deadline))throw error;}
       if(admission)break;
-      try{this.cancelDrainNearDeadline(deadline);this.retireIfNeeded(deadline);recoverInitialized({...this.p,requestDeadline:deadline});}catch(error){if(!this.retryableAdmission(error,deadline))throw error;}
+      try{this.cancelDrainNearDeadline(deadline);this.retireIfNeeded(deadline);recoverInitialized({...this.p,requestDeadline:deadline},{deferMaintenance:true});}catch(error){if(!this.retryableAdmission(error,deadline))throw error;}
       if(now()>=deadline)throw admissionTimeout();
       await delay(Math.min(5,deadline-now()));
     }
@@ -508,7 +590,7 @@ export class Participant {
         g.prepare('UPDATE state SET cancel=1 WHERE id=1').run();
       },{deadline});
       else this.retireIfNeeded(deadline);
-      recoverInitialized({...this.p,requestDeadline:deadline});
+      recoverInitialized({...this.p,requestDeadline:deadline},{deferMaintenance:true});
       }catch(error){if(!this.retryableAdmission(error,deadline))throw error;}
       if(now()>=deadline)throw admissionTimeout();
       Atomics.wait(pause, 0, 0, 2);
@@ -519,7 +601,7 @@ export class Participant {
   async write(action) { return this.request(action, true); }
   close() {
     if (this.active) throw new Error('Cannot close participant with active requests');
-    clearInterval(this.timer); this.closeHandle(); this.closed = true;
+    clearInterval(this.timer);this.closeHandle();this.coordination?.close();this.coordination=null;this.closed=true;
     // Clean offline-overwrite shutdown includes SQLite-owned sidecar cleanup.
     // This is outside the cutover hot path and never deletes journal files itself.
     gate(this.p, g => {
