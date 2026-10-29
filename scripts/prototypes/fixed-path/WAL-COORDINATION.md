@@ -121,3 +121,36 @@ weakens a lease lock, removes a failure assertion, or changes the test load.
 CREATE/INSERT/COMMIT fault tests preserve already committed earlier lease files,
 roll back the current incomplete lease and never commit coordination state.
 Remnants are retained and rejected on restart, not deleted to force success.
+
+
+## Second structural run and narrowly scoped corrections
+
+CI `40940851157` remained failed: Linux 161/162, Windows 160/162.
+The separate fixed three-round bootstrap workflow `40941047624` passed Linux
+2/3 and Windows 0/3. These are retained failures, not replaced by local results.
+A fixed 40-batch / five-process cold-start diagnostic identified three failures
+in 200 starts, all extended `SQLITE_BUSY_RECOVERY` (261), not exhausted budgets.
+Coordinator initialization now recognizes the primary BUSY byte **only before
+any protocol action**. Its existing absolute budget remains unchanged; LOCKED,
+IOERR (including 1546), corruption, and action/COMMIT errors are not replayed.
+The same fixed-count diagnostic after that correction completed 200/200 locally.
+
+The other Windows error was `SQLITE_IOERR_TRUNCATE` (1546) during a coordinator
+state open after the sole reader was killed at draining. Node 24.22.1 embeds
+SQLite 3.53.4; its Windows first/quiescent WAL attachment can truncate shared
+memory. This is a supported mechanism hypothesis, not proof of the failing
+Win32 operation: the CI exception contains neither filename nor GetLastError.
+No IOERR retry or error suppression is added.
+
+Publisher/recovery ownership now includes one coordinator connection that has
+actually completed a state SELECT. It holds no transaction or snapshot and
+lasts through metadata updates and post-fence PASSIVE maintenance. Keeper close
+errors after publication are reported without rolling back the new database.
+This avoids publisher-created zero-connection gaps during an operation; it does
+**not** prove all Windows last-close/first-open races impossible. Cold participants
+before and after final keeper closure and reader death during draining are tested.
+Windows must rerun the actual failures and full gates on this revision.
+
+References: https://www.sqlite.org/rescode.html ;
+https://sqlite.org/walformat.html ;
+https://raw.githubusercontent.com/nodejs/node/v24.22.1/deps/sqlite/sqlite3.c .
