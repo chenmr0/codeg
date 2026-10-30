@@ -1,0 +1,64 @@
+[33mThe CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.[39m
+
+ RUN  v2.1.9 /workspace/scratch/75b00092a0fc/codeg-git-worktree
+
+stderr | __tests__/extraction.test.ts > Nested non-submodule git repos > does not crash on a .gitignore with an uncompilable pattern (#682)
+[CodeGraph] Skipped 1 unparseable pattern(s) in a .gitignore; the rest are applied. { file: '/tmp/codegraph-test-p01Qd9/.gitignore' }
+
+stderr | __tests__/extraction.test.ts > Nested non-submodule git repos > does not crash on a non-UTF-8 (DLP-encrypted) .gitignore (#682)
+[CodeGraph] Ignoring a .gitignore that is not valid UTF-8 text — it may have been encrypted in place by endpoint-security software. Indexing continues without it. { file: '/tmp/codegraph-test-yjpYga/.gitignore' }
+
+stderr | __tests__/extraction.test.ts > Nested non-submodule git repos > buildDefaultIgnore survives a bad .gitignore and still applies valid rules (#682)
+[CodeGraph] Skipped 1 unparseable pattern(s) in a .gitignore; the rest are applied. { file: '/tmp/codegraph-test-A4f77L/.gitignore' }
+
+stderr | __tests__/extraction.test.ts > Nested non-submodule git repos > .codegraphignore survives bad patterns like .gitignore does
+[CodeGraph] Skipped 1 unparseable pattern(s) in a .gitignore; the rest are applied. { file: '/tmp/codegraph-test-RWn2dA/.codegraphignore' }
+
+ ✓ __tests__/extraction.test.ts (483 tests) 20665ms
+   ✓ Kotlin Multiplatform expect/actual > links expect declarations to platform actual implementations and surfaces them in impact 479ms
+   ✓ Kotlin Multiplatform expect/actual > links an expect class to an actual typealias (different node kinds) 342ms
+   ✓ Scala cross-file dependencies > links parameterized supertypes, type annotations, and implicit params across files 338ms
+   ✓ PHP namespace + import resolution > resolves `use` imports to the namespace-qualified definition and type-hints across files 308ms
+   ✓ C++ free-function name extraction > names a free function correctly when it has qualified-type params or a trailing return type 338ms
+   ✓ Dart mixins and type references > links `with` mixins and method parameter/return types across files 311ms
+   ✓ Static-member / value-read references > links a type referenced only via a static field / enum value (and ignores lowercase receivers) 306ms
+   ✓ Cross-language type/import gate (RN name collisions) > a TS PascalCase type ref lands on the TS type, never a same-named native class 302ms
+   ✓ Python absolute module import resolution > resolves `from pkg import submodule` to the submodule under that package, not a same-named one 327ms
+   ✓ Razor / Blazor markup extraction > links @model and Blazor component tags to their C# types; ignores HTML elements 303ms
+   ✓ Razor / Blazor markup extraction > delegates Blazor @code block C# to cover types used in component logic 303ms
+   ✓ Default import resolution (renamed default export) > links a renamed default import to the module file 353ms
+   ✓ Chained method-call resolution (C# extension methods) > resolves a chained extension-method call (a.b.Method()) to its definition 344ms
+   ✓ Same-directory include + KMP import resolution > a C/C++ #include resolves to the same-directory header, not a same-named one elsewhere 303ms
+   ✓ Same-directory include + KMP import resolution > a Kotlin Multiplatform commonMain import resolves to the expect, not a platform actual 342ms
+   ✓ Delphi form code-behind pairing > links a `.dfm` form to its sibling `.pas` code-behind unit 307ms
+   ✓ Liquid Shopify JSON template section resolution > links a Shopify JSON template section `type` to its sections/<type>.liquid 305ms
+   ✓ Lua/Luau require resolution > resolves a dotted Lua require and an instance-path Luau require to their module files 301ms
+   ✓ Rust module-path call resolution > a 3-segment module-path call (`database::profiles::find()`) resolves to the leaf fn 314ms
+   ✓ Rust module-path call resolution > Rocket `routes![…]` / `catchers![…]` macros link the mount to the handler fns 318ms
+   ✓ Swift property-wrapper attribute type references > a Fluent `@Siblings(through: Pivot.self)` links the model to the pivot type 307ms
+   ✓ Objective-C messages, class receivers, and #import > resolves single-arg selectors, class-message receivers, and #import headers 331ms
+   ✓ Full Indexing > should index a TypeScript file 318ms
+   ✓ Full Indexing > should index multiple files 311ms
+   ✓ Full Indexing > should track file hashes for incremental updates 304ms
+   ✓ Full Indexing > should sync and detect changes 591ms
+   ✓ Import / re-export dependency linking (blast-radius recall) > a value imported/re-exported but never called still makes the importer a dependent 317ms
+   ✓ Import / re-export dependency linking (blast-radius recall) > a namespace import touched only via a value-member read still links the module file 339ms
+   ✓ Python import dependency linking (blast-radius recall) > a Python value imported but never called still makes the importer a dependent 316ms
+   ✓ Python import dependency linking (blast-radius recall) > resolves `from . import submodule` + `submodule.func()` to the submodule 314ms
+   ✓ Python import dependency linking (blast-radius recall) > a module import is a dependency even when the used member is re-exported elsewhere 325ms
+   ✓ Go cross-package composite literals (blast-radius recall) > links a cross-package struct composite literal to the defining package 341ms
+   ✓ Go cross-package composite literals (blast-radius recall) > links a parenthesized pointer type conversion `(*T)(x)` to the type 309ms
+   ✓ Go cross-package composite literals (blast-radius recall) > links an implementation reached only through a Go interface (implicit satisfaction, #584) 327ms
+   ✓ C# records (blast-radius recall) > resolves references / instantiations of a record across files 316ms
+   ✓ Rust cross-module recall > extracts a struct literal `Foo { .. }` as an instantiation across modules 305ms
+   ✓ Rust cross-module recall > extracts trait method declarations and bridges trait dispatch to the impl 302ms
+   ✓ Swift property wrappers / attributes (blast-radius recall) > links a @propertyWrapper usage to the wrapper type 309ms
+   ✓ Edge re-wiring during sync > rewires incoming cross-file edges when a changed file is re-indexed 583ms
+   ✓ Edge re-wiring during sync > preserves the unchanged caller reference when a symbol is renamed 637ms
+   ✓ Edge re-wiring during sync > rewires edges correctly when only comments change (no symbol changes) 597ms
+
+ Test Files  1 passed (1)
+      Tests  483 passed (483)
+   Start at  08:30:33
+   Duration  23.04s (transform 1.61s, setup 0ms, collect 2.10s, tests 20.66s, environment 0ms, prepare 67ms)
+

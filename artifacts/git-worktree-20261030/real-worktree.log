@@ -1,0 +1,11 @@
+✔ real linked worktree: production init, incremental sync, and automatic adaptive rebuild (2358.888603ms)
+✔ real linked worktree: WAL prototype full build, exclude-aware rebuild and source follow-up checks (735.823576ms)
+✔ real linked worktree: watcher reports malformed common metadata without process exit and observes repair (357.689968ms)
+ℹ tests 3
+ℹ suites 0
+ℹ pass 3
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 3702.612223

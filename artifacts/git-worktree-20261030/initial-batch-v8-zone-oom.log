@@ -1,0 +1,78 @@
+npm warn Unknown env config "http-proxy". This will stop working in the next major version of npm.
+[33mThe CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.[39m
+
+ RUN  v2.1.9 /workspace/scratch/75b00092a0fc/codeg-git-worktree
+
+ ✓ __tests__/scan-optimizations.test.ts (26 tests) 1819ms
+   ✓ scan parity and reduced filesystem calls > still detects committed edits, additions and deletions during sync 1406ms
+ ✓ __tests__/adaptive-ownership-regression.test.ts (3 tests) 1934ms
+   ✓ retains source ownership after complete indexFiles and a subsequent edit 577ms
+   ✓ does not restore source ownership for partial indexFiles 544ms
+   ✓ keeps exactly one ownership write scope during complete language-scope fallback rebuild 806ms
+
+
+#
+# Fatal process out of memory: Zone
+#
+----- Native stack trace -----
+
+ 1: 0x9c9031  [node (vitest 1)]
+ 2: 0x2890015 v8::base::FatalOOM(v8::base::OOMType, char const*) [node (vitest 1)]
+ 3: 0xc75736  [node (vitest 1)]
+ 4: 0x149db0e  [node (vitest 1)]
+ 5: 0x2e8ee1f  [node (vitest 1)]
+ 6: 0x2e8f0e7  [node (vitest 1)]
+ 7: 0x2e8fe8c  [node (vitest 1)]
+ 8: 0x2e9cfd9  [node (vitest 1)]
+ 9: 0x2e9fb46  [node (vitest 1)]
+10: 0x2a33101  [node (vitest 1)]
+11: 0x2968482  [node (vitest 1)]
+12: 0x1875446  [node (vitest 1)]
+13: 0x18855f8  [node (vitest 1)]
+14: 0x1886f89  [node (vitest 1)]
+15: 0x2106783  [node (vitest 1)]
+16: 0x9c989f  [node (vitest 1)]
+17: 0x7f9d0a0338bb  [/lib/x86_64-linux-gnu/libc.so.6]
+18: 0x7f9d0a0b1538  [/lib/x86_64-linux-gnu/libc.so.6]
+ ✓ __tests__/adaptive-sync-integration.test.ts (16 tests) 22413ms
+   ✓ adaptive sync real child lifecycle > rescans normally after the negative-gate diagnostic callback changes source and ignores 1294ms
+   ✓ adaptive sync real child lifecycle > builds independently, keeps old readers, publishes new queries and forwards a stale writer 2477ms
+   ✓ adaptive sync real child lifecycle > routes SDK clear to CURRENT under the root lock without touching a retired generation 1643ms
+   ✓ adaptive sync real child lifecycle > pins a legacy instance to its data root when a preferred index appears later 1719ms
+   ✓ adaptive sync real child lifecycle > waits for child cancellation before releasing the root lock and never publishes 844ms
+   ✓ adaptive sync real child lifecycle > keeps the old database after a real child run is failed by a progress callback 833ms
+   ✓ adaptive sync real child lifecycle > does not publish if the source changes during the child build 1284ms
+   ✓ adaptive sync real child lifecycle > does not report a published generation as failed when a diagnostic observer throws 1450ms
+   ✓ adaptive sync real child lifecycle > releases its root lock when CURRENT resolution fails before planning 467ms
+   ✓ adaptive sync real child lifecycle > rechecks cancellation after asynchronous final source validation 1258ms
+   ✓ adaptive sync real child lifecycle > rejects parent-runtime changes while off-thread validation awaits 1277ms
+   ✓ adaptive sync real child lifecycle > rejects parent-database changes while off-thread validation awaits 1335ms
+   ✓ adaptive sync real child lifecycle > rejects parent-schema changes while off-thread validation awaits 1340ms
+   ✓ adaptive sync real child lifecycle > SDK queries do not revert to an older generation during a forwarded rebuild 2461ms
+   ✓ adaptive sync real child lifecycle > closing a stale forwarding graph also cancels its active child 1890ms
+   ✓ adaptive sync real child lifecycle > closing the owning graph cancels an active child without early unlock 839ms
+
+⎯⎯⎯⎯⎯⎯ Unhandled Errors ⎯⎯⎯⎯⎯⎯
+
+Vitest caught 1 unhandled error during the test run.
+This might cause false positive tests. Resolve unhandled errors to make sure your tests are not affected.
+
+⎯⎯⎯⎯⎯⎯ Unhandled Error ⎯⎯⎯⎯⎯⎯⎯
+Error: Worker exited unexpectedly
+ ❯ ChildProcess.onUnexpectedExit ../codeg-fixed-prototype/node_modules/tinypool/dist/index.js:118:30
+ ❯ ChildProcess.emit node:events:526:24
+ ❯ ChildProcess._handle.onexit node:internal/child_process:324:12
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+
+ Test Files  3 passed (4)
+      Tests  365 passed (528)
+     Errors  1 error
+   Start at  08:29:26
+   Duration  22.89s (transform 2.11s, setup 0ms, collect 5.72s, tests 26.17s, environment 1ms, prepare 247ms)
+
+npm notice
+npm notice New major version of npm available! 11.9.0 -> 12.2.1
+npm notice Changelog: https://github.com/npm/cli/releases/tag/v12.2.1
+npm notice To update run: npm install -g npm@12.2.1
+npm notice

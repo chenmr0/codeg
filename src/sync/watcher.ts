@@ -32,6 +32,7 @@
  */
 
 import * as fs from 'fs';
+import { repositoryGitDirectories } from '../git-metadata';
 import * as path from 'path';
 import type { Ignore } from 'ignore';
 import { isSourceFile, buildDefaultIgnore } from '../extraction';
@@ -279,6 +280,7 @@ export class FileWatcher {
         this.inert = true;
       } else if (supportsRecursiveWatch()) {
         this.startRecursive();
+        this.watchGitControls();
       } else {
         this.startPerDirectory();
         this.watchGitControls();
@@ -398,10 +400,7 @@ export class FileWatcher {
     const full = path.join(dir, String(filename));
     const relative = normalizePath(path.relative(this.projectRoot, full));
     if (relative === '.git') {
-      for (const watcher of this.controlWatchers.values()) watcher.close();
-      this.controlWatchers.clear();
-      this.watchGitControls();
-      this.handleChange('.git/info/exclude');
+      this.handleChange('.git');
       return;
     }
 
@@ -432,11 +431,32 @@ export class FileWatcher {
    * — it drops node_modules/dist/.git churn before any sync is scheduled.
    */
   private handleChange(rel: string): void {
-    withoutLanguageScope(() => this.handleChangeOutsideScope(rel));
+    try { withoutLanguageScope(() => this.handleChangeOutsideScope(rel)); }
+    catch (cause) {
+      // Git control files can be temporarily incomplete during replacement.
+      // Surface the error and keep the previous metadata watches alive so a
+      // later repair can retry; never let an fs.watch callback kill MCP.
+      const error = cause instanceof Error ? cause : new Error(String(cause));
+      logWarn('Could not refresh watch controls', { error: error.message });
+      try { this.onSyncError?.(error); } catch { /* observers cannot kill the watcher */ }
+      this.needsFullScan = true;
+      this.fullScanRevision++;
+      this.changeRevision++;
+      this.scheduleSync();
+    }
   }
 
   private handleChangeOutsideScope(rel: string): void {
     if (!rel || rel === '.' || rel.startsWith('..')) return;
+    if (rel === '.git') {
+      const dirs = repositoryGitDirectories(this.projectRoot);
+      // Resolve before closing: malformed transient metadata must retain the
+      // gitdir watcher which will notice its repair.
+      for (const watcher of this.controlWatchers.values()) watcher.close();
+      this.controlWatchers.clear();
+      this.watchGitControls(dirs);
+      rel = '.git/info/exclude';
+    }
     if (this.isControlFile(rel)) {
       const ignoreChanged = rel === '.git/info/exclude' ||
         ['.gitignore', '.codegraphignore'].includes(path.posix.basename(rel));
@@ -515,32 +535,36 @@ export class FileWatcher {
     return ROOT_CONTROL_FILES.has(rel) || ['.gitignore', '.codegraphignore'].includes(path.posix.basename(rel));
   }
 
-  /** .git remains excluded from the source watch tree. Only these two tiny
-   * directory watches admit info/exclude events (including atomic replacement).
-   * A missing .git is discovered by the root directory watch. */
-  private watchGitControls(): void {
-    if (this.inert || this.stopped || supportsRecursiveWatch()) return;
-    for (const relative of ['.git', '.git/info']) {
-      const directory = path.join(this.projectRoot, relative);
+  /** Git metadata may live outside the source tree (linked worktrees). Watch
+   * only gitdir/common-dir control directories, on recursive platforms too. */
+  private watchGitControls(resolved?: ReturnType<typeof repositoryGitDirectories>): void {
+    if (this.inert || this.stopped) return;
+    const dirs = resolved === undefined ? repositoryGitDirectories(this.projectRoot) : resolved;
+    if (!dirs) return;
+    const watched = new Map<string, Set<string>>();
+    const add = (dir: string, name: string) => {
+      if (!watched.has(dir)) watched.set(dir, new Set());
+      watched.get(dir)!.add(name);
+    };
+    add(dirs.gitDir, 'commondir');
+    add(dirs.commonDir, 'info');
+    add(path.join(dirs.commonDir, 'info'), 'exclude');
+    for (const [directory, names] of watched) {
       if (this.controlWatchers.has(directory)) continue;
       try {
-        if (!fs.lstatSync(directory).isDirectory()) continue;
+        if (!fs.statSync(directory).isDirectory()) continue;
         const watcher = fs.watch(directory, (_event, filename) => {
-          if (this.stopped || filename == null) return;
-          const name = String(filename);
-          if ((relative === '.git' && name === 'info') || (relative === '.git/info' && name === 'exclude')) {
-            if (relative === '.git') {
-              const info = path.join(this.projectRoot, '.git/info');
-              this.controlWatchers.get(info)?.close();
-              this.controlWatchers.delete(info);
-            }
-            this.watchGitControls();
-            this.handleChange('.git/info/exclude');
-          }
+          if (this.stopped || (filename != null && !names.has(String(filename)))) return;
+          // Re-resolve after atomic replacement of info or commondir. A null
+          // filename is an ambiguous notification, never proof of no change.
+          this.handleChange('.git');
         });
         watcher.on('error', () => { watcher.close(); this.controlWatchers.delete(directory); });
         this.controlWatchers.set(directory, watcher);
-      } catch { /* Missing/inaccessible Git metadata is not a source watch failure. */ }
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+        // The common directory watch notices creation of a missing info dir.
+      }
     }
   }
 

@@ -1,0 +1,36 @@
+[33mThe CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.[39m
+
+ RUN  v2.1.9 /workspace/scratch/75b00092a0fc/codeg-git-worktree
+
+ ✓ __tests__/git-metadata.test.ts (5 tests) 242ms
+ ✓ __tests__/adaptive-plan.test.ts (50 tests) 256ms
+ ✓ __tests__/git-paths.test.ts (26 tests) 688ms
+   ✓ Git candidate post-processing > runs the installed-shape read-only benchmark without creating a database or modifying the repo 575ms
+stderr | __tests__/watcher.test.ts > FileWatcher > debounced sync > should not quick-fire retries after a failed C/C++ sync
+[CodeGraph] Watch sync failed { error: 'temporary failure' }
+
+stderr | __tests__/watcher.test.ts > FileWatcher > pending file tracking (#403) > should keep entries unchanged when sync fails (rescheduled work sees the same set)
+[CodeGraph] Watch sync failed { error: 'boom' }
+
+stderr | __tests__/watcher.test.ts > FileWatcher > callbacks > should call onSyncError when sync throws
+[CodeGraph] Watch sync failed { error: 'sync failed' }
+
+stderr | __tests__/watcher.test.ts > FileWatcher > CodeGraph integration > should auto-sync when files change while watching (real fs.watch end-to-end)
+[CodeGraph] Watch sync failed {
+  error: "ENOENT: no such file or directory, open '/tmp/codegraph-watcher-fki6Uh/.codegraph-wx/codegraph.lock'"
+}
+
+ ✓ __tests__/watcher.test.ts (39 tests) 8302ms
+   ✓ FileWatcher > debounced sync > should debounce rapid changes into a single sync 610ms
+   ✓ FileWatcher > filtering > should ignore files not matching include patterns 402ms
+   ✓ FileWatcher > filtering > should ignore .codegraph directory changes 406ms
+   ✓ FileWatcher > CodeGraph integration > should watch and unwatch via CodeGraph API 426ms
+   ✓ FileWatcher > CodeGraph integration > should stop watching on close 343ms
+   ✓ FileWatcher > CodeGraph integration > should remove an indexed subtree after a directory-delete event 482ms
+   ✓ FileWatcher > CodeGraph integration > should auto-sync when files change while watching (real fs.watch end-to-end) 714ms
+
+ Test Files  4 passed (4)
+      Tests  120 passed (120)
+   Start at  08:34:15
+   Duration  10.30s (transform 1.71s, setup 0ms, collect 4.58s, tests 9.49s, environment 1ms, prepare 286ms)
+

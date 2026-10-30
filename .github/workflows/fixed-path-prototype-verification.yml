@@ -3,7 +3,7 @@ name: Fixed-path WAL coordination verification
 on:
   push:
     branches:
-      - verify/fixed-path-wal-coordination-20261029
+      - verify/fixed-path-worktree-20261030
   workflow_dispatch: {}
 permissions:
   contents: read
@@ -48,6 +48,17 @@ jobs:
         env:
           CONTENTION_EVIDENCE_DIR: artifacts/ci-fixed-path/contention-repeat
         run: node scripts/prototypes/fixed-path/repeat-contention.mjs
+      - name: Repeat simultaneous cold bootstrap three times
+        shell: pwsh
+        run: |
+          $failed = $false
+          for ($i = 1; $i -le 3; $i++) {
+            $env:SOURCE_EVIDENCE_DIR = "artifacts/ci-fixed-path/cold-bootstrap-$i"
+            New-Item -ItemType Directory -Force $env:SOURCE_EVIDENCE_DIR | Out-Null
+            node --liftoff-only --test "--test-name-pattern=^simultaneous cold clients initialize protocol metadata" scripts/prototypes/fixed-path/acceptance.test.mjs 2>&1 | Tee-Object -FilePath "$env:SOURCE_EVIDENCE_DIR/run.tap"
+            if ($LASTEXITCODE -ne 0) { $failed = $true }
+          }
+          if ($failed) { throw 'One or more fixed bootstrap repetitions failed' }
       - name: Preserve exact runner evidence
         if: always()
         uses: actions/upload-artifact@v4

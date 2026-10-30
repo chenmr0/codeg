@@ -5,6 +5,7 @@
  */
 
 import * as fs from 'fs';
+import { repositoryExcludePath } from '../git-metadata';
 import * as fsp from 'fs/promises';
 import * as path from 'path';
 import * as crypto from 'crypto';
@@ -538,8 +539,8 @@ function rootIgnoreGroups(rootDir: string): string[] {
   const groups = [DEFAULT_IGNORE_PATTERNS.join('\n')];
   const rootGitignore = path.join(rootDir, '.gitignore');
   if (fs.existsSync(rootGitignore)) groups.push(readGitignorePatterns(rootGitignore));
-  const gitExclude = path.join(rootDir, '.git', 'info', 'exclude');
-  if (fs.existsSync(gitExclude)) groups.push(readGitignorePatterns(gitExclude));
+  const gitExclude = repositoryExcludePath(rootDir);
+  if (gitExclude && fs.existsSync(gitExclude)) groups.push(readGitignorePatterns(gitExclude));
   const cgIgnore = path.join(rootDir, '.codegraphignore');
   if (fs.existsSync(cgIgnore)) {
     const cgPatterns = readGitignorePatterns(cgIgnore);

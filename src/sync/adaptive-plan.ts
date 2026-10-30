@@ -14,6 +14,7 @@ import { rustScanBinaryPath, automaticRustScanStatus } from '../extraction/rust-
 import { rustMacroBinaryPath, automaticRustMacroStatus } from '../extraction/rust-macros';
 import { getCodeGraphDir } from '../directory';
 import type { FileRecord } from '../types';
+import { repositoryExcludePath } from '../git-metadata';
 
 const HISTORY_VERSION = 1;
 const MAX_SAMPLES = 24; // Per runtime/configuration bucket.
@@ -173,8 +174,9 @@ export function adaptiveConfigFingerprint(root: string, files: ReadonlyArray<{ p
     }
   }
   return digest([getLanguageScopeKey(), [...controls].sort().map(relative => {
-    const absolute = path.resolve(root, relative);
-    if (!absolute.startsWith(path.resolve(root) + path.sep)) throw new Error('Adaptive control path escapes root');
+    const absolute = relative === '.git/info/exclude' ? repositoryExcludePath(root) : path.resolve(root, relative);
+    if (absolute === null) return [relative, null];
+    if (relative !== '.git/info/exclude' && !absolute.startsWith(path.resolve(root) + path.sep)) throw new Error('Adaptive control path escapes root');
     try { return [relative, crypto.createHash('sha256').update(fs.readFileSync(absolute)).digest('hex')]; }
     catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') return rootControls.includes(relative) ? [relative, null] : null;

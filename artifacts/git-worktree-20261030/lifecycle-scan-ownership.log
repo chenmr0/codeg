@@ -1,0 +1,32 @@
+[33mThe CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.[39m
+
+ RUN  v2.1.9 /workspace/scratch/75b00092a0fc/codeg-git-worktree
+
+ ✓ __tests__/adaptive-sync-integration.test.ts (16 tests) 22933ms
+   ✓ adaptive sync real child lifecycle > rescans normally after the negative-gate diagnostic callback changes source and ignores 1233ms
+   ✓ adaptive sync real child lifecycle > builds independently, keeps old readers, publishes new queries and forwards a stale writer 1887ms
+   ✓ adaptive sync real child lifecycle > routes SDK clear to CURRENT under the root lock without touching a retired generation 1492ms
+   ✓ adaptive sync real child lifecycle > pins a legacy instance to its data root when a preferred index appears later 1777ms
+   ✓ adaptive sync real child lifecycle > waits for child cancellation before releasing the root lock and never publishes 879ms
+   ✓ adaptive sync real child lifecycle > keeps the old database after a real child run is failed by a progress callback 928ms
+   ✓ adaptive sync real child lifecycle > does not publish if the source changes during the child build 1424ms
+   ✓ adaptive sync real child lifecycle > does not report a published generation as failed when a diagnostic observer throws 1782ms
+   ✓ adaptive sync real child lifecycle > releases its root lock when CURRENT resolution fails before planning 548ms
+   ✓ adaptive sync real child lifecycle > rechecks cancellation after asynchronous final source validation 1378ms
+   ✓ adaptive sync real child lifecycle > rejects parent-runtime changes while off-thread validation awaits 1362ms
+   ✓ adaptive sync real child lifecycle > rejects parent-database changes while off-thread validation awaits 1458ms
+   ✓ adaptive sync real child lifecycle > rejects parent-schema changes while off-thread validation awaits 1392ms
+   ✓ adaptive sync real child lifecycle > SDK queries do not revert to an older generation during a forwarded rebuild 2538ms
+   ✓ adaptive sync real child lifecycle > closing a stale forwarding graph also cancels its active child 1914ms
+   ✓ adaptive sync real child lifecycle > closing the owning graph cancels an active child without early unlock 942ms
+ ✓ __tests__/scan-optimizations.test.ts (26 tests) 1206ms
+   ✓ scan parity and reduced filesystem calls > still detects committed edits, additions and deletions during sync 969ms
+ ✓ __tests__/adaptive-ownership-regression.test.ts (3 tests) 1318ms
+   ✓ retains source ownership after complete indexFiles and a subsequent edit 450ms
+   ✓ keeps exactly one ownership write scope during complete language-scope fallback rebuild 574ms
+
+ Test Files  3 passed (3)
+      Tests  45 passed (45)
+   Start at  08:31:49
+   Duration  28.06s (transform 1.34s, setup 0ms, collect 1.98s, tests 25.46s, environment 1ms, prepare 149ms)
+
