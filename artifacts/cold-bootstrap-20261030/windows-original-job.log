@@ -1,0 +1,687 @@
+﻿2026-10-30T00:39:04.4297672Z Current runner version: '2.338.0'
+2026-10-30T00:39:04.4317672Z ##[group]Runner Image Provisioner
+2026-10-30T00:39:04.4318367Z Hosted Compute Agent
+2026-10-30T00:39:04.4318857Z Version: 20261021.618
+2026-10-30T00:39:04.4319342Z Commit: 21505ad2541d5be6135ed84fc33697146cf75b8e
+2026-10-30T00:39:04.4320032Z Build Date: 2026-10-21T00:45:21Z
+2026-10-30T00:39:04.4320608Z Worker ID: {64ad2f4d-6535-4ff4-a838-1905d8052895}
+2026-10-30T00:39:04.4321256Z Region: centralus
+2026-10-30T00:39:04.4321781Z Cloud: Azure
+2026-10-30T00:39:04.4322167Z ##[endgroup]
+2026-10-30T00:39:04.4323367Z ##[group]Operating System
+2026-10-30T00:39:04.4323931Z Microsoft Windows Server 2022
+2026-10-30T00:39:04.4324433Z 10.0.20348
+2026-10-30T00:39:04.4324813Z Datacenter
+2026-10-30T00:39:04.4325188Z ##[endgroup]
+2026-10-30T00:39:04.4325607Z ##[group]Runner Image
+2026-10-30T00:39:04.4326034Z Image: windows-2022
+2026-10-30T00:39:04.4326454Z Version: 20261025.346.1
+2026-10-30T00:39:04.4327810Z Included Software: https://github.com/actions/runner-images/blob/win22/20261025.346/images/windows/Windows2022-Readme.md
+2026-10-30T00:39:04.4329200Z Image Release: https://github.com/actions/runner-images/releases/tag/win22%2F20261025.346
+2026-10-30T00:39:04.4329924Z ##[endgroup]
+2026-10-30T00:39:04.4330807Z ##[group]GITHUB_TOKEN Permissions
+2026-10-30T00:39:04.4332720Z Contents: read
+2026-10-30T00:39:04.4333324Z Metadata: read
+2026-10-30T00:39:04.4333879Z ##[endgroup]
+2026-10-30T00:39:04.4335816Z Secret source: Actions
+2026-10-30T00:39:04.4336746Z Cache mode: write
+2026-10-30T00:39:04.4337407Z Prepare workflow directory
+2026-10-30T00:39:04.4642932Z Prepare all required actions
+2026-10-30T00:39:04.4683929Z Getting action download info
+2026-10-30T00:39:04.7316400Z Download action repository 'actions/checkout@v6' (SHA:d23441a48e516b6c34aea4fa41551a30e30af803)
+2026-10-30T00:39:04.8282576Z Download action repository 'actions/setup-node@v6' (SHA:249970729cb0ef3589644e2896645e5dc5ba9c38)
+2026-10-30T00:39:04.9268493Z Download action repository 'actions/upload-artifact@v4' (SHA:ea165f8d65b6e75b540449e92b4886f43607fa02)
+2026-10-30T00:39:05.2081190Z Complete job name: prototype (windows-2022)
+2026-10-30T00:39:05.3682271Z ##[group]Run actions/checkout@v6
+2026-10-30T00:39:05.3683589Z with:
+2026-10-30T00:39:05.3684070Z   persist-credentials: false
+2026-10-30T00:39:05.3684610Z   repository: chenmr0/codeg
+2026-10-30T00:39:05.3688303Z   token: ***
+2026-10-30T00:39:05.3688754Z   ssh-strict: true
+2026-10-30T00:39:05.3689236Z   ssh-user: git
+2026-10-30T00:39:05.3689666Z   clean: true
+2026-10-30T00:39:05.3690120Z   sparse-checkout-cone-mode: true
+2026-10-30T00:39:05.3690652Z   fetch-depth: 1
+2026-10-30T00:39:05.3691122Z   fetch-tags: false
+2026-10-30T00:39:05.3691584Z   show-progress: true
+2026-10-30T00:39:05.3692023Z   lfs: false
+2026-10-30T00:39:05.3692485Z   submodules: false
+2026-10-30T00:39:05.3692951Z   set-safe-directory: true
+2026-10-30T00:39:05.3693456Z   allow-unsafe-pr-checkout: false
+2026-10-30T00:39:05.3694208Z env:
+2026-10-30T00:39:05.3694664Z   STRICT_SYMLINK_TESTS: 1
+2026-10-30T00:39:05.3695220Z   SOURCE_EVIDENCE_DIR: artifacts/ci-fixed-path
+2026-10-30T00:39:05.3696029Z   GATE_DIAGNOSTICS_DIR: artifacts/ci-fixed-path/gate-diagnostics
+2026-10-30T00:39:05.3696767Z   CODEGRAPH_PROTOTYPE_READ_GATES: 0
+2026-10-30T00:39:05.3697324Z   CODEGRAPH_ALL_LANGUAGES: 1
+2026-10-30T00:39:05.3697807Z ##[endgroup]
+2026-10-30T00:39:05.5025638Z Syncing repository: chenmr0/codeg
+2026-10-30T00:39:05.5027304Z ##[group]Getting Git version info
+2026-10-30T00:39:05.5027919Z Working directory is 'D:\a\codeg\codeg'
+2026-10-30T00:39:05.5858047Z [command]"C:\Program Files\Git\bin\git.exe" version
+2026-10-30T00:39:05.9172087Z git version 2.56.0.windows.3
+2026-10-30T00:39:05.9210467Z ##[endgroup]
+2026-10-30T00:39:05.9227869Z Temporarily overriding HOME='D:\a\_temp\0d42d03d-449d-44fc-8d64-ff81f1184cd1' before making global git config changes
+2026-10-30T00:39:05.9229274Z Adding repository directory to the temporary git global config as a safe directory
+2026-10-30T00:39:05.9237922Z [command]"C:\Program Files\Git\bin\git.exe" config --global --add safe.directory D:\a\codeg\codeg
+2026-10-30T00:39:05.9838899Z Deleting the contents of 'D:\a\codeg\codeg'
+2026-10-30T00:39:05.9842983Z ##[group]Determining repository object format
+2026-10-30T00:39:05.9845342Z ##[endgroup]
+2026-10-30T00:39:05.9846232Z ##[group]Initializing the repository
+2026-10-30T00:39:05.9853894Z [command]"C:\Program Files\Git\bin\git.exe" init D:\a\codeg\codeg
+2026-10-30T00:39:06.0605865Z Initialized empty Git repository in D:/a/codeg/codeg/.git/
+2026-10-30T00:39:06.0641167Z [command]"C:\Program Files\Git\bin\git.exe" remote add origin https://github.com/chenmr0/codeg
+2026-10-30T00:39:06.1238272Z ##[endgroup]
+2026-10-30T00:39:06.1239644Z ##[group]Disabling automatic garbage collection
+2026-10-30T00:39:06.1244378Z [command]"C:\Program Files\Git\bin\git.exe" config --local gc.auto 0
+2026-10-30T00:39:06.1494769Z ##[endgroup]
+2026-10-30T00:39:06.1496552Z ##[group]Setting up auth
+2026-10-30T00:39:06.1497743Z Removing SSH command configuration
+2026-10-30T00:39:06.1505955Z [command]"C:\Program Files\Git\bin\git.exe" config --local --name-only --get-regexp core\.sshCommand
+2026-10-30T00:39:06.1761046Z [command]"C:\Program Files\Git\bin\git.exe" submodule foreach --recursive "sh -c \"git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :\""
+2026-10-30T00:39:07.6575287Z Removing HTTP extra header
+2026-10-30T00:39:07.6584975Z [command]"C:\Program Files\Git\bin\git.exe" config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-10-30T00:39:07.6856692Z [command]"C:\Program Files\Git\bin\git.exe" submodule foreach --recursive "sh -c \"git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :\""
+2026-10-30T00:39:08.1452250Z Removing includeIf entries pointing to credentials config files
+2026-10-30T00:39:08.1453370Z [command]"C:\Program Files\Git\bin\git.exe" config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-10-30T00:39:08.1723772Z [command]"C:\Program Files\Git\bin\git.exe" submodule foreach --recursive "git config --local --show-origin --name-only --get-regexp remote.origin.url"
+2026-10-30T00:39:08.6328191Z [command]"C:\Program Files\Git\bin\git.exe" config --file D:\a\_temp\git-credentials-77d0f09f-63ca-40b4-a0ec-3029357b39a2.config http.https://github.com/.extraheader "AUTHORIZATION: basic ***"
+2026-10-30T00:39:08.6597555Z [command]"C:\Program Files\Git\bin\git.exe" config --local includeIf.gitdir:D:/a/codeg/codeg/.git.path D:\a\_temp\git-credentials-77d0f09f-63ca-40b4-a0ec-3029357b39a2.config
+2026-10-30T00:39:08.6862466Z [command]"C:\Program Files\Git\bin\git.exe" config --local includeIf.gitdir:D:/a/codeg/codeg/.git/worktrees/*.path D:\a\_temp\git-credentials-77d0f09f-63ca-40b4-a0ec-3029357b39a2.config
+2026-10-30T00:39:08.7190076Z [command]"C:\Program Files\Git\bin\git.exe" config --local includeIf.gitdir:/github/workspace/.git.path /github/runner_temp/git-credentials-77d0f09f-63ca-40b4-a0ec-3029357b39a2.config
+2026-10-30T00:39:08.7462607Z [command]"C:\Program Files\Git\bin\git.exe" config --local includeIf.gitdir:/github/workspace/.git/worktrees/*.path /github/runner_temp/git-credentials-77d0f09f-63ca-40b4-a0ec-3029357b39a2.config
+2026-10-30T00:39:08.7730062Z ##[endgroup]
+2026-10-30T00:39:08.7730686Z ##[group]Fetching the repository
+2026-10-30T00:39:08.7742142Z [command]"C:\Program Files\Git\bin\git.exe" -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin +f0ea8e11d92c67b8b4b9d730f62da43fe921b3c8:refs/remotes/origin/verify/fixed-path-worktree-20261030
+2026-10-30T00:39:10.3892022Z From https://github.com/chenmr0/codeg
+2026-10-30T00:39:10.3893163Z  * [new ref]         f0ea8e11d92c67b8b4b9d730f62da43fe921b3c8 -> origin/verify/fixed-path-worktree-20261030
+2026-10-30T00:39:10.3933339Z [command]"C:\Program Files\Git\bin\git.exe" branch --list --remote origin/verify/fixed-path-worktree-20261030
+2026-10-30T00:39:10.4269921Z   origin/verify/fixed-path-worktree-20261030
+2026-10-30T00:39:10.4305312Z [command]"C:\Program Files\Git\bin\git.exe" rev-parse refs/remotes/origin/verify/fixed-path-worktree-20261030
+2026-10-30T00:39:10.4587801Z f0ea8e11d92c67b8b4b9d730f62da43fe921b3c8
+2026-10-30T00:39:10.4612518Z ##[endgroup]
+2026-10-30T00:39:10.4613072Z ##[group]Determining the checkout info
+2026-10-30T00:39:10.4614012Z ##[endgroup]
+2026-10-30T00:39:10.4621584Z [command]"C:\Program Files\Git\bin\git.exe" sparse-checkout disable
+2026-10-30T00:39:10.4926321Z [command]"C:\Program Files\Git\bin\git.exe" config --local --unset-all extensions.worktreeConfig
+2026-10-30T00:39:10.5185534Z ##[group]Checking out the ref
+2026-10-30T00:39:10.5193700Z [command]"C:\Program Files\Git\bin\git.exe" checkout --progress --force -B verify/fixed-path-worktree-20261030 refs/remotes/origin/verify/fixed-path-worktree-20261030
+2026-10-30T00:39:10.7479685Z Switched to a new branch 'verify/fixed-path-worktree-20261030'
+2026-10-30T00:39:10.7539296Z branch 'verify/fixed-path-worktree-20261030' set up to track 'origin/verify/fixed-path-worktree-20261030'.
+2026-10-30T00:39:10.7578311Z ##[endgroup]
+2026-10-30T00:39:10.8010228Z [command]"C:\Program Files\Git\bin\git.exe" log -1 --format=%H
+2026-10-30T00:39:10.8246860Z f0ea8e11d92c67b8b4b9d730f62da43fe921b3c8
+2026-10-30T00:39:10.8279843Z ##[group]Removing auth
+2026-10-30T00:39:10.8280267Z Removing SSH command configuration
+2026-10-30T00:39:10.8287608Z [command]"C:\Program Files\Git\bin\git.exe" config --local --name-only --get-regexp core\.sshCommand
+2026-10-30T00:39:10.8615463Z [command]"C:\Program Files\Git\bin\git.exe" submodule foreach --recursive "sh -c \"git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :\""
+2026-10-30T00:39:11.4180048Z Removing HTTP extra header
+2026-10-30T00:39:11.4190414Z [command]"C:\Program Files\Git\bin\git.exe" config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-10-30T00:39:11.4465631Z [command]"C:\Program Files\Git\bin\git.exe" submodule foreach --recursive "sh -c \"git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :\""
+2026-10-30T00:39:11.8713714Z Removing includeIf entries pointing to credentials config files
+2026-10-30T00:39:11.8719788Z [command]"C:\Program Files\Git\bin\git.exe" config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-10-30T00:39:11.8954840Z includeif.gitdir:D:/a/codeg/codeg/.git.path
+2026-10-30T00:39:11.8955514Z includeif.gitdir:D:/a/codeg/codeg/.git/worktrees/*.path
+2026-10-30T00:39:11.8956475Z includeif.gitdir:/github/workspace/.git.path
+2026-10-30T00:39:11.8957020Z includeif.gitdir:/github/workspace/.git/worktrees/*.path
+2026-10-30T00:39:11.8988187Z [command]"C:\Program Files\Git\bin\git.exe" config --local --get-all includeif.gitdir:D:/a/codeg/codeg/.git.path
+2026-10-30T00:39:11.9216268Z D:\a\_temp\git-credentials-77d0f09f-63ca-40b4-a0ec-3029357b39a2.config
+2026-10-30T00:39:11.9249116Z [command]"C:\Program Files\Git\bin\git.exe" config --local --unset includeif.gitdir:D:/a/codeg/codeg/.git.path D:\a\_temp\git-credentials-77d0f09f-63ca-40b4-a0ec-3029357b39a2.config
+2026-10-30T00:39:11.9507658Z [command]"C:\Program Files\Git\bin\git.exe" config --local --get-all includeif.gitdir:D:/a/codeg/codeg/.git/worktrees/*.path
+2026-10-30T00:39:11.9740019Z D:\a\_temp\git-credentials-77d0f09f-63ca-40b4-a0ec-3029357b39a2.config
+2026-10-30T00:39:11.9772825Z [command]"C:\Program Files\Git\bin\git.exe" config --local --unset includeif.gitdir:D:/a/codeg/codeg/.git/worktrees/*.path D:\a\_temp\git-credentials-77d0f09f-63ca-40b4-a0ec-3029357b39a2.config
+2026-10-30T00:39:12.0043516Z [command]"C:\Program Files\Git\bin\git.exe" config --local --get-all includeif.gitdir:/github/workspace/.git.path
+2026-10-30T00:39:12.0269722Z /github/runner_temp/git-credentials-77d0f09f-63ca-40b4-a0ec-3029357b39a2.config
+2026-10-30T00:39:12.0299810Z [command]"C:\Program Files\Git\bin\git.exe" config --local --unset includeif.gitdir:/github/workspace/.git.path /github/runner_temp/git-credentials-77d0f09f-63ca-40b4-a0ec-3029357b39a2.config
+2026-10-30T00:39:12.0575680Z [command]"C:\Program Files\Git\bin\git.exe" config --local --get-all includeif.gitdir:/github/workspace/.git/worktrees/*.path
+2026-10-30T00:39:12.0804019Z /github/runner_temp/git-credentials-77d0f09f-63ca-40b4-a0ec-3029357b39a2.config
+2026-10-30T00:39:12.0834249Z [command]"C:\Program Files\Git\bin\git.exe" config --local --unset includeif.gitdir:/github/workspace/.git/worktrees/*.path /github/runner_temp/git-credentials-77d0f09f-63ca-40b4-a0ec-3029357b39a2.config
+2026-10-30T00:39:12.1104987Z [command]"C:\Program Files\Git\bin\git.exe" submodule foreach --recursive "git config --local --show-origin --name-only --get-regexp remote.origin.url"
+2026-10-30T00:39:12.5593033Z Removing credentials config 'D:\a\_temp\git-credentials-77d0f09f-63ca-40b4-a0ec-3029357b39a2.config'
+2026-10-30T00:39:12.5604602Z ##[endgroup]
+2026-10-30T00:39:12.5945284Z ##[group]Run actions/setup-node@v6
+2026-10-30T00:39:12.5945653Z with:
+2026-10-30T00:39:12.5945924Z   node-version: 24
+2026-10-30T00:39:12.5946240Z   check-latest: false
+2026-10-30T00:39:12.5948165Z   token: ***
+2026-10-30T00:39:12.5948459Z   package-manager-cache: true
+2026-10-30T00:39:12.5948742Z env:
+2026-10-30T00:39:12.5948983Z   STRICT_SYMLINK_TESTS: 1
+2026-10-30T00:39:12.5949301Z   SOURCE_EVIDENCE_DIR: artifacts/ci-fixed-path
+2026-10-30T00:39:12.5949685Z   GATE_DIAGNOSTICS_DIR: artifacts/ci-fixed-path/gate-diagnostics
+2026-10-30T00:39:12.5950031Z   CODEGRAPH_PROTOTYPE_READ_GATES: 0
+2026-10-30T00:39:12.5950331Z   CODEGRAPH_ALL_LANGUAGES: 1
+2026-10-30T00:39:12.5950575Z ##[endgroup]
+2026-10-30T00:39:12.7492570Z Found in cache @ C:\hostedtoolcache\windows\node\24.22.1\x64
+2026-10-30T00:39:12.7497643Z ##[group]Environment details
+2026-10-30T00:39:17.4180207Z node: v24.22.1
+2026-10-30T00:39:17.4180585Z npm: 11.19.1
+2026-10-30T00:39:17.4180818Z yarn: 1.22.22
+2026-10-30T00:39:17.4181530Z ##[endgroup]
+2026-10-30T00:39:17.4425249Z ##[group]Run node -e "const fs=require('node:fs'),os=require('node:os'),p=require('node:path');const d=fs.mkdtempSync(p.join(os.tmpdir(),'cg-real-symlinks-'));try{fs.writeFileSync(p.join(d,'target.txt'),'fixture');fs.mkdirSync(p.join(d,'target-dir'));fs.symlinkSync(p.join(d,'target.txt'),p.join(d,'file-link'),'file');fs.symlinkSync(p.join(d,'target-dir'),p.join(d,'dir-link'),'dir');for(const n of ['file-link','dir-link']){if(!fs.lstatSync(p.join(d,n)).isSymbolicLink())throw Error(n+' is not a symbolic link');console.log(process.platform,n,'real symlink verified')}console.log('SYMLINK_PREFLIGHT=PASS')}finally{fs.rmSync(d,{recursive:true,force:true})}"
+2026-10-30T00:39:17.4428636Z [36;1mnode -e "const fs=require('node:fs'),os=require('node:os'),p=require('node:path');const d=fs.mkdtempSync(p.join(os.tmpdir(),'cg-real-symlinks-'));try{fs.writeFileSync(p.join(d,'target.txt'),'fixture');fs.mkdirSync(p.join(d,'target-dir'));fs.symlinkSync(p.join(d,'target.txt'),p.join(d,'file-link'),'file');fs.symlinkSync(p.join(d,'target-dir'),p.join(d,'dir-link'),'dir');for(const n of ['file-link','dir-link']){if(!fs.lstatSync(p.join(d,n)).isSymbolicLink())throw Error(n+' is not a symbolic link');console.log(process.platform,n,'real symlink verified')}console.log('SYMLINK_PREFLIGHT=PASS')}finally{fs.rmSync(d,{recursive:true,force:true})}"[0m
+2026-10-30T00:39:17.4430518Z [36;1mif ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }[0m
+2026-10-30T00:39:17.4513278Z shell: C:\Program Files\PowerShell\7\pwsh.EXE -command ". '{0}'"
+2026-10-30T00:39:17.4513701Z env:
+2026-10-30T00:39:17.4513962Z   STRICT_SYMLINK_TESTS: 1
+2026-10-30T00:39:17.4514280Z   SOURCE_EVIDENCE_DIR: artifacts/ci-fixed-path
+2026-10-30T00:39:17.4514679Z   GATE_DIAGNOSTICS_DIR: artifacts/ci-fixed-path/gate-diagnostics
+2026-10-30T00:39:17.4515057Z   CODEGRAPH_PROTOTYPE_READ_GATES: 0
+2026-10-30T00:39:17.4515517Z   CODEGRAPH_ALL_LANGUAGES: 1
+2026-10-30T00:39:17.4515812Z ##[endgroup]
+2026-10-30T00:39:17.7534083Z win32 file-link real symlink verified
+2026-10-30T00:39:17.7534735Z win32 dir-link real symlink verified
+2026-10-30T00:39:17.7535127Z SYMLINK_PREFLIGHT=PASS
+2026-10-30T00:39:17.8446741Z ##[group]Run npm ci
+2026-10-30T00:39:17.8447087Z [36;1mnpm ci[0m
+2026-10-30T00:39:17.8476586Z shell: C:\Program Files\PowerShell\7\pwsh.EXE -command ". '{0}'"
+2026-10-30T00:39:17.8477005Z env:
+2026-10-30T00:39:17.8477242Z   STRICT_SYMLINK_TESTS: 1
+2026-10-30T00:39:17.8477545Z   SOURCE_EVIDENCE_DIR: artifacts/ci-fixed-path
+2026-10-30T00:39:17.8477936Z   GATE_DIAGNOSTICS_DIR: artifacts/ci-fixed-path/gate-diagnostics
+2026-10-30T00:39:17.8478313Z   CODEGRAPH_PROTOTYPE_READ_GATES: 0
+2026-10-30T00:39:17.8478608Z   CODEGRAPH_ALL_LANGUAGES: 1
+2026-10-30T00:39:17.8478867Z ##[endgroup]
+2026-10-30T00:39:22.7800366Z 
+2026-10-30T00:39:22.7801975Z > @sdd/codegraph-wx@1.1.2 postinstall
+2026-10-30T00:39:22.7802637Z > node scripts/prepare-native-scan.mjs
+2026-10-30T00:39:22.7802987Z 
+2026-10-30T00:39:22.8468850Z [rust-scan] Native preparation failed; TypeScript fallback remains available: Run npm run build before preparing native release artifacts.
+2026-10-30T00:39:22.8470736Z [rust-macros] Native preparation failed; TypeScript fallback remains available: Run npm run build before preparing native macro release artifacts.
+2026-10-30T00:39:22.8648087Z 
+2026-10-30T00:39:22.8649524Z added 66 packages, and audited 67 packages in 5s
+2026-10-30T00:39:22.8649840Z 
+2026-10-30T00:39:22.8650749Z 14 packages are looking for funding
+2026-10-30T00:39:22.8651903Z   run `npm fund` for details
+2026-10-30T00:39:22.8857676Z 
+2026-10-30T00:39:22.8858924Z 11 vulnerabilities (3 moderate, 6 high, 2 critical)
+2026-10-30T00:39:22.8859323Z 
+2026-10-30T00:39:22.8859711Z To address issues that do not require attention, run:
+2026-10-30T00:39:22.8860288Z   npm audit fix
+2026-10-30T00:39:22.8860527Z 
+2026-10-30T00:39:22.8860833Z To address all issues (including breaking changes), run:
+2026-10-30T00:39:22.8861463Z   npm audit fix --force
+2026-10-30T00:39:22.8861680Z 
+2026-10-30T00:39:22.8861916Z Run `npm audit` for details.
+2026-10-30T00:39:22.8870089Z npm warn install-scripts 1 package has install scripts not yet covered by allowScripts:
+2026-10-30T00:39:22.8871103Z npm warn install-scripts   esbuild@0.21.5 (postinstall: node install.js)
+2026-10-30T00:39:22.8871771Z npm warn install-scripts
+2026-10-30T00:39:22.8872648Z npm warn install-scripts Run `npm install-scripts ls` to review, or `npm install-scripts approve <pkg>` to allow.
+2026-10-30T00:39:24.4136027Z ##[group]Run npm run build
+2026-10-30T00:39:24.4136369Z [36;1mnpm run build[0m
+2026-10-30T00:39:24.4168017Z shell: C:\Program Files\PowerShell\7\pwsh.EXE -command ". '{0}'"
+2026-10-30T00:39:24.4168562Z env:
+2026-10-30T00:39:24.4168843Z   STRICT_SYMLINK_TESTS: 1
+2026-10-30T00:39:24.4169128Z   SOURCE_EVIDENCE_DIR: artifacts/ci-fixed-path
+2026-10-30T00:39:24.4169506Z   GATE_DIAGNOSTICS_DIR: artifacts/ci-fixed-path/gate-diagnostics
+2026-10-30T00:39:24.4169873Z   CODEGRAPH_PROTOTYPE_READ_GATES: 0
+2026-10-30T00:39:24.4170145Z   CODEGRAPH_ALL_LANGUAGES: 1
+2026-10-30T00:39:24.4170453Z ##[endgroup]
+2026-10-30T00:39:25.0172873Z 
+2026-10-30T00:39:25.0174133Z > @sdd/codegraph-wx@1.1.2 build
+2026-10-30T00:39:25.0175208Z > tsc && npm run copy-assets && node -e "require('fs').chmodSync('dist/bin/codegraph.js', 0o755)"
+2026-10-30T00:39:25.0175698Z 
+2026-10-30T00:39:31.1073489Z 
+2026-10-30T00:39:31.1074472Z > @sdd/codegraph-wx@1.1.2 copy-assets
+2026-10-30T00:39:31.1077803Z > node -e "const fs=require('fs');fs.mkdirSync('dist/db',{recursive:true});fs.copyFileSync('src/db/schema.sql','dist/db/schema.sql');fs.mkdirSync('dist/extraction/wasm',{recursive:true});fs.readdirSync('src/extraction/wasm').filter(f=>f.endsWith('.wasm')||f.endsWith('.LICENSE')).forEach(f=>fs.copyFileSync('src/extraction/wasm/'+f,'dist/extraction/wasm/'+f));const sqlWasm=require.resolve('sql.js-fts5/dist/sql-wasm.wasm');fs.copyFileSync(sqlWasm,'dist/db/sql-wasm.wasm')"
+2026-10-30T00:39:31.1081567Z 
+2026-10-30T00:39:31.2808993Z ##[group]Run New-Item -ItemType Directory -Force artifacts | Out-Null
+2026-10-30T00:39:31.2809658Z [36;1mNew-Item -ItemType Directory -Force artifacts | Out-Null[0m
+2026-10-30T00:39:31.2810376Z [36;1mnode --liftoff-only --test --test-reporter=tap scripts/prototypes/fixed-path/source-snapshot.test.mjs 2>&1 | Tee-Object -FilePath artifacts/source-snapshot-strict.tap[0m
+2026-10-30T00:39:31.2811026Z [36;1mif ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }[0m
+2026-10-30T00:39:31.2811653Z [36;1mif (Select-String -Path artifacts/source-snapshot-strict.tap -Pattern '# SKIP' -CaseSensitive -Quiet) { throw 'Skipped snapshot regression is forbidden' }[0m
+2026-10-30T00:39:31.2842074Z shell: C:\Program Files\PowerShell\7\pwsh.EXE -command ". '{0}'"
+2026-10-30T00:39:31.2842445Z env:
+2026-10-30T00:39:31.2842679Z   STRICT_SYMLINK_TESTS: 1
+2026-10-30T00:39:31.2842968Z   SOURCE_EVIDENCE_DIR: artifacts/ci-fixed-path
+2026-10-30T00:39:31.2843474Z   GATE_DIAGNOSTICS_DIR: artifacts/ci-fixed-path/gate-diagnostics
+2026-10-30T00:39:31.2843863Z   CODEGRAPH_PROTOTYPE_READ_GATES: 0
+2026-10-30T00:39:31.2844177Z   CODEGRAPH_ALL_LANGUAGES: 1
+2026-10-30T00:39:31.2844427Z ##[endgroup]
+2026-10-30T00:39:31.6097665Z TAP version 13
+2026-10-30T00:39:31.8372465Z # Subtest: snapshot hashes full binary bytes across buffer boundaries and preserves metadata
+2026-10-30T00:39:31.8374398Z ok 1 - snapshot hashes full binary bytes across buffer boundaries and preserves metadata
+2026-10-30T00:39:31.8375875Z   ---
+2026-10-30T00:39:31.8377554Z   duration_ms: 25.0044
+2026-10-30T00:39:31.8379882Z   type: 'test'
+2026-10-30T00:39:31.8383860Z   ...
+2026-10-30T00:39:31.8389448Z # Subtest: snapshot rejects file symlinks (explicit Windows permission skip)
+2026-10-30T00:39:31.8391321Z ok 2 - snapshot rejects file symlinks (explicit Windows permission skip)
+2026-10-30T00:39:31.8391974Z   ---
+2026-10-30T00:39:31.8392287Z   duration_ms: 1.9764
+2026-10-30T00:39:31.8396857Z   type: 'test'
+2026-10-30T00:39:31.8397773Z   ...
+2026-10-30T00:39:31.8398451Z # Subtest: snapshot rejects directory symlinks (explicit Windows permission skip)
+2026-10-30T00:39:31.8400685Z ok 3 - snapshot rejects directory symlinks (explicit Windows permission skip)
+2026-10-30T00:39:31.8402778Z   ---
+2026-10-30T00:39:31.8404292Z   duration_ms: 1.4282
+2026-10-30T00:39:31.8406514Z   type: 'test'
+2026-10-30T00:39:31.8408233Z   ...
+2026-10-30T00:39:31.8411386Z # Subtest: snapshot propagates enumeration/read errors and closes the failed read descriptor
+2026-10-30T00:39:31.8412456Z ok 4 - snapshot propagates enumeration/read errors and closes the failed read descriptor
+2026-10-30T00:39:31.8413914Z   ---
+2026-10-30T00:39:31.8415450Z   duration_ms: 1.8889
+2026-10-30T00:39:31.8416997Z   type: 'test'
+2026-10-30T00:39:31.8418500Z   ...
+2026-10-30T00:39:31.8420580Z # Subtest: snapshot uses one bounded buffer per traversal and one metadata call per file
+2026-10-30T00:39:31.8422202Z ok 5 - snapshot uses one bounded buffer per traversal and one metadata call per file
+2026-10-30T00:39:31.8423427Z   ---
+2026-10-30T00:39:31.8425073Z   duration_ms: 9.3085
+2026-10-30T00:39:31.8426637Z   type: 'test'
+2026-10-30T00:39:31.8428507Z   ...
+2026-10-30T00:39:31.8509033Z 1..5
+2026-10-30T00:39:31.8510733Z # tests 5
+2026-10-30T00:39:31.8512438Z # suites 0
+2026-10-30T00:39:31.8513777Z # pass 5
+2026-10-30T00:39:31.8515717Z # fail 0
+2026-10-30T00:39:31.8517713Z # cancelled 0
+2026-10-30T00:39:31.8519380Z # skipped 0
+2026-10-30T00:39:31.8520959Z # todo 0
+2026-10-30T00:39:31.8522847Z # duration_ms 263.3475
+2026-10-30T00:39:31.9124801Z ##[group]Run node --liftoff-only scripts/prototypes/fixed-path/run-source.mjs
+2026-10-30T00:39:31.9125394Z [36;1mnode --liftoff-only scripts/prototypes/fixed-path/run-source.mjs[0m
+2026-10-30T00:39:31.9158905Z shell: C:\Program Files\PowerShell\7\pwsh.EXE -command ". '{0}'"
+2026-10-30T00:39:31.9159250Z env:
+2026-10-30T00:39:31.9159484Z   STRICT_SYMLINK_TESTS: 1
+2026-10-30T00:39:31.9159922Z   SOURCE_EVIDENCE_DIR: artifacts/ci-fixed-path
+2026-10-30T00:39:31.9160322Z   GATE_DIAGNOSTICS_DIR: artifacts/ci-fixed-path/gate-diagnostics
+2026-10-30T00:39:31.9160675Z   CODEGRAPH_PROTOTYPE_READ_GATES: 0
+2026-10-30T00:39:31.9160957Z   CODEGRAPH_ALL_LANGUAGES: 1
+2026-10-30T00:39:31.9161215Z ##[endgroup]
+2026-10-30T00:39:32.9436403Z ✔ no readers: actual fixed path publishes and old/candidate are reclaimed (426.0482ms)
+2026-10-30T00:39:34.6742416Z ✔ five independent prototype participant processes remain consistent across repeated switches (1732.039ms)
+2026-10-30T00:39:36.4358271Z ✔ long request cancels bounded drain; old request and queued new request complete (1760.0737ms)
+2026-10-30T00:39:38.2121809Z ✔ sync SDK call while same process owns async request cancels rather than self-deadlocking (1768.6748ms)
+2026-10-30T00:39:38.6275621Z ✔ failure candidate-validation leaves old active (369.0849ms)
+2026-10-30T00:39:38.9838912Z ✔ failure candidate-corruption leaves old active (407.7208ms)
+2026-10-30T00:39:39.3675021Z ✔ failure source-change leaves old active (381.9726ms)
+2026-10-30T00:39:39.7271297Z ✔ failure space leaves old active (361.562ms)
+2026-10-30T00:39:40.2522199Z ✔ failure rename leaves old active (388.9923ms)
+2026-10-30T00:39:40.7553237Z ✔ cleanup failure never rolls back committed data; restart retries collection (631.7183ms)
+2026-10-30T00:39:41.1413389Z ✔ crash at building recovers exact old/new authority (385.9474ms)
+2026-10-30T00:39:41.5584400Z ✔ crash at prepared recovers exact old/new authority (392.9722ms)
+2026-10-30T00:39:41.9646414Z ✔ crash at draining recovers exact old/new authority (436.3716ms)
+2026-10-30T00:39:42.3855299Z ✔ crash at replacing recovers exact old/new authority (418.0473ms)
+2026-10-30T00:39:42.8244688Z ✔ crash at before-old-rename recovers exact old/new authority (412.8982ms)
+2026-10-30T00:39:43.2523457Z ✔ crash at after-old-rename recovers exact old/new authority (459.8363ms)
+2026-10-30T00:39:43.6723836Z ✔ crash at old-moved recovers exact old/new authority (422.2398ms)
+2026-10-30T00:39:44.0928404Z ✔ crash at before-new-rename recovers exact old/new authority (418.2795ms)
+2026-10-30T00:39:44.5044363Z ✔ crash at after-new-rename recovers exact old/new authority (408.5192ms)
+2026-10-30T00:39:44.9075130Z ✔ crash at new-moved recovers exact old/new authority (415.107ms)
+2026-10-30T00:39:45.3261680Z ✔ crash at before-commit recovers exact old/new authority (411.5594ms)
+2026-10-30T00:39:45.7478832Z ✔ crash at committed recovers exact old/new authority (413.0233ms)
+2026-10-30T00:39:46.1542257Z ✔ crash at resumed recovers exact old/new authority (409.0669ms)
+2026-10-30T00:39:46.5796825Z ✔ confirmed write after publication survives publisher crash and subsequent recovery (433.4879ms)
+2026-10-30T00:39:47.5001537Z ✔ unknown identities after crash fail closed and preserve files (417.4699ms)
+2026-10-30T00:39:49.4822110Z ✔ offline public overwrite -> incremental write -> rebuild -> overwrite repeats without deleting internal state (2459.3041ms)
+2026-10-30T00:39:50.0135715Z ✔ corrupt offline overwrite is an error, never a fallback to old backup (546.4023ms)
+2026-10-30T00:39:50.5106506Z ✔ crashed registered reader releases OS lease and cannot permanently block publisher (493.9477ms)
+2026-10-30T00:39:51.0775264Z ✔ committed old WAL is checkpointed before switching; sidecars are never assigned to candidate (571.9491ms)
+2026-10-30T00:39:52.8911003Z ✔ new process cannot reopen active database while admission is draining (1792.5746ms)
+2026-10-30T00:39:53.3201009Z ✔ file operation error at after-old-rename restores old without deleting evidence early (435.4849ms)
+2026-10-30T00:39:53.8287845Z ✔ file operation error at after-new-rename restores old without deleting evidence early (440.3396ms)
+2026-10-30T00:39:54.3568268Z ✔ unsafe recovery paths are rejected before touching unrelated files (567.1585ms)
+2026-10-30T00:39:54.9934582Z ✔ single standalone public file opens on different project path without producer runtime (776.0472ms)
+2026-10-30T00:39:57.5728464Z ✔ simultaneous cold clients initialize protocol metadata without a partially-created lease database (2476.4438ms)
+2026-10-30T00:39:58.2128066Z ✔ cold admission cannot observe replacement gap at after-old-rename (651.9803ms)
+2026-10-30T00:39:58.8582294Z ✔ cold admission cannot observe replacement gap at new-moved (641.2691ms)
+2026-10-30T00:39:59.3194210Z ✔ failed candidate WAL and SHM are reclaimed only after builder OS lease is gone (410.6263ms)
+2026-10-30T00:39:59.7265035Z ✔ unknown files in an operation directory prevent cleanup rather than age-based deletion (465.7544ms)
+2026-10-30T00:40:00.7616645Z ✔ participating mutation after candidate construction invalidates build baseline (510.3682ms)
+2026-10-30T00:40:00.7618943Z ✔ established metadata missing connections lease database fails closed without recreating live locks (299.712ms)
+2026-10-30T00:40:00.7621767Z ✔ established metadata missing owner lease database fails closed without recreating live locks (184.6487ms)
+2026-10-30T00:40:01.1860947Z ✔ tampered cleaned tombstone cannot delete an unrelated empty directory outside runtime (451.1487ms)
+2026-10-30T00:40:01.7071214Z ✔ writer COMMIT followed by SIGKILL before finally cannot be lost to a stale candidate (524.9244ms)
+2026-10-30T00:40:02.6633439Z ✔ build baseline is rejected while a participating writer is active without creating an operation (951.0334ms)
+2026-10-30T00:40:04.8712323Z FIXED_PATH_EVIDENCE=D:\a\codeg\codeg\artifacts\ci-fixed-path\acceptance.json
+2026-10-30T00:40:04.9082167Z ✔ same-client sync query waits through pre-rename recovery while async old request remains active (1790.8053ms)
+2026-10-30T00:40:04.9083601Z ✔ fresh read admission COMMIT failure unwinds only allocated handles and leases (199.9488ms)
+2026-10-30T00:40:04.9089040Z ✔ fresh write admission COMMIT failure unwinds only allocated handles and leases (185.2147ms)
+2026-10-30T00:40:04.9094505Z ✔ failed reused-handle admission preserves an older asynchronous request and its lease (216.1032ms)
+2026-10-30T00:40:06.0931243Z ✔ async WAL read succeeds while 600ms idle publisher writer remains locked (860.1739ms)
+2026-10-30T00:40:06.0932455Z ℹ admissionMs=1.6135999999999626; WAL read while unrelated journal writer remains active
+2026-10-30T00:40:07.8003256Z ✔ async WAL read succeeds while 1400ms idle publisher writer remains locked (1676.3386ms)
+2026-10-30T00:40:07.8004563Z ℹ admissionMs=0.3971999999998843; WAL read while unrelated journal writer remains active
+2026-10-30T00:40:09.4750243Z ✔ async actual replacement connection fence over 1000ms times out without business action (1733.8203ms)
+2026-10-30T00:40:09.4751322Z ℹ admissionMs=1016.1014; replacement lease fence timeout
+2026-10-30T00:40:10.4636886Z ✔ async idle WAL writer without publisher owner does not obstruct legitimate read (945.1119ms)
+2026-10-30T00:40:11.3291254Z ✔ sync WAL read succeeds while 600ms idle publisher writer remains locked (885.2479ms)
+2026-10-30T00:40:11.3292501Z ℹ admissionMs=0.38589999999931024; WAL read while unrelated journal writer remains active
+2026-10-30T00:40:13.0071482Z ✔ sync WAL read succeeds while 1400ms idle publisher writer remains locked (1672.4528ms)
+2026-10-30T00:40:13.0072492Z ℹ admissionMs=0.37190000000009604; WAL read while unrelated journal writer remains active
+2026-10-30T00:40:14.7230945Z ✔ sync actual replacement connection fence over 1000ms times out without business action (1710.4704ms)
+2026-10-30T00:40:14.7233385Z ℹ admissionMs=1001.4250000000002; replacement lease fence timeout
+2026-10-30T00:40:16.1009095Z ✔ sync idle WAL writer without publisher owner does not obstruct legitimate read (977.2708ms)
+2026-10-30T00:40:16.1012025Z ✔ action-BUSY is not retried and does not execute business callback (190.169ms)
+2026-10-30T00:40:16.1012802Z ✔ COMMIT-IOERR is not retried and does not execute business callback (192.1579ms)
+2026-10-30T00:40:17.6557836Z ✔ remaining request budget bounds actual replacement-fence admission (1529.3701ms)
+2026-10-30T00:40:17.6559054Z ℹ admissionMs=656.7678999999989; requestBudgetMs=650
+2026-10-30T00:40:17.6560192Z ✔ missing coordination state fails immediately even with publisher owner held (255.3334ms)
+2026-10-30T00:40:17.6561023Z ✔ expired pre-action BUSY budget does not perform an owner probe (0.3036ms)
+2026-10-30T00:40:17.6562210Z ✔ deadline order preserves non-retryable I/O and ambiguous COMMIT errors (0.1013ms)
+2026-10-30T00:40:17.6563085Z ✔ a probe that finishes after deadline fails even if owner has released (12.9989ms)
+2026-10-30T00:40:18.4527360Z ✔ deadline cancellation writes cancel=2 only for uncancelled draining and is idempotent (230.9641ms)
+2026-10-30T00:40:18.4536425Z ✔ deadline cancellation does not modify replacing, committed, recovering, idle or existing cancellation (251.0256ms)
+2026-10-30T00:40:18.4537975Z ✔ deadline cancellation does nothing with more than 250ms remaining (216.8874ms)
+2026-10-30T00:40:21.2696057Z ✔ slow cold factory holds no gate; independent publisher drains but waits for old request lease (464.9107ms)
+2026-10-30T00:40:21.2697652Z ✔ read cold factory failure releases active and every admitted lease (208.1761ms)
+2026-10-30T00:40:21.2698292Z ✔ write cold factory failure releases active and every admitted lease (234.2264ms)
+2026-10-30T00:40:21.2698901Z ✔ admission COMMIT failure must never invoke cold factory (208.0051ms)
+2026-10-30T00:40:21.2699572Z ✔ write intent is committed before cold factory and gate is independently accessible (207.2555ms)
+2026-10-30T00:40:21.2797681Z ✔ factory exceeding drain budget does not hold gate and cancels publication and rejects expired admission while old database remains usable (1404.9674ms)
+2026-10-30T00:40:26.2693441Z ✔ initialize: BUSY extended primary family retries only preopen then succeeds (610.6346ms)
+2026-10-30T00:40:26.2695481Z ✔ initialize: persistent BUSY_RECOVERY exhausts unchanged 500ms open budget (631.2981ms)
+2026-10-30T00:40:26.2697414Z ✔ initialize: LOCKED, IOERR, corruption and invalid codes fail once without retry (872.1212ms)
+2026-10-30T00:40:26.2700237Z ✔ initialize: successful BUSY retry never bypasses journal-mode validation (129.401ms)
+2026-10-30T00:40:26.2706572Z ✔ persistent reader reopen: BUSY extended primary family retries only preopen then succeeds (637.7157ms)
+2026-10-30T00:40:26.2708876Z ✔ persistent reader reopen: persistent BUSY_RECOVERY exhausts unchanged 500ms open budget (648.2958ms)
+2026-10-30T00:40:26.2710088Z ✔ persistent reader reopen: LOCKED, IOERR, corruption and invalid codes fail once without retry (938.4769ms)
+2026-10-30T00:40:26.2711269Z ✔ persistent reader reopen: successful BUSY retry never bypasses journal-mode validation (173.7573ms)
+2026-10-30T00:40:26.2712294Z ✔ extended BUSY in gate action is not promoted to preopen retry (130.6462ms)
+2026-10-30T00:40:26.2713204Z ✔ extended BUSY in gate COMMIT is not promoted to preopen retry (122.2416ms)
+2026-10-30T00:40:27.3999185Z ✔ BEGIN locked exhausts existing 500ms gate budget without action or error-code loss (634.6042ms)
+2026-10-30T00:40:27.4001171Z ✔ successful slow action diagnostic is emitted only after releasing its gate (191.7097ms)
+2026-10-30T00:40:27.4002234Z ✔ diagnostic write failure preserves successful result and original operation failure (201.7136ms)
+2026-10-30T00:40:28.1824086Z ✔ read gates: reader-first warm request keeps old lease through independent publication (474.7943ms)
+2026-10-30T00:40:29.2443075Z ✔ read gates: publisher-first blocks warm request and it reads only new database (570.1235ms)
+2026-10-30T00:40:29.2444978Z ✔ WAL reads are readonly even with former opt-out, while writes retain durable intent (289.7998ms)
+2026-10-30T00:40:29.2446540Z ✔ read-only admission COMMIT failure does not replay callback or release older request (204.1125ms)
+2026-10-30T00:40:29.5032001Z ✔ WAL read snapshot allows draining COMMIT but its acquired lease prevents replacement (467.0532ms)
+2026-10-30T00:40:30.9726044Z ✔ real BEGIN contention reuses exactly one initialized connection and closes it once (263.8003ms)
+2026-10-30T00:40:30.9728230Z ✔ readonly pre-action SELECT BUSY rolls back each transaction before same-connection retry (201.8988ms)
+2026-10-30T00:40:30.9730503Z ✔ pre-action ROLLBACK IOERR immediately fails without reuse or action and closes connection (127.9281ms)
+2026-10-30T00:40:30.9731566Z ✔ timeout failure closes connection; next call opens a new one (653.4402ms)
+2026-10-30T00:40:30.9732574Z ✔ non-BUSY failure closes connection; next call opens a new one (124.0037ms)
+2026-10-30T00:40:31.5061611Z ✔ gate uses SQLite busy 0 for BEGIN/COMMIT and 25 for action; lease probe starts at 0 (212.8126ms)
+2026-10-30T00:40:31.8380306Z ✔ BEGIN honors WAL writer/read-lock semantics without replaying action (366.7033ms)
+2026-10-30T00:40:33.5596016Z ✔ COMMIT honors WAL writer/read-lock semantics without replaying action (305.0064ms)
+2026-10-30T00:40:33.5598091Z ✔ COMMIT busy still exhausts original 500ms then rolls back once and frees gate (709.076ms)
+2026-10-30T00:40:33.5599181Z ✔ cold empty costs does not change gate data_version; populated costs are cleared (465.3654ms)
+2026-10-30T00:40:33.5599884Z ✔ startup cost lookup failure is atomic and never opens a graph (219.3681ms)
+2026-10-30T00:40:33.5600523Z ✔ startup cost deletion failure is atomic and never opens a graph (211.7445ms)
+2026-10-30T00:40:38.7771244Z ✔ real linked worktree: production init, incremental sync, and automatic adaptive rebuild (4393.196ms)
+2026-10-30T00:40:42.6595526Z ✔ real linked worktree: WAL prototype full build, exclude-aware rebuild and source follow-up checks (3952.7644ms)
+2026-10-30T00:40:42.6597191Z ✔ real linked worktree: watcher reports malformed common metadata without process exit and observes repair (534.2227ms)
+2026-10-30T00:40:53.3095080Z ✔ real CodeGraph: repeated portable public import -> incremental -> automatic rebuild -> public import -> query/sync (10426.5658ms)
+2026-10-30T00:41:00.3125348Z ✔ real CodeGraph 1001-file background rebuild with five live query processes (6778.6078ms)
+2026-10-30T00:41:00.4183127Z ✔ IPC close waits for every phase and terminal transport callback (1.7907ms)
+2026-10-30T00:41:00.4184528Z ✔ IPC hook callback errors are surfaced at close, never successful silent shutdown (0.4951ms)
+2026-10-30T00:41:00.4981319Z ✔ IPC child drains large buffered messages before disconnect and exit (87.75ms)
+2026-10-30T00:41:00.4983165Z ✔ parent waits through exit then trailing IPC result and stderr until close (0.937ms)
+2026-10-30T00:41:00.4984465Z ✔ parent still rejects a true missing result after close instead of sleeping or ignoring it (0.298ms)
+2026-10-30T00:41:01.3120794Z ✔ connections bootstrap CREATE error rolls back its lease and refuses automatic reinitialization (43.6771ms)
+2026-10-30T00:41:01.3128908Z ✔ connections bootstrap INSERT error rolls back its lease and refuses automatic reinitialization (35.2694ms)
+2026-10-30T00:41:01.3131028Z ✔ connections bootstrap COMMIT error rolls back its lease and refuses automatic reinitialization (36.1389ms)
+2026-10-30T00:41:01.3131889Z ✔ owner bootstrap CREATE error rolls back its lease and refuses automatic reinitialization (61.2229ms)
+2026-10-30T00:41:01.3132903Z ✔ owner bootstrap INSERT error rolls back its lease and refuses automatic reinitialization (58.9815ms)
+2026-10-30T00:41:01.3134097Z ✔ owner bootstrap COMMIT error rolls back its lease and refuses automatic reinitialization (59.4008ms)
+2026-10-30T00:41:01.3135292Z ✔ writers bootstrap CREATE error rolls back its lease and refuses automatic reinitialization (94.4288ms)
+2026-10-30T00:41:01.3136538Z ✔ writers bootstrap INSERT error rolls back its lease and refuses automatic reinitialization (85.8178ms)
+2026-10-30T00:41:01.3137976Z ✔ writers bootstrap COMMIT error rolls back its lease and refuses automatic reinitialization (95.5514ms)
+2026-10-30T00:41:01.5684184Z ✔ lease probes begin at busy_timeout=0 and still honor independent-process exclusion (396.6193ms)
+2026-10-30T00:41:02.7456643Z ✔ live publisher makes participant recovery retries skip initialization SQL and DDL (320.8571ms)
+2026-10-30T00:41:02.7462897Z ✔ idle retirement reads old committed state under publisher RESERVED lock then retires after commit (248.2238ms)
+2026-10-30T00:41:02.7470049Z ✔ initialized participant fails closed on missing publisher lease without recreating it (236.8006ms)
+2026-10-30T00:41:02.7473295Z ✔ initialized participant rejects missing state table without recreating schema (269.324ms)
+2026-10-30T00:41:03.9848685Z ✔ idle WAL observer ignores unrelated publisher writer, then retires only after committed drain (938.0407ms)
+2026-10-30T00:41:04.8953070Z ✔ active reader and successful finish retain idle handle during unrelated WAL writer (907.6433ms)
+2026-10-30T00:41:06.0598624Z ✔ idle WAL observer does not need publisher-owner probe for unrelated writer (907.8336ms)
+2026-10-30T00:41:06.0599625Z ✔ missing coordination state is not suppressed or implicitly repaired (260.4879ms)
+2026-10-30T00:41:06.7856561Z ✔ committed drain close failure retains protecting lease despite concurrent WAL writer (925.794ms)
+2026-10-30T00:41:06.8824150Z ✔ acceptance recognizes publication then verified check across separate watch turns (2.0758ms)
+2026-10-30T00:41:06.8827933Z ✔ acceptance does not reuse pre-publication verification or pre-edit message history (0.1831ms)
+2026-10-30T00:41:06.8833466Z ✔ cancelled/failed publication and build count alone cannot satisfy acceptance (0.9832ms)
+2026-10-30T00:41:06.8835175Z ✔ same-turn successful publish followed by verification remains accepted in outcome order (0.2068ms)
+2026-10-30T00:41:17.2000227Z ✔ continuous full-hash checker + compensation: 1001 files, five live query processes (10099.46ms)
+2026-10-30T00:41:20.4500396Z ✔ edit/add/delete after final fence: stale publish is detected and autonomous watcher compensates (2732.8708ms)
+2026-10-30T00:41:23.0930692Z ✔ crash after publication resumes: restart watcher finds queued postcheck and converges without init (2626.4956ms)
+2026-10-30T00:41:24.9573378Z ✔ unconditional polling detects edits after a verified observation with no dirty notification (1868.0855ms)
+2026-10-30T00:41:27.7007134Z ✔ continuous post-fence changes remain pending at work budget, then converge after quiescence (2731.5849ms)
+2026-10-30T00:41:29.8254837Z ✔ hash inspection failure remains pending and later autonomous retry repairs the index (2135.8326ms)
+2026-10-30T00:41:33.2752851Z ✔ gitignore/config edits after final fence cause removal and later re-inclusion to be reconciled (3430.4231ms)
+2026-10-30T00:41:34.8976864Z ✔ compatible offline public replacement is checked against the new file despite old observation state (1653.4379ms)
+2026-10-30T00:41:36.1043094Z ✔ post-publication observation UPDATE failure never replays a consumed publication or rolls back new graph (1204.477ms)
+2026-10-30T00:41:37.5237615Z ✔ ordinary independent sync overlapping full hashing invalidates observation without blocking the writer (1404.2427ms)
+2026-10-30T00:41:38.9307562Z ✔ unreadable newly added directory blocks observation without publishing an empty or partial graph (1422.3208ms)
+2026-10-30T00:41:40.2758461Z SOURCE_RECONCILIATION_EVIDENCE=D:\a\codeg\codeg\artifacts\ci-fixed-path\source-reconciliation.json
+2026-10-30T00:41:40.2870411Z ✔ dirty observation cannot authorize replacing an active index whose ownership changed before build (1635.8233ms)
+2026-10-30T00:41:40.5572458Z ✔ snapshot hashes full binary bytes across buffer boundaries and preserves metadata (27.4135ms)
+2026-10-30T00:41:40.5582060Z ✔ snapshot rejects file symlinks (explicit Windows permission skip) (2.0236ms)
+2026-10-30T00:41:40.5584111Z ✔ snapshot rejects directory symlinks (explicit Windows permission skip) (1.4486ms)
+2026-10-30T00:41:40.5585914Z ✔ snapshot propagates enumeration/read errors and closes the failed read descriptor (2.0167ms)
+2026-10-30T00:41:40.5586687Z ✔ snapshot uses one bounded buffer per traversal and one metadata call per file (8.9213ms)
+2026-10-30T00:41:41.2049072Z ✔ missing active database fails before native factory and is never recreated empty (247.0965ms)
+2026-10-30T00:41:41.2051727Z ✔ static active-file symlink is rejected without opening or modifying its target (295.0649ms)
+2026-10-30T00:41:42.4041003Z ✔ established DELETE coordinator is rejected without online conversion or graph mutation (123.8135ms)
+2026-10-30T00:41:42.4045386Z ✔ WAL-mode owner lease is rejected rather than weakening the OS fence (217.6362ms)
+2026-10-30T00:41:42.4046249Z ✔ WAL-mode connections lease is rejected rather than weakening the OS fence (269.5231ms)
+2026-10-30T00:41:42.4048482Z ✔ WAL-mode writers lease is rejected rather than weakening the OS fence (250.7224ms)
+2026-10-30T00:41:42.4052037Z ✔ lost WAL state table with established leases is not recreated as idle (236.3991ms)
+2026-10-30T00:41:42.9199423Z ✔ WAL coordination is separate from DELETE-mode OS lease databases (212.1194ms)
+2026-10-30T00:41:43.5333740Z ✔ lease-first WAL reader snapshot survives draining commit and finishes wholly on A (604.6065ms)
+2026-10-30T00:41:44.1825043Z ✔ committed idle state cannot admit a cold reader before publisher fence release (638.4864ms)
+2026-10-30T00:41:44.7800226Z ✔ a connection opened before publication uses a fresh state snapshot after complete publication (576.0631ms)
+2026-10-30T00:41:45.8827717Z ✔ held prepared WAL metadata transaction does not block normal read admission (1119.0548ms)
+2026-10-30T00:41:45.8831587Z ℹ phase=prepared;queryMs=0.5678000000002612; injected pre-COMMIT hold >=600ms, not actual fsync emulation
+2026-10-30T00:41:46.9574816Z ✔ held cleaned WAL metadata transaction does not block normal read admission (1099.9267ms)
+2026-10-30T00:41:46.9576115Z ℹ phase=cleaned;queryMs=1.2176999999996951; injected pre-COMMIT hold >=600ms, not actual fsync emulation
+2026-10-30T00:41:47.4782198Z ✔ intent-only recovery restores A after crash at old-moved (489.2409ms)
+2026-10-30T00:41:47.9626308Z ✔ intent-only recovery restores A after crash at new-moved (516.6418ms)
+2026-10-30T00:41:48.2880563Z ✔ merged committed+idle crash preserves B and later confirmed writes across recovery (529.1261ms)
+2026-10-30T00:41:49.5180158Z ✔ PASSIVE checkpoint defers for an old process snapshot without blocking reads, then advances (464.8801ms)
+2026-10-30T00:41:49.5182187Z ℹ {"partial":{"busy":0,"log":17,"checkpointed":0,"deferred":true},"complete":{"busy":0,"log":0,"checkpointed":0,"deferred":false},"elapsed":0.7303999999999746}
+2026-10-30T00:41:49.5183606Z ✔ PASSIVE IOERR after publication is reported but B and subsequent confirmed writes survive (449.5934ms)
+2026-10-30T00:41:50.0150696Z ✔ real process kill leaves required WAL recovery record recoverable after all handles close (501.0398ms)
+2026-10-30T00:41:50.5356466Z ✔ real process kill leaves required WAL recovery record corruption fail-closed (497.8729ms)
+2026-10-30T00:41:50.8030757Z ✔ async retry recovery defers checkpoint; explicit recovery reports maintenance failure without rollback (264.807ms)
+2026-10-30T00:41:50.8032036Z ✔ sync retry recovery defers checkpoint; explicit recovery reports maintenance failure without rollback (233.3345ms)
+2026-10-30T00:41:52.3038606Z ✔ owner has one actually attached keeper without a cross-operation read snapshot (277.8582ms)
+2026-10-30T00:41:52.3041507Z ✔ keeper attach 1546 propagates once, releases ownership, and is not classified as BUSY (251.9559ms)
+2026-10-30T00:41:52.3042840Z ✔ build-baseline failure closes attached keeper and releases owner (201.4532ms)
+2026-10-30T00:41:52.3043863Z ✔ post-commit keeper close IOERR never rolls B back or loses a later confirmed write (458.5388ms)
+2026-10-30T00:41:52.8327613Z ✔ killing sole long-lived reader while publisher drains retains WAL lifetime, round 1 (523.9023ms)
+2026-10-30T00:41:53.3884202Z ✔ killing sole long-lived reader while publisher drains retains WAL lifetime, round 2 (553.4698ms)
+2026-10-30T00:41:54.1686314Z ✔ killing sole long-lived reader while publisher drains retains WAL lifetime, round 3 (557.3572ms)
+2026-10-30T00:41:54.1694500Z ✔ new cold participant opens before final keeper close and again after all connections close (440.244ms)
+2026-10-30T00:41:54.1810596Z ℹ tests 183
+2026-10-30T00:41:54.1811052Z ℹ suites 0
+2026-10-30T00:41:54.1811748Z ℹ pass 183
+2026-10-30T00:41:54.1812112Z ℹ fail 0
+2026-10-30T00:41:54.1812453Z ℹ cancelled 0
+2026-10-30T00:41:54.1812818Z ℹ skipped 0
+2026-10-30T00:41:54.1813176Z ℹ todo 0
+2026-10-30T00:41:54.1813600Z ℹ duration_ms 141947.2592
+2026-10-30T00:41:54.1909981Z SOURCE_EVIDENCE=D:\a\codeg\codeg\artifacts\ci-fixed-path
+2026-10-30T00:41:54.2960503Z ##[group]Run node scripts/prototypes/fixed-path/repeat-contention.mjs
+2026-10-30T00:41:54.2961078Z [36;1mnode scripts/prototypes/fixed-path/repeat-contention.mjs[0m
+2026-10-30T00:41:54.2996172Z shell: C:\Program Files\PowerShell\7\pwsh.EXE -command ". '{0}'"
+2026-10-30T00:41:54.2996571Z env:
+2026-10-30T00:41:54.2996828Z   STRICT_SYMLINK_TESTS: 1
+2026-10-30T00:41:54.2997170Z   SOURCE_EVIDENCE_DIR: artifacts/ci-fixed-path
+2026-10-30T00:41:54.2997630Z   GATE_DIAGNOSTICS_DIR: artifacts/ci-fixed-path/gate-diagnostics
+2026-10-30T00:41:54.2998155Z   CODEGRAPH_PROTOTYPE_READ_GATES: 0
+2026-10-30T00:41:54.2998488Z   CODEGRAPH_ALL_LANGUAGES: 1
+2026-10-30T00:41:54.2998880Z   CONTENTION_EVIDENCE_DIR: artifacts/ci-fixed-path/contention-repeat
+2026-10-30T00:41:54.2999330Z ##[endgroup]
+2026-10-30T00:41:56.8508157Z FIXED_PATH_EVIDENCE=D:\a\codeg\codeg\artifacts\ci-fixed-path\contention-repeat\attempt-1\acceptance.json
+2026-10-30T00:41:56.8522225Z ✔ five independent prototype participant processes remain consistent across repeated switches (2122.8869ms)
+2026-10-30T00:41:56.8641595Z ℹ tests 1
+2026-10-30T00:41:56.8644806Z ℹ suites 0
+2026-10-30T00:41:56.8646254Z ℹ pass 1
+2026-10-30T00:41:56.8646575Z ℹ fail 0
+2026-10-30T00:41:56.8646958Z ℹ cancelled 0
+2026-10-30T00:41:56.8647252Z ℹ skipped 0
+2026-10-30T00:41:56.8647510Z ℹ todo 0
+2026-10-30T00:41:56.8647830Z ℹ duration_ms 2245.5949
+2026-10-30T00:41:59.1395060Z FIXED_PATH_EVIDENCE=D:\a\codeg\codeg\artifacts\ci-fixed-path\contention-repeat\attempt-2\acceptance.json
+2026-10-30T00:41:59.1415317Z ✔ five independent prototype participant processes remain consistent across repeated switches (2080.6066ms)
+2026-10-30T00:41:59.1517644Z ℹ tests 1
+2026-10-30T00:41:59.1520353Z ℹ suites 0
+2026-10-30T00:41:59.1520688Z ℹ pass 1
+2026-10-30T00:41:59.1520992Z ℹ fail 0
+2026-10-30T00:41:59.1521260Z ℹ cancelled 0
+2026-10-30T00:41:59.1521541Z ℹ skipped 0
+2026-10-30T00:41:59.1521813Z ℹ todo 0
+2026-10-30T00:41:59.1522139Z ℹ duration_ms 2214.2008
+2026-10-30T00:42:01.2740626Z FIXED_PATH_EVIDENCE=D:\a\codeg\codeg\artifacts\ci-fixed-path\contention-repeat\attempt-3\acceptance.json
+2026-10-30T00:42:01.2762630Z ✔ five independent prototype participant processes remain consistent across repeated switches (1950.0882ms)
+2026-10-30T00:42:01.2864804Z ℹ tests 1
+2026-10-30T00:42:01.2866962Z ℹ suites 0
+2026-10-30T00:42:01.2867393Z ℹ pass 1
+2026-10-30T00:42:01.2867713Z ℹ fail 0
+2026-10-30T00:42:01.2868034Z ℹ cancelled 0
+2026-10-30T00:42:01.2868413Z ℹ skipped 0
+2026-10-30T00:42:01.2868763Z ℹ todo 0
+2026-10-30T00:42:01.2869145Z ℹ duration_ms 2066.8899
+2026-10-30T00:42:01.2942920Z CONTENTION_EVIDENCE=D:\a\codeg\codeg\artifacts\ci-fixed-path\contention-repeat
+2026-10-30T00:42:01.4149398Z ##[group]Run $failed = $false
+2026-10-30T00:42:01.4149912Z [36;1m$failed = $false[0m
+2026-10-30T00:42:01.4150207Z [36;1mfor ($i = 1; $i -le 3; $i++) {[0m
+2026-10-30T00:42:01.4150600Z [36;1m  $env:SOURCE_EVIDENCE_DIR = "artifacts/ci-fixed-path/cold-bootstrap-$i"[0m
+2026-10-30T00:42:01.4151081Z [36;1m  New-Item -ItemType Directory -Force $env:SOURCE_EVIDENCE_DIR | Out-Null[0m
+2026-10-30T00:42:01.4151986Z [36;1m  node --liftoff-only --test "--test-name-pattern=^simultaneous cold clients initialize protocol metadata" scripts/prototypes/fixed-path/acceptance.test.mjs 2>&1 | Tee-Object -FilePath "$env:SOURCE_EVIDENCE_DIR/run.tap"[0m
+2026-10-30T00:42:01.4152798Z [36;1m  if ($LASTEXITCODE -ne 0) { $failed = $true }[0m
+2026-10-30T00:42:01.4153103Z [36;1m}[0m
+2026-10-30T00:42:01.4153415Z [36;1mif ($failed) { throw 'One or more fixed bootstrap repetitions failed' }[0m
+2026-10-30T00:42:01.4183250Z shell: C:\Program Files\PowerShell\7\pwsh.EXE -command ". '{0}'"
+2026-10-30T00:42:01.4184258Z env:
+2026-10-30T00:42:01.4184582Z   STRICT_SYMLINK_TESTS: 1
+2026-10-30T00:42:01.4185047Z   SOURCE_EVIDENCE_DIR: artifacts/ci-fixed-path
+2026-10-30T00:42:01.4185565Z   GATE_DIAGNOSTICS_DIR: artifacts/ci-fixed-path/gate-diagnostics
+2026-10-30T00:42:01.4185946Z   CODEGRAPH_PROTOTYPE_READ_GATES: 0
+2026-10-30T00:42:01.4186281Z   CODEGRAPH_ALL_LANGUAGES: 1
+2026-10-30T00:42:01.4186529Z ##[endgroup]
+2026-10-30T00:42:04.5423388Z FIXED_PATH_EVIDENCE=D:\a\codeg\codeg\artifacts\fixed-path-prototype\win32-1793320921837\acceptance.json
+2026-10-30T00:42:04.5427411Z ✔ simultaneous cold clients initialize protocol metadata without a partially-created lease database (2672.0292ms)
+2026-10-30T00:42:04.5508803Z ℹ tests 1
+2026-10-30T00:42:04.5510406Z ℹ suites 0
+2026-10-30T00:42:04.5512680Z ℹ pass 1
+2026-10-30T00:42:04.5515041Z ℹ fail 0
+2026-10-30T00:42:04.5517105Z ℹ cancelled 0
+2026-10-30T00:42:04.5521003Z ℹ skipped 0
+2026-10-30T00:42:04.5523694Z ℹ todo 0
+2026-10-30T00:42:04.5525880Z ℹ duration_ms 2795.4871
+2026-10-30T00:42:07.4428455Z FIXED_PATH_EVIDENCE=D:\a\codeg\codeg\artifacts\fixed-path-prototype\win32-1793320924719\acceptance.json
+2026-10-30T00:42:07.4465971Z ✔ simultaneous cold clients initialize protocol metadata without a partially-created lease database (2703.7997ms)
+2026-10-30T00:42:07.4578164Z ℹ tests 1
+2026-10-30T00:42:07.4581022Z ℹ suites 0
+2026-10-30T00:42:07.4584083Z ℹ pass 1
+2026-10-30T00:42:07.4586382Z ℹ fail 0
+2026-10-30T00:42:07.4588435Z ℹ cancelled 0
+2026-10-30T00:42:07.4590775Z ℹ skipped 0
+2026-10-30T00:42:07.4592669Z ℹ todo 0
+2026-10-30T00:42:07.4594732Z ℹ duration_ms 2829.9442
+2026-10-30T00:42:08.6648817Z FIXED_PATH_EVIDENCE=D:\a\codeg\codeg\artifacts\fixed-path-prototype\win32-1793320927632\acceptance.json
+2026-10-30T00:42:08.6650586Z ✖ simultaneous cold clients initialize protocol metadata without a partially-created lease database (1014.5009ms)
+2026-10-30T00:42:08.6773037Z ℹ tests 1
+2026-10-30T00:42:08.6773547Z ℹ suites 0
+2026-10-30T00:42:08.6775177Z ℹ pass 0
+2026-10-30T00:42:08.6776423Z ℹ fail 1
+2026-10-30T00:42:08.6777706Z ℹ cancelled 0
+2026-10-30T00:42:08.6779694Z ℹ skipped 0
+2026-10-30T00:42:08.6781232Z ℹ todo 0
+2026-10-30T00:42:08.6783079Z ℹ duration_ms 1140.444
+2026-10-30T00:42:08.6789582Z 
+2026-10-30T00:42:08.6791274Z ✖ failing tests:
+2026-10-30T00:42:08.6794097Z 
+2026-10-30T00:42:08.6796406Z test at scripts\prototypes\fixed-path\acceptance.test.mjs:146:1
+2026-10-30T00:42:08.6797815Z ✖ simultaneous cold clients initialize protocol metadata without a partially-created lease database (1014.5009ms)
+2026-10-30T00:42:08.6799257Z   AssertionError [ERR_ASSERTION]: Error: Error: Incompatible DELETE coordinator: offline isolated WAL experiment required; no live migration
+2026-10-30T00:42:08.6800598Z       at coordinatorDb (file:///D:/a/codeg/codeg/scripts/prototypes/fixed-path/protocol.mjs:44:105)
+2026-10-30T00:42:08.6802068Z       at initialize (file:///D:/a/codeg/codeg/scripts/prototypes/fixed-path/protocol.mjs:104:19)
+2026-10-30T00:42:08.6807477Z       at new Participant (file:///D:/a/codeg/codeg/scripts/prototypes/fixed-path/protocol.mjs:470:14)
+2026-10-30T00:42:08.6809165Z       at file:///D:/a/codeg/codeg/scripts/prototypes/fixed-path/worker.mjs:58:19
+2026-10-30T00:42:08.6810021Z       at ModuleJob.run (node:internal/modules/esm/module_job:561:25)
+2026-10-30T00:42:08.6810873Z       at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+2026-10-30T00:42:08.6811557Z       at async node:internal/modules/esm/loader:647:26
+2026-10-30T00:42:08.6812284Z       at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:101:5)
+2026-10-30T00:42:08.6813220Z       at file:///D:/a/codeg/codeg/scripts/prototypes/fixed-path/acceptance.test.mjs:149:271
+2026-10-30T00:42:08.6814182Z       at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+2026-10-30T00:42:08.6814913Z       at async Promise.allSettled (index 2)
+2026-10-30T00:42:08.6815612Z       at async file:///D:/a/codeg/codeg/scripts/prototypes/fixed-path/acceptance.test.mjs:149:126
+2026-10-30T00:42:08.6817458Z       at async record (file:///D:/a/codeg/codeg/scripts/prototypes/fixed-path/acceptance.test.mjs:39:66)
+2026-10-30T00:42:08.6819168Z       at async Test.run (node:internal/test_runner/test:1409:7)
+2026-10-30T00:42:08.6820123Z       at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3)
+2026-10-30T00:42:08.6820752Z   + actual - expected
+2026-10-30T00:42:08.6821119Z   
+2026-10-30T00:42:08.6821422Z   + 'rejected'
+2026-10-30T00:42:08.6821775Z   - 'fulfilled'
+2026-10-30T00:42:08.6822103Z   
+2026-10-30T00:42:08.6822664Z       at file:///D:/a/codeg/codeg/scripts/prototypes/fixed-path/acceptance.test.mjs:149:355
+2026-10-30T00:42:08.6823532Z       at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+2026-10-30T00:42:08.6824416Z       at async record (file:///D:/a/codeg/codeg/scripts/prototypes/fixed-path/acceptance.test.mjs:39:66)
+2026-10-30T00:42:08.6825240Z       at async Test.run (node:internal/test_runner/test:1409:7)
+2026-10-30T00:42:08.6825990Z       at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3) {
+2026-10-30T00:42:08.6826626Z     generatedMessage: false,
+2026-10-30T00:42:08.6827050Z     code: 'ERR_ASSERTION',
+2026-10-30T00:42:08.6827438Z     actual: 'rejected',
+2026-10-30T00:42:08.6827865Z     expected: 'fulfilled',
+2026-10-30T00:42:08.6828273Z     operator: 'strictEqual',
+2026-10-30T00:42:08.6828893Z     diff: 'simple'
+2026-10-30T00:42:08.6829846Z   }
+2026-10-30T00:42:08.8555025Z [31;1mException: [0mD:\a\_temp\0eaea3dc-61e7-47ff-bc87-6595dd468c91.ps1:9[0m
+2026-10-30T00:42:08.8555620Z [31;1m[0m[36;1mLine |[0m
+2026-10-30T00:42:08.8556440Z [31;1m[0m[36;1m[36;1m   9 | [0m …  ($failed) { [36;1mthrow 'One or more fixed bootstrap repetitions failed'[0m }[0m
+2026-10-30T00:42:08.8557449Z [31;1m[0m[36;1m[36;1m[0m[36;1m[0m[36;1m     | [31;1m                ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m
+2026-10-30T00:42:08.8558251Z [31;1m[0m[36;1m[36;1m[0m[36;1m[0m[36;1m[31;1m[31;1m[36;1m     | [31;1mOne or more fixed bootstrap repetitions failed[0m
+2026-10-30T00:42:08.8967778Z ##[error]Process completed with exit code 1.
+2026-10-30T00:42:08.9154704Z ##[group]Run actions/upload-artifact@v4
+2026-10-30T00:42:08.9155295Z with:
+2026-10-30T00:42:08.9155616Z   name: fixed-path-prototype-windows-2022
+2026-10-30T00:42:08.9156079Z   path: artifacts/source-snapshot-strict.tap
+artifacts/ci-fixed-path/
+
+2026-10-30T00:42:08.9156479Z   if-no-files-found: warn
+2026-10-30T00:42:08.9156828Z   retention-days: 14
+2026-10-30T00:42:08.9157103Z   compression-level: 6
+2026-10-30T00:42:08.9157369Z   overwrite: false
+2026-10-30T00:42:08.9157635Z   include-hidden-files: false
+2026-10-30T00:42:08.9157899Z env:
+2026-10-30T00:42:08.9158158Z   STRICT_SYMLINK_TESTS: 1
+2026-10-30T00:42:08.9158460Z   SOURCE_EVIDENCE_DIR: artifacts/ci-fixed-path
+2026-10-30T00:42:08.9158845Z   GATE_DIAGNOSTICS_DIR: artifacts/ci-fixed-path/gate-diagnostics
+2026-10-30T00:42:08.9159325Z   CODEGRAPH_PROTOTYPE_READ_GATES: 0
+2026-10-30T00:42:08.9159604Z   CODEGRAPH_ALL_LANGUAGES: 1
+2026-10-30T00:42:08.9160930Z ##[endgroup]
+2026-10-30T00:42:09.0862255Z (node:5240) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+2026-10-30T00:42:09.0863016Z (Use `node --trace-deprecation ...` to show where the warning was created)
+2026-10-30T00:42:09.1334801Z Multiple search paths detected. Calculating the least common ancestor of all paths
+2026-10-30T00:42:09.1337307Z The least common ancestor is D:\a\codeg\codeg\artifacts. This will be the root directory of the artifact
+2026-10-30T00:42:09.1338953Z With the provided path, there will be 161 files uploaded
+2026-10-30T00:42:09.1343607Z Artifact name is valid!
+2026-10-30T00:42:09.1345854Z Root directory input is valid!
+2026-10-30T00:42:09.4331285Z Beginning upload of artifact content to blob storage
+2026-10-30T00:42:09.6120364Z (node:5240) [DEP0169] DeprecationWarning: `url.parse()` behavior is not standardized and prone to errors that have security implications. Use the WHATWG URL API instead. CVEs are not issued for `url.parse()` vulnerabilities.
+2026-10-30T00:42:09.8547630Z Uploaded bytes 149099
+2026-10-30T00:42:09.8985255Z Finished uploading artifact content to blob storage!
+2026-10-30T00:42:09.8986605Z SHA256 digest of uploaded artifact zip is 88df92ca930a1583014b03e5c297446c1d5d76ec63df21a56dd7ec37db82ef43
+2026-10-30T00:42:09.8988264Z Finalizing artifact upload
+2026-10-30T00:42:10.3047089Z Artifact fixed-path-prototype-windows-2022.zip successfully finalized. Artifact ID 12944464287
+2026-10-30T00:42:10.3048939Z Artifact fixed-path-prototype-windows-2022 has been successfully uploaded! Final size is 149099 bytes. Artifact ID is 12944464287
+2026-10-30T00:42:10.3057650Z Artifact download URL: https://github.com/chenmr0/codeg/actions/runs/40981002929/artifacts/12944464287
+2026-10-30T00:42:10.3393089Z Post job cleanup.
+2026-10-30T00:42:10.5207072Z [command]"C:\Program Files\Git\bin\git.exe" version
+2026-10-30T00:42:10.5477910Z git version 2.56.0.windows.3
+2026-10-30T00:42:10.5542009Z Temporarily overriding HOME='D:\a\_temp\f458c480-e527-44ba-b107-95ffcd6aaa5a' before making global git config changes
+2026-10-30T00:42:10.5543042Z Adding repository directory to the temporary git global config as a safe directory
+2026-10-30T00:42:10.5553961Z [command]"C:\Program Files\Git\bin\git.exe" config --global --add safe.directory D:\a\codeg\codeg
+2026-10-30T00:42:10.5850647Z Removing SSH command configuration
+2026-10-30T00:42:10.5862282Z [command]"C:\Program Files\Git\bin\git.exe" config --local --name-only --get-regexp core\.sshCommand
+2026-10-30T00:42:10.6160031Z [command]"C:\Program Files\Git\bin\git.exe" submodule foreach --recursive "sh -c \"git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :\""
+2026-10-30T00:42:11.0876299Z Removing HTTP extra header
+2026-10-30T00:42:11.0887201Z [command]"C:\Program Files\Git\bin\git.exe" config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-10-30T00:42:11.1193554Z [command]"C:\Program Files\Git\bin\git.exe" submodule foreach --recursive "sh -c \"git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :\""
+2026-10-30T00:42:11.5877758Z Removing includeIf entries pointing to credentials config files
+2026-10-30T00:42:11.5889697Z [command]"C:\Program Files\Git\bin\git.exe" config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-10-30T00:42:11.6145678Z includeif.gitdir:D:/a/codeg/codeg/.git.path
+2026-10-30T00:42:11.6146273Z includeif.gitdir:D:/a/codeg/codeg/.git/worktrees/*.path
+2026-10-30T00:42:11.6185079Z [command]"C:\Program Files\Git\bin\git.exe" config --local --get-all includeif.gitdir:D:/a/codeg/codeg/.git.path
+2026-10-30T00:42:11.6429968Z D:\a\_temp\git-credentials-77d0f09f-63ca-40b4-a0ec-3029357b39a2.config
+2026-10-30T00:42:11.6470640Z [command]"C:\Program Files\Git\bin\git.exe" config --local --unset includeif.gitdir:D:/a/codeg/codeg/.git.path D:\a\_temp\git-credentials-77d0f09f-63ca-40b4-a0ec-3029357b39a2.config
+2026-10-30T00:42:11.6758957Z [command]"C:\Program Files\Git\bin\git.exe" config --local --get-all includeif.gitdir:D:/a/codeg/codeg/.git/worktrees/*.path
+2026-10-30T00:42:11.7013071Z D:\a\_temp\git-credentials-77d0f09f-63ca-40b4-a0ec-3029357b39a2.config
+2026-10-30T00:42:11.7052691Z [command]"C:\Program Files\Git\bin\git.exe" config --local --unset includeif.gitdir:D:/a/codeg/codeg/.git/worktrees/*.path D:\a\_temp\git-credentials-77d0f09f-63ca-40b4-a0ec-3029357b39a2.config
+2026-10-30T00:42:11.7345744Z [command]"C:\Program Files\Git\bin\git.exe" submodule foreach --recursive "git config --local --show-origin --name-only --get-regexp remote.origin.url"
+2026-10-30T00:42:12.1679157Z Removing credentials config 'D:\a\_temp\git-credentials-77d0f09f-63ca-40b4-a0ec-3029357b39a2.config'
+2026-10-30T00:42:12.1870421Z Cleaning up orphan processes
+2026-10-30T00:42:12.1947048Z ##[warning]Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/upload-artifact@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/

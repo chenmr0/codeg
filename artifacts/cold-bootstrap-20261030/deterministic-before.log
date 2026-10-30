@@ -1,0 +1,8 @@
+PARENT_FIRST_MODE [Object: null prototype] { journal_mode: 'delete' }
+CHILD 0 
+PARENT_FRESH_MODE [Object: null prototype] { journal_mode: 'delete' }
+AFTER_SCHEMA [Object: null prototype] { name: 'state' } [Object: null prototype] { journal_mode: 'wal' }
+FAIL Error: Incompatible DELETE coordinator: offline isolated WAL experiment required; no live migration
+    at coordinatorDb (file:///workspace/scratch/75b00092a0fc/codeg-cold-diagnosis/scripts/prototypes/fixed-path/protocol.mjs:44:105)
+    at initialize (file:///workspace/scratch/75b00092a0fc/codeg-cold-diagnosis/scripts/prototypes/fixed-path/protocol.mjs:104:19)
+    at file:///tmp/cold-bootstrap-repro.mjs:5:5

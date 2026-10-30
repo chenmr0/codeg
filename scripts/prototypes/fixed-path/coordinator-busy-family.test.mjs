@@ -62,7 +62,7 @@ for(const kind of ['initialize','persistent reader reopen']) {
       }
       return original.call(this,sql);
     };
-    try{assert.throws(run,/Incompatible DELETE coordinator/);assert.equal(calls,2);}
+    try{assert.throws(run,/Incompatible DELETE coordinator/);assert.equal(calls,3,'one BUSY, initial mode and transactional refreshed mode');}
     finally{DatabaseSync.prototype.prepare=original;}
     assert.doesNotThrow(run);
   });

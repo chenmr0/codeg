@@ -1,0 +1,3 @@
+Predeclared rounds: 20
+Command each: node --liftoff-only --test --test-name-pattern="^simultaneous cold clients" scripts/prototypes/fixed-path/acceptance.test.mjs
+All statuses retained, no early success stop.

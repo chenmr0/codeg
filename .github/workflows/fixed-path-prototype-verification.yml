@@ -3,7 +3,7 @@ name: Fixed-path WAL coordination verification
 on:
   push:
     branches:
-      - verify/fixed-path-worktree-20261030
+      - verify/fixed-path-bootstrap-fix-20261030
   workflow_dispatch: {}
 permissions:
   contents: read
@@ -48,12 +48,15 @@ jobs:
         env:
           CONTENTION_EVIDENCE_DIR: artifacts/ci-fixed-path/contention-repeat
         run: node scripts/prototypes/fixed-path/repeat-contention.mjs
-      - name: Repeat simultaneous cold bootstrap three times
+      - name: Repeat simultaneous cold bootstrap twenty predeclared times
         shell: pwsh
         run: |
           $failed = $false
-          for ($i = 1; $i -le 3; $i++) {
+          New-Item -ItemType Directory -Force artifacts/ci-fixed-path | Out-Null
+          'Fixed in advance: 20 attempts; retain every result; any failure fails the gate' | Set-Content artifacts/ci-fixed-path/cold-bootstrap-plan.txt
+          for ($i = 1; $i -le 20; $i++) {
             $env:SOURCE_EVIDENCE_DIR = "artifacts/ci-fixed-path/cold-bootstrap-$i"
+            $env:FIXED_PATH_EVIDENCE_DIR = $env:SOURCE_EVIDENCE_DIR
             New-Item -ItemType Directory -Force $env:SOURCE_EVIDENCE_DIR | Out-Null
             node --liftoff-only --test "--test-name-pattern=^simultaneous cold clients initialize protocol metadata" scripts/prototypes/fixed-path/acceptance.test.mjs 2>&1 | Tee-Object -FilePath "$env:SOURCE_EVIDENCE_DIR/run.tap"
             if ($LASTEXITCODE -ne 0) { $failed = $true }

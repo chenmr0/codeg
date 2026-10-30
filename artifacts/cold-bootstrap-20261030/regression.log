@@ -1,0 +1,42 @@
+✔ slow cold factory holds no gate; independent publisher drains but waits for old request lease (132.735785ms)
+✔ read cold factory failure releases active and every admitted lease (9.271594ms)
+✔ write cold factory failure releases active and every admitted lease (4.655636ms)
+✔ admission COMMIT failure must never invoke cold factory (4.999762ms)
+✔ write intent is committed before cold factory and gate is independently accessible (4.795726ms)
+✔ factory exceeding drain budget does not hold gate and cancels publication and rejects expired admission while old database remains usable (1110.406205ms)
+✔ stale initial DELETE observation accepts another process completed WAL bootstrap without conversion (75.975532ms)
+✔ real DELETE state still fails without migration or evidence changes (1.933668ms)
+✔ real DELETE existing lease evidence still fails without migration or evidence changes (2.881067ms)
+✔ initialize: BUSY extended primary family retries only preopen then succeeds (28.812718ms)
+✔ initialize: persistent BUSY_RECOVERY exhausts unchanged 500ms open budget (503.09541ms)
+✔ initialize: LOCKED, IOERR, corruption and invalid codes fail once without retry (13.14628ms)
+✔ initialize: successful BUSY retry never bypasses journal-mode validation (5.349236ms)
+✔ persistent reader reopen: BUSY extended primary family retries only preopen then succeeds (34.888633ms)
+✔ persistent reader reopen: persistent BUSY_RECOVERY exhausts unchanged 500ms open budget (505.975512ms)
+✔ persistent reader reopen: LOCKED, IOERR, corruption and invalid codes fail once without retry (31.484246ms)
+✔ persistent reader reopen: successful BUSY retry never bypasses journal-mode validation (6.678588ms)
+✔ extended BUSY in gate action is not promoted to preopen retry (3.408457ms)
+✔ extended BUSY in gate COMMIT is not promoted to preopen retry (2.994858ms)
+✔ connections bootstrap CREATE error rolls back its lease and refuses automatic reinitialization (6.55346ms)
+✔ connections bootstrap INSERT error rolls back its lease and refuses automatic reinitialization (3.228107ms)
+✔ connections bootstrap COMMIT error rolls back its lease and refuses automatic reinitialization (2.360647ms)
+✔ owner bootstrap CREATE error rolls back its lease and refuses automatic reinitialization (3.824391ms)
+✔ owner bootstrap INSERT error rolls back its lease and refuses automatic reinitialization (3.009089ms)
+✔ owner bootstrap COMMIT error rolls back its lease and refuses automatic reinitialization (2.480237ms)
+✔ writers bootstrap CREATE error rolls back its lease and refuses automatic reinitialization (2.958143ms)
+✔ writers bootstrap INSERT error rolls back its lease and refuses automatic reinitialization (3.354226ms)
+✔ writers bootstrap COMMIT error rolls back its lease and refuses automatic reinitialization (6.465558ms)
+✔ lease probes begin at busy_timeout=0 and still honor independent-process exclusion (71.778744ms)
+✔ established DELETE coordinator is rejected without online conversion or graph mutation (3.994046ms)
+✔ WAL-mode owner lease is rejected rather than weakening the OS fence (6.097948ms)
+✔ WAL-mode connections lease is rejected rather than weakening the OS fence (6.327162ms)
+✔ WAL-mode writers lease is rejected rather than weakening the OS fence (5.657818ms)
+✔ lost WAL state table with established leases is not recreated as idle (4.171692ms)
+ℹ tests 34
+ℹ suites 0
+ℹ pass 34
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 3274.315646

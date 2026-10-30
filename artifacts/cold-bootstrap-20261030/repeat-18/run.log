@@ -1,0 +1,10 @@
+FIXED_PATH_EVIDENCE=/workspace/scratch/75b00092a0fc/codeg-cold-diagnosis/artifacts/cold-bootstrap-20261030/repeat-18/acceptance.json
+✔ simultaneous cold clients initialize protocol metadata without a partially-created lease database (979.061407ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 1
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1124.529651

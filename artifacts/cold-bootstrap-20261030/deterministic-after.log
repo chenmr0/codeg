@@ -1,0 +1,6 @@
+PARENT_FIRST_MODE [Object: null prototype] { journal_mode: 'delete' }
+CHILD 0 
+PARENT_FRESH_MODE [Object: null prototype] { journal_mode: 'delete' }
+AFTER_SCHEMA [Object: null prototype] { name: 'state' } [Object: null prototype] { journal_mode: 'wal' }
+AFTER_SCHEMA [Object: null prototype] { name: 'state' } [Object: null prototype] { journal_mode: 'wal' }
+PASS

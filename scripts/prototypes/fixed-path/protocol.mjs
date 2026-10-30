@@ -40,10 +40,25 @@ function coordinatorDb(p, bootstrap=false){
   try{
     let mode=d.prepare('PRAGMA journal_mode').get().journal_mode;
     if(mode!=='wal'){
-      const initialized=d.prepare("SELECT name FROM sqlite_master WHERE name='state'").get();
-      if(!bootstrap || initialized || [p.owner,p.connections,p.writers].some(f=>fs.existsSync(f)))throw new Error('Incompatible DELETE coordinator: offline isolated WAL experiment required; no live migration');
-      mode=d.prepare('PRAGMA journal_mode=WAL').get().journal_mode;
-      if(mode!=='wal')throw new Error('Unable to initialize WAL coordinator');
+      // The first PRAGMA can reflect this connection's cached empty DELETE
+      // pager while another cold client has already bootstrapped WAL. A schema
+      // read refreshes the pager; pair that read, mode and lease evidence in a
+      // short read transaction so a concurrent DELETE->WAL bootstrap cannot
+      // mix two epochs. No protocol action or mutation occurs in this probe.
+      d.exec('BEGIN');
+      try{
+        const initialized=d.prepare("SELECT name FROM sqlite_master WHERE name='state'").get();
+        mode=d.prepare('PRAGMA journal_mode').get().journal_mode;
+        if(mode!=='wal' && (!bootstrap || initialized || [p.owner,p.connections,p.writers].some(f=>fs.existsSync(f))))throw new Error('Incompatible DELETE coordinator: offline isolated WAL experiment required; no live migration');
+        d.exec('COMMIT');
+      }catch(error){try{d.exec('ROLLBACK');}catch{}throw error;}
+      if(mode!=='wal'){
+        // Changing journal mode is forbidden inside the read transaction.
+        // Another initializer may win after COMMIT; WAL is then already set,
+        // or SQLite reports BUSY and the existing bounded preopen retry wins.
+        mode=d.prepare('PRAGMA journal_mode=WAL').get().journal_mode;
+        if(mode!=='wal')throw new Error('Unable to initialize WAL coordinator');
+      }
     }
     d.exec('PRAGMA wal_autocheckpoint=0');
     return d;

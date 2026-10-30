@@ -1,0 +1,17 @@
+{
+  "platform": "linux",
+  "arch": "x64",
+  "node": "v24.22.1",
+  "startedAt": "2026-10-30T00:47:45.556Z",
+  "scope": "isolated cooperative protocol adapters; NOT production CLI/MCP coverage",
+  "cases": [
+    {
+      "name": "concurrent-cold-bootstrap",
+      "status": "pass",
+      "durationMs": 863.7865409999999
+    }
+  ],
+  "switches": [],
+  "queries": [],
+  "completedAt": "2026-10-30T00:47:46.431Z"
+}
