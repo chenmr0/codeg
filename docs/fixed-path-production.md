@@ -17,9 +17,11 @@
 
 MCP `ToolHandler.execute()` 为整个请求（包括后处理）保留同一读 handle；空闲 MCP/SDK 连接观察到 draining 后关闭，下一请求自行重开。后台 watcher 属于稳定 facade，不随读 handle 退休。CLI/daemon 通过相同 `CodeGraph.open` 路由；真实 stdio/daemon 验收必须另做，不能拿 ToolHandler 测试代替。
 
-原生 checkpoint/maintenance worker 有独立 OS 连接租约，必须保留到真实 worker exit；关闭父对象不是 worker 已退出的证明。构造/close 失败的原生连接仍保留独立租约，不因 JS facade 错误而让发布者重命名活跃文件。
+原生 checkpoint/maintenance、store writer 和 parallel resolver worker 有独立 OS 连接租约，必须保留到真实 worker exit；关闭父对象不是 worker 已退出的证明；writer 的 mutation 排他权也一直保留到最后一个原生后台线程退出。构造/close 失败的原生连接仍保留独立租约，不因 JS facade 错误而让发布者重命名活跃文件。
 
 固定布局的普通写入用 `.runtime/fixed-path-v1/mutations.sqlite` OS 排他锁串行化，不用崩溃后永久遗留的 PID 文本锁。发布者仍用 writers/connection 租约协调排空；先记录写意图，再打开可能执行迁移/修复的 writer 连接。
+
+新建固定布局同样先写持久初始化意图，再在私有候选中创建 schema；活动根文件可见前，当前版本的发现与底层打开入口均被意图阻挡。进程异常后的恢复先于正常准入；已提交布局不因清理失败退回旧库。详见 `fixed-path-initialization.md`。支持原生协调的运行时中，低层 legacy 根库首建也用相同创建锁；WASM 后端须先物化完整 schema，再释放创建准入。缺少 `node:sqlite` 的旧运行时仍只支持 legacy，不能与固定布局进程并发首建或离线迁移；这种跨运行时升级必须先关闭旧进程。
 
 ## 自动重建
 
@@ -43,7 +45,12 @@ MCP `ToolHandler.execute()` 为整个请求（包括后处理）保留同一读 
 ```
 npm run build
 node --liftoff-only scripts/tests/fixed-path-production.test.cjs
-node --liftoff-only --test scripts/tests/fixed-path-layout.test.cjs
+node --liftoff-only --test scripts/tests/fixed-path-layout.test.cjs scripts/tests/fixed-path-initialization.test.cjs
+node --liftoff-only scripts/tests/fixed-path-writer-open-admission.test.cjs
+node --liftoff-only scripts/tests/fixed-path-failed-native.test.cjs
+node --liftoff-only scripts/tests/fixed-path-legacy-creation.test.cjs
+node --liftoff-only scripts/tests/watcher-ambiguous-event.test.cjs
+node --liftoff-only scripts/tests/fixed-path-real-mcp.test.cjs
 node scripts/tests/run-fixed-path-protocol-parity.mjs
 ```
 

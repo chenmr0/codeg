@@ -66,10 +66,10 @@ export function createFixedPathFacade(project: FixedPathProject, prototype: obje
   methods.set('waitUntilWatcherReady', (timeout?: number) => watcher?.waitUntilReady(timeout) ?? Promise.resolve());
   methods.set('uninitialize', () => { throw new Error('Fixed-path removal requires explicit offline removal of all participating processes'); });
   for (const key of synchronousReads) methods.set(key, (...args) => controller.readSync(graph => invoke(graph, key, args)));
-  for (const key of asynchronousReads) methods.set(key, (...args) => controller.read(graph => invoke(graph, key, args)));
+  for (const key of asynchronousReads) methods.set(key, async (...args) => controller.read(graph => invoke(graph, key, args)));
   for (const key of synchronousWrites) methods.set(key, (...args) => { assertWritable(); return controller.writeSync(graph => invoke(graph, key, args)); });
-  for (const key of asynchronousWrites) methods.set(key, (...args) => { assertWritable(); return controller.write(graph => invoke(graph, key, args)); });
-  methods.set('sync', (options: SyncOptions = {}) => {
+  for (const key of asynchronousWrites) methods.set(key, async (...args) => { assertWritable(); return controller.write(graph => invoke(graph, key, args)); });
+  methods.set('sync', async (options: SyncOptions = {}) => {
     assertWritable();
     const cancellation = new AbortController();
     operations.add(cancellation);
@@ -110,7 +110,7 @@ export function createFixedPathFacade(project: FixedPathProject, prototype: obje
           } finally { builds.delete(abort); options.signal?.removeEventListener('abort', cancel); }
         }
       }
-      const incremental = await controller.write(graph => graph.sync({ ...options, adaptive: false }));
+      const incremental = await controller.write(graph => graph.sync({ ...options, paths: published ? undefined : options.paths, adaptive: false }));
       if (!published) return incremental;
       if (incremental.complete === false) throw new Error('Post-publication incremental reconciliation is incomplete');
       published = { ...incremental, adaptive: published.adaptive, durationMs: performance.now() - started };

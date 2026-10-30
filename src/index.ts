@@ -33,6 +33,7 @@ import { createFixedPathFacade } from './sync/fixed-path/facade';
 import { withFixedPathOpen } from './sync/fixed-path/open-context';
 import { isFixedPathLayout } from './sync/fixed-path/probe';
 import { migrateToFixedPath } from './sync/fixed-path-layout';
+import { initializeFixedPathStorage, recoverFixedPathInitialization } from './sync/fixed-path-initialization';
 import { createDatabase } from './db/sqlite-adapter';
 import { WalCheckpointValve } from './db/wal-valve';
 import { QueryBuilder } from './db/queries';
@@ -439,22 +440,24 @@ export class CodeGraph {
   private static initFixedPathStorage(root: string): CodeGraph {
     if (!CodeGraph.nativeInitializationAvailable()) throw new Error('Fixed-path storage requires node:sqlite');
     createDirectory(root);
-    const dataDir = getCodeGraphDir(root), lock = new GenerationWriterLock(dataDir);
-    lock.acquire();
-    try {
-      CodeGraph.assertUninitialized(root, dataDir);
-      if (existsSync(path.join(dataDir, 'generations'))) throw new Error('Existing generation evidence requires explicit offline migration');
-      const db = DatabaseConnection.initialize(path.join(dataDir, 'codegraph.db'));
-      try { installSourceOwnership(db.getDb()); } finally { db.close(); }
-    } finally { lock.release(); }
-    void migrateToFixedPath(dataDir, { offline: true }).cleanup;
+    const dataDir = getCodeGraphDir(root);
+    CodeGraph.assertUninitialized(root, dataDir);
+    if (existsSync(path.join(dataDir, 'generations'))) throw new Error('Existing generation evidence requires explicit offline migration');
+    let builderClosed = false;
+    initializeFixedPathStorage(dataDir, candidate => {
+      const db = DatabaseConnection.initialize(candidate);
+      try { installSourceOwnership(db.getDb()); }
+      finally { db.close(); builderClosed = !db.isOpen(); }
+    }, { builderClosedOnError: () => builderClosed });
     return CodeGraph.openFixedPathControlled(root, dataDir);
   }
 
   /** Explicit offline migration; old programs and external SQLite tools must be stopped. */
   static async migrateStorage(projectRoot: string, options: { offline: true }): Promise<void> {
     const root = path.resolve(projectRoot);
-    const migration = migrateToFixedPath(getCodeGraphDir(root), options);
+    const dataDir = getCodeGraphDir(root);
+    recoverFixedPathInitialization(dataDir);
+    const migration = migrateToFixedPath(dataDir, options);
     await migration.cleanup;
   }
 
@@ -645,18 +648,26 @@ export class CodeGraph {
 
   /** @internal Controlled v1 entry. Layout registration/recovery is the caller's prerequisite. */
   static openFixedPathControlled(projectRoot: string, dataDirectory = getCodeGraphDir(projectRoot), readOnly = false): CodeGraph {
-    const root = path.resolve(projectRoot), dataDir = path.resolve(dataDirectory);
-    if (path.dirname(dataDir) !== root) throw new Error('Fixed data directory must belong to the project root');
+    const requestedRoot = path.resolve(projectRoot), requestedData = path.resolve(dataDirectory);
+    if (path.dirname(requestedData) !== requestedRoot) throw new Error('Fixed data directory must belong to the project root');
+    if (!lstatSync(requestedData).isDirectory()) throw new Error('Fixed data directory must not be a symlink');
+    const root = realpathSync(requestedRoot), dataDir = realpathSync(requestedData);
     if (!isFixedPathLayout(dataDir)) throw new Error('Fixed-path layout must be explicitly registered before opening');
     return createFixedPathFacade({ project: root, dataDirectory: dataDir }, CodeGraph.prototype,
-      (file, reader, backgroundLease) => {
+      (file, reader, backgroundLease, writeLock) => {
+        if (!reader && !writeLock) throw new Error('Writable native open requires mutation admission');
         const db = withFixedPathOpen(file, () => reader ? DatabaseConnection.openReadOnly(file) : DatabaseConnection.open(file, { nativeOnly: true }));
         try {
           if (db.getBackend() !== 'node-sqlite') throw new Error('Fixed-path coordination requires node:sqlite');
           // Worker connection ownership is independent of this facade/parent handle.
           db.setBackgroundLeaseFactory(backgroundLease);
-          return new CodeGraph(db, new QueryBuilder(db.getDb()), root, false, reader, reader, dataDir, undefined, true);
-        } catch (error) { db.close(); throw error; }
+          const graph = new CodeGraph(db, new QueryBuilder(db.getDb()), root, false, reader, reader, dataDir, undefined, true);
+          if (writeLock) graph.fileLock = writeLock;
+          return graph;
+        } catch (error) {
+          try { db.close(); } catch (closeError) { throw new DatabaseOpenError(db, error, closeError); }
+          throw error;
+        }
       }, readOnly);
   }
 
@@ -848,6 +859,7 @@ export class CodeGraph {
                     dbPath: this.db.getPath(),
                     fastInit,
                     useWorker: this.db.getBackend() === 'node-sqlite',
+                    leaseFactory: () => this.db.retainBackgroundLease(),
                   }
                 : null,
               { force: scopeChanged || extractionChanged, reconcile: scopeChanged || extractionChanged },
@@ -1485,7 +1497,7 @@ export class CodeGraph {
                 // Small syncs and the in-memory WASM backend stay on their
                 // existing path; no worker startup is paid for ordinary saves.
                 syncStoreWriter.current ??= new StoreWriter(workerPath, this.db.getPath(), false,
-                  { root: this.projectRoot, deferWal });
+                  { root: this.projectRoot, deferWal }, () => this.db.retainBackgroundLease());
                 return syncStoreWriter.current.replace(request);
               }
             : undefined;
@@ -2285,6 +2297,7 @@ export class CodeGraph {
     let result: ResolutionResult;
     try {
       result = await this.resolver.resolveAndPersistBatched(onProgress, undefined, {
+        leaseFactory: () => this.db.retainBackgroundLease(),
         dbPath:
           this.db.getBackend() === 'node-sqlite'
             ? this.db.getPath()

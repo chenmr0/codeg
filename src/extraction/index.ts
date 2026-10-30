@@ -1312,6 +1312,7 @@ export class ExtractionOrchestrator {
      */
     storeWriterOpts?: {
       dbPath: string;
+      leaseFactory?: import('../db/worker-lifetime').WorkerLeaseFactory;
       fastInit: boolean;
       useWorker: boolean;
     } | null,
@@ -1325,7 +1326,7 @@ export class ExtractionOrchestrator {
     signal?: AbortSignal,
     verbose?: boolean,
     walBackpressure?: () => Promise<void> | null,
-    storeWriterOpts?: { dbPath: string; fastInit: boolean; useWorker: boolean } | null,
+    storeWriterOpts?: { dbPath: string; fastInit: boolean; useWorker: boolean; leaseFactory?: import('../db/worker-lifetime').WorkerLeaseFactory } | null,
     options?: { force?: boolean; reconcile?: boolean },
   ): Promise<IndexResult> {
     await initGrammars();
@@ -1500,7 +1501,8 @@ export class ExtractionOrchestrator {
       storeWriter = new StoreWriter(
         storeWorkerPath,
         storeWriterOpts.dbPath,
-        storeWriterOpts.fastInit
+        storeWriterOpts.fastInit,
+        undefined, storeWriterOpts.leaseFactory
       );
       log('Store writer thread active');
     }

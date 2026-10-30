@@ -1,7 +1,7 @@
-name: Fixed-path production entry verification
+name: Fixed-path production complete verification
 on:
   push:
-    branches: [verify/fixed-path-production-e03183c-20261030]
+    branches: [verify/fixed-path-production-complete-20261030]
   workflow_dispatch: {}
 permissions:
   contents: read
@@ -12,7 +12,7 @@ jobs:
       matrix:
         os: [windows-2022, ubuntu-22.04]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
+    timeout-minutes: 45
     env:
       STRICT_SYMLINK_TESTS: '1'
       CODEGRAPH_ALL_LANGUAGES: '1'
@@ -25,34 +25,15 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: '24'
+      - name: Real file and directory symlink privilege
+        shell: pwsh
+        run: |
+          node -e "const fs=require('node:fs'),os=require('node:os'),p=require('node:path');const d=fs.mkdtempSync(p.join(os.tmpdir(),'cg-symlink-'));try{fs.writeFileSync(p.join(d,'target'),'x');fs.mkdirSync(p.join(d,'dir'));fs.symlinkSync(p.join(d,'target'),p.join(d,'file-link'),'file');fs.symlinkSync(p.join(d,'dir'),p.join(d,'dir-link'),'dir');for(const n of ['file-link','dir-link'])if(!fs.lstatSync(p.join(d,n)).isSymbolicLink())throw Error('Not real symlink');console.log('REAL_SYMLINK_PASS')}finally{fs.rmSync(d,{recursive:true,force:true})}"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - run: npm ci
       - id: build
         run: npm run build
-      - name: Production entry points
-        if: ${{ always() && steps.build.outcome == 'success' }}
-        shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Force artifacts/ci-fixed-production | Out-Null
-          node --liftoff-only scripts/tests/fixed-path-production.test.cjs 2>&1 | Tee-Object artifacts/ci-fixed-production/production.tap
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          if (Select-String artifacts/ci-fixed-production/production.tap -Pattern '# SKIP|# skipped [1-9]' -Quiet) { throw 'Skipped production regression forbidden' }
-      - name: Layout migration
-        if: ${{ always() && steps.build.outcome == 'success' }}
-        shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Force artifacts/ci-fixed-production | Out-Null
-          node --liftoff-only --test --test-reporter=tap scripts/tests/fixed-path-layout.test.cjs 2>&1 | Tee-Object artifacts/ci-fixed-production/layout.tap
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          if (Select-String artifacts/ci-fixed-production/layout.tap -Pattern '# SKIP|# skipped [1-9]' -Quiet) { throw 'Skipped layout regression forbidden' }
-      - name: Production protocol parity
-        if: ${{ always() && steps.build.outcome == 'success' }}
-        shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Force artifacts/ci-fixed-production | Out-Null
-          node scripts/tests/run-fixed-path-protocol-parity.mjs 2>&1 | Tee-Object artifacts/ci-fixed-production/parity.log
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          if (Select-String artifacts/ci-fixed-production/parity.log -Pattern '# SKIP|# skipped [1-9]|skipped [1-9]' -Quiet) { throw 'Skipped parity regression forbidden' }
-      - name: Real direct and daemon MCP all four cases
+      - name: fixed-path-production
         if: ${{ always() && steps.build.outcome == 'success' }}
         shell: pwsh
         run: |
@@ -61,15 +42,124 @@ jobs:
           Remove-Item Env:CODEGRAPH_NO_DAEMON -ErrorAction SilentlyContinue
           Remove-Item Env:CODEGRAPH_NO_WATCH -ErrorAction SilentlyContinue
           Remove-Item Env:CODEGRAPH_ADAPTIVE_SYNC -ErrorAction SilentlyContinue
-          node --liftoff-only --test-reporter=tap scripts/tests/fixed-path-real-mcp.test.cjs 2>&1 | Tee-Object artifacts/ci-fixed-production/real-mcp.tap
+          node --liftoff-only --test-reporter=tap scripts/tests/fixed-path-production.test.cjs 2>&1 | Tee-Object artifacts/ci-fixed-production/fixed-path-production.tap
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          if (!(Select-String artifacts/ci-fixed-production/real-mcp.tap -Pattern '^# tests 4$' -Quiet)) { throw 'Expected exactly four real MCP tests' }
-          if (!(Select-String artifacts/ci-fixed-production/real-mcp.tap -Pattern '^# skipped 0$' -Quiet)) { throw 'Real MCP skips forbidden' }
+          if (!(Select-String artifacts/ci-fixed-production/fixed-path-production.tap -Pattern '^# skipped 0$' -CaseSensitive -Quiet)) { throw 'Zero skipped summary required' }
+          if (Select-String artifacts/ci-fixed-production/fixed-path-production.tap -Pattern '# SKIP(?: |$)' -CaseSensitive -Quiet) { throw 'Skipped tests forbidden' }
+      - name: fixed-path-initialization
+        if: ${{ always() && steps.build.outcome == 'success' }}
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force artifacts/ci-fixed-production | Out-Null
+          Remove-Item Env:E2E_CASE -ErrorAction SilentlyContinue
+          Remove-Item Env:CODEGRAPH_NO_DAEMON -ErrorAction SilentlyContinue
+          Remove-Item Env:CODEGRAPH_NO_WATCH -ErrorAction SilentlyContinue
+          Remove-Item Env:CODEGRAPH_ADAPTIVE_SYNC -ErrorAction SilentlyContinue
+          node --liftoff-only --test-reporter=tap scripts/tests/fixed-path-initialization.test.cjs 2>&1 | Tee-Object artifacts/ci-fixed-production/fixed-path-initialization.tap
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if (!(Select-String artifacts/ci-fixed-production/fixed-path-initialization.tap -Pattern '^# skipped 0$' -CaseSensitive -Quiet)) { throw 'Zero skipped summary required' }
+          if (Select-String artifacts/ci-fixed-production/fixed-path-initialization.tap -Pattern '# SKIP(?: |$)' -CaseSensitive -Quiet) { throw 'Skipped tests forbidden' }
+      - name: fixed-path-layout
+        if: ${{ always() && steps.build.outcome == 'success' }}
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force artifacts/ci-fixed-production | Out-Null
+          Remove-Item Env:E2E_CASE -ErrorAction SilentlyContinue
+          Remove-Item Env:CODEGRAPH_NO_DAEMON -ErrorAction SilentlyContinue
+          Remove-Item Env:CODEGRAPH_NO_WATCH -ErrorAction SilentlyContinue
+          Remove-Item Env:CODEGRAPH_ADAPTIVE_SYNC -ErrorAction SilentlyContinue
+          node --liftoff-only --test-reporter=tap scripts/tests/fixed-path-layout.test.cjs 2>&1 | Tee-Object artifacts/ci-fixed-production/fixed-path-layout.tap
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if (!(Select-String artifacts/ci-fixed-production/fixed-path-layout.tap -Pattern '^# skipped 0$' -CaseSensitive -Quiet)) { throw 'Zero skipped summary required' }
+          if (Select-String artifacts/ci-fixed-production/fixed-path-layout.tap -Pattern '# SKIP(?: |$)' -CaseSensitive -Quiet) { throw 'Skipped tests forbidden' }
+      - name: fixed-path-legacy-creation
+        if: ${{ always() && steps.build.outcome == 'success' }}
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force artifacts/ci-fixed-production | Out-Null
+          Remove-Item Env:E2E_CASE -ErrorAction SilentlyContinue
+          Remove-Item Env:CODEGRAPH_NO_DAEMON -ErrorAction SilentlyContinue
+          Remove-Item Env:CODEGRAPH_NO_WATCH -ErrorAction SilentlyContinue
+          Remove-Item Env:CODEGRAPH_ADAPTIVE_SYNC -ErrorAction SilentlyContinue
+          node --liftoff-only --test-reporter=tap scripts/tests/fixed-path-legacy-creation.test.cjs 2>&1 | Tee-Object artifacts/ci-fixed-production/fixed-path-legacy-creation.tap
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if (!(Select-String artifacts/ci-fixed-production/fixed-path-legacy-creation.tap -Pattern '^# skipped 0$' -CaseSensitive -Quiet)) { throw 'Zero skipped summary required' }
+          if (Select-String artifacts/ci-fixed-production/fixed-path-legacy-creation.tap -Pattern '# SKIP(?: |$)' -CaseSensitive -Quiet) { throw 'Skipped tests forbidden' }
+      - name: fixed-path-failed-native
+        if: ${{ always() && steps.build.outcome == 'success' }}
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force artifacts/ci-fixed-production | Out-Null
+          Remove-Item Env:E2E_CASE -ErrorAction SilentlyContinue
+          Remove-Item Env:CODEGRAPH_NO_DAEMON -ErrorAction SilentlyContinue
+          Remove-Item Env:CODEGRAPH_NO_WATCH -ErrorAction SilentlyContinue
+          Remove-Item Env:CODEGRAPH_ADAPTIVE_SYNC -ErrorAction SilentlyContinue
+          node --liftoff-only --test-reporter=tap scripts/tests/fixed-path-failed-native.test.cjs 2>&1 | Tee-Object artifacts/ci-fixed-production/fixed-path-failed-native.tap
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if (!(Select-String artifacts/ci-fixed-production/fixed-path-failed-native.tap -Pattern '^# skipped 0$' -CaseSensitive -Quiet)) { throw 'Zero skipped summary required' }
+          if (Select-String artifacts/ci-fixed-production/fixed-path-failed-native.tap -Pattern '# SKIP(?: |$)' -CaseSensitive -Quiet) { throw 'Skipped tests forbidden' }
+      - name: fixed-path-writer-open-admission
+        if: ${{ always() && steps.build.outcome == 'success' }}
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force artifacts/ci-fixed-production | Out-Null
+          Remove-Item Env:E2E_CASE -ErrorAction SilentlyContinue
+          Remove-Item Env:CODEGRAPH_NO_DAEMON -ErrorAction SilentlyContinue
+          Remove-Item Env:CODEGRAPH_NO_WATCH -ErrorAction SilentlyContinue
+          Remove-Item Env:CODEGRAPH_ADAPTIVE_SYNC -ErrorAction SilentlyContinue
+          node --liftoff-only --test-reporter=tap scripts/tests/fixed-path-writer-open-admission.test.cjs 2>&1 | Tee-Object artifacts/ci-fixed-production/fixed-path-writer-open-admission.tap
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if (!(Select-String artifacts/ci-fixed-production/fixed-path-writer-open-admission.tap -Pattern '^# skipped 0$' -CaseSensitive -Quiet)) { throw 'Zero skipped summary required' }
+          if (Select-String artifacts/ci-fixed-production/fixed-path-writer-open-admission.tap -Pattern '# SKIP(?: |$)' -CaseSensitive -Quiet) { throw 'Skipped tests forbidden' }
+      - name: watcher-ambiguous-event
+        if: ${{ always() && steps.build.outcome == 'success' }}
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force artifacts/ci-fixed-production | Out-Null
+          Remove-Item Env:E2E_CASE -ErrorAction SilentlyContinue
+          Remove-Item Env:CODEGRAPH_NO_DAEMON -ErrorAction SilentlyContinue
+          Remove-Item Env:CODEGRAPH_NO_WATCH -ErrorAction SilentlyContinue
+          Remove-Item Env:CODEGRAPH_ADAPTIVE_SYNC -ErrorAction SilentlyContinue
+          node --liftoff-only --test-reporter=tap scripts/tests/watcher-ambiguous-event.test.cjs 2>&1 | Tee-Object artifacts/ci-fixed-production/watcher-ambiguous-event.tap
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if (!(Select-String artifacts/ci-fixed-production/watcher-ambiguous-event.tap -Pattern '^# skipped 0$' -CaseSensitive -Quiet)) { throw 'Zero skipped summary required' }
+          if (Select-String artifacts/ci-fixed-production/watcher-ambiguous-event.tap -Pattern '# SKIP(?: |$)' -CaseSensitive -Quiet) { throw 'Skipped tests forbidden' }
+      - name: fixed-path-real-mcp
+        if: ${{ always() && steps.build.outcome == 'success' }}
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force artifacts/ci-fixed-production | Out-Null
+          Remove-Item Env:E2E_CASE -ErrorAction SilentlyContinue
+          Remove-Item Env:CODEGRAPH_NO_DAEMON -ErrorAction SilentlyContinue
+          Remove-Item Env:CODEGRAPH_NO_WATCH -ErrorAction SilentlyContinue
+          Remove-Item Env:CODEGRAPH_ADAPTIVE_SYNC -ErrorAction SilentlyContinue
+          node --liftoff-only --test-reporter=tap scripts/tests/fixed-path-real-mcp.test.cjs 2>&1 | Tee-Object artifacts/ci-fixed-production/fixed-path-real-mcp.tap
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if (!(Select-String artifacts/ci-fixed-production/fixed-path-real-mcp.tap -Pattern '^# skipped 0$' -CaseSensitive -Quiet)) { throw 'Zero skipped summary required' }
+          if (Select-String artifacts/ci-fixed-production/fixed-path-real-mcp.tap -Pattern '# SKIP(?: |$)' -CaseSensitive -Quiet) { throw 'Skipped tests forbidden' }
+          if (!(Select-String artifacts/ci-fixed-production/fixed-path-real-mcp.tap -Pattern '^# tests 4$' -CaseSensitive -Quiet)) { throw 'Exactly four real MCP cases required' }
+      - name: Production protocol parity
+        if: ${{ always() && steps.build.outcome == 'success' }}
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force artifacts/ci-fixed-production | Out-Null
+          node scripts/tests/run-fixed-path-protocol-parity.mjs 2>&1 | Tee-Object artifacts/ci-fixed-production/parity.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if (Select-String artifacts/ci-fixed-production/parity.log -Pattern '# SKIP(?: |$)|skipped [1-9]' -CaseSensitive -Quiet) { throw 'Skipped parity regression forbidden' }
+      - name: Worker lifecycle and related regression matrix
+        if: ${{ always() && steps.build.outcome == 'success' }}
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force artifacts/ci-fixed-production | Out-Null
+          node --liftoff-only node_modules/vitest/vitest.mjs run __tests__/adaptive-plan.test.ts __tests__/mcp-generation-leases.test.ts __tests__/adaptive-sync-integration.test.ts __tests__/wal-checkpoint-worker-lifecycle.test.ts __tests__/source-ownership.test.ts __tests__/adaptive-sync-entrypoints.test.ts __tests__/initial-generation-store.test.ts __tests__/framework-reader-cache.test.ts __tests__/sdk-reader-retirement.test.ts __tests__/same-generation-reader-cache.test.ts __tests__/adaptive-read-worker.test.ts __tests__/managed-initialization.test.ts __tests__/sql-js-backend.test.ts __tests__/sqlite-backend.test.ts __tests__/native-store-resolver-lifecycle.test.ts __tests__/store-writer-backpressure.test.ts --reporter=default --reporter=json --outputFile=artifacts/ci-fixed-production/related.json 2>&1 | Tee-Object artifacts/ci-fixed-production/related.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node -e "const r=require('./artifacts/ci-fixed-production/related.json');if(!r.success||r.numPendingTests||r.numTodoTests||r.numFailedTests)throw Error('Related regression incomplete'); console.log('RELATED_ZERO_SKIPS='+r.numTotalTests)"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Preserve all runner evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: fixed-path-production-${{ matrix.os }}
+          name: fixed-path-production-complete-${{ matrix.os }}
           path: |
             artifacts/ci-fixed-production/
             artifacts/fixed-path-production-parity/

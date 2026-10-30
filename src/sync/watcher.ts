@@ -320,7 +320,11 @@ export class FileWatcher {
       this.projectRoot,
       { recursive: true, persistent: true },
       (_event, filename) => {
-        if (this.stopped || filename == null) return;
+        if (this.stopped) return;
+        if (filename == null || String(filename) === '') {
+          this.handleUnknownEvent();
+          return;
+        }
         this.handleChange(normalizePath(String(filename)));
       }
     );
@@ -396,7 +400,11 @@ export class FileWatcher {
    * routed through the shared change handler.
    */
   private handleDirEvent(dir: string, filename: string | Buffer | null): void {
-    if (this.stopped || filename == null) return;
+    if (this.stopped) return;
+    if (filename == null || String(filename) === '') {
+      this.handleUnknownEvent();
+      return;
+    }
     const full = path.join(dir, String(filename));
     const relative = normalizePath(path.relative(this.projectRoot, full));
     if (relative === '.git') {
@@ -418,6 +426,16 @@ export class FileWatcher {
     }
 
     this.handleChange(normalizePath(path.relative(this.projectRoot, full)));
+  }
+
+  /** A missing filename is an ambiguous/overflow notification, not no work.
+   * The event may hide source edits, ignore changes or Git metadata changes.
+   * Reuse the strongest control invalidation: refresh metadata/ignore policy,
+   * revisit Linux watches, increment the full-scan revision and reconcile all
+   * sources. The revision preserves a second notification during an active scan.
+   */
+  private handleUnknownEvent(): void {
+    this.handleChange('.git');
   }
 
   /**

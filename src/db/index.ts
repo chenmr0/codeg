@@ -1,3 +1,4 @@
+import { withFixedPathInitializationCreationGate } from '../sync/fixed-path-initialization';
 import { isFixedPathLayout } from '../sync/fixed-path/probe';
 import { assertFixedPathOpenAdmitted, acquireAuthorizedFixedPathLease } from '../sync/fixed-path/open-context';
 /**
@@ -108,6 +109,11 @@ export class DatabaseConnection {
     return new Promise(resolve => this.backgroundIdleWaiters.push(resolve));
   }
 
+  /** Independent ownership for an external native database worker. */
+  retainBackgroundLease(): { release(): void } {
+    return { release: this.retainBackgroundOperation() };
+  }
+
   private retainBackgroundOperation(): () => void {
     if (!this.isOpen()) throw new Error('Database connection is closed');
     // Acquire before the first await or native worker launch. Managed generation
@@ -140,6 +146,32 @@ export class DatabaseConnection {
    */
   static initialize(dbPath: string): DatabaseConnection {
     assertFixedPathOpenAdmitted(dbPath);
+    if (path.basename(dbPath) !== 'codegraph.db') return this.initializeStorage(dbPath);
+    // Existing managed generations already participate in their lifecycle gate.
+    const generation = acquireDatabaseLease(dbPath);
+    if (generation) {
+      try { return this.initializeStorage(dbPath); } finally { generation.release(); }
+    }
+    let nativeCoordination = false;
+    try { nativeCoordination = typeof require('node:sqlite').DatabaseSync === 'function'; } catch { /* old pure-legacy runtime */ }
+    if (!nativeCoordination) return this.initializeStorage(dbPath);
+    let connection: DatabaseConnection | undefined, closed = false;
+    return withFixedPathInitializationCreationGate(path.dirname(dbPath), () => {
+      try {
+        connection = this.initializeStorage(dbPath);
+        // WASM construction is initially in memory. Materialize under the same
+        // creation fence before a fixed initializer can observe root absence.
+        (connection.getDb() as SqliteDatabase & { flush?: () => void }).flush?.();
+        return connection;
+      } catch (error) {
+        if (connection) { connection.close(); closed = !connection.isOpen(); }
+        throw error;
+      }
+    }, { closedOnError: () => closed });
+  }
+
+  private static initializeStorage(dbPath: string): DatabaseConnection {
+    assertFixedPathOpenAdmitted(dbPath);
     const lease = acquireAuthorizedFixedPathLease(dbPath) ?? acquireDatabaseLease(dbPath);
     dbPath = lease?.databasePath ?? dbPath; // Open the same canonical target we pinned.
     let created: ReturnType<typeof createDatabase>;
@@ -168,11 +200,11 @@ export class DatabaseConnection {
    * Open an existing database
    */
   static open(dbPath: string, options: { nativeOnly?: boolean } = {}): DatabaseConnection {
-    assertFixedPathOpenAdmitted(dbPath);
     if (!fs.existsSync(dbPath)) {
       throw new Error(`Database not found: ${dbPath}`);
     }
 
+    assertFixedPathOpenAdmitted(dbPath);
     const lease = acquireAuthorizedFixedPathLease(dbPath) ?? acquireDatabaseLease(dbPath);
     dbPath = lease?.databasePath ?? dbPath; // Open the same canonical target we pinned.
     let created: ReturnType<typeof createDatabase>;
@@ -197,6 +229,7 @@ export class DatabaseConnection {
 
   /** Native, non-migrating connection for generation-pinned readers and validation. */
   static openReadOnly(dbPath: string): DatabaseConnection {
+    if (!fs.existsSync(dbPath)) throw new Error(`Database not found: ${dbPath}`);
     assertFixedPathOpenAdmitted(dbPath);
     const lease = acquireAuthorizedFixedPathLease(dbPath) ?? acquireDatabaseLease(dbPath);
     dbPath = lease?.databasePath ?? dbPath; // Open the same canonical target we pinned.

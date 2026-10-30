@@ -7,6 +7,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { acquireCurrentGenerationLease } from './sync/generation-store';
+import { hasFixedPathInitializationIntent } from './sync/fixed-path-initialization';
 import { isFixedPathLayout, probeFixedPath } from './sync/fixed-path/probe';
 
 /** New indexes use wx; existing indexes remain readable during the transition. */
@@ -111,7 +112,7 @@ export function getCodeGraphDir(projectRoot: string): string {
   const configured = configuredDirName();
   const preferred = path.join(projectRoot, configured ?? DEFAULT_CODEGRAPH_DIR);
   if (configured || !legacyCompatibilityEnabled() ||
-      (fs.existsSync(path.join(preferred, '.runtime', 'layout.json')) || fs.existsSync(path.join(preferred, '.runtime', 'layout-migrations')) || fs.existsSync(path.join(preferred, 'codegraph.db')) || hasCurrentManifest(preferred))) return preferred;
+      (hasFixedPathInitializationIntent(preferred) || fs.existsSync(path.join(preferred, '.runtime', 'layout.json')) || fs.existsSync(path.join(preferred, '.runtime', 'layout-migrations')) || fs.existsSync(path.join(preferred, 'codegraph.db')) || hasCurrentManifest(preferred))) return preferred;
   const legacy = path.join(projectRoot, LEGACY_CODEGRAPH_DIR);
   return (fs.existsSync(path.join(legacy, 'codegraph.db')) || hasCurrentManifest(legacy)) ? legacy : preferred;
 }

@@ -33,8 +33,16 @@ export interface FixedPathMigrationResult {
   cleanup: Promise<void>;
   cleanupWarnings: readonly string[];
 }
+/** Preserve a real data directory while collapsing aliases of its parent project. */
+export function canonicalFixedPathDataDirectory(dataDir: string): string {
+  const root=path.resolve(dataDir);
+  try {
+    if (!fs.lstatSync(root).isDirectory()) throw new Error(`Unsafe fixed data directory: ${root}`);
+    return fs.realpathSync.native(root);
+  } catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return root; throw error; }
+}
 function names(dataDir: string) {
-  const root = path.resolve(dataDir), runtime = path.join(root, '.runtime');
+  const root = canonicalFixedPathDataDirectory(dataDir), runtime = path.join(root, '.runtime');
   const migrations = path.join(runtime, 'layout-migrations');
   return { root, runtime, migrations, active: path.join(root, 'codegraph.db'), marker: path.join(runtime, 'layout.json'),
     journal: path.join(migrations, 'state.sqlite'), lock: path.join(migrations, 'owner.sqlite') };

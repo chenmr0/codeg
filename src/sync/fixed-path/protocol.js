@@ -16,8 +16,13 @@ const phasesBeforeRename = new Set(['building', 'prepared', 'draining']);
 const pause = new Int32Array(new SharedArrayBuffer(4));
 export const now = () => performance.now();
 export function paths(project) {
-  const root = typeof project === 'string' ? project : project.project;
-  const data = typeof project === 'string' ? path.join(path.resolve(root), '.codegraph-wx') : path.resolve(project.dataDirectory);
+  const requestedRoot = path.resolve(typeof project === 'string' ? project : project.project);
+  const root = fs.existsSync(requestedRoot) ? fs.realpathSync(requestedRoot) : requestedRoot;
+  let data = typeof project === 'string' ? path.join(root, '.codegraph-wx') : path.resolve(project.dataDirectory);
+  // A project alias is supported; the data-directory leaf itself must remain a
+  // real directory. Canonical paths give every participant one recovery domain.
+  if (fs.existsSync(data)) { directory(data); data = fs.realpathSync(data); }
+  else if (fs.existsSync(path.dirname(data))) data = path.join(fs.realpathSync(path.dirname(data)), path.basename(data));
   const runtime = path.join(data, '.runtime', 'fixed-path-v1');
   return { project: path.resolve(root), data, runtime, active: path.join(data, 'codegraph.db'), gate: path.join(runtime, 'gate.sqlite'), connections: path.join(runtime, 'connections.sqlite'), owner: path.join(runtime, 'publisher.sqlite'), writers: path.join(runtime, 'writers.sqlite'), mutations: path.join(runtime, 'mutations.sqlite') };
 }

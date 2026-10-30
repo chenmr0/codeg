@@ -7,7 +7,8 @@
  * the caller then resolves that untouched batch sequentially.
  */
 
-import { Worker } from 'worker_threads';
+import type { Worker } from 'worker_threads';
+import { startDatabaseWorker, type ProtectedDatabaseWorker, type WorkerLeaseFactory } from '../db/worker-lifetime';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -25,6 +26,7 @@ export interface ResolverAdmissionResult {
 
 interface PoolWorker {
   worker: Worker;
+  lifetime: ProtectedDatabaseWorker;
   ready: Promise<void>;
   busy: number;
 }
@@ -113,7 +115,7 @@ export class ResolverPool {
    * Create a pool only when the compiled worker exists and node:sqlite is in
    * use. Returning null is an intentional sequential fallback.
    */
-  static tryCreate(dbPath: string, projectRoot: string): ResolverPool | null {
+  static tryCreate(dbPath: string, projectRoot: string, leaseFactory?: WorkerLeaseFactory): ResolverPool | null {
     if (process.env.CODEGRAPH_NO_PARALLEL_RESOLVE === '1') return null;
     if (process.env.CODEGRAPH_FORCE_WASM === '1') return null;
 
@@ -145,7 +147,7 @@ export class ResolverPool {
     if (size === null) return null;
 
     try {
-      return new ResolverPool(workerScript, dbPath, projectRoot, size);
+      return new ResolverPool(workerScript, dbPath, projectRoot, size, leaseFactory);
     } catch {
       return null;
     }
@@ -155,10 +157,14 @@ export class ResolverPool {
     workerScript: string,
     dbPath: string,
     projectRoot: string,
-    size: number
+    size: number,
+    leaseFactory?: WorkerLeaseFactory
   ) {
+    try {
     for (let i = 0; i < size; i++) {
-      const worker = new Worker(workerScript, { env: languageScopeWorkerEnv() });
+      const lifetime = startDatabaseWorker(workerScript, dbPath, leaseFactory, { env: languageScopeWorkerEnv() });
+      const worker = lifetime.worker;
+      let readySeen = false;
       let readyResolve!: () => void;
       let readyReject!: (error: Error) => void;
       const ready = new Promise<void>((resolve, reject) => {
@@ -169,7 +175,8 @@ export class ResolverPool {
       // caller attaches Promise.all. Attach a no-op observer immediately.
       void ready.catch(() => undefined);
 
-      const member: PoolWorker = { worker, ready, busy: 0 };
+      const member: PoolWorker = { worker, lifetime, ready, busy: 0 };
+      this.workers.push(member);
       worker.on('message', (raw: unknown) => {
         const message = (raw ?? {}) as {
           type?: string;
@@ -178,7 +185,7 @@ export class ResolverPool {
           result?: ResolverAdmissionResult;
         };
         if (message.type === 'ready') {
-          readyResolve();
+          readySeen = true; readyResolve();
           return;
         }
         if (message.type === 'result' && message.id !== undefined && message.result) {
@@ -201,14 +208,19 @@ export class ResolverPool {
         this.fail(error);
       });
       worker.on('exit', (code) => {
-        if (!this.destroying && code !== 0) {
+        if (!readySeen || !this.destroying) {
           const error = new Error(`resolver worker exited with code ${code}`);
           readyReject(error);
           this.fail(error);
         }
       });
       worker.postMessage({ type: 'open', dbPath, projectRoot });
-      this.workers.push(member);
+    }
+    } catch (error) {
+      // Constructor failure cannot return a pool to drain. Keep each lease
+      // in its exit listener and request termination of every created member.
+      for (const member of this.workers) member.lifetime.stop();
+      throw error;
     }
   }
 
@@ -277,14 +289,9 @@ export class ResolverPool {
   async destroy(): Promise<void> {
     this.destroying = true;
     if (!this.failed) this.fail(new Error('resolver pool destroyed'));
-    await Promise.all(
-      this.workers.map(async ({ worker }) => {
-        try {
-          await worker.terminate();
-        } catch {
-          // Already exited.
-        }
-      })
-    );
+    for (const member of this.workers) member.lifetime.stop();
+    const settled = await Promise.allSettled(this.workers.map(member => member.lifetime.exited));
+    const failures = settled.filter((result): result is PromiseRejectedResult => result.status === 'rejected');
+    if (failures.length) throw new AggregateError(failures.map(result => result.reason), 'Resolver worker lease release failed after all threads exited');
   }
 }

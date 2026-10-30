@@ -1,8 +1,15 @@
+import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { inspectFixedPathLayout, recoverFixedPathMigration } from '../fixed-path-layout';
+import { recoverFixedPathInitialization } from '../fixed-path-initialization';
 import { Participant } from './protocol';
 
 export function isFixedPathLayout(dataDirectory: string): boolean {
+  if (fs.existsSync(dataDirectory)) {
+    if (!fs.lstatSync(dataDirectory).isDirectory()) throw new Error('Data directory must be a real directory');
+    dataDirectory = fs.realpathSync(dataDirectory);
+  }
+  recoverFixedPathInitialization(dataDirectory);
   recoverFixedPathMigration(dataDirectory);
   return inspectFixedPathLayout(dataDirectory) === 'fixed';
 }

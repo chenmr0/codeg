@@ -171,3 +171,50 @@ test('source edits immediately after actual publication converge automatically b
     assert(graph.searchNodes('late_added').some(r=>r.node.name==='late_added'));
   } finally {worker.runFixedPathRebuild=original;graph.close();fs.rmSync(dir,{recursive:true,force:true});}
 });
+
+test('project-directory aliases share one fixed database and recovery namespace', {timeout:15000}, async()=>{
+  const dir=root(),alias=dir+'-alias';source(dir);const graph=await CodeGraph.init(dir,{index:true});let other;
+  try {
+    fs.symlinkSync(dir,alias,process.platform==='win32'?'junction':'dir');other=CodeGraph.openSync(alias);
+    assert.equal(other.getProjectRoot(),fs.realpathSync(dir));assert.equal(other.getDatabaseFilePath(),graph.getDatabaseFilePath());
+    addFiles(dir,'alias_');assert.equal((await other.sync()).adaptive.strategy,'rebuild');
+    assert(graph.searchNodes('alias_139').some(r=>r.node.name==='alias_139'));
+    assert.deepEqual(paths(alias),paths(dir));assert(records(paths(dir)).every(record=>record.phase==='cleaned'));
+  } finally {other?.close();graph.close();fs.rmSync(alias,{force:true,recursive:true});fs.rmSync(dir,{recursive:true,force:true});}
+});
+
+test('real fixed indexing runs leased native store and parallel resolver workers through actual exit', {timeout:30000}, async()=>{
+  const dir=root(),lifetime=require('../../dist/db/worker-lifetime');
+  const original=lifetime.startDatabaseWorker,previous={min:process.env.CODEGRAPH_PARALLEL_RESOLVE_MIN,workers:process.env.CODEGRAPH_RESOLVE_WORKERS};
+  const observations=[];let graph;
+  process.env.CODEGRAPH_PARALLEL_RESOLVE_MIN='0';process.env.CODEGRAPH_RESOLVE_WORKERS='2';
+  lifetime.startDatabaseWorker=function(script,file,factory,options){
+    assert.equal(typeof factory,'function','production native worker must receive independent admission');
+    const record={script:path.basename(script),released:false};observations.push(record);
+    return original(script,file,()=>{const held=factory();return{release(){held.release();record.released=true;}};},options);
+  };
+  try{
+    fs.writeFileSync(path.join(dir,'many.ts'),'export function target() { return 1; }\n'+Array.from({length:1200},(_,i)=>`export function caller${i}(){return target();}`).join('\n'));
+    graph=await CodeGraph.init(dir,{index:true});await graph.whenIdle();
+    assert(observations.some(r=>r.script==='store-worker.js'));
+    assert.equal(observations.filter(r=>r.script==='resolver-worker.js').length,2);
+    assert(observations.every(r=>r.released),'all actual worker threads exited before indexing returns');
+    assert(graph.searchNodes('caller1199').some(r=>r.node.name==='caller1199'));
+  } finally {
+    lifetime.startDatabaseWorker=original;graph?.close();
+    for(const [key,value] of [['CODEGRAPH_PARALLEL_RESOLVE_MIN',previous.min],['CODEGRAPH_RESOLVE_WORKERS',previous.workers]]){if(value===undefined)delete process.env[key];else process.env[key]=value;}
+    fs.rmSync(dir,{recursive:true,force:true});
+  }
+});
+
+test('low-level filename symlinks cannot bypass registered fixed native admission',async()=>{
+  const dir=root();let graph;
+  try{
+    graph=await CodeGraph.init(dir);const active=graph.getDatabaseFilePath(),alias=path.join(dir,'alias.sqlite');graph.close();graph=null;
+    fs.symlinkSync(active,alias,'file');
+    assert.throws(()=>DatabaseConnection.openReadOnly(alias),/lifecycle admission/);
+    assert.throws(()=>DatabaseConnection.open(alias),/lifecycle admission/);
+    assert.throws(()=>DatabaseConnection.initialize(alias),/lifecycle admission/);
+    graph=CodeGraph.openSync(dir);assert.equal(graph.getDatabaseFilePath(),active);
+  }finally{graph?.close();fs.rmSync(dir,{recursive:true,force:true});}
+});

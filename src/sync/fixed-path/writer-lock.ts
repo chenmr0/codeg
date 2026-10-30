@@ -18,3 +18,16 @@ export class FixedPathWriterLock extends GenerationWriterLock {
   override assertHeld(): void { if (!this.held) throw new Error('Fixed-path writer ownership was lost'); }
   override release(): void { if (this.held) { this.held.close(); this.held = null; } }
 }
+
+/** The controller already owns the OS lock before writable native open. Inner
+ * indexing code borrows its proof without acquiring a second exclusive lock. */
+export class BorrowedFixedPathWriterLock extends GenerationWriterLock {
+  private borrowed = false;
+  constructor(dataDirectory: string, private readonly ownerLock: FixedPathWriterLock) { super(dataDirectory); }
+  override acquire(): void {
+    if (this.borrowed) throw new Error('Writer lock is not reentrant');
+    this.ownerLock.assertHeld(); this.borrowed = true;
+  }
+  override assertHeld(): void { if (!this.borrowed) throw new Error('Writer lock was not borrowed'); this.ownerLock.assertHeld(); }
+  override release(): void { this.borrowed = false; }
+}

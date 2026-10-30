@@ -1468,6 +1468,7 @@ export class ReferenceResolver {
     batchSize: number = 5000,
     options?: {
       dbPath?: string;
+      leaseFactory?: import('../db/worker-lifetime').WorkerLeaseFactory;
       bulkEdgeLoad?: { begin: () => void; end: () => void | Promise<void> };
       bulkRefLoad?: { begin: () => void; end: () => void | Promise<void> };
       onSynthesisProgress?: (current: number, total: number) => void;
@@ -1494,7 +1495,7 @@ export class ReferenceResolver {
     let pool: ResolverPool | null = null;
     let poolReady = false;
     if (options?.dbPath && total >= minRefsForResolverPool()) {
-      pool = ResolverPool.tryCreate(options.dbPath, this.projectRoot);
+      pool = ResolverPool.tryCreate(options.dbPath, this.projectRoot, options.leaseFactory);
       const startingPool = pool;
       if (startingPool) {
         void startingPool.ready().then(
