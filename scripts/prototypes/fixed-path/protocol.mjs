@@ -115,10 +115,28 @@ export function initialize(project) {
   fs.mkdirSync(p.runtime,{recursive:true});directory(p.data);directory(path.dirname(p.runtime));directory(p.runtime);
   // Established startup validates without taking a writer transaction. No online
   // DELETE->WAL conversion, and never recreate a missing established lease file.
-  let d;const bootstrapDeadline=now()+500;
-  while(!d){try{d=coordinatorDb(p,true);}catch(error){if(!coordinatorOpenBusy(error)||now()>=bootstrapDeadline)throw error;Atomics.wait(pause,0,0,2);}}
-  let established;
-  try{established=!!d.prepare("SELECT name FROM sqlite_master WHERE name='state'").get();}finally{d.close();}
+  let established,probeAttempts=0;const bootstrapStarted=now(),bootstrapDeadline=bootstrapStarted+500;
+  while(true){
+    try{
+      probeAttempts++;
+      const d=coordinatorDb(p,true);
+      // Opening a WAL handle is not the end of pre-admission: this first
+      // schema read can still encounter another client's recovery/last-close
+      // lock. Close the failed handle before retrying the entire read-only
+      // probe within the SAME 500 ms budget. No bootstrap action has begun.
+      try{established=!!d.prepare("SELECT name FROM sqlite_master WHERE name='state'").get();}finally{d.close();}
+      break;
+    }catch(error){
+      if(!coordinatorOpenBusy(error)||now()>=bootstrapDeadline){
+        // Preserve numeric SQLite codes through worker IPC's stack-only error
+        // transport; diagnostics never change classification or retry policy.
+        error.bootstrapProbeDiagnostic={attempts:probeAttempts,elapsedMs:now()-bootstrapStarted,code:error.code,errcode:error.errcode};
+        error.stack=`${error.stack??error.message}\nBootstrap probe diagnostic: ${JSON.stringify(error.bootstrapProbeDiagnostic)}`;
+        throw error;
+      }
+      Atomics.wait(pause,0,0,2);
+    }
+  }
   if(established){for(const file of[p.connections,p.owner,p.writers])regular(file);return p;}
   gate(p,g=>{
     const exists=!!g.prepare("SELECT name FROM sqlite_master WHERE name='state'").get();

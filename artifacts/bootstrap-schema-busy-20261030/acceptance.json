@@ -1,0 +1,24 @@
+{
+  "platform": "win32",
+  "arch": "x64",
+  "node": "v24.22.1",
+  "startedAt": "2026-10-30T00:53:46.718Z",
+  "scope": "isolated cooperative protocol adapters; NOT production CLI/MCP coverage",
+  "cases": [
+    {
+      "name": "concurrent-cold-bootstrap",
+      "status": "fail",
+      "durationMs": 1766.478,
+      "error": "AssertionError [ERR_ASSERTION]: Error: Error: database is locked\n    at initialize (file:///D:/a/codeg/codeg/scripts/prototypes/fixed-path/protocol.mjs:121:84)\n    at new Participant (file:///D:/a/codeg/codeg/scripts/prototypes/fixed-path/protocol.mjs:485:14)\n    at file:///D:/a/codeg/codeg/scripts/prototypes/fixed-path/worker.mjs:58:19\n    at ModuleJob.run (node:internal/modules/esm/module_job:561:25)\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async node:internal/modules/esm/loader:647:26\n    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:101:5)\n    at file:///D:/a/codeg/codeg/scripts/prototypes/fixed-path/acceptance.test.mjs:149:271\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async Promise.allSettled (index 2)\n    at async file:///D:/a/codeg/codeg/scripts/prototypes/fixed-path/acceptance.test.mjs:149:126\n    at async record (file:///D:/a/codeg/codeg/scripts/prototypes/fixed-path/acceptance.test.mjs:39:66)\n    at async Test.run (node:internal/test_runner/test:1409:7)\n    at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3)\n+ actual - expected\n\n+ 'rejected'\n- 'fulfilled'\n\n    at file:///D:/a/codeg/codeg/scripts/prototypes/fixed-path/acceptance.test.mjs:149:355\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async record (file:///D:/a/codeg/codeg/scripts/prototypes/fixed-path/acceptance.test.mjs:39:66)\n    at async Test.run (node:internal/test_runner/test:1409:7)\n    at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3)"
+    }
+  ],
+  "switches": [],
+  "queries": [],
+  "completedAt": "2026-10-30T00:53:48.498Z",
+  "retainedFixtureRoots": [
+    "C:\\Users\\RUNNER~1\\AppData\\Local\\Temp\\fixed-path-cold-JYgcCD",
+    "C:\\Users\\RUNNER~1\\AppData\\Local\\Temp\\fixed-path-cold-ziSZLS",
+    "C:\\Users\\RUNNER~1\\AppData\\Local\\Temp\\fixed-path-cold-hMM0XV",
+    "C:\\Users\\RUNNER~1\\AppData\\Local\\Temp\\fixed-path-cold-y6ubsK"
+  ]
+}

@@ -1,0 +1,47 @@
+FIXED_PATH_EVIDENCE=artifacts\ci-fixed-path\cold-bootstrap-18\acceptance.json
+✖ simultaneous cold clients initialize protocol metadata without a partially-created lease database (1767.427ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 0
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1894.7341
+
+✖ failing tests:
+
+test at scripts\prototypes\fixed-path\acceptance.test.mjs:146:1
+✖ simultaneous cold clients initialize protocol metadata without a partially-created lease database (1767.427ms)
+  AssertionError [ERR_ASSERTION]: Error: Error: database is locked
+      at initialize (file:///D:/a/codeg/codeg/scripts/prototypes/fixed-path/protocol.mjs:121:84)
+      at new Participant (file:///D:/a/codeg/codeg/scripts/prototypes/fixed-path/protocol.mjs:485:14)
+      at file:///D:/a/codeg/codeg/scripts/prototypes/fixed-path/worker.mjs:58:19
+      at ModuleJob.run (node:internal/modules/esm/module_job:561:25)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async node:internal/modules/esm/loader:647:26
+      at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:101:5)
+      at file:///D:/a/codeg/codeg/scripts/prototypes/fixed-path/acceptance.test.mjs:149:271
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Promise.allSettled (index 2)
+      at async file:///D:/a/codeg/codeg/scripts/prototypes/fixed-path/acceptance.test.mjs:149:126
+      at async record (file:///D:/a/codeg/codeg/scripts/prototypes/fixed-path/acceptance.test.mjs:39:66)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3)
+  + actual - expected
+  
+  + 'rejected'
+  - 'fulfilled'
+  
+      at file:///D:/a/codeg/codeg/scripts/prototypes/fixed-path/acceptance.test.mjs:149:355
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async record (file:///D:/a/codeg/codeg/scripts/prototypes/fixed-path/acceptance.test.mjs:39:66)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'rejected',
+    expected: 'fulfilled',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }

@@ -1,0 +1,284 @@
+✖ bootstrap schema prepare: retries BUSY family 5 after closing failed handles (5.275638ms)
+✖ bootstrap schema prepare: retries BUSY family 261 after closing failed handles (2.275049ms)
+✖ bootstrap schema prepare: retries BUSY family 517 after closing failed handles (3.226508ms)
+✖ bootstrap schema prepare: retries BUSY family 773 after closing failed handles (2.023511ms)
+✖ bootstrap schema prepare: persistent BUSY exhausts original 500 ms total open/read budget (12.377411ms)
+✔ bootstrap schema prepare: LOCKED, IOERR, corruption and invalid codes fail once (7.014791ms)
+✖ bootstrap schema get: retries BUSY family 5 after closing failed handles (3.292277ms)
+✖ bootstrap schema get: retries BUSY family 261 after closing failed handles (2.107337ms)
+✖ bootstrap schema get: retries BUSY family 517 after closing failed handles (1.922209ms)
+✖ bootstrap schema get: retries BUSY family 773 after closing failed handles (2.338624ms)
+✖ bootstrap schema get: persistent BUSY exhausts original 500 ms total open/read budget (3.078962ms)
+✔ bootstrap schema get: LOCKED, IOERR, corruption and invalid codes fail once (6.252788ms)
+ℹ tests 12
+ℹ suites 0
+ℹ pass 2
+ℹ fail 10
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 206.492729
+
+✖ failing tests:
+
+test at ../../../../tmp/bootstrap-schema-baseline-rmSDnJ/bootstrap-schema-busy.test.mjs:21:36
+✖ bootstrap schema prepare: retries BUSY family 5 after closing failed handles (5.275638ms)
+  AssertionError [ERR_ASSERTION]: ifError got unwanted exception: schema probe prepare injected failure
+      at TestContext.<anonymous> (file:///tmp/bootstrap-schema-baseline-rmSDnJ/bootstrap-schema-busy.test.mjs:22:84)
+      at inject (file:///tmp/bootstrap-schema-baseline-rmSDnJ/bootstrap-schema-busy.test.mjs:12:72)
+      at TestContext.<anonymous> (file:///tmp/bootstrap-schema-baseline-rmSDnJ/bootstrap-schema-busy.test.mjs:22:35)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.start (node:internal/test_runner/test:1262:17)
+      at startSubtestAfterBootstrap (node:internal/test_runner/harness:387:17) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: Error: schema probe prepare injected failure
+        at inject (file:///tmp/bootstrap-schema-baseline-rmSDnJ/bootstrap-schema-busy.test.mjs:12:72)
+        at TestContext.<anonymous> (file:///tmp/bootstrap-schema-baseline-rmSDnJ/bootstrap-schema-busy.test.mjs:22:35)
+        at Test.runInAsyncScope (node:async_hooks:227:14)
+        at Test.run (node:internal/test_runner/test:1402:25)
+        at Test.start (node:internal/test_runner/test:1262:17)
+        at startSubtestAfterBootstrap (node:internal/test_runner/harness:387:17),
+    expected: null,
+    operator: 'ifError',
+    diff: 'simple'
+  }
+
+test at ../../../../tmp/bootstrap-schema-baseline-rmSDnJ/bootstrap-schema-busy.test.mjs:21:36
+✖ bootstrap schema prepare: retries BUSY family 261 after closing failed handles (2.275049ms)
+  AssertionError [ERR_ASSERTION]: ifError got unwanted exception: schema probe prepare injected failure
+      at TestContext.<anonymous> (file:///tmp/bootstrap-schema-baseline-rmSDnJ/bootstrap-schema-busy.test.mjs:22:84)
+      at inject (file:///tmp/bootstrap-schema-baseline-rmSDnJ/bootstrap-schema-busy.test.mjs:12:72)
+      at TestContext.<anonymous> (file:///tmp/bootstrap-schema-baseline-rmSDnJ/bootstrap-schema-busy.test.mjs:22:35)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:974:18)
+      at Test.postRun (node:internal/test_runner/test:1542:19)
+      at Test.run (node:internal/test_runner/test:1467:12)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: Error: schema probe prepare injected failure
+        at inject (file:///tmp/bootstrap-schema-baseline-rmSDnJ/bootstrap-schema-busy.test.mjs:12:72)
+        at TestContext.<anonymous> (file:///tmp/bootstrap-schema-baseline-rmSDnJ/bootstrap-schema-busy.test.mjs:22:35)
+        at Test.runInAsyncScope (node:async_hooks:227:14)
+        at Test.run (node:internal/test_runner/test:1402:25)
+        at Test.processPendingSubtests (node:internal/test_runner/test:974:18)
+        at Test.postRun (node:internal/test_runner/test:1542:19)
+        at Test.run (node:internal/test_runner/test:1467:12)
+        at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3),
+    expected: null,
+    operator: 'ifError',
+    diff: 'simple'
+  }
+
+test at ../../../../tmp/bootstrap-schema-baseline-rmSDnJ/bootstrap-schema-busy.test.mjs:21:36
+✖ bootstrap schema prepare: retries BUSY family 517 after closing failed handles (3.226508ms)
+  AssertionError [ERR_ASSERTION]: ifError got unwanted exception: schema probe prepare injected failure
+      at TestContext.<anonymous> (file:///tmp/bootstrap-schema-baseline-rmSDnJ/bootstrap-schema-busy.test.mjs:22:84)
+      at inject (file:///tmp/bootstrap-schema-baseline-rmSDnJ/bootstrap-schema-busy.test.mjs:12:72)
+      at TestContext.<anonymous> (file:///tmp/bootstrap-schema-baseline-rmSDnJ/bootstrap-schema-busy.test.mjs:22:35)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:974:18)
+      at Test.postRun (node:internal/test_runner/test:1542:19)
+      at Test.run (node:internal/test_runner/test:1467:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: Error: schema probe prepare injected failure
+        at inject (file:///tmp/bootstrap-schema-baseline-rmSDnJ/bootstrap-schema-busy.test.mjs:12:72)
+        at TestContext.<anonymous> (file:///tmp/bootstrap-schema-baseline-rmSDnJ/bootstrap-schema-busy.test.mjs:22:35)
+        at Test.runInAsyncScope (node:async_hooks:227:14)
+        at Test.run (node:internal/test_runner/test:1402:25)
+        at Test.processPendingSubtests (node:internal/test_runner/test:974:18)
+        at Test.postRun (node:internal/test_runner/test:1542:19)
+        at Test.run (node:internal/test_runner/test:1467:12)
+        at async Test.processPendingSubtests (node:internal/test_runner/test:974:7),
+    expected: null,
+    operator: 'ifError',
+    diff: 'simple'
+  }
+
+test at ../../../../tmp/bootstrap-schema-baseline-rmSDnJ/bootstrap-schema-busy.test.mjs:21:36
+✖ bootstrap schema prepare: retries BUSY family 773 after closing failed handles (2.023511ms)
+  AssertionError [ERR_ASSERTION]: ifError got unwanted exception: schema probe prepare injected failure
+      at TestContext.<anonymous> (file:///tmp/bootstrap-schema-baseline-rmSDnJ/bootstrap-schema-busy.test.mjs:22:84)
+      at inject (file:///tmp/bootstrap-schema-baseline-rmSDnJ/bootstrap-schema-busy.test.mjs:12:72)
+      at TestContext.<anonymous> (file:///tmp/bootstrap-schema-baseline-rmSDnJ/bootstrap-schema-busy.test.mjs:22:35)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:974:18)
+      at Test.postRun (node:internal/test_runner/test:1542:19)
+      at Test.run (node:internal/test_runner/test:1467:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: Error: schema probe prepare injected failure
+        at inject (file:///tmp/bootstrap-schema-baseline-rmSDnJ/bootstrap-schema-busy.test.mjs:12:72)
+        at TestContext.<anonymous> (file:///tmp/bootstrap-schema-baseline-rmSDnJ/bootstrap-schema-busy.test.mjs:22:35)
+        at Test.runInAsyncScope (node:async_hooks:227:14)
+        at Test.run (node:internal/test_runner/test:1402:25)
+        at Test.processPendingSubtests (node:internal/test_runner/test:974:18)
+        at Test.postRun (node:internal/test_runner/test:1542:19)
+        at Test.run (node:internal/test_runner/test:1467:12)
+        at async Test.processPendingSubtests (node:internal/test_runner/test:974:7),
+    expected: null,
+    operator: 'ifError',
+    diff: 'simple'
+  }
+
+test at ../../../../tmp/bootstrap-schema-baseline-rmSDnJ/bootstrap-schema-busy.test.mjs:24:2
+✖ bootstrap schema prepare: persistent BUSY exhausts original 500 ms total open/read budget (12.377411ms)
+  AssertionError [ERR_ASSERTION]: The expression evaluated to a falsy value:
+  
+    assert(result.calls>2)
+  
+      at TestContext.<anonymous> (file:///tmp/bootstrap-schema-baseline-rmSDnJ/bootstrap-schema-busy.test.mjs:26:45)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:974:18)
+      at Test.postRun (node:internal/test_runner/test:1542:19)
+      at Test.run (node:internal/test_runner/test:1467:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }
+
+test at ../../../../tmp/bootstrap-schema-baseline-rmSDnJ/bootstrap-schema-busy.test.mjs:21:36
+✖ bootstrap schema get: retries BUSY family 5 after closing failed handles (3.292277ms)
+  AssertionError [ERR_ASSERTION]: ifError got unwanted exception: schema probe get injected failure
+      at TestContext.<anonymous> (file:///tmp/bootstrap-schema-baseline-rmSDnJ/bootstrap-schema-busy.test.mjs:22:84)
+      at inject (file:///tmp/bootstrap-schema-baseline-rmSDnJ/bootstrap-schema-busy.test.mjs:12:72)
+      at TestContext.<anonymous> (file:///tmp/bootstrap-schema-baseline-rmSDnJ/bootstrap-schema-busy.test.mjs:22:35)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:974:18)
+      at Test.postRun (node:internal/test_runner/test:1542:19)
+      at Test.run (node:internal/test_runner/test:1467:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: Error: schema probe get injected failure
+        at inject (file:///tmp/bootstrap-schema-baseline-rmSDnJ/bootstrap-schema-busy.test.mjs:12:72)
+        at TestContext.<anonymous> (file:///tmp/bootstrap-schema-baseline-rmSDnJ/bootstrap-schema-busy.test.mjs:22:35)
+        at Test.runInAsyncScope (node:async_hooks:227:14)
+        at Test.run (node:internal/test_runner/test:1402:25)
+        at Test.processPendingSubtests (node:internal/test_runner/test:974:18)
+        at Test.postRun (node:internal/test_runner/test:1542:19)
+        at Test.run (node:internal/test_runner/test:1467:12)
+        at async Test.processPendingSubtests (node:internal/test_runner/test:974:7),
+    expected: null,
+    operator: 'ifError',
+    diff: 'simple'
+  }
+
+test at ../../../../tmp/bootstrap-schema-baseline-rmSDnJ/bootstrap-schema-busy.test.mjs:21:36
+✖ bootstrap schema get: retries BUSY family 261 after closing failed handles (2.107337ms)
+  AssertionError [ERR_ASSERTION]: ifError got unwanted exception: schema probe get injected failure
+      at TestContext.<anonymous> (file:///tmp/bootstrap-schema-baseline-rmSDnJ/bootstrap-schema-busy.test.mjs:22:84)
+      at inject (file:///tmp/bootstrap-schema-baseline-rmSDnJ/bootstrap-schema-busy.test.mjs:12:72)
+      at TestContext.<anonymous> (file:///tmp/bootstrap-schema-baseline-rmSDnJ/bootstrap-schema-busy.test.mjs:22:35)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:974:18)
+      at Test.postRun (node:internal/test_runner/test:1542:19)
+      at Test.run (node:internal/test_runner/test:1467:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: Error: schema probe get injected failure
+        at inject (file:///tmp/bootstrap-schema-baseline-rmSDnJ/bootstrap-schema-busy.test.mjs:12:72)
+        at TestContext.<anonymous> (file:///tmp/bootstrap-schema-baseline-rmSDnJ/bootstrap-schema-busy.test.mjs:22:35)
+        at Test.runInAsyncScope (node:async_hooks:227:14)
+        at Test.run (node:internal/test_runner/test:1402:25)
+        at Test.processPendingSubtests (node:internal/test_runner/test:974:18)
+        at Test.postRun (node:internal/test_runner/test:1542:19)
+        at Test.run (node:internal/test_runner/test:1467:12)
+        at async Test.processPendingSubtests (node:internal/test_runner/test:974:7),
+    expected: null,
+    operator: 'ifError',
+    diff: 'simple'
+  }
+
+test at ../../../../tmp/bootstrap-schema-baseline-rmSDnJ/bootstrap-schema-busy.test.mjs:21:36
+✖ bootstrap schema get: retries BUSY family 517 after closing failed handles (1.922209ms)
+  AssertionError [ERR_ASSERTION]: ifError got unwanted exception: schema probe get injected failure
+      at TestContext.<anonymous> (file:///tmp/bootstrap-schema-baseline-rmSDnJ/bootstrap-schema-busy.test.mjs:22:84)
+      at inject (file:///tmp/bootstrap-schema-baseline-rmSDnJ/bootstrap-schema-busy.test.mjs:12:72)
+      at TestContext.<anonymous> (file:///tmp/bootstrap-schema-baseline-rmSDnJ/bootstrap-schema-busy.test.mjs:22:35)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:974:18)
+      at Test.postRun (node:internal/test_runner/test:1542:19)
+      at Test.run (node:internal/test_runner/test:1467:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: Error: schema probe get injected failure
+        at inject (file:///tmp/bootstrap-schema-baseline-rmSDnJ/bootstrap-schema-busy.test.mjs:12:72)
+        at TestContext.<anonymous> (file:///tmp/bootstrap-schema-baseline-rmSDnJ/bootstrap-schema-busy.test.mjs:22:35)
+        at Test.runInAsyncScope (node:async_hooks:227:14)
+        at Test.run (node:internal/test_runner/test:1402:25)
+        at Test.processPendingSubtests (node:internal/test_runner/test:974:18)
+        at Test.postRun (node:internal/test_runner/test:1542:19)
+        at Test.run (node:internal/test_runner/test:1467:12)
+        at async Test.processPendingSubtests (node:internal/test_runner/test:974:7),
+    expected: null,
+    operator: 'ifError',
+    diff: 'simple'
+  }
+
+test at ../../../../tmp/bootstrap-schema-baseline-rmSDnJ/bootstrap-schema-busy.test.mjs:21:36
+✖ bootstrap schema get: retries BUSY family 773 after closing failed handles (2.338624ms)
+  AssertionError [ERR_ASSERTION]: ifError got unwanted exception: schema probe get injected failure
+      at TestContext.<anonymous> (file:///tmp/bootstrap-schema-baseline-rmSDnJ/bootstrap-schema-busy.test.mjs:22:84)
+      at inject (file:///tmp/bootstrap-schema-baseline-rmSDnJ/bootstrap-schema-busy.test.mjs:12:72)
+      at TestContext.<anonymous> (file:///tmp/bootstrap-schema-baseline-rmSDnJ/bootstrap-schema-busy.test.mjs:22:35)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:974:18)
+      at Test.postRun (node:internal/test_runner/test:1542:19)
+      at Test.run (node:internal/test_runner/test:1467:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: Error: schema probe get injected failure
+        at inject (file:///tmp/bootstrap-schema-baseline-rmSDnJ/bootstrap-schema-busy.test.mjs:12:72)
+        at TestContext.<anonymous> (file:///tmp/bootstrap-schema-baseline-rmSDnJ/bootstrap-schema-busy.test.mjs:22:35)
+        at Test.runInAsyncScope (node:async_hooks:227:14)
+        at Test.run (node:internal/test_runner/test:1402:25)
+        at Test.processPendingSubtests (node:internal/test_runner/test:974:18)
+        at Test.postRun (node:internal/test_runner/test:1542:19)
+        at Test.run (node:internal/test_runner/test:1467:12)
+        at async Test.processPendingSubtests (node:internal/test_runner/test:974:7),
+    expected: null,
+    operator: 'ifError',
+    diff: 'simple'
+  }
+
+test at ../../../../tmp/bootstrap-schema-baseline-rmSDnJ/bootstrap-schema-busy.test.mjs:24:2
+✖ bootstrap schema get: persistent BUSY exhausts original 500 ms total open/read budget (3.078962ms)
+  AssertionError [ERR_ASSERTION]: The expression evaluated to a falsy value:
+  
+    assert(result.calls>2)
+  
+      at TestContext.<anonymous> (file:///tmp/bootstrap-schema-baseline-rmSDnJ/bootstrap-schema-busy.test.mjs:26:45)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:974:18)
+      at Test.postRun (node:internal/test_runner/test:1542:19)
+      at Test.run (node:internal/test_runner/test:1467:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }
