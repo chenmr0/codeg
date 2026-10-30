@@ -1,0 +1,29 @@
+
+ RUN  v2.1.9 /workspace/scratch/75b00092a0fc/codeg-fts-rowid-fix
+
+ ✓ __tests__/search-exact.test.ts (19 tests) 6003ms
+   ✓ searchNodes exact mode > returns only nodes whose name is byte-equal to the query 442ms
+   ✓ searchNodes exact mode > is case-sensitive: GetUser and getuser do not match getUser 310ms
+   ✓ searchNodes exact mode > does not fall back to prefix matches 304ms
+   ✓ searchNodes exact mode > respects the kind filter 311ms
+   ✓ searchNodes exact mode > applies the path: filter as a hard gate 313ms
+   ✓ searchNodes exact mode > applies path filters before LIMIT for heavily duplicated exact names 319ms
+   ✓ searchNodes exact mode > applies a soft path hint before LIMIT without filtering other exact candidates 301ms
+   ✓ searchNodes exact mode > honors SearchOptions includePatterns before exact-result LIMIT 307ms
+   ✓ searchNodes exact mode > matches slash-free includePatterns against the file basename 318ms
+   ✓ searchNodes exact mode > preserves literal path prefixes with globstar patterns 315ms
+   ✓ searchNodes exact mode > honors SearchOptions excludePatterns for exact symbols 343ms
+   ✓ searchNodes exact mode > uses source line to disambiguate more than 100 identical qualified names 316ms
+   ✓ searchNodes exact mode > applies path filters inside FTS before its candidate LIMIT 308ms
+   ✓ searchNodes exact mode > resolves C++-style and dotted qualified names without FTS 301ms
+   ✓ searchNodes exact mode > default (non-exact) mode still surfaces prefix matches — regression guard 320ms
+ ✓ __tests__/search-fts-rowid.test.ts (4 tests) 300ms
+ ✓ __tests__/search-query-parser.test.ts (23 tests) 5ms
+ ✓ __tests__/search-supplement-index.test.ts (4 tests) 164ms
+ ✓ __tests__/search-natural-language-detection.test.ts (22 tests) 3ms
+
+ Test Files  5 passed (5)
+      Tests  72 passed (72)
+   Start at  11:37:51
+   Duration  8.49s (transform 1.34s, setup 0ms, collect 1.76s, tests 6.47s, environment 0ms, prepare 71ms)
+

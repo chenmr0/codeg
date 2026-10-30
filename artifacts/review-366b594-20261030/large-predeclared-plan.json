@@ -1,0 +1,36 @@
+{
+  "schema": 1,
+  "frozenCommit": "366b594926d461185ab3ef59aa46366fe7af8945",
+  "roundCount": 3,
+  "root": "/workspace/scratch/75b00092a0fc/benchmark-real/oceanbase-wal-clone-ae76291",
+  "sourceA": "7e2de11a0e3c328dddaaaefedd6e911be36fb58d",
+  "sourceB": "9bdfa9e22b618cc4ad0a724010b1bb9567629399",
+  "publicA": {
+    "path": "/workspace/scratch/75b00092a0fc/benchmark-real/evidence/bounded-2-timeout180/baseline-a.db",
+    "sha256": "d3fa3621049cf0b41587d72952473849c417aad58c4980547675e5259a4bcb2c"
+  },
+  "publicB": {
+    "path": "/workspace/scratch/75b00092a0fc/benchmark-real/evidence/bounded-2-timeout180/init-b-data/codegraph.db",
+    "sha256": "f2ca3501282402969939febffb76e38c772e7a1aa476ccfb0bbca732c06c62f5"
+  },
+  "queryQps": 10,
+  "queryClients": 5,
+  "fullBuildEveryRound": true,
+  "candidateReuse": false,
+  "performanceGate": "Every measured successful query incl queue <=1000ms (conservative sufficient test; baseline subtraction reference only). No failed requests, backlog, mixed identity or missing nodes. Cutover pause <=1000ms.",
+  "retention": "Every attempt, request and failure retained; no replacement round. Stop only for safety/source/state or process failure preventing safe continuation.",
+  "environment": {
+    "CODEGRAPH_ALL_LANGUAGES": "1",
+    "CODEGRAPH_PARSE_WORKERS": "2",
+    "CODEGRAPH_RESOLVE_WORKERS": "2",
+    "CODEGRAPH_RUST_MACROS_WORKERS": "2",
+    "CODEGRAPH_PARSE_TIMEOUT_MS": "180000",
+    "CODEGRAPH_PROTOTYPE_READ_GATES": "0",
+    "BENCHMARK_QUERY_INTERVAL_MS": "500",
+    "BENCHMARK_IDLE_MS": "30000"
+  },
+  "platform": "linux",
+  "node": "v24.22.1",
+  "initialFreeBytes": 7252443136,
+  "codeHashManifestNote": "Full per-file codeHashes retained in original predeclared-plan.json; source-manifest.json records original SHA256."
+}

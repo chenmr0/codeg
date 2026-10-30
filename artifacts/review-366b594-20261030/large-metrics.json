@@ -1,0 +1,293 @@
+{
+  "frozenCommit": "366b594926d461185ab3ef59aa46366fe7af8945",
+  "conclusion": "All three functional cycles passed. Conservative predeclared 1000ms scheduled query ceiling failed in round 3; do not claim phase-one performance gate closed. No reruns or replacement rounds.",
+  "rounds": [
+    {
+      "round": 1,
+      "functionalPassed": true,
+      "performancePassed": true,
+      "buildWallMs": 860555.7196099999,
+      "publicationMetrics": {
+        "coordinatorKeeper": {
+          "openedAtMs": 1793328215095,
+          "attachedAtMs": 1793328215095,
+          "closedAtMs": 1793329065685
+        },
+        "buildMs": 794669.272668,
+        "validationMs": 46987.57865700009,
+        "checkpointMs": 2438.516217999975,
+        "drainMs": 27.75188800005708,
+        "replaceMs": 1.3810189999639988,
+        "reopenMs": 0.768231000052765,
+        "resumeMs": 0.08663999999407679,
+        "checkpointFinalMs": 0.48604800004977733,
+        "admissionPauseMs": 32.42346900003031,
+        "coordinatorCheckpoint": {
+          "busy": 0,
+          "log": 220,
+          "checkpointed": 220,
+          "deferred": false
+        }
+      },
+      "preparation": {
+        "sourceSnapshotMs": 610.8647480000009,
+        "expectedIndexMs": 1943.0882569999994,
+        "activeEligibilityMs": 99.40119799994864,
+        "validateSourceMs": 1245.8012810000218,
+        "finalSourceFenceMs": 83.52854500000831
+      },
+      "sourceChecks": [
+        {
+          "type": "check",
+          "status": "dirty",
+          "checkMs": 4448.470786999999,
+          "stages": {
+            "beforeSnapshotMs": 1135.735715,
+            "trackedFilesMs": 22.18229200000019,
+            "adaptivePlanMs": 2520.813954,
+            "compatibilityMs": 2.315372000000025,
+            "afterSnapshotMs": 609.1492779999999
+          },
+          "changedFiles": 8004
+        },
+        {
+          "type": "check",
+          "status": "verified-observation",
+          "checkMs": 4970.959955999977,
+          "stages": {
+            "beforeSnapshotMs": 1436.8906039999565,
+            "trackedFilesMs": 61.006348999915645,
+            "adaptivePlanMs": 2678.272512000054,
+            "compatibilityMs": 2.247159000020474,
+            "afterSnapshotMs": 641.7055839999812
+          },
+          "changedFiles": 0
+        }
+      ],
+      "wholeBuildQueries": {
+        "count": 8660,
+        "p50Ms": 65.51388100000622,
+        "p95Ms": 142.4078669999726,
+        "p99Ms": 165.986583000049,
+        "maxMs": 923.4554889999563
+      },
+      "wholeBuildScheduled": {
+        "count": 8660,
+        "p50Ms": 66.18475300000864,
+        "p95Ms": 143.44864200000302,
+        "p99Ms": 167.67292599999928,
+        "maxMs": 928.137170999893
+      },
+      "operationWindowQueries": {
+        "count": 8608,
+        "p50Ms": 65.59010200000193,
+        "p95Ms": 142.2504689999987,
+        "p99Ms": 165.2673350000041,
+        "maxMs": 923.4554889999563
+      },
+      "offeredRequests": 8660,
+      "errors": 0,
+      "closeErrors": 0,
+      "pendingScheduled": 0,
+      "mixedHashReads": 0,
+      "missingNodeReads": 0,
+      "peakRssBytes": 5154099200,
+      "peakDiskBytes": 6461510852,
+      "peakAllocatedDiskBytes": 6461526016,
+      "smallIncrementMs": 9785.901009
+    },
+    {
+      "round": 2,
+      "functionalPassed": true,
+      "performancePassed": true,
+      "buildWallMs": 850303.431173,
+      "publicationMetrics": {
+        "coordinatorKeeper": {
+          "openedAtMs": 1793329239173,
+          "attachedAtMs": 1793329239174,
+          "closedAtMs": 1793330078715
+        },
+        "buildMs": 785483.550576,
+        "validationMs": 45198.21415699995,
+        "checkpointMs": 2409.1920910000335,
+        "drainMs": 13.94024599995464,
+        "replaceMs": 1.4097629999741912,
+        "reopenMs": 0.37679500004742295,
+        "resumeMs": 0.09118700004182756,
+        "checkpointFinalMs": 0.5879710000008345,
+        "admissionPauseMs": 18.679989999975078,
+        "coordinatorCheckpoint": {
+          "busy": 0,
+          "log": 217,
+          "checkpointed": 217,
+          "deferred": false
+        }
+      },
+      "preparation": {
+        "sourceSnapshotMs": 637.3288359999997,
+        "expectedIndexMs": 1973.3817500000005,
+        "activeEligibilityMs": 106.50820999999996,
+        "validateSourceMs": 1192.3329079999821,
+        "finalSourceFenceMs": 57.76491599995643
+      },
+      "sourceChecks": [
+        {
+          "type": "check",
+          "status": "dirty",
+          "checkMs": 5158.51611,
+          "stages": {
+            "beforeSnapshotMs": 1623.878551,
+            "trackedFilesMs": 24.400302999999894,
+            "adaptivePlanMs": 2662.2393479999996,
+            "compatibilityMs": 2.1119650000000547,
+            "afterSnapshotMs": 628.7230170000003
+          },
+          "changedFiles": 8004
+        },
+        {
+          "type": "check",
+          "status": "verified-observation",
+          "checkMs": 5053.4722739999415,
+          "stages": {
+            "beforeSnapshotMs": 1498.1945239999332,
+            "trackedFilesMs": 70.9136250000447,
+            "adaptivePlanMs": 2754.2522790000075,
+            "compatibilityMs": 3.12210999999661,
+            "afterSnapshotMs": 627.872272000066
+          },
+          "changedFiles": 0
+        }
+      ],
+      "wholeBuildQueries": {
+        "count": 8558,
+        "p50Ms": 64.03141799999867,
+        "p95Ms": 137.3409639999736,
+        "p99Ms": 159.4940929999575,
+        "maxMs": 539.976827000035
+      },
+      "wholeBuildScheduled": {
+        "count": 8558,
+        "p50Ms": 64.75337799999397,
+        "p95Ms": 137.814190999954,
+        "p99Ms": 160.09881499999756,
+        "maxMs": 540.3068030000431
+      },
+      "operationWindowQueries": {
+        "count": 8506,
+        "p50Ms": 64.04605599999195,
+        "p95Ms": 136.97014599991962,
+        "p99Ms": 158.71168500000203,
+        "maxMs": 539.976827000035
+      },
+      "offeredRequests": 8558,
+      "errors": 0,
+      "closeErrors": 0,
+      "pendingScheduled": 0,
+      "mixedHashReads": 0,
+      "missingNodeReads": 0,
+      "peakRssBytes": 5158010880,
+      "peakDiskBytes": 6461510468,
+      "peakAllocatedDiskBytes": 6461530112,
+      "smallIncrementMs": 11644.086949999999
+    },
+    {
+      "round": 3,
+      "functionalPassed": true,
+      "performancePassed": false,
+      "buildWallMs": 852060.63637,
+      "publicationMetrics": {
+        "coordinatorKeeper": {
+          "openedAtMs": 1793330247946,
+          "attachedAtMs": 1793330247946,
+          "closedAtMs": 1793331090039
+        },
+        "buildMs": 788656.035047,
+        "validationMs": 45004.43984000001,
+        "checkpointMs": 2277.4704599999823,
+        "drainMs": 14.398940999992192,
+        "replaceMs": 1.4550039999885485,
+        "reopenMs": 1.0225750000681728,
+        "resumeMs": 0.10877299995627254,
+        "checkpointFinalMs": 0.6011320000980049,
+        "admissionPauseMs": 19.470083000021987,
+        "coordinatorCheckpoint": {
+          "busy": 0,
+          "log": 225,
+          "checkpointed": 225,
+          "deferred": false
+        }
+      },
+      "preparation": {
+        "sourceSnapshotMs": 584.3191219999999,
+        "expectedIndexMs": 1763.2533299999996,
+        "activeEligibilityMs": 96.46647600003053,
+        "validateSourceMs": 1173.8416490000673,
+        "finalSourceFenceMs": 55.89312999998219
+      },
+      "sourceChecks": [
+        {
+          "type": "check",
+          "status": "dirty",
+          "checkMs": 4462.828269000001,
+          "stages": {
+            "beforeSnapshotMs": 1081.427002,
+            "trackedFilesMs": 20.69198399999982,
+            "adaptivePlanMs": 2635.7490040000002,
+            "compatibilityMs": 1.9832440000000133,
+            "afterSnapshotMs": 592.601404
+          },
+          "changedFiles": 8004
+        },
+        {
+          "type": "check",
+          "status": "verified-observation",
+          "checkMs": 4999.733740000054,
+          "stages": {
+            "beforeSnapshotMs": 1418.5394350000424,
+            "trackedFilesMs": 61.175410999916494,
+            "adaptivePlanMs": 2795.998183000018,
+            "compatibilityMs": 2.263656000024639,
+            "afterSnapshotMs": 610.9713779999875
+          },
+          "changedFiles": 0
+        }
+      ],
+      "wholeBuildQueries": {
+        "count": 8575,
+        "p50Ms": 62.31422499998007,
+        "p95Ms": 135.36257899994962,
+        "p99Ms": 156.45562100000097,
+        "maxMs": 1410.8979779999936
+      },
+      "wholeBuildScheduled": {
+        "count": 8575,
+        "p50Ms": 63.024808999995,
+        "p95Ms": 136.29075000004377,
+        "p99Ms": 157.3760149999871,
+        "maxMs": 1411.5770269999048
+      },
+      "operationWindowQueries": {
+        "count": 8523,
+        "p50Ms": 62.329154999999446,
+        "p95Ms": 135.20779600006063,
+        "p99Ms": 156.3701449999935,
+        "maxMs": 1410.8979779999936
+      },
+      "offeredRequests": 8575,
+      "errors": 0,
+      "closeErrors": 0,
+      "pendingScheduled": 0,
+      "mixedHashReads": 0,
+      "missingNodeReads": 0,
+      "peakRssBytes": 5125681152,
+      "peakDiskBytes": 6461531452,
+      "peakAllocatedDiskBytes": 6461546496,
+      "smallIncrementMs": 9692.318851
+    }
+  ],
+  "journalVerification": {
+    "files": 60,
+    "requests": 28961,
+    "allExactMatch": true
+  }
+}

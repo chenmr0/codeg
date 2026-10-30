@@ -1,0 +1,48 @@
+{
+  "benchmark-real/evidence/full-cycle-366b594-3rounds/REPORT.md": {
+    "sha256": "97febe9bba7779562ab3bb384efe65c70ad27a91d59b537f15546e2ffd90d7e1",
+    "bytes": 2127
+  },
+  "benchmark-real/evidence/full-cycle-366b594-3rounds/predeclared-plan.json": {
+    "sha256": "24a39f8ce99c0fc5d99caf38b44ad55d07db39337c9e28fb8b3c4b2f11915064",
+    "bytes": 29884
+  },
+  "benchmark-real/evidence/full-cycle-366b594-3rounds/over-budget-requests.json": {
+    "sha256": "21eedcb5e6151abfde41db2c68248b721926607a74192eaa678ac05132f1cc91",
+    "bytes": 4471
+  },
+  "benchmark-real/evidence/full-cycle-366b594-3rounds/final-offline-readiness.json": {
+    "sha256": "695c7d9f0a219b72ee614edd8b8fc8416402387db1e7a09420e47272f85cb354",
+    "bytes": 214
+  },
+  "codeg-fts-rowid-fix/artifacts/fts-rowid-20261030/REPORT.md": {
+    "sha256": "28ba636f2935853caef94c830285df827f99677f2ce2f576884786f13d388948",
+    "bytes": 4577
+  },
+  "codeg-fts-rowid-fix/artifacts/fts-rowid-20261030/replace-integrity-repro.cjs": {
+    "sha256": "5f3298beb6c2ca1b00abdd4166511765dbbdedd6501cc43d86aa3018525305a4",
+    "bytes": 1466
+  },
+  "codeg-fts-rowid-fix/artifacts/fts-rowid-20261030/replace-integrity-repro.jsonl": {
+    "sha256": "0d4a2d11f74c32405b9a13741f390584ea5e08cceaaf73bb3e6581c2f28b59da",
+    "bytes": 452
+  },
+  "codeg-fts-rowid-fix/artifacts/fts-rowid-20261030/orphan-check-cost.json": {
+    "sha256": "1aea289bdf2e7ba04a66d8506c9a4fdbf34bcbb06ac34fb8ffde711e8e46384b",
+    "bytes": 1966
+  },
+  "codeg-fts-rowid-fix/artifacts/fts-rowid-20261030/search-tests.txt": {
+    "sha256": "d6abf2f1deeefa81aa4e24738e18138d3fd4d7248687fa00041c121760110e1d",
+    "bytes": 1992
+  },
+  "benchmark-real/evidence/full-cycle-366b594-3rounds/REVIEW-SUMMARY.json": {
+    "sha256": "0a5e95b20c20d339520505234884790090373aac5a112b9033f45d2e44fbda06",
+    "bytes": 45896,
+    "note": "source retained locally; only condensed metrics uploaded"
+  },
+  "codeg-fts-rowid-fix/artifacts/fts-rowid-20261030/native-abba.json": {
+    "sha256": "6126fb2e9c31f4d8522e92fbdd9bec224f96ec9175b723643a053c72531e07b5",
+    "bytes": 188998,
+    "note": "source retained locally; only condensed metrics uploaded"
+  }
+}

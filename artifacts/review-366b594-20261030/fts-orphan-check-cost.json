@@ -1,0 +1,109 @@
+{
+  "sql": "SELECT 1 FROM nodes_fts LEFT JOIN nodes ON nodes_fts.rowid=nodes.rowid WHERE nodes_fts MATCH ? AND nodes.rowid IS NULL LIMIT 1",
+  "plan": [
+    {
+      "id": 4,
+      "parent": 0,
+      "notused": 156,
+      "detail": "SCAN nodes_fts VIRTUAL TABLE INDEX 0:M5"
+    },
+    {
+      "id": 9,
+      "parent": 0,
+      "notused": 45,
+      "detail": "SEARCH nodes USING INTEGER PRIMARY KEY (rowid=?) LEFT-JOIN"
+    }
+  ],
+  "samples": [
+    {
+      "i": 0,
+      "term": "ObServer",
+      "ms": 9.830061999999998,
+      "rows": []
+    },
+    {
+      "i": 0,
+      "term": "ObTenant",
+      "ms": 4.008237000000001,
+      "rows": []
+    },
+    {
+      "i": 0,
+      "term": "ObObj",
+      "ms": 6.298881999999992,
+      "rows": []
+    },
+    {
+      "i": 0,
+      "term": "ObString",
+      "ms": 10.318866999999997,
+      "rows": []
+    },
+    {
+      "i": 0,
+      "term": "ObTableSchema",
+      "ms": 3.8055729999999954,
+      "rows": []
+    },
+    {
+      "i": 1,
+      "term": "ObServer",
+      "ms": 8.739953,
+      "rows": []
+    },
+    {
+      "i": 1,
+      "term": "ObTenant",
+      "ms": 3.936620000000005,
+      "rows": []
+    },
+    {
+      "i": 1,
+      "term": "ObObj",
+      "ms": 6.4004249999999985,
+      "rows": []
+    },
+    {
+      "i": 1,
+      "term": "ObString",
+      "ms": 9.948419999999999,
+      "rows": []
+    },
+    {
+      "i": 1,
+      "term": "ObTableSchema",
+      "ms": 3.6517610000000076,
+      "rows": []
+    },
+    {
+      "i": 2,
+      "term": "ObServer",
+      "ms": 8.775886999999997,
+      "rows": []
+    },
+    {
+      "i": 2,
+      "term": "ObTenant",
+      "ms": 4.175899000000015,
+      "rows": []
+    },
+    {
+      "i": 2,
+      "term": "ObObj",
+      "ms": 5.750066999999973,
+      "rows": []
+    },
+    {
+      "i": 2,
+      "term": "ObString",
+      "ms": 9.936192000000005,
+      "rows": []
+    },
+    {
+      "i": 2,
+      "term": "ObTableSchema",
+      "ms": 3.7096480000000156,
+      "rows": []
+    }
+  ]
+}

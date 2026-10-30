@@ -1,0 +1,8 @@
+{
+  "at": 1793331207.526882,
+  "readiness": {
+    "fuserReturnCode": 1,
+    "leaseCheck": "publisher/connections/writers EXCLUSIVE obtained; idle state; no unresolved operation"
+  },
+  "operationDirectories": []
+}

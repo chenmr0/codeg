@@ -1,0 +1,248 @@
+{
+  "readonly": true,
+  "prewarm": false,
+  "note": "ABBAABBA full public search microprobe; cache state not controlled; not cutover acceptance",
+  "candidateStatus": "HOLD; NOT MERGED; mixed/orphan postings fail equivalence",
+  "experiments": [
+    {
+      "rewritten": false,
+      "rows": [
+        {
+          "term": "ObServer",
+          "ms": 130.067962,
+          "resultCount": 5
+        },
+        {
+          "term": "ObTenant",
+          "ms": 52.06925799999999,
+          "resultCount": 5
+        },
+        {
+          "term": "ObObj",
+          "ms": 50.95957900000002,
+          "resultCount": 5
+        },
+        {
+          "term": "ObString",
+          "ms": 78.64426800000001,
+          "resultCount": 5
+        },
+        {
+          "term": "ObTableSchema",
+          "ms": 47.28196200000002,
+          "resultCount": 5
+        }
+      ]
+    },
+    {
+      "rewritten": true,
+      "rows": [
+        {
+          "term": "ObServer",
+          "ms": 43.70333300000004,
+          "resultCount": 5
+        },
+        {
+          "term": "ObTenant",
+          "ms": 19.08813900000007,
+          "resultCount": 5
+        },
+        {
+          "term": "ObObj",
+          "ms": 20.88663699999995,
+          "resultCount": 5
+        },
+        {
+          "term": "ObString",
+          "ms": 32.69477199999994,
+          "resultCount": 5
+        },
+        {
+          "term": "ObTableSchema",
+          "ms": 19.281518000000005,
+          "resultCount": 5
+        }
+      ]
+    },
+    {
+      "rewritten": true,
+      "rows": [
+        {
+          "term": "ObServer",
+          "ms": 42.346753000000035,
+          "resultCount": 5
+        },
+        {
+          "term": "ObTenant",
+          "ms": 18.684935999999993,
+          "resultCount": 5
+        },
+        {
+          "term": "ObObj",
+          "ms": 22.9811279999999,
+          "resultCount": 5
+        },
+        {
+          "term": "ObString",
+          "ms": 33.44727799999998,
+          "resultCount": 5
+        },
+        {
+          "term": "ObTableSchema",
+          "ms": 16.25971400000003,
+          "resultCount": 5
+        }
+      ]
+    },
+    {
+      "rewritten": false,
+      "rows": [
+        {
+          "term": "ObServer",
+          "ms": 122.65202699999998,
+          "resultCount": 5
+        },
+        {
+          "term": "ObTenant",
+          "ms": 54.147204999999985,
+          "resultCount": 5
+        },
+        {
+          "term": "ObObj",
+          "ms": 64.59563400000013,
+          "resultCount": 5
+        },
+        {
+          "term": "ObString",
+          "ms": 73.65661099999988,
+          "resultCount": 5
+        },
+        {
+          "term": "ObTableSchema",
+          "ms": 47.94289200000003,
+          "resultCount": 5
+        }
+      ]
+    },
+    {
+      "rewritten": false,
+      "rows": [
+        {
+          "term": "ObServer",
+          "ms": 123.76322600000003,
+          "resultCount": 5
+        },
+        {
+          "term": "ObTenant",
+          "ms": 62.797792999999956,
+          "resultCount": 5
+        },
+        {
+          "term": "ObObj",
+          "ms": 67.77577599999995,
+          "resultCount": 5
+        },
+        {
+          "term": "ObString",
+          "ms": 85.79984599999989,
+          "resultCount": 5
+        },
+        {
+          "term": "ObTableSchema",
+          "ms": 46.2549140000001,
+          "resultCount": 5
+        }
+      ]
+    },
+    {
+      "rewritten": true,
+      "rows": [
+        {
+          "term": "ObServer",
+          "ms": 41.49688000000015,
+          "resultCount": 5
+        },
+        {
+          "term": "ObTenant",
+          "ms": 18.000982000000022,
+          "resultCount": 5
+        },
+        {
+          "term": "ObObj",
+          "ms": 22.451835999999957,
+          "resultCount": 5
+        },
+        {
+          "term": "ObString",
+          "ms": 33.41178500000001,
+          "resultCount": 5
+        },
+        {
+          "term": "ObTableSchema",
+          "ms": 16.80364899999995,
+          "resultCount": 5
+        }
+      ]
+    },
+    {
+      "rewritten": true,
+      "rows": [
+        {
+          "term": "ObServer",
+          "ms": 43.68830099999991,
+          "resultCount": 5
+        },
+        {
+          "term": "ObTenant",
+          "ms": 19.373636999999917,
+          "resultCount": 5
+        },
+        {
+          "term": "ObObj",
+          "ms": 25.876592999999957,
+          "resultCount": 5
+        },
+        {
+          "term": "ObString",
+          "ms": 33.94550299999992,
+          "resultCount": 5
+        },
+        {
+          "term": "ObTableSchema",
+          "ms": 22.154489999999896,
+          "resultCount": 5
+        }
+      ]
+    },
+    {
+      "rewritten": false,
+      "rows": [
+        {
+          "term": "ObServer",
+          "ms": 124.73995300000001,
+          "resultCount": 5
+        },
+        {
+          "term": "ObTenant",
+          "ms": 44.54226999999992,
+          "resultCount": 5
+        },
+        {
+          "term": "ObObj",
+          "ms": 47.97626100000002,
+          "resultCount": 5
+        },
+        {
+          "term": "ObString",
+          "ms": 71.11034800000016,
+          "resultCount": 5
+        },
+        {
+          "term": "ObTableSchema",
+          "ms": 42.449536999999964,
+          "resultCount": 5
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,152 @@
+[
+  {
+    "round": 3,
+    "clientFile": "full-rebuild.json.client-4.json",
+    "requestIndex": 1693,
+    "pattern": "ObString",
+    "at": 1793331087792.762,
+    "finishedAt": 1793331088995.9165,
+    "scheduledAt": 1793331087792.389,
+    "scheduledDelayMs": 0.37086500006262213,
+    "wallMs": 1203.156653999933,
+    "latencyMs": 1203.5275189999957,
+    "admissionAndOpenMs": 133.3662759999279,
+    "beforeFileHashMs": 0.09548299992457032,
+    "searchSql": {
+      "fts": {
+        "prepareMs": 0.2044160000514239,
+        "executeMs": 1066.7029150000308,
+        "calls": 1
+      },
+      "supplement": {
+        "prepareMs": 0.15126700000837445,
+        "executeMs": 0.677834999980405,
+        "calls": 1
+      },
+      "other": {
+        "prepareMs": 0,
+        "executeMs": 0,
+        "calls": 0
+      }
+    },
+    "searchFtsSqlMs": 1066.9073310000822,
+    "searchSupplementSqlMs": 0.8291019999887794,
+    "searchOtherSqlMs": 0,
+    "searchMs": 1069.3005750000011,
+    "getNodesMs": 0.22674900002311915,
+    "getNodeCallsMs": [
+      0.11588399996981025,
+      0.028983000083826482,
+      0.02710000006482005,
+      0.026129000005312264,
+      0.02622900006826967
+    ],
+    "afterFileHashMs": 0.021090999944135547,
+    "actionMs": 1069.6477850000374,
+    "finishAndPromiseMs": 0.14259299996774644,
+    "a": "ea3e67daabd13368babe0ee77c99d401fea2348a8a91def514fe1eedbc6aa6b2",
+    "b": "ea3e67daabd13368babe0ee77c99d401fea2348a8a91def514fe1eedbc6aa6b2",
+    "hits": 5,
+    "missing": 0
+  },
+  {
+    "round": 3,
+    "clientFile": "full-rebuild.json.client-3.json",
+    "requestIndex": 1693,
+    "pattern": "ObString",
+    "at": 1793331087585.1074,
+    "finishedAt": 1793331088996.0037,
+    "scheduledAt": 1793331087584.4265,
+    "scheduledDelayMs": 0.6790489999111742,
+    "wallMs": 1410.8979779999936,
+    "latencyMs": 1411.5770269999048,
+    "admissionAndOpenMs": 133.96692100004293,
+    "beforeFileHashMs": 0.45608500007074326,
+    "searchSql": {
+      "fts": {
+        "prepareMs": 0.29275999998208135,
+        "executeMs": 1273.4395050000167,
+        "calls": 1
+      },
+      "supplement": {
+        "prepareMs": 0.07826700003352016,
+        "executeMs": 0.8542890000389889,
+        "calls": 1
+      },
+      "other": {
+        "prepareMs": 0,
+        "executeMs": 0,
+        "calls": 0
+      }
+    },
+    "searchFtsSqlMs": 1273.7322649999987,
+    "searchSupplementSqlMs": 0.932556000072509,
+    "searchOtherSqlMs": 0,
+    "searchMs": 1276.1201809999766,
+    "getNodesMs": 0.26550799992401153,
+    "getNodeCallsMs": [
+      0.14335500006563962,
+      0.036374000017531216,
+      0.02835199993569404,
+      0.026450000004842877,
+      0.028102000011131167
+    ],
+    "afterFileHashMs": 0.021412000060081482,
+    "actionMs": 1276.8670709999278,
+    "finishAndPromiseMs": 0.06398600002285093,
+    "a": "ea3e67daabd13368babe0ee77c99d401fea2348a8a91def514fe1eedbc6aa6b2",
+    "b": "ea3e67daabd13368babe0ee77c99d401fea2348a8a91def514fe1eedbc6aa6b2",
+    "hits": 5,
+    "missing": 0
+  },
+  {
+    "round": 3,
+    "clientFile": "full-rebuild.json.client-0.json",
+    "requestIndex": 1695,
+    "pattern": "ObServer",
+    "at": 1793331087941.1985,
+    "finishedAt": 1793331089087.916,
+    "scheduledAt": 1793331087940.6482,
+    "scheduledDelayMs": 0.5474519999697804,
+    "wallMs": 1146.7204439999769,
+    "latencyMs": 1147.2678959999466,
+    "admissionAndOpenMs": 187.49234500003513,
+    "beforeFileHashMs": 0.1142410000320524,
+    "searchSql": {
+      "fts": {
+        "prepareMs": 0.1661190000595525,
+        "executeMs": 953.3594689999009,
+        "calls": 1
+      },
+      "supplement": {
+        "prepareMs": 0.07699500001035631,
+        "executeMs": 2.6025580000132322,
+        "calls": 1
+      },
+      "other": {
+        "prepareMs": 0,
+        "executeMs": 0,
+        "calls": 0
+      }
+    },
+    "searchFtsSqlMs": 953.5255879999604,
+    "searchSupplementSqlMs": 2.6795530000235885,
+    "searchOtherSqlMs": 0,
+    "searchMs": 958.255782000022,
+    "getNodesMs": 0.7292519999900833,
+    "getNodeCallsMs": [
+      0.2443759999005124,
+      0.05967999994754791,
+      0.04656000004615635,
+      0.04378600011114031,
+      0.08670999994501472
+    ],
+    "afterFileHashMs": 0.026258999947458506,
+    "actionMs": 959.1364809999941,
+    "finishAndPromiseMs": 0.09161799994762987,
+    "a": "ea3e67daabd13368babe0ee77c99d401fea2348a8a91def514fe1eedbc6aa6b2",
+    "b": "ea3e67daabd13368babe0ee77c99d401fea2348a8a91def514fe1eedbc6aa6b2",
+    "hits": 5,
+    "missing": 0
+  }
+]

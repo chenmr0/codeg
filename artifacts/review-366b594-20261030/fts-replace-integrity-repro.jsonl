@@ -1,0 +1,2 @@
+{"backend":"native","new":[{"name":"NewBeta","score":69.07234386668434},{"name":"OldAlphaLive","score":8.00000209923664}],"old":[],"integrity":"database disk image is malformed"}
+{"backend":"wasm","new":[{"name":"NewBeta","score":69.07234386668434},{"name":"OldAlphaLive","score":8.00000209923664}],"old":[],"integrity":"sql.js exec() failed: database disk image is malformed\n  SQL: INSERT INTO nodes_fts(nodes_fts,rank) VALUES('integrity-check',1)"}
