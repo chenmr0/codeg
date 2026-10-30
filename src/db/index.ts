@@ -1,3 +1,5 @@
+import { isFixedPathLayout } from '../sync/fixed-path/probe';
+import { assertFixedPathOpenAdmitted, acquireAuthorizedFixedPathLease } from '../sync/fixed-path/open-context';
 /**
  * Database Layer
  *
@@ -89,6 +91,42 @@ export class DatabaseConnection {
   private backend: SqliteBackend;
   private storageLease?: GenerationLease;
 
+  private backgroundLeaseFactory?: () => { release(): void };
+  private backgroundOperations = 0;
+  private backgroundIdleWaiters: Array<() => void> = [];
+
+  /** The storage controller supplies independent admission, not the facade's lease.
+   * It must remain valid even if close() closes this connection during worker I/O. */
+  setBackgroundLeaseFactory(factory: () => { release(): void }): void {
+    if (this.backgroundOperations) throw new Error('Cannot change background admission while workers are active');
+    this.backgroundLeaseFactory = factory;
+  }
+
+  /** Drain asynchronously: never block the event loop needed to observe worker exit. */
+  whenBackgroundIdle(): Promise<void> {
+    if (!this.backgroundOperations) return Promise.resolve();
+    return new Promise(resolve => this.backgroundIdleWaiters.push(resolve));
+  }
+
+  private retainBackgroundOperation(): () => void {
+    if (!this.isOpen()) throw new Error('Database connection is closed');
+    // Acquire before the first await or native worker launch. Managed generation
+    // handles need a distinct lease too: closing the parent must not unpin them.
+    if (!this.backgroundLeaseFactory) assertFixedPathOpenAdmitted(this.dbPath);
+    const lease = this.backgroundLeaseFactory?.() ?? acquireDatabaseLease(this.dbPath);
+    this.backgroundOperations++;
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      try { lease?.release(); }
+      finally {
+        this.backgroundOperations--;
+        if (!this.backgroundOperations) this.backgroundIdleWaiters.splice(0).forEach(resolve => resolve());
+      }
+    };
+  }
+
   private constructor(db: SqliteDatabase, dbPath: string, backend: SqliteBackend, storageLease?: GenerationLease) {
     this.db = db;
     this.dbPath = dbPath;
@@ -101,7 +139,8 @@ export class DatabaseConnection {
    * Initialize a new database at the given path
    */
   static initialize(dbPath: string): DatabaseConnection {
-    const lease = acquireDatabaseLease(dbPath);
+    assertFixedPathOpenAdmitted(dbPath);
+    const lease = acquireAuthorizedFixedPathLease(dbPath) ?? acquireDatabaseLease(dbPath);
     dbPath = lease?.databasePath ?? dbPath; // Open the same canonical target we pinned.
     let created: ReturnType<typeof createDatabase>;
     try {
@@ -129,11 +168,12 @@ export class DatabaseConnection {
    * Open an existing database
    */
   static open(dbPath: string, options: { nativeOnly?: boolean } = {}): DatabaseConnection {
+    assertFixedPathOpenAdmitted(dbPath);
     if (!fs.existsSync(dbPath)) {
       throw new Error(`Database not found: ${dbPath}`);
     }
 
-    const lease = acquireDatabaseLease(dbPath);
+    const lease = acquireAuthorizedFixedPathLease(dbPath) ?? acquireDatabaseLease(dbPath);
     dbPath = lease?.databasePath ?? dbPath; // Open the same canonical target we pinned.
     let created: ReturnType<typeof createDatabase>;
     try {
@@ -157,7 +197,8 @@ export class DatabaseConnection {
 
   /** Native, non-migrating connection for generation-pinned readers and validation. */
   static openReadOnly(dbPath: string): DatabaseConnection {
-    const lease = acquireDatabaseLease(dbPath);
+    assertFixedPathOpenAdmitted(dbPath);
+    const lease = acquireAuthorizedFixedPathLease(dbPath) ?? acquireDatabaseLease(dbPath);
     dbPath = lease?.databasePath ?? dbPath; // Open the same canonical target we pinned.
     let created: ReturnType<typeof createDatabase>;
     try { created = createDatabase(dbPath, { readOnly: true }); }
@@ -503,6 +544,7 @@ export class DatabaseConnection {
     const requestedTimeout = options.timeoutMs;
     const timeoutMs = requestedTimeout !== undefined && Number.isFinite(requestedTimeout)
       ? Math.max(1, Math.min(2_147_483_647, Math.floor(requestedTimeout))) : 60_000;
+    const releaseBackground = this.retainBackgroundOperation();
     try {
       const { Worker } = await import('node:worker_threads');
       const workerSource = `
@@ -596,6 +638,7 @@ export class DatabaseConnection {
           `WAL ${mode} checkpoint timed out after ${timeoutMs}ms`, 'timeout', true) }), timeoutMs);
       });
     } catch (error) { throw walCheckpointErrorFrom(error, 'unavailable'); }
+    finally { releaseBackground(); }
   }
 
   /**
@@ -626,14 +669,14 @@ export class DatabaseConnection {
    * watchdog's 60s window and got a COMPLETED index SIGKILLed at the finish
    * line). WAL checkpointing from a second connection is standard SQLite;
    * `PRAGMA optimize` persists its statistics in sqlite_stat tables, so the
-   * main connection benefits the same. The main thread just awaits a message,
+   * main connection benefits the same. The main thread awaits actual worker exit,
    * so the event loop — and the watchdog heartbeat — keep turning.
    *
    * The sql.js (WASM) backend is in-memory and can't open a second connection,
    * so it runs `PRAGMA optimize` inline and then `flush?.()` to persist to disk
-   * after bulk writes — the same path it always took. Everything is silently
-   * swallowed on failure — best-effort optimization, never load-bearing for
-   * correctness. If worker threads are unavailable, falls back to a bounded
+   * after bulk writes — the same path it always took. Pragma failures are
+   * best-effort, but admission failures propagate: maintenance must never
+   * open an unprotected connection during publication. If worker threads are unavailable, falls back to a bounded
    * in-line `PRAGMA optimize` and SKIPS the checkpoint (the final close()
    * checkpoints after the CLI has already disarmed its watchdog).
    */
@@ -664,37 +707,45 @@ export class DatabaseConnection {
    * that are safe to run synchronously on the main thread.
    */
   private async runPragmasOffThread(pragmas: string[], inlineFallback: string[] = []): Promise<void> {
+    const releaseBackground = this.retainBackgroundOperation();
     try {
-      const { Worker } = await import('node:worker_threads');
+      let Worker: typeof import('node:worker_threads').Worker;
+      try { ({ Worker } = await import('node:worker_threads')); }
+      catch {
+        // Only module unavailability permits inline fallback; a rejected
+        // termination or worker error is never evidence that its handle closed.
+        for (const p of inlineFallback) {
+          try { this.db.exec(p); } catch { /* best-effort maintenance */ }
+        }
+        return;
+      }
       const workerSource = `
         const { workerData, parentPort } = require('node:worker_threads');
+        let db;
         try {
           const { DatabaseSync } = require('node:sqlite');
-          const db = new DatabaseSync(workerData.dbPath);
+          db = new DatabaseSync(workerData.dbPath);
           for (const p of workerData.pragmas) { try { db.exec(p); } catch {} }
-          try { db.close(); } catch {}
         } catch {}
+        finally { try { if (db) db.close(); } catch {} }
         parentPort.postMessage('done');
       `;
       await new Promise<void>((resolve) => {
-        let settled = false;
-        const finish = (): void => {
-          if (!settled) { settled = true; resolve(); }
+        let worker: import('node:worker_threads').Worker;
+        let stopping = false;
+        const stop = (): void => {
+          if (stopping) return;
+          stopping = true;
+          // Completion messages (including failed close) are not proof of exit.
+          try { void worker.terminate().catch(() => {}); } catch { /* await exit */ }
         };
-        try {
-          const worker = new Worker(workerSource, { eval: true, workerData: { dbPath: this.dbPath, pragmas } });
-          worker.once('message', () => { void worker.terminate(); finish(); });
-          worker.once('error', () => { void worker.terminate(); finish(); });
-          worker.once('exit', finish);
-        } catch {
-          finish();
-        }
+        try { worker = new Worker(workerSource, { eval: true, workerData: { dbPath: this.dbPath, pragmas } }); }
+        catch { resolve(); return; } // No native worker was created.
+        worker.once('message', stop);
+        worker.once('error', stop);
+        worker.once('exit', () => resolve());
       });
-    } catch {
-      for (const p of inlineFallback) {
-        try { this.db.exec(p); } catch { /* ignore */ }
-      }
-    }
+    } finally { releaseBackground(); }
   }
 
   /**
@@ -728,5 +779,7 @@ export const DATABASE_FILENAME = 'codegraph.db';
  * Get the default database path for a project
  */
 export function getDatabasePath(projectRoot: string): string {
-  return resolveGeneration(getCodeGraphDir(projectRoot)).databasePath;
+  const dataDirectory = getCodeGraphDir(projectRoot);
+  if (isFixedPathLayout(dataDirectory)) return path.join(dataDirectory, 'codegraph.db');
+  return resolveGeneration(dataDirectory).databasePath;
 }

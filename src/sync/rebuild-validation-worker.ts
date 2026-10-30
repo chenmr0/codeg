@@ -1,3 +1,5 @@
+import { Participant } from './fixed-path/protocol';
+import { withFixedPathOpen } from './fixed-path/open-context';
 /** Heavy read-only planning/validation runs off the MCP event loop. */
 import { parentPort, workerData } from 'worker_threads';
 import * as path from 'path';
@@ -13,12 +15,21 @@ import { isSourceOwned, inspectLegacySourceProvenance } from './source-ownership
 export type AdaptiveReadJob =
   | { type: 'validate-initial'; root: string; databasePath: string }
   | { type: 'record-full'; root: string; databasePath: string; durationMs: number }
-  | { type: 'evaluate'; root: string; databasePath: string; eligibility: AdaptiveEligibility; paths?: string[] }
+  | { type: 'evaluate'; root: string; databasePath: string; eligibility: AdaptiveEligibility; paths?: string[]; fullHash?: boolean }
   | { type: 'validate'; root: string; databasePath: string; sourceDatabasePath: string; snapshot: AdaptiveSnapshot; runtimeKey: string };
 
 
 function openLeasedReadOnly(databasePath: string): { connection: DatabaseConnection; close(): void } {
   const directory = path.dirname(databasePath);
+  if (path.basename(databasePath) === 'codegraph.db' && fs.existsSync(path.join(directory, '.runtime', 'layout.json'))) {
+    const participant = new Participant({ project: path.dirname(directory), dataDirectory: directory },
+      (file: string) => withFixedPathOpen(file, () => DatabaseConnection.openReadOnly(file)));
+    try {
+      const connection = participant.requestSync((handle: DatabaseConnection) => { participant.active++; return handle; }) as DatabaseConnection;
+      let closed = false;
+      return { connection, close() { if (closed) return; closed = true; participant.finish(); participant.close(); } };
+    } catch (error) { participant.close(); throw error; }
+  }
   let lease: GenerationLease | undefined;
   if (path.basename(path.dirname(directory)) === 'generations') {
     const dataDir = path.dirname(path.dirname(directory));
@@ -70,8 +81,9 @@ async function execute(job: AdaptiveReadJob): Promise<unknown> {
       const indexedConfig = queries.getMetadata('adaptive:index-config-v1');
       const eligibility = { ...job.eligibility, ...(indexedConfig ? { configFingerprint: indexedConfig } : {}),
         upgradeRequired: job.eligibility.upgradeRequired || legacy.eligible || (owned && indexedConfig === null) };
-      const history = readAdaptiveHistory(job.root);
-      if (job.paths?.length && indexedConfig && !eligibility.upgradeRequired && !eligibility.configurationChanged) {
+      const fixed = fs.existsSync(path.join(path.dirname(job.databasePath), '.runtime', 'layout.json'));
+      const history = fixed ? { version: 1 as const, samples: [] } : readAdaptiveHistory(job.root);
+      if (!job.fullHash && job.paths?.length && indexedConfig && !eligibility.upgradeRequired && !eligibility.configurationChanged) {
         const paths = [...new Set(job.paths)];
         const prior = new Map(tracked.map(file => [file.path, file]));
         const safe = paths.every(relative => {
@@ -88,7 +100,7 @@ async function execute(job: AdaptiveReadJob): Promise<unknown> {
           return { decision: { strategy: 'incremental', reason: 'scoped-small-change' } };
         }
       }
-      const plan = await createAdaptivePlan(job.root, tracked, { runtimeKey });
+      const plan = await createAdaptivePlan(job.root, tracked, { runtimeKey, fullHash: job.fullHash });
       const decision = chooseAdaptiveStrategy(plan, history, eligibility);
       return { plan, decision, legacy: legacy.eligible };
     } finally { reader.close(); }

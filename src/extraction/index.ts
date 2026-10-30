@@ -199,6 +199,8 @@ export interface SyncResult {
   adaptive?: {
     strategy: 'incremental' | 'rebuild'; reason: string; generation?: string;
     planningMs?: number; buildMs?: number; validationAndPublishMs?: number;
+    /** Fixed-path publisher phase timings; wall durations, not additive nested CPU time. */
+    publication?: Record<string, number>;
   };
   /** False when file extraction or a recoverable post-processing phase is incomplete. */
   complete?: boolean;

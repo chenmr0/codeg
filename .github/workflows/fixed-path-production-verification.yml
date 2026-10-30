@@ -1,0 +1,78 @@
+name: Fixed-path production entry verification
+on:
+  push:
+    branches: [verify/fixed-path-production-e03183c-20261030]
+  workflow_dispatch: {}
+permissions:
+  contents: read
+jobs:
+  production:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2022, ubuntu-22.04]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    env:
+      STRICT_SYMLINK_TESTS: '1'
+      CODEGRAPH_ALL_LANGUAGES: '1'
+      CODEGRAPH_PROTOTYPE_READ_GATES: '0'
+      GATE_DIAGNOSTICS_DIR: artifacts/ci-fixed-production/gate-diagnostics
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+      - run: npm ci
+      - id: build
+        run: npm run build
+      - name: Production entry points
+        if: ${{ always() && steps.build.outcome == 'success' }}
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force artifacts/ci-fixed-production | Out-Null
+          node --liftoff-only scripts/tests/fixed-path-production.test.cjs 2>&1 | Tee-Object artifacts/ci-fixed-production/production.tap
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if (Select-String artifacts/ci-fixed-production/production.tap -Pattern '# SKIP|# skipped [1-9]' -Quiet) { throw 'Skipped production regression forbidden' }
+      - name: Layout migration
+        if: ${{ always() && steps.build.outcome == 'success' }}
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force artifacts/ci-fixed-production | Out-Null
+          node --liftoff-only --test --test-reporter=tap scripts/tests/fixed-path-layout.test.cjs 2>&1 | Tee-Object artifacts/ci-fixed-production/layout.tap
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if (Select-String artifacts/ci-fixed-production/layout.tap -Pattern '# SKIP|# skipped [1-9]' -Quiet) { throw 'Skipped layout regression forbidden' }
+      - name: Production protocol parity
+        if: ${{ always() && steps.build.outcome == 'success' }}
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force artifacts/ci-fixed-production | Out-Null
+          node scripts/tests/run-fixed-path-protocol-parity.mjs 2>&1 | Tee-Object artifacts/ci-fixed-production/parity.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if (Select-String artifacts/ci-fixed-production/parity.log -Pattern '# SKIP|# skipped [1-9]|skipped [1-9]' -Quiet) { throw 'Skipped parity regression forbidden' }
+      - name: Real direct and daemon MCP all four cases
+        if: ${{ always() && steps.build.outcome == 'success' }}
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force artifacts/ci-fixed-production | Out-Null
+          Remove-Item Env:E2E_CASE -ErrorAction SilentlyContinue
+          Remove-Item Env:CODEGRAPH_NO_DAEMON -ErrorAction SilentlyContinue
+          Remove-Item Env:CODEGRAPH_NO_WATCH -ErrorAction SilentlyContinue
+          Remove-Item Env:CODEGRAPH_ADAPTIVE_SYNC -ErrorAction SilentlyContinue
+          node --liftoff-only --test-reporter=tap scripts/tests/fixed-path-real-mcp.test.cjs 2>&1 | Tee-Object artifacts/ci-fixed-production/real-mcp.tap
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if (!(Select-String artifacts/ci-fixed-production/real-mcp.tap -Pattern '^# tests 4$' -Quiet)) { throw 'Expected exactly four real MCP tests' }
+          if (!(Select-String artifacts/ci-fixed-production/real-mcp.tap -Pattern '^# skipped 0$' -Quiet)) { throw 'Real MCP skips forbidden' }
+      - name: Preserve all runner evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fixed-path-production-${{ matrix.os }}
+          path: |
+            artifacts/ci-fixed-production/
+            artifacts/fixed-path-production-parity/
+            artifacts/phase2-real-mcp/
+          if-no-files-found: warn
+          retention-days: 14

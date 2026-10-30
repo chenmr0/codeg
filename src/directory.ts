@@ -7,6 +7,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { acquireCurrentGenerationLease } from './sync/generation-store';
+import { isFixedPathLayout, probeFixedPath } from './sync/fixed-path/probe';
 
 /** New indexes use wx; existing indexes remain readable during the transition. */
 const DEFAULT_CODEGRAPH_DIR = '.codegraph-wx';
@@ -110,7 +111,7 @@ export function getCodeGraphDir(projectRoot: string): string {
   const configured = configuredDirName();
   const preferred = path.join(projectRoot, configured ?? DEFAULT_CODEGRAPH_DIR);
   if (configured || !legacyCompatibilityEnabled() ||
-      (fs.existsSync(path.join(preferred, 'codegraph.db')) || hasCurrentManifest(preferred))) return preferred;
+      (fs.existsSync(path.join(preferred, '.runtime', 'layout.json')) || fs.existsSync(path.join(preferred, '.runtime', 'layout-migrations')) || fs.existsSync(path.join(preferred, 'codegraph.db')) || hasCurrentManifest(preferred))) return preferred;
   const legacy = path.join(projectRoot, LEGACY_CODEGRAPH_DIR);
   return (fs.existsSync(path.join(legacy, 'codegraph.db')) || hasCurrentManifest(legacy)) ? legacy : preferred;
 }
@@ -124,6 +125,7 @@ export function isInitialized(projectRoot: string): boolean {
   if (!fs.existsSync(codegraphDir) || !fs.statSync(codegraphDir).isDirectory()) {
     return false;
   }
+  if (isFixedPathLayout(codegraphDir)) { probeFixedPath(codegraphDir); return true; }
   // A published target must remain pinned through the existence check.
   // Callers opening a DB subsequently acquire their own fresh CURRENT lease;
   // this probe never hands an unprotected generation path to them.
@@ -168,6 +170,7 @@ export function findNearestCodeGraphRoot(startPath: string): string | null {
  */
 export function createDirectory(projectRoot: string): void {
   const codegraphDir = getCodeGraphDir(projectRoot);
+  if (isFixedPathLayout(codegraphDir)) { probeFixedPath(codegraphDir); throw new Error(`CodeGraph already initialized in ${projectRoot}`); }
   // The probe must pin its resolved generation until validation finishes.
   // A concurrent publication may retire it immediately after this check.
   const lease = acquireCurrentGenerationLease(codegraphDir);
@@ -339,7 +342,9 @@ export function validateDirectory(projectRoot: string): {
   // Published state is strict: malformed CURRENT/READY or a genuinely missing
   // target is corruption, not an uninitialized project or a legacy fallback.
   // Pin before validating so normal concurrent GC cannot cause ENOENT.
-  if (hasCurrentManifest(codegraphDir)) {
+  if (isFixedPathLayout(codegraphDir)) {
+    probeFixedPath(codegraphDir);
+  } else if (hasCurrentManifest(codegraphDir)) {
     const lease = acquireCurrentGenerationLease(codegraphDir);
     lease.release();
   }
