@@ -443,7 +443,7 @@ export function beginOperation(project) {
   try{owner=coordinatedOwner(p);}
   catch(error){try{initialized.coordination.close();}catch(closeError){throw new AggregateError([error,closeError],'Owner handoff and bootstrap close failed');}throw error;}
   try{initialized.coordination.close();}catch(error){try{owner?.close();}catch(ownerCloseError){throw new AggregateError([error,ownerCloseError],'Bootstrap and owner keeper close failed');}throw error;}
-  if (!owner) throw new Error('Another publisher/recovery owns this project');
+  if (!owner) throw Object.assign(new Error('Another publisher/recovery owns this project'), { code: 'FIXED_PUBLISHER_BUSY' });
   let baselineFence;
   try {
     baselineFence=lease(p.writers,true);

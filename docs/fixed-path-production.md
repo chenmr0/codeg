@@ -57,3 +57,28 @@ node scripts/tests/run-fixed-path-protocol-parity.mjs
 生产 SDK 测试直接执行 `node:test` 文件，避免 Node 的 `--test` 子执行器注入数十个默认 runtime flags 改变自适应 fingerprint；不是修改提取代码/伪造 provenance。协议对照测试使用原型矩阵，但将协议实现替换为 emitted 生产模块；这些对照不等于 CLI/MCP/daemon 端到端通过。
 
 进程强退恢复不等于断电持久性。Windows 目录刷盘没有未经验证的保证。仍需在同一代码提交上独立完成 Windows/Linux、真实生产入口、大仓性能及迁移验收后，才能考虑默认启用或发布正式包。
+
+## Concurrent sync callers
+
+Fixed-path CLI/MCP/daemon/SDK sync calls acquire a distinct OS-backed
+`sync-admission.sqlite` lease **before** planning. A cold MCP catch-up and an
+explicit SDK sync therefore queue, rather than launch competing publishers. A
+waiter holds no active graph, mutation or publisher lease and plans again from
+current source/storage after admission; it does not claim that another caller's
+result completed its own requested sync.
+
+`syncCoordinationTimeoutMs` bounds initial operation admission (default 30
+minutes). Retrying a pre-construction publisher/recovery collision uses the
+remaining wall-clock budget measured from this sync invocation, including time
+already spent planning/building; an already running build is not killed solely
+because that retry budget expires. `AbortSignal` cancels the waiting caller. Neither changes the
+one-second publication drain budget or cancels the existing publisher. An
+expired waiter fails explicitly, even if the lock becomes free before its next
+poll. A killed parent's still-live publisher child remains protected by its
+separate OS owner lease. Abandoned-state recovery/hash/cleanup runs off-thread,
+and admission remains held until the recovery thread actually exits. This is
+cooperative sync coordination, not support for arbitrary external SQLite tools.
+
+Only the typed `FIXED_PUBLISHER_BUSY` result, emitted before publisher ownership
+or candidate creation, permits automatic wait/replan. Validation, I/O, damaged
+state and post-construction failures are not blindly replayed.

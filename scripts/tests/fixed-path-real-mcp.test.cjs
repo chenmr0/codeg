@@ -1,3 +1,4 @@
+// Canonicalize fixture roots: Windows TEMP may use an 8.3 alias while production resolves real paths.
 // Real CLI stdio + shared-daemon integration; no mocked transport/database.
 const rawTest=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),os=require('node:os'),path=require('node:path');
 function test(name,options,fn){if(!process.env.E2E_CASE||name.includes(process.env.E2E_CASE))rawTest(name,options,fn);}
@@ -16,7 +17,7 @@ function client(dir,direct=false,preload,watch=false){
 }
 function main(dir,n=1){fs.writeFileSync(path.join(dir,'main.py'),`def stable(value=${n}):\n    return value\n`);}
 function files(dir,prefix){for(let n=0;n<140;n++)fs.writeFileSync(path.join(dir,`${prefix}${n}.py`),`def ${prefix}${n}():\n    return ${n}\n`);}
-function root(){return fs.mkdtempSync(path.join(os.tmpdir(),'cg-real-mcp-'));}
+function root(){return fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(),'cg-real-mcp-')));}
 
 for(const mode of ['direct','daemon'])test(`real ${mode}: cross-process watcher rebuild, idle reconnect and offline public overwrite`, {timeout:90000},async()=>{
  const dir=root(),producer=root();main(dir);main(producer,77);let graph=await CodeGraph.init(dir,{index:true});let p=await CodeGraph.init(producer,{index:true});p.close();const publicDb=path.join(producer,'.codegraph-wx/codegraph.db');seal(publicDb,{standalone:true});const active=path.join(dir,'.codegraph-wx/codegraph.db');
@@ -51,4 +52,19 @@ for(const direct of [true,false]) test(`actual ${direct?'direct stdio':'shared d
    // A direct stdio EOF drains already-admitted async response, not close under it.
    if(direct){fs.unlinkSync(ready);fs.unlinkSync(release);fs.writeFileSync(path.join(dir,'arm'),'');pending=c.search('stable').then(value=>({value}),error=>({error}));await until(()=>fs.existsSync(ready));c.child.stdin.end();await sleep(100);assert.equal(c.child.exitCode,null);fs.writeFileSync(release,'');const eof=await pending;if(eof.error)assert.match(eof.error.message,/Request cancelled/);else assert.match(eof.value,/stable/);pending=null;}
   }finally{fs.writeFileSync(release,'');if(pending)await pending.catch(()=>{});await c.close();await until(()=>!fs.existsSync(path.join(dir,'.codegraph-wx/daemon.pid'))).catch(()=>{});graph.close();fs.rmSync(dir,{recursive:true,force:true});fs.rmSync(hook,{force:true});}
+});
+
+for(const direct of [true,false])test(`real ${direct?'direct':'daemon'} cold catch-up joins a concurrent SDK rebuild without publisher collision`,{timeout:45000},async()=>{
+ const dir=root();main(dir);const graph=await CodeGraph.init(dir,{index:true});files(dir,'join_');
+ const rebuild=require('../../dist/sync/fixed-path/rebuild'),original=rebuild.runFixedPathRebuild;
+ let release,entered;const hold=new Promise(r=>release=r),ready=new Promise(r=>entered=r);let c,pending;
+ rebuild.runFixedPathRebuild=async(...args)=>{entered();await hold;return original(...args);};
+ try{
+  pending=graph.sync();await ready;c=client(dir,direct);await c.start();
+  if(!direct)assert.match(c.stderr,/Attached to shared daemon/);
+  await sleep(150);const querying=c.search('join_139');release();
+  const result=await pending;assert.equal(result.adaptive.strategy,'rebuild');
+  assert.match(await querying,/join_139/);assert(!/Catch-up sync failed|Another publisher\/recovery/.test(c.stderr),c.stderr);
+  assert.equal(records(paths(dir)).filter(r=>r.phase==='cleaned').length,1);
+ }finally{release();rebuild.runFixedPathRebuild=original;await pending?.catch(()=>{});await c?.close();await until(()=>!fs.existsSync(path.join(dir,'.codegraph-wx/daemon.pid'))).catch(()=>{});await graph.whenIdle();graph.close();fs.rmSync(dir,{recursive:true,force:true});}
 });

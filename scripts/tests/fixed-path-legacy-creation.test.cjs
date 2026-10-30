@@ -1,9 +1,10 @@
+// Canonicalize fixture roots: Windows TEMP may use an 8.3 alias while production resolves real paths.
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),os=require('node:os');
 const {spawnSync}=require('node:child_process');
 const {DatabaseConnection}=require('../../dist');
 const adapter=require('../../dist/db/sqlite-adapter');
 for(const wasm of [false,true])test(`legacy ${wasm?'WASM':'native'} root creation excludes fixed initialization until root is materialized`,async()=>{
-  const root=fs.mkdtempSync(path.join(os.tmpdir(),'cg-legacy-create-')),dataDir=path.join(root,'.codegraph-wx'),file=path.join(dataDir,'codegraph.db');
+  const root=fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(),'cg-legacy-create-'))),dataDir=path.join(root,'.codegraph-wx'),file=path.join(dataDir,'codegraph.db');
   const original=adapter.createDatabase,previous=process.env.CODEGRAPH_FORCE_WASM;let db,observed=false;
   try{
     if(wasm){await adapter.ensureSqlJsReady();process.env.CODEGRAPH_FORCE_WASM='1';}else delete process.env.CODEGRAPH_FORCE_WASM;
@@ -23,14 +24,14 @@ for(const wasm of [false,true])test(`legacy ${wasm?'WASM':'native'} root creatio
 });
 
  test('dangling filename alias cannot create an unadmitted fixed root',()=>{
-  const root=fs.mkdtempSync(path.join(os.tmpdir(),'cg-dangling-create-')),dataDir=path.join(root,'.codegraph-wx'),active=path.join(dataDir,'codegraph.db'),alias=path.join(root,'alias.sqlite');
+  const root=fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(),'cg-dangling-create-'))),dataDir=path.join(root,'.codegraph-wx'),active=path.join(dataDir,'codegraph.db'),alias=path.join(root,'alias.sqlite');
   try {fs.mkdirSync(dataDir);fs.symlinkSync(active,alias,'file');assert.throws(()=>DatabaseConnection.initialize(alias),/Dangling database symlink/);assert(!fs.existsSync(active));}
   finally {fs.rmSync(root,{recursive:true,force:true});}
  });
 
 test('public offline migration cannot bypass a live initializer after its legacy token is released',async()=>{
   const {CodeGraph}=require('../../dist'),{initializeFixedPathStorage}=require('../../dist/sync/fixed-path-initialization');
-  const root=fs.mkdtempSync(path.join(os.tmpdir(),'cg-init-migrate-')),dataDir=path.join(root,'.codegraph-wx'),original=fs.unlinkSync;
+  const root=fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(),'cg-init-migrate-'))),dataDir=path.join(root,'.codegraph-wx'),original=fs.unlinkSync;
   let pending,intercepted=false;
   try{
     fs.unlinkSync=function(file){const result=original.apply(this,arguments);if(!intercepted&&String(file)===path.join(dataDir,'codegraph.lock')){

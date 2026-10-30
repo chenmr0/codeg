@@ -4,6 +4,13 @@ import type { IndexProgress, SyncResult } from '../../extraction';
 import type { FixedPathProject } from './controller';
 import type { AdaptivePlan } from '../adaptive-plan';
 
+const preConstructionContention = new WeakSet<Error>();
+/** Only errors received from the child before operation construction qualify;
+ * a caller's progress exception carrying the same string code does not. */
+export function isFixedPublisherBusy(error: unknown): boolean {
+  return error instanceof Error && preConstructionContention.has(error);
+}
+
 /** Publisher owns candidate AND publication in one process. Parent completion
  * always waits for actual exit, including cancellation; no orphan builder PID heuristics. */
 export function runFixedPathRebuild(project: FixedPathProject, plan: AdaptivePlan,
@@ -21,9 +28,12 @@ export function runFixedPathRebuild(project: FixedPathProject, plan: AdaptivePla
     const abort = (): void => { cancelled = true; child.kill('SIGTERM'); timer ??= setTimeout(() => child.kill('SIGKILL'), 2000); timer.unref(); };
     options.signal?.addEventListener('abort', abort, { once: true });
     child.on('message', message => {
-      const item = message as { type?: string; result?: SyncResult; progress?: IndexProgress; error?: string };
+      const item = message as { type?: string; result?: SyncResult; progress?: IndexProgress; error?: string; code?: string };
       if (item.type === 'result') result = item.result;
-      if (item.type === 'error') failure = new Error(item.error);
+      if (item.type === 'error') {
+        failure = new Error(item.error);
+        if (item.code === 'FIXED_PUBLISHER_BUSY') preConstructionContention.add(failure);
+      }
       if (item.type === 'progress' && item.progress) {
         try { options.onProgress?.(item.progress); } catch (error) { failure = error instanceof Error ? error : new Error(String(error)); abort(); }
       }

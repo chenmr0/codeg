@@ -192,6 +192,8 @@ export interface IndexOptions {
 
 /** Options for incremental synchronization. */
 export interface SyncOptions extends IndexOptions {
+  /** Maximum wait for another cooperating fixed-path sync; default 30 minutes. Does not pause queries or change the 1-second publication drain budget. */
+  syncCoordinationTimeoutMs?: number;
   /** Optional native fallback notice sink. Library/MCP/watch callers stay silent by default. */
   onScanFallback?: (message: string) => void;
   /**

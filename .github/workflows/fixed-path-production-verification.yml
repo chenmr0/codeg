@@ -1,7 +1,7 @@
 name: Fixed-path production complete verification
 on:
   push:
-    branches: [verify/fixed-path-production-complete-20261030]
+    branches: [verify/fixed-path-production-sync-admission-20261030]
   workflow_dispatch: {}
 permissions:
   contents: read
@@ -137,7 +137,20 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           if (!(Select-String artifacts/ci-fixed-production/fixed-path-real-mcp.tap -Pattern '^# skipped 0$' -CaseSensitive -Quiet)) { throw 'Zero skipped summary required' }
           if (Select-String artifacts/ci-fixed-production/fixed-path-real-mcp.tap -Pattern '# SKIP(?: |$)' -CaseSensitive -Quiet) { throw 'Skipped tests forbidden' }
-          if (!(Select-String artifacts/ci-fixed-production/fixed-path-real-mcp.tap -Pattern '^# tests 4$' -CaseSensitive -Quiet)) { throw 'Exactly four real MCP cases required' }
+          if (!(Select-String artifacts/ci-fixed-production/fixed-path-real-mcp.tap -Pattern '^# tests 6$' -CaseSensitive -Quiet)) { throw 'Exactly six real MCP cases required' }
+      - name: fixed-path-sync-admission
+        if: ${{ always() && steps.build.outcome == 'success' }}
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force artifacts/ci-fixed-production | Out-Null
+          Remove-Item Env:E2E_CASE -ErrorAction SilentlyContinue
+          Remove-Item Env:CODEGRAPH_NO_DAEMON -ErrorAction SilentlyContinue
+          Remove-Item Env:CODEGRAPH_NO_WATCH -ErrorAction SilentlyContinue
+          Remove-Item Env:CODEGRAPH_ADAPTIVE_SYNC -ErrorAction SilentlyContinue
+          node --liftoff-only --test-reporter=tap scripts/tests/fixed-path-sync-admission.test.cjs 2>&1 | Tee-Object artifacts/ci-fixed-production/fixed-path-sync-admission.tap
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if (!(Select-String artifacts/ci-fixed-production/fixed-path-sync-admission.tap -Pattern '^# skipped 0$' -CaseSensitive -Quiet)) { throw 'Zero skipped summary required' }
+          if (Select-String artifacts/ci-fixed-production/fixed-path-sync-admission.tap -Pattern '# SKIP(?: |$)' -CaseSensitive -Quiet) { throw 'Skipped tests forbidden' }
       - name: Production protocol parity
         if: ${{ always() && steps.build.outcome == 'success' }}
         shell: pwsh

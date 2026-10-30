@@ -1,3 +1,4 @@
+// Canonicalize fixture roots: Windows TEMP may use an 8.3 alias while production resolves real paths.
 const test=require('node:test');
 const assert=require('node:assert/strict');
 const fs=require('node:fs');
@@ -9,7 +10,7 @@ const {randomUUID}=require('node:crypto');
 const api=require('../../dist/sync/fixed-path-layout');
 const {GenerationWriterLock,createGeneration,publishGeneration}=require('../../dist/sync/generation-store');
 const {withLifecycleGate,acquireLifecycleLease}=require('../../dist/sync/generation-lifecycle');
-function fixture(t){const root=fs.mkdtempSync(path.join(os.tmpdir(),'cg-layout-'));t.after(()=>fs.rmSync(root,{recursive:true,force:true}));return root;}
+function fixture(t){const root=fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(),'cg-layout-')));t.after(()=>fs.rmSync(root,{recursive:true,force:true}));return root;}
 function db(file,value='old',wal=false){const d=new DatabaseSync(file);try{if(wal)d.exec('PRAGMA journal_mode=WAL');d.exec('CREATE TABLE data(value TEXT)');d.prepare('INSERT INTO data VALUES (?)').run(value);}finally{d.close();}}
 function value(file){const d=new DatabaseSync(file,{readOnly:true});try{return d.prepare('SELECT value FROM data').get().value;}finally{d.close();}}
 function legacy(root,v='old',wal=false){const id='g-'+randomUUID(),dir=path.join(root,'generations',id);fs.mkdirSync(dir,{recursive:true});db(path.join(dir,'codegraph.db'),v,wal);const m={version:1,generation:id,token:randomUUID(),complete:true};fs.writeFileSync(path.join(dir,'READY.json'),JSON.stringify(m));fs.writeFileSync(path.join(root,'CURRENT'),JSON.stringify(m));return path.join(dir,'codegraph.db');}

@@ -1,3 +1,4 @@
+// Canonicalize fixture roots: Windows TEMP may use an 8.3 alias while production resolves real paths.
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -9,7 +10,7 @@ const {ToolHandler} = require('../../dist/mcp/tools.js');
 const {records, paths, seal} = require('../../dist/sync/fixed-path/protocol.js');
 process.env.CODEGRAPH_ALL_LANGUAGES = '1';
 process.env.CODEGRAPH_FIXED_PATH = '1';
-function root() { return fs.mkdtempSync(path.join(os.tmpdir(), 'fixed-production-')); }
+function root() { return fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'fixed-production-'))); }
 function source(dir, value=1, flask=false) {
   fs.writeFileSync(path.join(dir,'main.py'), `${flask?'from flask import Flask\napp = Flask(__name__)\n':'# stable line\n# stable line\n'}def stable(value=${value}):\n    return value\n`);
 }

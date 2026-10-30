@@ -80,6 +80,6 @@ process.once('message', (message: { plan: AdaptivePlan; expectedRevision: number
   process.execArgv = message.parentExecArgv;
   void main(message.plan, message.expectedRevision).catch(error => {
     process.exitCode = 1;
-    process.send?.({ type: 'error', error: error instanceof Error ? error.stack : String(error) });
+    process.send?.({ type: 'error', error: error instanceof Error ? error.stack : String(error), code: (error as { code?: string })?.code });
   }).finally(() => { process.removeListener('disconnect', parentDisconnected); if (process.connected) process.disconnect(); });
 });

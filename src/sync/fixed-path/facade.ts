@@ -1,7 +1,8 @@
 import type { SyncResult } from '../../extraction';
 import { runAdaptiveReadWorker } from '../rebuild-controller';
 import type { AdaptivePlan, AdaptiveDecision } from '../adaptive-plan';
-import { runFixedPathRebuild } from './rebuild';
+import { acquireFixedSyncAdmission } from './sync-admission';
+import { runFixedPathRebuild, isFixedPublisherBusy } from './rebuild';
 import type { CodeGraph, SyncOptions } from '../../index';
 import { FileWatcher, LockUnavailableError, type WatchOptions } from '../watcher';
 import { FixedPathController, type FixedPathPin, type FixedPathProject } from './controller';
@@ -76,6 +77,9 @@ export function createFixedPathFacade(project: FixedPathProject, prototype: obje
     options = { ...options, signal: options.signal ? AbortSignal.any([options.signal, cancellation.signal]) : cancellation.signal };
     const operation = (async () => {
       const started = performance.now();
+      const coordinationDeadline = performance.now() + (options.syncCoordinationTimeoutMs ?? 30 * 60 * 1000);
+      let syncAdmission = await acquireFixedSyncAdmission(project, { signal: options.signal, timeoutMs: options.syncCoordinationTimeoutMs });
+      try {
       let published: SyncResult | undefined;
       while (true) {
       const supportedRuntime = !process.env.NODE_OPTIONS?.trim() && process.execArgv.every(arg =>
@@ -107,6 +111,15 @@ export function createFixedPathFacade(project: FixedPathProject, prototype: obje
             // published graph with full content hashes off-thread and converge
             // automatically; this is not instantaneous source consistency.
             continue;
+          } catch (error) {
+            // Only this typed failure proves beginOperation acquired no owner
+            // and created no candidate. A concurrent startup recovery can race
+            // the earlier probe; release admission, wait, then replan fully.
+            if (!isFixedPublisherBusy(error)) throw error;
+            if (performance.now() >= coordinationDeadline) throw new Error('Fixed-path sync coordination timed out waiting for publisher/recovery');
+            syncAdmission.close();
+            syncAdmission = await acquireFixedSyncAdmission(project, { signal: options.signal, timeoutMs: Math.max(0, coordinationDeadline - performance.now()) });
+            continue;
           } finally { builds.delete(abort); options.signal?.removeEventListener('abort', cancel); }
         }
       }
@@ -115,6 +128,7 @@ export function createFixedPathFacade(project: FixedPathProject, prototype: obje
       if (incremental.complete === false) throw new Error('Post-publication incremental reconciliation is incomplete');
       published = { ...incremental, adaptive: published.adaptive, durationMs: performance.now() - started };
       }
+      } finally { syncAdmission.close(); }
     })();
     rebuilds.add(operation);
     const finished = (): void => { rebuilds.delete(operation); operations.delete(cancellation); };

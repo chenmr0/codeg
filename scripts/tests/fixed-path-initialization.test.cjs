@@ -1,7 +1,8 @@
+// Canonicalize fixture roots: Windows TEMP may use an 8.3 alias while production resolves real paths.
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),os=require('node:os');
 const {DatabaseSync}=require('node:sqlite'),{spawnSync,spawn}=require('node:child_process'),{once}=require('node:events');
 const api=require('../../dist/sync/fixed-path-initialization'),layout=require('../../dist/sync/fixed-path-layout');
-function fixture(t){const root=fs.mkdtempSync(path.join(os.tmpdir(),'cg-initialization-'));t.after(()=>fs.rmSync(root,{recursive:true,force:true}));return root;}
+function fixture(t){const root=fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(),'cg-initialization-')));t.after(()=>fs.rmSync(root,{recursive:true,force:true}));return root;}
 function build(file){const d=new DatabaseSync(file);try{d.exec("CREATE TABLE data(value TEXT); INSERT INTO data VALUES ('initial')");}finally{d.close();}}
 function read(file){const d=new DatabaseSync(file,{readOnly:true});try{return d.prepare('SELECT value FROM data').get().value;}finally{d.close();}}
 const active=root=>path.join(root,'codegraph.db');
