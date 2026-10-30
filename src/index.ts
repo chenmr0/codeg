@@ -30,6 +30,7 @@ import {
 import { DatabaseConnection, DatabaseOpenError } from './db';
 import { FixedPathWriterLock } from './sync/fixed-path/writer-lock';
 import { createFixedPathFacade } from './sync/fixed-path/facade';
+import { markFixedPathCatchup, readFixedPathCatchup, clearFixedPathCatchup } from './sync/fixed-path/catchup';
 import { withFixedPathOpen } from './sync/fixed-path/open-context';
 import { isFixedPathLayout } from './sync/fixed-path/probe';
 import { migrateToFixedPath } from './sync/fixed-path-layout';
@@ -180,6 +181,9 @@ export interface OpenOptions {
  * Options for indexing
  */
 export interface IndexOptions {
+  /** @internal Pending fixed-path catch-up requires full re-extraction for this
+   * observed configuration, even when every source content hash is unchanged. */
+  fixedPathCatchupConfig?: string;
   /** Progress callback */
   onProgress?: (progress: IndexProgress) => void;
 
@@ -192,6 +196,9 @@ export interface IndexOptions {
 
 /** Options for incremental synchronization. */
 export interface SyncOptions extends IndexOptions {
+  /** @internal Full-hash reconciliation already proved these paths changed.
+   * Bypass stat/hash shortcuts and re-extract them during this sync. */
+  forceReindexPaths?: string[];
   /** Maximum wait for another cooperating fixed-path sync; default 30 minutes. Does not pause queries or change the 1-second publication drain budget. */
   syncCoordinationTimeoutMs?: number;
   /** Optional native fallback notice sink. Library/MCP/watch callers stay silent by default. */
@@ -641,11 +648,28 @@ export class CodeGraph {
     try {
       if (db.getBackend() !== 'node-sqlite') throw new Error('Fixed-path rebuild requires node:sqlite');
       installSourceOwnership(db.getDb());
+      markFixedPathCatchup(db.getDb(), owner.operation);
       return new CodeGraph(db, new QueryBuilder(db.getDb()), root, true);
     } catch (error) {
       try { db.close(); } catch (closeError) { throw new DatabaseOpenError(db, error, closeError); }
       throw error;
     }
+  }
+
+  /** @internal Read on a controller-owned handle, never a public facade method. */
+  getFixedPathCatchup(): string | null { return readFixedPathCatchup(this.db.getDb()); }
+
+  /** @internal A matching file hash is not proof that its resolution tail ran. */
+  hasFixedPathCatchupWork(): boolean {
+    return this.hasSynthesisRecoveryEvidence();
+  }
+
+  /** @internal The controller retains mutation admission across verification. */
+  completeFixedPathCatchup(operation: string): boolean {
+    if (!this.fixedBound || this.readOnly) throw new Error('Catch-up acknowledgement requires a controlled writer');
+    this.fileLock.acquire();
+    try { return clearFixedPathCatchup(this.db.getDb(), operation); }
+    finally { this.fileLock.release(); }
   }
 
   /** @internal Controlled v1 entry. Layout registration/recovery is the caller's prerequisite. */
@@ -791,6 +815,10 @@ export class CodeGraph {
           });
           this.orchestrator.resetLanguageScopeCaches();
         }
+        if (options.fixedPathCatchupConfig !== undefined) {
+          if (!this.fixedBound || this.getFixedPathCatchup() === null) throw new Error('Full catch-up requires a pending controlled publication');
+          this.orchestrator.resetLanguageScopeCaches();
+        }
         const before = this.queries.getNodeAndEdgeCount();
         const freshDb = before.nodes === 0;
 
@@ -864,7 +892,8 @@ export class CodeGraph {
                     leaseFactory: () => this.db.retainBackgroundLease(),
                   }
                 : null,
-              { force: scopeChanged || extractionChanged, reconcile: scopeChanged || extractionChanged },
+              { force: scopeChanged || extractionChanged || options.fixedPathCatchupConfig !== undefined,
+                reconcile: scopeChanged || extractionChanged || options.fixedPathCatchupConfig !== undefined },
             );
           } finally {
             try {
@@ -1049,8 +1078,8 @@ export class CodeGraph {
             );
           } catch { /* the returned diagnostics remain authoritative */ }
 
-          if (ownership !== null && result.success === true && result.complete === true) {
-            this.queries.setMetadata('adaptive:index-config-v1', adaptiveConfigFingerprint(this.projectRoot, this.queries.getAllFiles()));
+          if ((ownership !== null || options.fixedPathCatchupConfig !== undefined) && result.success === true && result.complete === true) {
+            this.queries.setMetadata('adaptive:index-config-v1', options.fixedPathCatchupConfig ?? adaptiveConfigFingerprint(this.projectRoot, this.queries.getAllFiles()));
           }
           finishSourceWrite(this.db.getDb(), ownership, result.success === true && result.complete === true);
           if (!this.shadowCandidate && result.success && result.complete) {
@@ -1508,7 +1537,7 @@ export class CodeGraph {
             `totalMs=${Math.round(performance.now() - preflightStarted)}ms`);
         }
         const result = await this.orchestrator.sync(
-          options.onProgress,
+          progress => { options.signal?.throwIfAborted(); options.onProgress?.(progress); options.signal?.throwIfAborted(); },
           options.paths,
           options.verbose,
           replaceFileStore,
@@ -1517,6 +1546,7 @@ export class CodeGraph {
           options.onScanFallback,
           walValve ? { hardCapBytes: walValve.hardCapBytes,
             getWalSizeBytes: () => this.db.getWalSizeBytes() } : undefined,
+          options.forceReindexPaths,
         );
         // Old unstamped edges need source re-extraction, even if their caller
         // was unchanged (or was stored before a later target replacement).

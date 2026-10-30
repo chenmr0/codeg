@@ -1,3 +1,4 @@
+import { workerRuntimeOptions } from '../worker-runtime';
 import { withFixedPathInitializationCreationGate } from '../sync/fixed-path-initialization';
 import { isFixedPathLayout } from '../sync/fixed-path/probe';
 import { assertFixedPathOpenAdmitted, acquireAuthorizedFixedPathLease } from '../sync/fixed-path/open-context';
@@ -642,7 +643,7 @@ export class DatabaseConnection {
           catch (error) { terminationFailed(error); }
         };
         try {
-          worker = new Worker(workerSource, { eval: true, workerData: { dbPath: this.dbPath, mode } });
+          worker = new Worker(workerSource, workerRuntimeOptions({ eval: true, workerData: { dbPath: this.dbPath, mode } }));
         } catch (error) {
           reject(walCheckpointErrorFrom(error, 'unavailable'));
           return;
@@ -772,7 +773,7 @@ export class DatabaseConnection {
           // Completion messages (including failed close) are not proof of exit.
           try { void worker.terminate().catch(() => {}); } catch { /* await exit */ }
         };
-        try { worker = new Worker(workerSource, { eval: true, workerData: { dbPath: this.dbPath, pragmas } }); }
+        try { worker = new Worker(workerSource, workerRuntimeOptions({ eval: true, workerData: { dbPath: this.dbPath, pragmas } })); }
         catch { resolve(); return; } // No native worker was created.
         worker.once('message', stop);
         worker.once('error', stop);

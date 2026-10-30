@@ -1,3 +1,4 @@
+import { withIsolatedWorkerRuntime } from '../../worker-runtime';
 import type { SyncResult } from '../../extraction';
 import { runAdaptiveReadWorker } from '../rebuild-controller';
 import type { AdaptivePlan, AdaptiveDecision } from '../adaptive-plan';
@@ -82,6 +83,70 @@ export function createFixedPathFacade(project: FixedPathProject, prototype: obje
       try {
       let published: SyncResult | undefined;
       while (true) {
+      options.signal?.throwIfAborted();
+      if (controller.readSync(graph => graph.getFixedPathCatchup()) !== null) {
+        // Mutation + writer admission span verification, repair and acknowledgement.
+        // Revision checks alone cannot exclude a writer admitted BEFORE the scan.
+        // This also pins the exact published image throughout acknowledgement.
+        const reconciled = await withIsolatedWorkerRuntime(() => controller.write(async graph => {
+          const pending = graph.getFixedPathCatchup();
+          if (pending === null) return null; // Re-read only AFTER writer admission.
+          const revision = controller.currentRevision();
+          let result = published;
+          while (true) {
+            options.signal?.throwIfAborted();
+            const evaluation = await runAdaptiveReadWorker<{ plan?: AdaptivePlan; decision: AdaptiveDecision; configurationChanged?: boolean }>({
+              type: 'evaluate', root: project.project, databasePath: graph.getDatabaseFilePath(),
+              eligibility: { upgradeRequired: graph.isIndexStale(), fallback: options.adaptiveFallback }, fullHash: true,
+            }, { signal: options.signal, isolatedRuntime: true });
+            try { options.onAdaptiveDecision?.(evaluation.decision); } catch { /* diagnostics only */ }
+            options.signal?.throwIfAborted();
+            const plan = evaluation.plan;
+            if (!plan) throw new Error('Pending publication catch-up could not verify the source inventory');
+            if (plan.changedFiles === 0 && !evaluation.configurationChanged && !graph.isIndexStale() &&
+                !graph.hasFixedPathCatchupWork() && graph.getIndexCompleteness().status === 'complete') {
+              // No new publication or controlled mutation may consume an old proof.
+              if (controller.currentRevision() !== revision || !graph.completeFixedPathCatchup(pending)) {
+                throw new Error('Database changed during publication catch-up; pending verification retained');
+              }
+              return { ...(result ?? { complete: true, filesChecked: plan.totalFiles, filesAdded: 0,
+                filesModified: 0, filesRemoved: 0, filesErrored: 0, nodesUpdated: 0, errors: [] }),
+                durationMs: performance.now() - started };
+            }
+            if (evaluation.configurationChanged || graph.isIndexStale()) {
+              // Configuration affects extraction/resolution even when source
+              // hashes do not. Retain pending until a forced full pass AND a
+              // fresh verification agree on the observed configuration.
+              const full = await graph.indexAll({ ...options, fixedPathCatchupConfig: plan.snapshot.configFingerprint });
+              options.signal?.throwIfAborted();
+              if (!full.success || full.complete !== true) throw new Error('Post-publication configuration reconciliation is incomplete');
+              result = { ...result, complete: true, filesChecked: plan.totalFiles + plan.removed.length,
+                filesAdded: (result?.filesAdded ?? 0) + plan.added.length,
+                filesModified: (result?.filesModified ?? 0) + plan.modified.length,
+                filesRemoved: (result?.filesRemoved ?? 0) + plan.removed.length,
+                nodesUpdated: (result?.nodesUpdated ?? 0) + full.nodesCreated, durationMs: performance.now() - started,
+                errors: [...(result?.errors ?? []), ...full.errors] };
+              continue;
+            }
+            // A full hash mismatch is stronger evidence than (size, mtime).
+            // Force extraction of those exact paths; ordinary scoped sync and
+            // adaptive opt-outs cannot bypass this durable correctness obligation.
+            const incremental = await graph.sync({ ...options, adaptive: false, paths: undefined,
+              forceReindexPaths: [...new Set([...(options.forceReindexPaths ?? []), ...plan.modified])] });
+            options.signal?.throwIfAborted();
+            if (incremental.complete !== true) throw new Error('Post-publication incremental reconciliation is incomplete');
+            result = result ? { ...incremental, adaptive: result.adaptive,
+              filesAdded: result.filesAdded + incremental.filesAdded,
+              filesModified: result.filesModified + incremental.filesModified,
+              filesRemoved: result.filesRemoved + incremental.filesRemoved,
+              nodesUpdated: result.nodesUpdated + incremental.nodesUpdated,
+              changedFilePaths: [...new Set([...(result.changedFilePaths ?? []), ...(incremental.changedFilePaths ?? [])])],
+              errors: [...(result.errors ?? []), ...(incremental.errors ?? [])] } : incremental;
+          }
+        }));
+        if (reconciled) return reconciled;
+        continue;
+      }
       const supportedRuntime = !process.env.NODE_OPTIONS?.trim() && process.execArgv.every(arg =>
         arg === '--liftoff-only' || /^--max[-_]old[-_]space[-_]size=\d+$/.test(arg) || /^--test(?:$|[-=])/.test(arg));
       if (options.adaptive !== false && process.env.CODEGRAPH_ADAPTIVE_SYNC !== '0' && supportedRuntime) {
@@ -89,17 +154,11 @@ export function createFixedPathFacade(project: FixedPathProject, prototype: obje
         // protects the underlying file through worker exit.
         const baselineRevision = controller.currentRevision();
         const evaluation = await controller.read(graph => runAdaptiveReadWorker<{ plan?: AdaptivePlan; decision: AdaptiveDecision }>({
-          type: 'evaluate', root: project.project, databasePath: graph.getDatabaseFilePath(), paths: published ? undefined : options.paths,
+          type: 'evaluate', root: project.project, databasePath: graph.getDatabaseFilePath(), paths: options.paths,
           eligibility: { upgradeRequired: graph.isIndexStale(), fallback: options.adaptiveFallback },
-          fullHash: !!published,
         }, { signal: options.signal }));
         if (controller.currentRevision() !== baselineRevision) throw new Error('Database changed during adaptive planning; retry sync');
         try { options.onAdaptiveDecision?.(evaluation.decision); } catch { /* diagnostics only */ }
-        if (published && evaluation.plan?.changedFiles === 0 && evaluation.decision.strategy === 'incremental') {
-          published.durationMs = performance.now() - started;
-          return published;
-        }
-        if (published && !evaluation.plan) throw new Error('Post-publication source verification could not establish a complete owned index');
         if (evaluation.decision.strategy === 'rebuild' && evaluation.plan) {
           const abort = new AbortController(); builds.add(abort);
           const cancel = (): void => abort.abort();
@@ -123,10 +182,7 @@ export function createFixedPathFacade(project: FixedPathProject, prototype: obje
           } finally { builds.delete(abort); options.signal?.removeEventListener('abort', cancel); }
         }
       }
-      const incremental = await controller.write(graph => graph.sync({ ...options, paths: published ? undefined : options.paths, adaptive: false }));
-      if (!published) return incremental;
-      if (incremental.complete === false) throw new Error('Post-publication incremental reconciliation is incomplete');
-      published = { ...incremental, adaptive: published.adaptive, durationMs: performance.now() - started };
+      return await controller.write(graph => graph.sync({ ...options, adaptive: false }));
       }
       } finally { syncAdmission.close(); }
     })();

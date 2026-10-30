@@ -5,6 +5,8 @@
  * order so database row order and ambiguous-name resolution stay deterministic.
  */
 
+import { workerRuntimeOptions } from '../worker-runtime';
+
 import { Worker } from 'worker_threads';
 import type { ExtractionResult, Language } from '../types';
 import type { CppMacroDefinition } from './declaration-macros';
@@ -133,7 +135,7 @@ export class ParseWorkerPool {
     } else if (options.workerScriptPath) {
       const scriptPath = options.workerScriptPath;
       const env = languageScopeWorkerEnv();
-      this.createWorker = () => new Worker(scriptPath, { env });
+      this.createWorker = () => new Worker(scriptPath, workerRuntimeOptions({ env }));
     } else {
       throw new Error('ParseWorkerPool requires workerScriptPath or createWorker');
     }

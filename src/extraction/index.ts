@@ -4,6 +4,7 @@
  * Coordinates file scanning, parsing, and database storage.
  */
 
+import { workerRuntimeOptions } from '../worker-runtime';
 import * as fs from 'fs';
 import { repositoryExcludePath } from '../git-metadata';
 import * as fsp from 'fs/promises';
@@ -1591,7 +1592,7 @@ export class ExtractionOrchestrator {
     async function ensureWorker(): Promise<import('worker_threads').Worker> {
       if (parseWorker) return parseWorker;
       log('Spawning new parse worker...');
-      parseWorker = new WorkerClass!(parseWorkerPath, { env: languageScopeWorkerEnv() });
+      parseWorker = new WorkerClass!(parseWorkerPath, workerRuntimeOptions({ env: languageScopeWorkerEnv() }));
       attachWorkerHandlers(parseWorker);
 
       // Load grammars in the new worker. grammarBuffers (pre-read above) make
@@ -2369,7 +2370,7 @@ export class ExtractionOrchestrator {
     this.syncRewireFailures = [];
     const diagnostics = request.diagnostics ? new StoreDiagnostics() : undefined;
     this.storeExtractionResult(request.filePath, request.content, request.language,
-      request.stats, request.result, diagnostics ? { diagnostics } : undefined);
+      request.stats, request.result, { diagnostics, force: request.force });
     return { failedSourceFiles: this.syncRewireFailures, diagnostics };
   }
 
@@ -2620,8 +2621,9 @@ export class ExtractionOrchestrator {
     beforeNodeWrite?: () => Promise<void>,
     onScanFallback?: (message: string) => void,
     removalBatch?: RemovalBatchOptions,
+    forceReindexPaths?: string[],
   ): Promise<SyncResult> {
-    return withLanguageScope(() => this.syncInScope(onProgress, scopedPaths, verbose, replaceFileStore, afterWrite, beforeNodeWrite, onScanFallback, removalBatch));
+    return withLanguageScope(() => this.syncInScope(onProgress, scopedPaths, verbose, replaceFileStore, afterWrite, beforeNodeWrite, onScanFallback, removalBatch, forceReindexPaths));
   }
 
   private async syncInScope(
@@ -2634,7 +2636,9 @@ export class ExtractionOrchestrator {
     beforeNodeWrite?: () => Promise<void>,
     onScanFallback?: (message: string) => void,
     removalBatch?: RemovalBatchOptions,
+    forceReindexPaths?: string[],
   ): Promise<SyncResult> {
+    const forced = new Set(forceReindexPaths);
     await initGrammars(); // Initialize WASM runtime (grammars loaded lazily below)
     // Sync rescans; clear the canonical-path cache so repointed symlinks are seen.
     clearCanonicalCache();
@@ -3002,7 +3006,7 @@ export class ExtractionOrchestrator {
         // mtime on every file it writes during checkout/merge, so pulls are caught.)
         // A base-only file is intentionally exempt: unchanged source bytes do not
         // mean its graph coverage is complete, so a later sync must retry it.
-        if (tracked && !needsDeclarationMacroRecovery) {
+        if (tracked && !needsDeclarationMacroRecovery && !forced.has(filePath)) {
           const nativeStat = nativeCapture.snapshot?.stats.get(filePath);
           if (nativeStat && diagnostics) diagnostics.counts.snapshotStats++;
           try {
@@ -3053,6 +3057,7 @@ export class ExtractionOrchestrator {
           filesToIndex.push(filePath);
           filesAdded++;
         } else if (
+          forced.has(filePath) ||
           needsDeclarationMacroRecovery ||
           tracked.contentHash !== contentHash
         ) {
@@ -3148,6 +3153,7 @@ export class ExtractionOrchestrator {
       // prove that an unreported header/config change did not alter resolution.
       if (neededLanguages.some((language) => language === 'c' || language === 'cpp') &&
           !scopedPaths?.length && filesRemoved === 0 && filesAdded === 0 &&
+          forced.size === 0 &&
           frameworkNames.length === 0 && this.frameworkDetectionErrors.length === 0 &&
           this.syncRetryState && !this.syncRetryState.hasWork &&
           process.env.CODEGRAPH_NO_APPEND_DELTA !== '1' &&
@@ -3221,8 +3227,8 @@ export class ExtractionOrchestrator {
       workerSetupMs = performance.now() - setupStarted;
 
       let processed = 0;
-      onProgress?.({ phase: 'parsing', current: 0, total });
       try {
+        onProgress?.({ phase: 'parsing', current: 0, total });
         for (let offset = 0; offset < filesToIndex.length; offset += FILE_IO_BATCH_SIZE) {
           const batch = filesToIndex.slice(offset, offset + FILE_IO_BATCH_SIZE);
           const readStarted = performance.now();
@@ -3338,7 +3344,7 @@ export class ExtractionOrchestrator {
                 try {
                   const stored = await replaceFileStore({ filePath: item.filePath, content: item.content,
                     language, stats: { size: item.stats.size, mtimeMs: item.stats.mtimeMs },
-                    result: item.result, diagnostics: !!storeDetail });
+                    result: item.result, diagnostics: !!storeDetail, force: forced.has(item.filePath) });
                   this.syncRewireFailures.push(...stored.failedSourceFiles);
                   if (storeDetail && stored.diagnostics) storeDetail.add(stored.diagnostics);
                 } finally {
@@ -3349,7 +3355,7 @@ export class ExtractionOrchestrator {
               } else {
                 this.storeExtractionResult(
                   item.filePath, item.content, language, item.stats, item.result,
-                  storeDetail ? { diagnostics: storeDetail } : undefined,
+                  { force: forced.has(item.filePath), diagnostics: storeDetail },
                 );
               }
               changedFilePaths.push(item.filePath);

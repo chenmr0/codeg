@@ -1,6 +1,6 @@
 # 固定路径 v1：受控生产接入（不默认启用）
 
-本分支基于 `11d044fc`。这不是正式 npm 发布或所有平台已验收的声明。
+本次补查修复基于整理后的 `5c8b81d7`，不引入整理前的提交历史。这不是正式 npm 发布或所有平台已验收的声明。
 
 ## 使用边界
 
@@ -33,6 +33,12 @@ MCP `ToolHandler.execute()` 为整个请求（包括后处理）保留同一读 
 
 切换不等于源码瞬间严格一致。验证只覆盖观察到的源码；发布后在后台工作线程进行完整内容补查，发现后来的修改则自动再次同步/重建，源码稳定并且补查成功后返回；后续 watch 事件仍由稳定 facade 排队。不得将一次小夹具耗时当作收敛时限。生产接入的补查收敛及大仓性能仍需验收。连续修改可能延长同步，调用方可取消，不能承诺固定秒数完成。
 
+发布候选在封存前已将补查义务与操作 UUID 写入自身元数据；因此发布 COMMIT 后、父进程收到结果前退出也不会漏记。标记随数据库一起恢复或离线复制，不从已退休的发布记录推断新库的状态。取消、读取失败、提取失败和引用解析中断均保留补查义务；重新打开后，普通同步、指定 paths、`adaptive:false` 或 `CODEGRAPH_ADAPTIVE_SYNC=0` 都先恢复补查。
+
+补查在同一受控 mutation/writer 租约下完成全内容核验、修复和条件确认，排除已准入但仍在写入的并发操作；内容不符的文件强制绕过 size/mtime 与同 hash 的存储快捷路径。配置变化即使源码 hash 相同也执行完整重提取。只有新的全内容核验、配置指纹、完整性及持久引用/重试尾部均完成，且操作 UUID 和修订仍匹配时才移除标记，之后恢复普通 stat 快路径。失败丢失的 source ownership 不会被补查伪造恢复。
+
+补查所需的后台线程使用限定于该异步操作的干净启动参数，兼容 `--input-type=module` 等父进程专用参数；不会修改进程全局 argv 或环境。取消解析等待真实 worker 退出后再释放写入准入。
+
 ## 单文件公共库离线覆盖
 
 1. 正常关闭全部相关程序，等待后台写入/worker 退出。
@@ -47,6 +53,7 @@ MCP `ToolHandler.execute()` 为整个请求（包括后处理）保留同一读 
 ```
 npm run build
 node --liftoff-only scripts/tests/fixed-path-production.test.cjs
+node --liftoff-only scripts/tests/fixed-path-catchup.test.cjs
 node --liftoff-only --test scripts/tests/fixed-path-layout.test.cjs scripts/tests/fixed-path-initialization.test.cjs
 node --liftoff-only scripts/tests/fixed-path-writer-open-admission.test.cjs
 node --liftoff-only scripts/tests/fixed-path-failed-native.test.cjs

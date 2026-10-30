@@ -11,6 +11,7 @@ import { adaptiveRuntimeKey, readAdaptiveHistory, createAdaptivePlan, chooseAdap
   validateAdaptiveSnapshot, canSkipScopedAdaptivePlan, adaptiveSampleFromFiles, recordAdaptiveSample, adaptiveConfigFingerprint, type AdaptiveEligibility, type AdaptiveSnapshot } from './adaptive-plan';
 import { validateRebuiltDatabase } from './rebuild-controller';
 import { isSourceOwned, inspectLegacySourceProvenance } from './source-ownership';
+import { readFixedPathCatchup } from './fixed-path/catchup';
 
 export type AdaptiveReadJob =
   | { type: 'validate-initial'; root: string; databasePath: string }
@@ -74,7 +75,8 @@ async function execute(job: AdaptiveReadJob): Promise<unknown> {
       const db = connection.getDb();
       const owned = isSourceOwned(db);
       const legacy = owned ? { eligible: false, reason: 'already-owned' } : inspectLegacySourceProvenance(db);
-      if (!owned && !legacy.eligible) return { decision: { strategy: 'incremental', reason: `unverified-legacy-or-custom-index:${legacy.reason}` } };
+      const catchup = job.fullHash && readFixedPathCatchup(db) !== null;
+      if (!owned && !legacy.eligible && !catchup) return { decision: { strategy: 'incremental', reason: `unverified-legacy-or-custom-index:${legacy.reason}` } };
       const runtimeKey = adaptiveRuntimeKey(job.root, connection.getBackend());
       const queries = new QueryBuilder(db);
       const tracked = queries.getAllFiles();
@@ -101,8 +103,14 @@ async function execute(job: AdaptiveReadJob): Promise<unknown> {
         }
       }
       const plan = await createAdaptivePlan(job.root, tracked, { runtimeKey, fullHash: job.fullHash });
-      const decision = chooseAdaptiveStrategy(plan, history, eligibility);
-      return { plan, decision, legacy: legacy.eligible };
+      // An interrupted incremental write may invalidate ownership. The durable
+      // obligation still requires a full scan, but NEVER authorizes replacement
+      // or re-adoption of that graph as an automatically rebuildable source.
+      const decision = !owned && !legacy.eligible
+        ? { strategy: 'incremental' as const, reason: 'pending-fixed-path-catchup' }
+        : chooseAdaptiveStrategy(plan, history, eligibility);
+      return { plan, decision, legacy: legacy.eligible,
+        configurationChanged: indexedConfig !== plan.snapshot.configFingerprint };
     } finally { reader.close(); }
   }
   if (adaptiveRuntimeKey(job.root, 'node-sqlite') !== job.runtimeKey) return false;

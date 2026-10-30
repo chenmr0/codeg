@@ -1,3 +1,4 @@
+import { workerRuntimeOptions } from '../worker-runtime';
 import { Worker, type WorkerOptions } from 'node:worker_threads';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -24,7 +25,7 @@ export function startDatabaseWorker(script: string, dbPath: string,
   }
   const held = leaseFactory?.();
   let worker: Worker;
-  try { worker = new Worker(script, options); }
+  try { worker = new Worker(script, workerRuntimeOptions(options)); }
   catch (error) { held?.release(); throw error; }
   let stopping = false;
   const stop = (): void => {

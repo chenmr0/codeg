@@ -43,7 +43,11 @@ function pause(signal?: AbortSignal, delayMs = 50): Promise<void> {
 function recoverOffThread(project: FixedPathProject, signal: AbortSignal | undefined, deadline: number): Promise<boolean> {
   return new Promise((resolve, reject) => {
     if (performance.now() >= deadline) { reject(new Error('Fixed-path sync admission timed out before recovery')); return; }
-    const worker = new Worker(path.join(__dirname, 'sync-recovery-worker.js'), { workerData: project });
+    // Recovery can precede catch-up's async context (including a queued caller
+    // whose publisher just exited). Parent-only flags/loaders cannot block it.
+    const worker = new Worker(path.join(__dirname, 'sync-recovery-worker.js'), {
+      workerData: project, execArgv: [], env: { ...process.env, NODE_OPTIONS: '' },
+    });
     let timedOut = false;
     let response: { recovered?: boolean; error?: string } | undefined, failure: Error | undefined;
     const cancel = (): void => { void worker.terminate().catch(() => {}); };

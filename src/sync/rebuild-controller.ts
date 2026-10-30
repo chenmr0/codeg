@@ -87,7 +87,7 @@ export function validateRebuiltDatabase(databasePath: string, snapshot: Adaptive
 
 /** Wait for worker exit on every path: validation cannot outlive writer ownership. */
 export async function runAdaptiveReadWorker<T>(job: import('./rebuild-validation-worker').AdaptiveReadJob,
-  options: { signal?: AbortSignal } = {}): Promise<T> {
+  options: { signal?: AbortSignal; isolatedRuntime?: boolean } = {}): Promise<T> {
   if (options.signal?.aborted) throw new Error('Adaptive read cancelled');
   // TypeScript development/tests still execute the explicitly built worker.
   // Packaged JS always resolves its adjacent, version-matched worker.
@@ -96,7 +96,14 @@ export async function runAdaptiveReadWorker<T>(job: import('./rebuild-validation
     : path.join(__dirname, 'rebuild-validation-worker.js');
   if (!fs.existsSync(workerPath)) throw new Error('Adaptive validation worker is not built');
   const { Worker } = await import('worker_threads');
-  const worker = new Worker(workerPath, { workerData: { job, parentExecArgv: [...process.execArgv] } });
+  const worker = new Worker(workerPath, { workerData: { job, parentExecArgv: [...process.execArgv] },
+    // Durable fixed-path catch-up is mandatory even when optional adaptive
+    // planning is disabled by a parent-only loader / --input-type flag.
+    ...(options.isolatedRuntime ? {
+      execArgv: [],
+      env: { ...process.env, NODE_OPTIONS: '' },
+    } : {}),
+  });
   return await waitForAdaptiveReadWorker<T>(worker, options.signal);
 }
 
