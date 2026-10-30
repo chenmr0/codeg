@@ -1,9 +1,9 @@
-name: Fixed-path WAL coordination verification
+name: Fixed-path cold bootstrap diagnostics
 # Optional shared-read experiment is disabled; failures remain recorded in run 40886508106.
 on:
   push:
     branches:
-      - verify/fixed-path-drain-test-20261030
+      - verify/fixed-path-bootstrap-phases-20261030
   workflow_dispatch: {}
 permissions:
   contents: read
@@ -42,12 +42,8 @@ jobs:
           node --liftoff-only --test --test-reporter=tap scripts/prototypes/fixed-path/source-snapshot.test.mjs 2>&1 | Tee-Object -FilePath artifacts/source-snapshot-strict.tap
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           if (Select-String -Path artifacts/source-snapshot-strict.tap -Pattern '# SKIP' -CaseSensitive -Quiet) { throw 'Skipped snapshot regression is forbidden' }
-      - name: Run full isolated WAL coordination protocol gates
-        run: node --liftoff-only scripts/prototypes/fixed-path/run-source.mjs
-      - name: Repeat fixed five-process contention cases three times
-        env:
-          CONTENTION_EVIDENCE_DIR: artifacts/ci-fixed-path/contention-repeat
-        run: node scripts/prototypes/fixed-path/repeat-contention.mjs
+      - name: Validate phase diagnostics
+        run: node --liftoff-only --test scripts/prototypes/fixed-path/bootstrap-phases.test.mjs
       - name: Repeat simultaneous cold bootstrap twenty predeclared times
         shell: pwsh
         run: |

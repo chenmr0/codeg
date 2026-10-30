@@ -23,22 +23,31 @@ function regular(file, missing = false) {
   catch (e) { if (!(missing && e.code === 'ENOENT')) throw e; }
 }
 function directory(file) { if (!fs.lstatSync(file).isDirectory()) throw new Error(`Unsafe directory: ${file}`); }
-function db(file, validateMode = true, busyMs = 25) {
+function traceBootstrap(trace,phase,action){
+  if(!trace)return action();
+  const start=now(),record={phase,startedAtMs:Date.now()};trace.push(record);
+  try{return action();}catch(error){record.code=error.code;record.errcode=error.errcode;record.error=error.message;throw error;}
+  finally{record.elapsedMs=now()-start;}
+}
+function db(file, validateMode = true, busyMs = 25, trace) {
   regular(file, true); regular(file + '-journal', true);
-  const connection = new DatabaseSync(file);
+  const connection = traceBootstrap(trace,'sqlite-open',()=>new DatabaseSync(file));
   try {
-    connection.exec(`PRAGMA busy_timeout=${busyMs}; PRAGMA synchronous=FULL`);
+    if(trace){
+      traceBootstrap(trace,'set-busy-timeout',()=>connection.exec(`PRAGMA busy_timeout=${busyMs}`));
+      traceBootstrap(trace,'set-synchronous-full',()=>connection.exec('PRAGMA synchronous=FULL'));
+    }else connection.exec(`PRAGMA busy_timeout=${busyMs}; PRAGMA synchronous=FULL`);
     if (validateMode && Object.values(connection.prepare('PRAGMA journal_mode').get())[0] !== 'delete') throw new Error('Coordination database must use DELETE journal mode');
     return connection;
-  } catch (e) { connection.close(); throw e; }
+  } catch (e) { traceBootstrap(trace,'close-after-config-error',()=>connection.close()); throw e; }
 }
 // Only the durable coordinator uses WAL. Lease files must remain DELETE.
-function coordinatorDb(p, bootstrap=false){
+function coordinatorDb(p, bootstrap=false, trace){
   if(!bootstrap)regular(p.gate);
   for(const suffix of ['', '-wal', '-shm', '-journal'])regular(p.gate+suffix,bootstrap||suffix!=='');
-  const d=db(p.gate,false,0);
+  const d=db(p.gate,false,0,trace);
   try{
-    let mode=d.prepare('PRAGMA journal_mode').get().journal_mode;
+    let mode=traceBootstrap(trace,'journal-mode',()=>d.prepare('PRAGMA journal_mode').get().journal_mode);
     if(mode!=='wal'){
       // The first PRAGMA can reflect this connection's cached empty DELETE
       // pager while another cold client has already bootstrapped WAL. A schema
@@ -56,13 +65,13 @@ function coordinatorDb(p, bootstrap=false){
         // Changing journal mode is forbidden inside the read transaction.
         // Another initializer may win after COMMIT; WAL is then already set,
         // or SQLite reports BUSY and the existing bounded preopen retry wins.
-        mode=d.prepare('PRAGMA journal_mode=WAL').get().journal_mode;
+        mode=traceBootstrap(trace,'initialize-wal',()=>d.prepare('PRAGMA journal_mode=WAL').get().journal_mode);
         if(mode!=='wal')throw new Error('Unable to initialize WAL coordinator');
       }
     }
-    d.exec('PRAGMA wal_autocheckpoint=0');
+    traceBootstrap(trace,'disable-auto-checkpoint',()=>d.exec('PRAGMA wal_autocheckpoint=0'));
     return d;
-  }catch(error){d.close();throw error;}
+  }catch(error){traceBootstrap(trace,'close-after-coordinator-error',()=>d.close());throw error;}
 }
 // Extended SQLite result codes retain the primary code in their low byte.
 // This classifier is used ONLY before a coordinator/protocol action begins.
@@ -115,28 +124,31 @@ export function initialize(project) {
   fs.mkdirSync(p.runtime,{recursive:true});directory(p.data);directory(path.dirname(p.runtime));directory(p.runtime);
   // Established startup validates without taking a writer transaction. No online
   // DELETE->WAL conversion, and never recreate a missing established lease file.
-  let established,probeAttempts=0;const bootstrapStarted=now(),bootstrapDeadline=bootstrapStarted+500;
+  let established,probeAttempts=0;const bootstrapPhases=[],bootstrapWallStarted=Date.now();const bootstrapStarted=now(),bootstrapDeadline=bootstrapStarted+500;
   while(true){
     try{
       probeAttempts++;
-      const d=coordinatorDb(p,true);
+      const trace=[];bootstrapPhases.push({attempt:probeAttempts,phases:trace});
+      const d=coordinatorDb(p,true,trace);
       // Opening a WAL handle is not the end of pre-admission: this first
       // schema read can still encounter another client's recovery/last-close
       // lock. Close the failed handle before retrying the entire read-only
       // probe within the SAME 500 ms budget. No bootstrap action has begun.
-      try{established=!!d.prepare("SELECT name FROM sqlite_master WHERE name='state'").get();}finally{d.close();}
+      try{established=traceBootstrap(trace,'probe-state',()=>!!d.prepare("SELECT name FROM sqlite_master WHERE name='state'").get());}finally{traceBootstrap(trace,'close-after-probe',()=>d.close());}
       break;
     }catch(error){
       if(!coordinatorOpenBusy(error)||now()>=bootstrapDeadline){
         // Preserve numeric SQLite codes through worker IPC's stack-only error
         // transport; diagnostics never change classification or retry policy.
-        error.bootstrapProbeDiagnostic={attempts:probeAttempts,elapsedMs:now()-bootstrapStarted,code:error.code,errcode:error.errcode};
+        error.bootstrapProbeDiagnostic={attempts:probeAttempts,elapsedMs:now()-bootstrapStarted,code:error.code,errcode:error.errcode,phases:bootstrapPhases};
+        gateDiagnostic(p,{label:'bootstrap-probe',readOnly:true,startedAtMs:bootstrapWallStarted,totalMs:now()-bootstrapStarted,attempts:bootstrapPhases},error);
         error.stack=`${error.stack??error.message}\nBootstrap probe diagnostic: ${JSON.stringify(error.bootstrapProbeDiagnostic)}`;
         throw error;
       }
       Atomics.wait(pause,0,0,2);
     }
   }
+  gateDiagnostic(p,{label:'bootstrap-probe',readOnly:true,startedAtMs:bootstrapWallStarted,totalMs:now()-bootstrapStarted,attempts:bootstrapPhases});
   if(established){for(const file of[p.connections,p.owner,p.writers])regular(file);return p;}
   // FULL-sync preparation must not hold the shared coordinator writer lock.
   // Each contender owns only its freshly allocated directory. A crash before

@@ -1,0 +1,13 @@
+import test from 'node:test';import assert from 'node:assert/strict';import fs from 'node:fs';import os from 'node:os';import path from 'node:path';import {spawn} from 'node:child_process';import {setTimeout as delay} from 'node:timers/promises';import {DatabaseSync} from 'node:sqlite';
+import{initialize,paths}from'./protocol.mjs';
+import{waitForChildClose}from'./ipc.mjs';
+function root(t){const p=fs.mkdtempSync(path.join(os.tmpdir(),'bootstrap-phases-'));t.after(()=>fs.rmSync(p,{recursive:true,force:true}));return p;}
+test('real competing exclusive lock is attributed to synchronous FULL, not busy_timeout or constructor',async t=>{
+ const project=root(t),p=paths(project);fs.mkdirSync(p.runtime,{recursive:true});const d=new DatabaseSync(p.gate);d.exec('CREATE TABLE unrelated(value)');d.close();const ready=path.join(project,'ready'),release=path.join(project,'release');
+ const c=spawn(process.execPath,['--input-type=module','-e',`import fs from'node:fs';import{DatabaseSync}from'node:sqlite';const d=new DatabaseSync(${JSON.stringify(p.gate)});d.exec('BEGIN EXCLUSIVE');fs.writeFileSync(${JSON.stringify(ready)},'yes');const timer=setInterval(()=>{if(fs.existsSync(${JSON.stringify(release)})){clearInterval(timer);d.close();}},2);`],{stdio:'ignore'});const done=waitForChildClose(c);t.after(()=>{if(c.exitCode===null)c.kill();});
+ const deadline=Date.now()+10000;while(!fs.existsSync(ready)){if(Date.now()>deadline)throw Error('lock child did not become ready');await delay(2);}
+ try{assert.throws(()=>initialize(project),error=>{assert.equal(error.errcode,5);const diag=error.bootstrapProbeDiagnostic;assert(diag.elapsedMs>=490);assert(diag.elapsedMs<1000);assert(diag.attempts>1);for(const a of diag.phases){assert.equal(a.phases.find(x=>x.phase==='set-busy-timeout').error,undefined);assert.equal(a.phases.find(x=>x.phase==='set-synchronous-full').errcode,5);assert(a.phases.some(x=>x.phase==='close-after-config-error'));}return true;});}finally{fs.writeFileSync(release,'yes');await done;}
+});
+test('non-BUSY configuration failure keeps exact code and a single attempt',t=>{
+ const project=root(t),exec=DatabaseSync.prototype.exec;try{DatabaseSync.prototype.exec=function(sql){if(sql==='PRAGMA synchronous=FULL')throw Object.assign(Error('injected IOERR'),{errcode:1546});return exec.call(this,sql);};assert.throws(()=>initialize(project),error=>{assert.equal(error.errcode,1546);assert.equal(error.bootstrapProbeDiagnostic.attempts,1);assert.equal(error.bootstrapProbeDiagnostic.phases[0].phases.find(x=>x.phase==='set-synchronous-full').errcode,1546);return true;});}finally{DatabaseSync.prototype.exec=exec;}
+});
