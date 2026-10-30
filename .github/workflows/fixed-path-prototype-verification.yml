@@ -3,7 +3,7 @@ name: Fixed-path WAL coordination verification
 on:
   push:
     branches:
-      - verify/fixed-path-drain-test-20261030
+      - verify/fixed-path-final-gate-20261030
   workflow_dispatch: {}
 permissions:
   contents: read

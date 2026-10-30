@@ -23,22 +23,31 @@ function regular(file, missing = false) {
   catch (e) { if (!(missing && e.code === 'ENOENT')) throw e; }
 }
 function directory(file) { if (!fs.lstatSync(file).isDirectory()) throw new Error(`Unsafe directory: ${file}`); }
-function db(file, validateMode = true, busyMs = 25) {
+function traceBootstrap(trace,phase,action){
+  if(!trace)return action();
+  const start=now(),record={phase,startedAtMs:Date.now()};trace.push(record);
+  try{return action();}catch(error){record.code=error.code;record.errcode=error.errcode;record.error=error.message;throw error;}
+  finally{record.elapsedMs=now()-start;}
+}
+function db(file, validateMode = true, busyMs = 25, trace) {
   regular(file, true); regular(file + '-journal', true);
-  const connection = new DatabaseSync(file);
+  const connection = traceBootstrap(trace,'sqlite-open',()=>new DatabaseSync(file));
   try {
-    connection.exec(`PRAGMA busy_timeout=${busyMs}; PRAGMA synchronous=FULL`);
+    if(trace){
+      traceBootstrap(trace,'set-busy-timeout',()=>connection.exec(`PRAGMA busy_timeout=${busyMs}`));
+      traceBootstrap(trace,'set-synchronous-full',()=>connection.exec('PRAGMA synchronous=FULL'));
+    }else connection.exec(`PRAGMA busy_timeout=${busyMs}; PRAGMA synchronous=FULL`);
     if (validateMode && Object.values(connection.prepare('PRAGMA journal_mode').get())[0] !== 'delete') throw new Error('Coordination database must use DELETE journal mode');
     return connection;
-  } catch (e) { connection.close(); throw e; }
+  } catch (e) { traceBootstrap(trace,'close-after-config-error',()=>connection.close()); throw e; }
 }
 // Only the durable coordinator uses WAL. Lease files must remain DELETE.
-function coordinatorDb(p, bootstrap=false){
+function coordinatorDb(p, bootstrap=false, trace){
   if(!bootstrap)regular(p.gate);
   for(const suffix of ['', '-wal', '-shm', '-journal'])regular(p.gate+suffix,bootstrap||suffix!=='');
-  const d=db(p.gate,false,0);
+  const d=db(p.gate,false,0,trace);
   try{
-    let mode=d.prepare('PRAGMA journal_mode').get().journal_mode;
+    let mode=traceBootstrap(trace,'journal-mode',()=>d.prepare('PRAGMA journal_mode').get().journal_mode);
     if(mode!=='wal'){
       // The first PRAGMA can reflect this connection's cached empty DELETE
       // pager while another cold client has already bootstrapped WAL. A schema
@@ -56,13 +65,13 @@ function coordinatorDb(p, bootstrap=false){
         // Changing journal mode is forbidden inside the read transaction.
         // Another initializer may win after COMMIT; WAL is then already set,
         // or SQLite reports BUSY and the existing bounded preopen retry wins.
-        mode=d.prepare('PRAGMA journal_mode=WAL').get().journal_mode;
+        mode=traceBootstrap(trace,'initialize-wal',()=>d.prepare('PRAGMA journal_mode=WAL').get().journal_mode);
         if(mode!=='wal')throw new Error('Unable to initialize WAL coordinator');
       }
     }
-    d.exec('PRAGMA wal_autocheckpoint=0');
+    traceBootstrap(trace,'disable-auto-checkpoint',()=>d.exec('PRAGMA wal_autocheckpoint=0'));
     return d;
-  }catch(error){d.close();throw error;}
+  }catch(error){traceBootstrap(trace,'close-after-coordinator-error',()=>d.close());throw error;}
 }
 // Extended SQLite result codes retain the primary code in their low byte.
 // This classifier is used ONLY before a coordinator/protocol action begins.
@@ -110,34 +119,46 @@ export function checkpointCoordinator(projectOrPaths){
     return {...result,deferred:result.busy!==0 || result.checkpointed<result.log};
   }finally{d.close();}
 }
+// Keep one attached, transaction-free coordinator connection across bootstrap.
+// Public standalone initialization closes it at the end; Participant transfers
+// ownership rather than forcing a last-close/reopen recovery window.
 export function initialize(project) {
+  const initialized=initializeCoordinator(project);
+  initialized.coordination.close();
+  return initialized.p;
+}
+function initializeCoordinator(project) {
   const p=paths(project);
   fs.mkdirSync(p.runtime,{recursive:true});directory(p.data);directory(path.dirname(p.runtime));directory(p.runtime);
   // Established startup validates without taking a writer transaction. No online
   // DELETE->WAL conversion, and never recreate a missing established lease file.
-  let established,probeAttempts=0;const bootstrapStarted=now(),bootstrapDeadline=bootstrapStarted+500;
+  let established,coordination,probeAttempts=0;const bootstrapPhases=[],bootstrapWallStarted=Date.now();const bootstrapStarted=now(),bootstrapDeadline=bootstrapStarted+500;
   while(true){
     try{
       probeAttempts++;
-      const d=coordinatorDb(p,true);
+      const trace=[];bootstrapPhases.push({attempt:probeAttempts,phases:trace});
+      const d=coordinatorDb(p,true,trace);
       // Opening a WAL handle is not the end of pre-admission: this first
       // schema read can still encounter another client's recovery/last-close
       // lock. Close the failed handle before retrying the entire read-only
       // probe within the SAME 500 ms budget. No bootstrap action has begun.
-      try{established=!!d.prepare("SELECT name FROM sqlite_master WHERE name='state'").get();}finally{d.close();}
+      try{established=traceBootstrap(trace,'probe-state',()=>!!d.prepare("SELECT name FROM sqlite_master WHERE name='state'").get());coordination=d;}catch(error){try{traceBootstrap(trace,'close-after-failed-probe',()=>d.close());}catch(closeError){throw new AggregateError([error,closeError],'Bootstrap probe and close failed');}throw error;}
       break;
     }catch(error){
       if(!coordinatorOpenBusy(error)||now()>=bootstrapDeadline){
         // Preserve numeric SQLite codes through worker IPC's stack-only error
         // transport; diagnostics never change classification or retry policy.
-        error.bootstrapProbeDiagnostic={attempts:probeAttempts,elapsedMs:now()-bootstrapStarted,code:error.code,errcode:error.errcode};
+        error.bootstrapProbeDiagnostic={attempts:probeAttempts,elapsedMs:now()-bootstrapStarted,code:error.code,errcode:error.errcode,phases:bootstrapPhases};
+        gateDiagnostic(p,{label:'bootstrap-probe',readOnly:true,startedAtMs:bootstrapWallStarted,totalMs:now()-bootstrapStarted,attempts:bootstrapPhases},error);
         error.stack=`${error.stack??error.message}\nBootstrap probe diagnostic: ${JSON.stringify(error.bootstrapProbeDiagnostic)}`;
         throw error;
       }
       Atomics.wait(pause,0,0,2);
     }
   }
-  if(established){for(const file of[p.connections,p.owner,p.writers])regular(file);return p;}
+  gateDiagnostic(p,{label:'bootstrap-probe',readOnly:true,startedAtMs:bootstrapWallStarted,totalMs:now()-bootstrapStarted,attempts:bootstrapPhases});
+  try {
+  if(established){for(const file of[p.connections,p.owner,p.writers])regular(file);return {p,coordination};}
   // FULL-sync preparation must not hold the shared coordinator writer lock.
   // Each contender owns only its freshly allocated directory. A crash before
   // promotion leaves private evidence, never a partially initialized fixed lease.
@@ -181,7 +202,11 @@ export function initialize(project) {
     if([...attempted].every(file=>closed.has(file)))try{fs.rmdirSync(prepared);}catch(error){cleanupErrors.push(error);}
     if(cleanupErrors.length)throw new AggregateError([...(failure?[failure]:[]),...cleanupErrors],'Bootstrap preparation cleanup failed; evidence retained');
   }
-  return p;
+  return {p,coordination};
+  } catch(error) {
+    try{coordination.close();}catch(closeError){throw new AggregateError([error,closeError],'Bootstrap initialization and keeper close failed');}
+    throw error;
+  }
 }
 function gateDiagnostic(p,metrics,error){
   const record={...metrics,pid:process.pid,project:p.project,finishedAtMs:Date.now(),error:error?.message,code:error?.code,errcode:error?.errcode};
@@ -364,7 +389,11 @@ function resolveOperation(p, record, hook) {
   record.phase = 'aborted'; setIdle(p, record);
 }
 export function recover(project, options = {}) {
-  return recoverInitialized(initialize(project),options);
+  const initialized=initializeCoordinator(project);
+  let failure;
+  try{return recoverInitialized(initialized.p,options);}
+  catch(error){failure=error;throw error;}
+  finally{try{initialized.coordination.close();}catch(closeError){throw failure?new AggregateError([failure,closeError],'Recovery and bootstrap keeper close failed'):closeError;}}
 }
 // Existing participants already validated the layout; do not acquire the gate
 // merely to discover that a live publisher owns recovery. Missing lock files
@@ -401,7 +430,11 @@ function recoverInitialized(p, options = {}) {
   }
 }
 export function beginOperation(project) {
-  const p=initialize(project),owner=coordinatedOwner(p);
+  const initialized=initializeCoordinator(project),p=initialized.p;
+  let owner;
+  try{owner=coordinatedOwner(p);}
+  catch(error){try{initialized.coordination.close();}catch(closeError){throw new AggregateError([error,closeError],'Owner handoff and bootstrap close failed');}throw error;}
+  try{initialized.coordination.close();}catch(error){try{owner?.close();}catch(ownerCloseError){throw new AggregateError([error,ownerCloseError],'Bootstrap and owner keeper close failed');}throw error;}
   if (!owner) throw new Error('Another publisher/recovery owns this project');
   let baselineFence;
   try {
@@ -537,16 +570,24 @@ function admissionTimeout(){return Object.assign(new Error('Admission exceeded t
  */
 export class Participant {
   constructor(project, factory, options = {}) {
-    this.p = initialize(project);this.p.readGates=options.readGates??process.env.CODEGRAPH_PROTOTYPE_READ_GATES==='1';if(options.measureGates??process.env.CODEGRAPH_PROTOTYPE_MEASURE_GATES==='1')this.p.gateMetrics=[]; this.factory = factory; this.options = options; this.active = 0; this.handle = null; this.holder = null; this.closed = false; this.reopens = 0; this.reopenDurationsMs = []; this.admissionWaitMs = [];
-    recoverInitialized(this.p,{deferMaintenance:true});
-    this.coordination=openCoordinatorBounded(this.p);
-    this.coordinationIdentity=fs.statSync(this.p.gate,{bigint:true});
-    // Conservative startup invalidation is outside query admission. A missing
-    // history never triggers indexing; publication invalidates in its commit.
-    try{if(this.coordination.prepare('SELECT 1 FROM costs LIMIT 1').get())gate(this.p,g=>{if(g.prepare('SELECT 1 FROM costs LIMIT 1').get())g.prepare('DELETE FROM costs').run();},{label:'startup-cost-invalidation'});}
-    catch(error){this.coordination.close();this.coordination=null;throw error;}
-    this.timer = setInterval(() => { try { this.retireIfNeeded(); } catch (e) { this.backgroundError = e; } }, options.pollMs ?? 10); this.timer.unref();
+    const initialized=initializeCoordinator(project);
+    this.p=initialized.p;this.coordination=initialized.coordination;
+    try{
+      this.p.readGates=options.readGates??process.env.CODEGRAPH_PROTOTYPE_READ_GATES==='1';
+      if(options.measureGates??process.env.CODEGRAPH_PROTOTYPE_MEASURE_GATES==='1')this.p.gateMetrics=[];
+      this.factory=factory;this.options=options;this.active=0;this.handle=null;this.holder=null;this.closed=false;this.reopens=0;this.reopenDurationsMs=[];this.admissionWaitMs=[];
+      recoverInitialized(this.p,{deferMaintenance:true});
+      this.coordinationIdentity=fs.statSync(this.p.gate,{bigint:true});
+      // Conservative startup invalidation is outside query admission. A missing
+      // history never triggers indexing; publication invalidates in its commit.
+      if(this.coordination.prepare('SELECT 1 FROM costs LIMIT 1').get())gate(this.p,g=>{if(g.prepare('SELECT 1 FROM costs LIMIT 1').get())g.prepare('DELETE FROM costs').run();},{label:'startup-cost-invalidation'});
+      this.timer=setInterval(()=>{try{this.retireIfNeeded();}catch(e){this.backgroundError=e;}},options.pollMs??10);this.timer.unref();
+    }catch(error){
+      try{this.coordination.close();}catch(closeError){throw new AggregateError([error,closeError],'Participant startup and keeper close failed');}finally{this.coordination=null;}
+      throw error;
+    }
   }
+
   readSnapshot(action,deadline=Infinity,label='read-state') {
     const start=now(),metrics={label,readOnly:true,startedAtMs:Date.now(),phase:'begin',actionStarted:false,openMs:0,beginMs:0,actionMs:0,commitMs:0,closeMs:0,retries:0};
     regular(this.p.gate);const identity=fs.statSync(this.p.gate,{bigint:true});
