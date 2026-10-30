@@ -1430,7 +1430,13 @@ export class QueryBuilder {
       const maxFtsScore = Math.max(...results.map(r => r.score));
       const terms = query.split(/\s+/).filter(t => t.length >= 2);
       for (const term of terms) {
-        let sql = 'SELECT * FROM nodes WHERE name = ? COLLATE NOCASE';
+        // Match SQLite's ASCII-only case folding through the existing expression
+        // index. NOCASE on `name` cannot use that index and scans every node.
+        // NOCASE stops comparing at embedded NUL (then compares byte lengths),
+        // unlike lower(); retain its historical semantics for those rare terms.
+        let sql = term.includes('\0')
+          ? 'SELECT * FROM nodes WHERE name = ? COLLATE NOCASE'
+          : 'SELECT * FROM nodes WHERE lower(name) = lower(?)';
         const params: (string | number)[] = [term];
         if (kinds && kinds.length > 0) {
           sql += ` AND kind IN (${kinds.map(() => '?').join(',')})`;
@@ -1793,14 +1799,27 @@ export class QueryBuilder {
     // nameMatchBonus) can promote results that BM25 alone undervalues.
     const ftsLimit = Math.max(limit * 5, 100);
 
+    // External-content FTS is keyed by nodes.rowid. Avoid fetching its `id`
+    // column and then looking up that same content row again by text ID.
+    // Some existing indexes can contain orphan postings (e.g. after REPLACE).
+    // For those matches retain the legacy ID lookup, including its missing-row
+    // error/fallback semantics. The uncorrelated guard and join run in ONE SQL
+    // statement/read snapshot; a separate precheck would race concurrent writes.
+    // NULL IDs stay excluded as with the original equality join.
     let sql = `
       SELECT nodes.*, bm25(nodes_fts, 0, 20, 5, 1, 2) as score
       FROM nodes_fts
-      JOIN nodes ON nodes_fts.id = nodes.id
+      JOIN nodes ON nodes.rowid = CASE WHEN EXISTS (
+        SELECT 1 FROM nodes_fts AS posting
+        LEFT JOIN nodes AS content ON content.rowid = posting.rowid
+        WHERE posting.nodes_fts MATCH ? AND content.rowid IS NULL
+      ) THEN (
+        SELECT legacy.rowid FROM nodes AS legacy WHERE legacy.id = nodes_fts.id
+      ) ELSE nodes_fts.rowid END AND nodes.id IS NOT NULL
       WHERE nodes_fts MATCH ?
     `;
 
-    const params: (string | number)[] = [ftsQuery];
+    const params: (string | number)[] = [ftsQuery, ftsQuery];
 
     if (kinds && kinds.length > 0) {
       sql += ` AND nodes.kind IN (${kinds.map(() => '?').join(',')})`;

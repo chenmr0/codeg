@@ -6,7 +6,8 @@
  * SQLite binding work off the main thread.
  */
 
-import { Worker } from 'worker_threads';
+import type { Worker } from 'worker_threads';
+import { startDatabaseWorker, type ProtectedDatabaseWorker, type WorkerLeaseFactory } from '../db/worker-lifetime';
 import { estimateExtractionBytes } from './extraction-size';
 import type { StoreDiagnosticsSnapshot } from './store-diagnostics';
 import type {
@@ -76,6 +77,8 @@ export function finalizeStoreBundle(
 
 export class StoreWriter {
   private readonly worker: Worker;
+  private readonly lifetime: ProtectedDatabaseWorker;
+  private closePromise?: Promise<void>;
   private readonly readyPromise: Promise<void>;
   private firstError: Error | null = null;
   private drainWaiters = new Map<
@@ -94,8 +97,10 @@ export class StoreWriter {
   }>();
 
   constructor(workerScriptPath: string, dbPath: string, fastInit: boolean,
-    replacement?: { root: string; deferWal: boolean }) {
-    this.worker = new Worker(workerScriptPath);
+    replacement?: { root: string; deferWal: boolean }, leaseFactory?: WorkerLeaseFactory) {
+    this.lifetime = startDatabaseWorker(workerScriptPath, dbPath, leaseFactory);
+    this.worker = this.lifetime.worker;
+    let readySeen = false;
     let readyResolve!: () => void;
     let readyReject!: (error: Error) => void;
     this.readyPromise = new Promise<void>((resolve, reject) => {
@@ -111,7 +116,7 @@ export class StoreWriter {
       'message',
       (message: { type: string; id?: number; message?: string; result?: StoreReplacementResult }) => {
         if (message.type === 'ready') {
-          readyResolve();
+          readySeen = true; readyResolve();
         } else if (message.type === 'ack') {
           this.settleOne();
         } else if (message.type === 'drained' && message.id !== undefined) {
@@ -144,8 +149,8 @@ export class StoreWriter {
     });
     this.worker.on('exit', (code) => {
       this.exited = true;
-      if (code !== 0) {
-        this.failAll(new Error(`store worker exited with code ${code}`));
+      if (code !== 0 || !readySeen) {
+        this.failAll(new Error(`store worker exited with code ${code}${!readySeen ? ' before ready' : ''}`));
         readyReject(this.firstError!);
       } else if (
         this.drainWaiters.size > 0 ||
@@ -157,7 +162,8 @@ export class StoreWriter {
       }
     });
 
-    this.worker.postMessage({ type: 'open', dbPath, fastInit, replacement });
+    try { this.worker.postMessage({ type: 'open', dbPath, fastInit, replacement }); }
+    catch (error) { this.lifetime.stop(); throw error; }
   }
 
   ready(): Promise<void> {
@@ -217,18 +223,15 @@ export class StoreWriter {
     return promise;
   }
 
-  async close(): Promise<void> {
-    if (this.exited) return;
-    this.worker.postMessage({ type: 'close' });
-    await new Promise<void>((resolve) => {
-      const timeout = setTimeout(() => {
-        void this.worker.terminate().then(() => resolve());
-      }, 5_000);
-      this.worker.once('exit', () => {
-        clearTimeout(timeout);
-        resolve();
-      });
-    });
+  close(): Promise<void> {
+    if (this.closePromise) return this.closePromise;
+    if (!this.exited) {
+      try { this.worker.postMessage({ type: 'close' }); }
+      catch { this.lifetime.stop(); }
+    }
+    const timer = setTimeout(() => this.lifetime.stop(), 5_000);
+    this.closePromise = this.lifetime.exited.finally(() => clearTimeout(timer));
+    return this.closePromise;
   }
 
   private settleOne(): void {

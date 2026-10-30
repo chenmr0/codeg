@@ -1,0 +1,74 @@
+name: Fixed-path WAL coordination verification
+# Optional shared-read experiment is disabled; failures remain recorded in run 40886508106.
+on:
+  push:
+    branches:
+      - verify/fixed-path-final-gate-20261030
+  workflow_dispatch: {}
+permissions:
+  contents: read
+jobs:
+  prototype:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2022, ubuntu-22.04]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    env:
+      STRICT_SYMLINK_TESTS: '1'
+      SOURCE_EVIDENCE_DIR: artifacts/ci-fixed-path
+      GATE_DIAGNOSTICS_DIR: artifacts/ci-fixed-path/gate-diagnostics
+      CODEGRAPH_PROTOTYPE_READ_GATES: '0'
+      CODEGRAPH_ALL_LANGUAGES: '1'
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+      - name: Verify actual file and directory symlink privilege
+        shell: pwsh
+        run: |
+          node -e "const fs=require('node:fs'),os=require('node:os'),p=require('node:path');const d=fs.mkdtempSync(p.join(os.tmpdir(),'cg-real-symlinks-'));try{fs.writeFileSync(p.join(d,'target.txt'),'fixture');fs.mkdirSync(p.join(d,'target-dir'));fs.symlinkSync(p.join(d,'target.txt'),p.join(d,'file-link'),'file');fs.symlinkSync(p.join(d,'target-dir'),p.join(d,'dir-link'),'dir');for(const n of ['file-link','dir-link']){if(!fs.lstatSync(p.join(d,n)).isSymbolicLink())throw Error(n+' is not a symbolic link');console.log(process.platform,n,'real symlink verified')}console.log('SYMLINK_PREFLIGHT=PASS')}finally{fs.rmSync(d,{recursive:true,force:true})}"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - run: npm ci
+      - run: npm run build
+      - name: Require both source-snapshot symlink regressions without skipping
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force artifacts | Out-Null
+          node --liftoff-only --test --test-reporter=tap scripts/prototypes/fixed-path/source-snapshot.test.mjs 2>&1 | Tee-Object -FilePath artifacts/source-snapshot-strict.tap
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if (Select-String -Path artifacts/source-snapshot-strict.tap -Pattern '# SKIP' -CaseSensitive -Quiet) { throw 'Skipped snapshot regression is forbidden' }
+      - name: Run full isolated WAL coordination protocol gates
+        run: node --liftoff-only scripts/prototypes/fixed-path/run-source.mjs
+      - name: Repeat fixed five-process contention cases three times
+        env:
+          CONTENTION_EVIDENCE_DIR: artifacts/ci-fixed-path/contention-repeat
+        run: node scripts/prototypes/fixed-path/repeat-contention.mjs
+      - name: Repeat simultaneous cold bootstrap twenty predeclared times
+        shell: pwsh
+        run: |
+          $failed = $false
+          New-Item -ItemType Directory -Force artifacts/ci-fixed-path | Out-Null
+          'Fixed in advance: 20 attempts; retain every result; any failure fails the gate' | Set-Content artifacts/ci-fixed-path/cold-bootstrap-plan.txt
+          for ($i = 1; $i -le 20; $i++) {
+            $env:SOURCE_EVIDENCE_DIR = "artifacts/ci-fixed-path/cold-bootstrap-$i"
+            $env:FIXED_PATH_EVIDENCE_DIR = $env:SOURCE_EVIDENCE_DIR
+            New-Item -ItemType Directory -Force $env:SOURCE_EVIDENCE_DIR | Out-Null
+            node --liftoff-only --test "--test-name-pattern=^simultaneous cold clients initialize protocol metadata" scripts/prototypes/fixed-path/acceptance.test.mjs 2>&1 | Tee-Object -FilePath "$env:SOURCE_EVIDENCE_DIR/run.tap"
+            if ($LASTEXITCODE -ne 0) { $failed = $true }
+          }
+          if ($failed) { throw 'One or more fixed bootstrap repetitions failed' }
+      - name: Preserve exact runner evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fixed-path-prototype-${{ matrix.os }}
+          path: |
+            artifacts/source-snapshot-strict.tap
+            artifacts/ci-fixed-path/
+          if-no-files-found: warn
+          retention-days: 14

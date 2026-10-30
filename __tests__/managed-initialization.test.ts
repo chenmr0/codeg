@@ -122,8 +122,8 @@ it('a failing internal result observer cannot publish successful-looking initial
   await collectRetiredGenerations(getCodeGraphDir(root));
   expect(fs.existsSync(path.join(getCodeGraphDir(root), 'CURRENT'))).toBe(false);
 }, 30_000);
-it.skipIf(process.platform === 'win32')('does not recursively forward writers when the project is opened through a directory alias', async () => {
-  const alias = root + '-alias'; fs.symlinkSync(root, alias, 'dir');
+it('does not recursively forward writers when the project is opened through a directory alias', async () => {
+  const alias = root + '-alias'; fs.symlinkSync(root, alias, process.platform === 'win32' ? 'junction' : 'dir');
   try {
     const graph = CodeGraph.initSync(alias); graphs.push(graph);
     expect((await graph.indexAll()).success).toBe(true);

@@ -609,6 +609,19 @@ program
     }
   });
 
+/** Explicit opt-in transition; no online migration claim for legacy programs. */
+program
+  .command('migrate-storage [path]')
+  .description('Opt into fixed codegraph.db storage after stopping every CodeGraph/external SQLite process')
+  .requiredOption('--offline', 'Confirm all old CodeGraph processes and external SQLite tools are stopped')
+  .action(async (pathArg: string | undefined) => {
+    try {
+      const { default: CodeGraph } = await loadCodeGraph();
+      await CodeGraph.migrateStorage(path.resolve(pathArg || process.cwd()), { offline: true });
+      console.log('Fixed-path layout committed. Normal opens now use codegraph.db; keep all processes closed during public DB replacement.');
+    } catch (err) { error(`Storage migration failed: ${err instanceof Error ? err.message : String(err)}`); process.exitCode = 1; }
+  });
+
 /**
  * codegraph init [path]
  */

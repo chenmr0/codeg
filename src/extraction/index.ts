@@ -5,6 +5,7 @@
  */
 
 import * as fs from 'fs';
+import { repositoryExcludePath } from '../git-metadata';
 import * as fsp from 'fs/promises';
 import * as path from 'path';
 import * as crypto from 'crypto';
@@ -198,6 +199,8 @@ export interface SyncResult {
   adaptive?: {
     strategy: 'incremental' | 'rebuild'; reason: string; generation?: string;
     planningMs?: number; buildMs?: number; validationAndPublishMs?: number;
+    /** Fixed-path publisher phase timings; wall durations, not additive nested CPU time. */
+    publication?: Record<string, number>;
   };
   /** False when file extraction or a recoverable post-processing phase is incomplete. */
   complete?: boolean;
@@ -538,8 +541,8 @@ function rootIgnoreGroups(rootDir: string): string[] {
   const groups = [DEFAULT_IGNORE_PATTERNS.join('\n')];
   const rootGitignore = path.join(rootDir, '.gitignore');
   if (fs.existsSync(rootGitignore)) groups.push(readGitignorePatterns(rootGitignore));
-  const gitExclude = path.join(rootDir, '.git', 'info', 'exclude');
-  if (fs.existsSync(gitExclude)) groups.push(readGitignorePatterns(gitExclude));
+  const gitExclude = repositoryExcludePath(rootDir);
+  if (gitExclude && fs.existsSync(gitExclude)) groups.push(readGitignorePatterns(gitExclude));
   const cgIgnore = path.join(rootDir, '.codegraphignore');
   if (fs.existsSync(cgIgnore)) {
     const cgPatterns = readGitignorePatterns(cgIgnore);
@@ -1309,6 +1312,7 @@ export class ExtractionOrchestrator {
      */
     storeWriterOpts?: {
       dbPath: string;
+      leaseFactory?: import('../db/worker-lifetime').WorkerLeaseFactory;
       fastInit: boolean;
       useWorker: boolean;
     } | null,
@@ -1322,7 +1326,7 @@ export class ExtractionOrchestrator {
     signal?: AbortSignal,
     verbose?: boolean,
     walBackpressure?: () => Promise<void> | null,
-    storeWriterOpts?: { dbPath: string; fastInit: boolean; useWorker: boolean } | null,
+    storeWriterOpts?: { dbPath: string; fastInit: boolean; useWorker: boolean; leaseFactory?: import('../db/worker-lifetime').WorkerLeaseFactory } | null,
     options?: { force?: boolean; reconcile?: boolean },
   ): Promise<IndexResult> {
     await initGrammars();
@@ -1497,7 +1501,8 @@ export class ExtractionOrchestrator {
       storeWriter = new StoreWriter(
         storeWorkerPath,
         storeWriterOpts.dbPath,
-        storeWriterOpts.fastInit
+        storeWriterOpts.fastInit,
+        undefined, storeWriterOpts.leaseFactory
       );
       log('Store writer thread active');
     }

@@ -28,6 +28,12 @@ import {
   DirectRelationshipGroup,
 } from './types';
 import { DatabaseConnection, DatabaseOpenError } from './db';
+import { FixedPathWriterLock } from './sync/fixed-path/writer-lock';
+import { createFixedPathFacade } from './sync/fixed-path/facade';
+import { withFixedPathOpen } from './sync/fixed-path/open-context';
+import { isFixedPathLayout } from './sync/fixed-path/probe';
+import { migrateToFixedPath } from './sync/fixed-path-layout';
+import { initializeFixedPathStorage, recoverFixedPathInitialization } from './sync/fixed-path-initialization';
 import { createDatabase } from './db/sqlite-adapter';
 import { WalCheckpointValve } from './db/wal-valve';
 import { QueryBuilder } from './db/queries';
@@ -186,6 +192,8 @@ export interface IndexOptions {
 
 /** Options for incremental synchronization. */
 export interface SyncOptions extends IndexOptions {
+  /** Maximum wait for another cooperating fixed-path sync; default 30 minutes. Does not pause queries or change the 1-second publication drain budget. */
+  syncCoordinationTimeoutMs?: number;
   /** Optional native fallback notice sink. Library/MCP/watch callers stay silent by default. */
   onScanFallback?: (message: string) => void;
   /**
@@ -238,6 +246,7 @@ export class CodeGraph {
   private fileLock: GenerationWriterLock;
   private readonly dataDir: string;
   private readonly shadowCandidate: boolean;
+  private readonly fixedBound: boolean;
   private readOnly: boolean;
   private readonly pinnedRead: boolean;
   private closed = false;
@@ -269,7 +278,7 @@ export class CodeGraph {
     } finally { closeSync(fd); }
   }
   private static registerIdleFacade(graph: CodeGraph): void {
-    if (graph.pinnedRead || graph.shadowCandidate || graph.db.getBackend() !== 'node-sqlite') return;
+    if (graph.pinnedRead || graph.shadowCandidate || graph.fixedBound || graph.db.getBackend() !== 'node-sqlite') return;
     CodeGraph.idleFacades.add(graph);
     if (!CodeGraph.retirementTimer) {
       CodeGraph.retirementTimer = setInterval(() => {
@@ -306,7 +315,8 @@ export class CodeGraph {
     readOnly = false,
     pinnedRead = false,
     dataDirOverride?: string,
-    generationLease?: GenerationLease
+    generationLease?: GenerationLease,
+    fixedBound = false
   ) {
     this.db = db;
     this.generationLease = generationLease;
@@ -314,6 +324,7 @@ export class CodeGraph {
     if (readOnly && db.getBackend() === 'node-sqlite') this.queries.enableExternalCacheInvalidation();
     this.projectRoot = projectRoot;
     this.shadowCandidate = shadowCandidate;
+    this.fixedBound = fixedBound;
     this.readOnly = readOnly;
     this.pinnedRead = pinnedRead;
     this.dataDir = shadowCandidate ? path.dirname(db.getPath()) : dataDirOverride ?? getCodeGraphDir(projectRoot);
@@ -324,7 +335,7 @@ export class CodeGraph {
     } catch {
       // Best-effort: ranking still works without it.
     }
-    this.fileLock = new GenerationWriterLock(this.dataDir);
+    this.fileLock = fixedBound ? new FixedPathWriterLock(this.dataDir) : new GenerationWriterLock(this.dataDir);
     this.orchestrator = new ExtractionOrchestrator(projectRoot, queries);
     this.resolver = createResolver(projectRoot, queries);
     this.graphManager = new GraphQueryManager(queries);
@@ -369,6 +380,17 @@ export class CodeGraph {
     await initGrammars();
     options.signal?.throwIfAborted();
     const root = path.resolve(projectRoot);
+    if (process.env.CODEGRAPH_FIXED_PATH === '1') {
+      const fixed = CodeGraph.initFixedPathStorage(root);
+      try {
+        if (options.index) {
+          const result = await fixed.indexAll({ onProgress: options.onProgress, signal: options.signal, verbose: options.verbose });
+          options.onIndexResult?.(result);
+          if (!result.success) throw new Error('Initial fixed-path indexing failed');
+        }
+        return fixed;
+      } catch (error) { fixed.close(); throw error; }
+    }
     createDirectory(root);
     const dataDir = getCodeGraphDir(root);
     const lock = new GenerationWriterLock(dataDir);
@@ -417,9 +439,34 @@ export class CodeGraph {
     return instance!;
   }
 
+  private static initFixedPathStorage(root: string): CodeGraph {
+    if (!CodeGraph.nativeInitializationAvailable()) throw new Error('Fixed-path storage requires node:sqlite');
+    createDirectory(root);
+    const dataDir = getCodeGraphDir(root);
+    CodeGraph.assertUninitialized(root, dataDir);
+    if (existsSync(path.join(dataDir, 'generations'))) throw new Error('Existing generation evidence requires explicit offline migration');
+    let builderClosed = false;
+    initializeFixedPathStorage(dataDir, candidate => {
+      const db = DatabaseConnection.initialize(candidate);
+      try { installSourceOwnership(db.getDb()); }
+      finally { db.close(); builderClosed = !db.isOpen(); }
+    }, { builderClosedOnError: () => builderClosed });
+    return CodeGraph.openFixedPathControlled(root, dataDir);
+  }
+
+  /** Explicit offline migration; old programs and external SQLite tools must be stopped. */
+  static async migrateStorage(projectRoot: string, options: { offline: true }): Promise<void> {
+    const root = path.resolve(projectRoot);
+    const dataDir = getCodeGraphDir(root);
+    recoverFixedPathInitialization(dataDir);
+    const migration = migrateToFixedPath(dataDir, options);
+    await migration.cleanup;
+  }
+
   /** Initialize schema-only storage; this does not claim source-index completeness. */
   static initSync(projectRoot: string): CodeGraph {
     const root = path.resolve(projectRoot);
+    if (process.env.CODEGRAPH_FIXED_PATH === '1') return CodeGraph.initFixedPathStorage(root);
     createDirectory(root);
     const dataDir = getCodeGraphDir(root);
     const lock = new GenerationWriterLock(dataDir);
@@ -462,6 +509,10 @@ export class CodeGraph {
    */
   private static openCurrent(root: string, forceReadOnly = false, pinnedRead = false,
     dataDirectory = getCodeGraphDir(root), writer = false, acquiredLease?: GenerationLease): CodeGraph {
+    if (isFixedPathLayout(dataDirectory)) {
+      if (acquiredLease) throw new Error('Legacy generation lease cannot authorize fixed-path open');
+      return CodeGraph.openFixedPathControlled(root, dataDirectory, forceReadOnly || pinnedRead);
+    }
     // Resolve + register the reader atomically against publication and GC.
     const lease = acquiredLease ?? acquireCurrentGenerationLease(dataDirectory);
     let db: DatabaseConnection | undefined;
@@ -572,6 +623,56 @@ export class CodeGraph {
     }
   }
 
+  /** @internal Candidate construction stays in the process holding publisher ownership. */
+  static async createFixedPathCandidate(projectRoot: string, databasePath: string): Promise<CodeGraph> {
+    await initGrammars();
+    const root = path.resolve(projectRoot), candidate = path.resolve(databasePath);
+    const directory = path.dirname(candidate), runtime = path.dirname(directory);
+    if (path.dirname(path.dirname(path.dirname(runtime))) !== root || !lstatSync(directory).isDirectory() || !lstatSync(runtime).isDirectory()) throw new Error('Candidate must belong to the project runtime');
+    if (path.basename(candidate) !== 'candidate.db' || path.basename(runtime) !== 'fixed-path-v1' ||
+        path.basename(path.dirname(runtime)) !== '.runtime' || existsSync(candidate)) {
+      throw new Error('Unsafe fixed-path candidate location');
+    }
+    const ownerFile = path.join(directory, 'owner.json');
+    if (!lstatSync(ownerFile).isFile() || statSync(ownerFile).size > 4096) throw new Error('Unsafe candidate ownership marker');
+    const owner = JSON.parse(require('fs').readFileSync(ownerFile, 'utf8')) as { operation?: string };
+    if (owner.operation !== path.basename(directory)) throw new Error('Fixed-path candidate ownership mismatch');
+    const db = DatabaseConnection.initialize(candidate);
+    try {
+      if (db.getBackend() !== 'node-sqlite') throw new Error('Fixed-path rebuild requires node:sqlite');
+      installSourceOwnership(db.getDb());
+      return new CodeGraph(db, new QueryBuilder(db.getDb()), root, true);
+    } catch (error) {
+      try { db.close(); } catch (closeError) { throw new DatabaseOpenError(db, error, closeError); }
+      throw error;
+    }
+  }
+
+  /** @internal Controlled v1 entry. Layout registration/recovery is the caller's prerequisite. */
+  static openFixedPathControlled(projectRoot: string, dataDirectory = getCodeGraphDir(projectRoot), readOnly = false): CodeGraph {
+    const requestedRoot = path.resolve(projectRoot), requestedData = path.resolve(dataDirectory);
+    if (path.dirname(requestedData) !== requestedRoot) throw new Error('Fixed data directory must belong to the project root');
+    if (!lstatSync(requestedData).isDirectory()) throw new Error('Fixed data directory must not be a symlink');
+    const root = realpathSync(requestedRoot), dataDir = realpathSync(requestedData);
+    if (!isFixedPathLayout(dataDir)) throw new Error('Fixed-path layout must be explicitly registered before opening');
+    return createFixedPathFacade({ project: root, dataDirectory: dataDir }, CodeGraph.prototype,
+      (file, reader, backgroundLease, writeLock) => {
+        if (!reader && !writeLock) throw new Error('Writable native open requires mutation admission');
+        const db = withFixedPathOpen(file, () => reader ? DatabaseConnection.openReadOnly(file) : DatabaseConnection.open(file, { nativeOnly: true }));
+        try {
+          if (db.getBackend() !== 'node-sqlite') throw new Error('Fixed-path coordination requires node:sqlite');
+          // Worker connection ownership is independent of this facade/parent handle.
+          db.setBackgroundLeaseFactory(backgroundLease);
+          const graph = new CodeGraph(db, new QueryBuilder(db.getDb()), root, false, reader, reader, dataDir, undefined, true);
+          if (writeLock) graph.fileLock = writeLock;
+          return graph;
+        } catch (error) {
+          try { db.close(); } catch (closeError) { throw new DatabaseOpenError(db, error, closeError); }
+          throw error;
+        }
+      }, readOnly);
+  }
+
   /** Identifies a pinned database; consumers must not derive the logical data root from it. */
   getDatabaseFilePath(): string { return this.db.getPath(); }
 
@@ -624,6 +725,7 @@ export class CodeGraph {
     const forwarded = this.forwardedWriter;
     await this.indexMutex.withLock(async () => {});
     if (forwarded) await forwarded.whenIdle();
+    await this.db.whenBackgroundIdle();
   }
 
   /** Stop an isolated build without closing a graph still leased by readers. */
@@ -667,7 +769,7 @@ export class CodeGraph {
         return { success: false, filesIndexed: 0, filesSkipped: 0, filesErrored: 0, nodesCreated: 0, edgesCreated: 0, errors: [{ message: 'Could not acquire file lock - another process may be indexing', severity: 'error' as const }], durationMs: 0 };
       }
       try {
-        if (!this.shadowCandidate && (this.readOnly || this.currentDatabasePath() !== this.db.getPath())) {
+        if (!this.shadowCandidate && !this.fixedBound && (this.readOnly || this.currentDatabasePath() !== this.db.getPath())) {
           const active = this.openCurrentWriter();
           this.forwardedWriter = active;
           try { return await active.indexAllLocked(options, true); }
@@ -759,6 +861,7 @@ export class CodeGraph {
                     dbPath: this.db.getPath(),
                     fastInit,
                     useWorker: this.db.getBackend() === 'node-sqlite',
+                    leaseFactory: () => this.db.retainBackgroundLease(),
                   }
                 : null,
               { force: scopeChanged || extractionChanged, reconcile: scopeChanged || extractionChanged },
@@ -997,7 +1100,7 @@ export class CodeGraph {
         return { success: false, filesIndexed: 0, filesSkipped: 0, filesErrored: 0, nodesCreated: 0, edgesCreated: 0, errors: [{ message: 'Could not acquire file lock - another process may be indexing', severity: 'error' as const }], durationMs: 0 };
       }
       try {
-        if (!this.shadowCandidate && (this.readOnly || this.currentDatabasePath() !== this.db.getPath())) {
+        if (!this.shadowCandidate && !this.fixedBound && (this.readOnly || this.currentDatabasePath() !== this.db.getPath())) {
           const active = this.openCurrentWriter();
           this.forwardedWriter = active;
           try { return await active.indexFilesLocked(filePaths); }
@@ -1030,7 +1133,7 @@ export class CodeGraph {
     this.fileLock.acquire();
     let active: CodeGraph | undefined;
     try {
-      active = this.readOnly || this.currentDatabasePath() !== this.db.getPath() ? this.openCurrentWriter() : this;
+      active = !this.fixedBound && (this.readOnly || this.currentDatabasePath() !== this.db.getPath()) ? this.openCurrentWriter() : this;
       return operation(active);
     } finally { if (active && active !== this) active.close(); this.fileLock.release(); }
   }
@@ -1054,7 +1157,7 @@ export class CodeGraph {
   /** Each operation pins its entry until its whole synchronous/async result completes. */
   private withReadView<T>(operation: (view: CodeGraph) => T): T {
     if (this.closed) throw new Error('CodeGraph is closed');
-    if (this.pinnedRead || this.shadowCandidate || this.db.getBackend() !== 'node-sqlite') {
+    if (this.pinnedRead || this.shadowCandidate || this.fixedBound || this.db.getBackend() !== 'node-sqlite') {
       // This also covers independently cached MCP request readers. Generation
       // leases pin files, not a perpetual SQLite transaction/snapshot.
       this.resolver.invalidateExternalCaches();
@@ -1094,7 +1197,7 @@ export class CodeGraph {
 
   /** Query operations never borrow these layers; writers retain them until they finish. */
   private refreshIdleFacade(pinnedCurrentPath?: string): void {
-    if (this.closed || this.pinnedRead || this.shadowCandidate || this.indexMutex.isLocked() || this.activeBuild || this.forwardedWriter) return;
+    if (this.closed || this.pinnedRead || this.shadowCandidate || this.fixedBound || this.indexMutex.isLocked() || this.activeBuild || this.forwardedWriter) return;
     if (pinnedCurrentPath === this.db.getPath()) return;
     const admission = acquireCurrentGenerationLease(this.dataDir);
     let next: CodeGraph;
@@ -1126,7 +1229,7 @@ export class CodeGraph {
   }
 
   private recordCostSample(kind: 'full' | 'incremental', before: FileRecord[], durationMs: number, changedFilePaths?: string[]): void {
-    if (this.shadowCandidate || this.db.getBackend() !== 'node-sqlite' || getCodeGraphDir(this.projectRoot) !== this.dataDir || !isSourceOwned(this.db.getDb())) return;
+    if (this.shadowCandidate || this.fixedBound || this.db.getBackend() !== 'node-sqlite' || getCodeGraphDir(this.projectRoot) !== this.dataDir || !isSourceOwned(this.db.getDb())) return;
     try {
       const after = this.queries.getAllFiles();
       recordAdaptiveSample(this.projectRoot, adaptiveSampleFromFiles({ kind, before, after, durationMs, changedFilePaths,
@@ -1147,7 +1250,7 @@ export class CodeGraph {
   }
 
   private async tryAdaptiveRebuild(options: SyncOptions): Promise<SyncResult | null> {
-    if (this.shadowCandidate) return null;
+    if (this.shadowCandidate || this.fixedBound) return null;
     const abort = new AbortController();
     this.activeBuild = abort;
     const cancel = (): void => abort.abort();
@@ -1299,7 +1402,7 @@ export class CodeGraph {
         return { filesChecked: 0, filesAdded: 0, filesModified: 0, filesRemoved: 0, nodesUpdated: 0, durationMs: 0 };
       }
       try {
-      if (!this.shadowCandidate && (this.readOnly || this.currentDatabasePath() !== this.db.getPath())) {
+      if (!this.shadowCandidate && !this.fixedBound && (this.readOnly || this.currentDatabasePath() !== this.db.getPath())) {
         let active: CodeGraph | undefined;
         try {
           active = this.openCurrentWriter(); this.forwardedWriter = active;
@@ -1396,7 +1499,7 @@ export class CodeGraph {
                 // Small syncs and the in-memory WASM backend stay on their
                 // existing path; no worker startup is paid for ordinary saves.
                 syncStoreWriter.current ??= new StoreWriter(workerPath, this.db.getPath(), false,
-                  { root: this.projectRoot, deferWal });
+                  { root: this.projectRoot, deferWal }, () => this.db.retainBackgroundLease());
                 return syncStoreWriter.current.replace(request);
               }
             : undefined;
@@ -2169,7 +2272,7 @@ export class CodeGraph {
       this.fileLock.acquire();
       let active: CodeGraph | undefined;
       try {
-        active = this.readOnly || this.currentDatabasePath() !== this.db.getPath() ? this.openCurrentWriter() : this;
+        active = !this.fixedBound && (this.readOnly || this.currentDatabasePath() !== this.db.getPath()) ? this.openCurrentWriter() : this;
         return await active.resolveReferencesBatchedLocked(onProgress, onSynthesisProgress, options);
       } finally { if (active && active !== this) active.close(); this.fileLock.release(); }
     });
@@ -2196,6 +2299,7 @@ export class CodeGraph {
     let result: ResolutionResult;
     try {
       result = await this.resolver.resolveAndPersistBatched(onProgress, undefined, {
+        leaseFactory: () => this.db.retainBackgroundLease(),
         dbPath:
           this.db.getBackend() === 'node-sqlite'
             ? this.db.getPath()

@@ -1,3 +1,5 @@
+import type { FixedPathFacade } from '../sync/fixed-path/facade';
+import type { FixedPathPin } from '../sync/fixed-path/controller';
 /**
  * MCP Tool Definitions
  *
@@ -473,6 +475,7 @@ interface GenerationReader {
 }
 
 interface GenerationRequest {
+  fixedPins: Map<string, FixedPathPin<CodeGraph>>;
   generations: Map<string, GenerationReader>;
   // Includes non-query facades used by readiness/staleness postprocessing.
   retained: Set<GenerationReader>;
@@ -1534,6 +1537,15 @@ export class ToolHandler {
     this.retainRequestFacade(request, base);
     if (typeof base.getDatabaseFilePath !== 'function') return base;
     const root = resolvePath(base.getProjectRoot());
+    const fixed = base as CodeGraph & Partial<FixedPathFacade>;
+    if (typeof fixed.acquireFixedPathRead === 'function') {
+      let pinnedFixed = request.fixedPins.get(root);
+      if (!pinnedFixed) {
+        pinnedFixed = fixed.acquireFixedPathRead();
+        request.fixedPins.set(root, pinnedFixed);
+      }
+      return pinnedFixed.graph;
+    }
     const pinned = request.generations.get(root);
     if (pinned) return pinned.graph;
     if (this.closing) throw new Error('CodeGraph tool handler is closing');
@@ -1604,15 +1616,22 @@ export class ToolHandler {
   }
 
   private releaseGenerationRequest(request: GenerationRequest): void {
+    const errors: unknown[] = [];
+    for (const pin of request.fixedPins.values()) {
+      try { pin.release(); } catch (error) { errors.push(error); }
+    }
+    request.fixedPins.clear();
     for (const entry of request.retained) {
       entry.references--;
-      if (entry.retired && entry.references === 0) this.retireReader(entry);
+      try { if (entry.retired && entry.references === 0) this.retireReader(entry); }
+      catch (error) { errors.push(error); }
     }
     request.generations.clear();
     request.retained.clear();
     if (this.closing && ![...this.readerEntries.values()].some(entry => entry.references > 0)) {
       this.projectCache.clear();
     }
+    if (errors.length) throw new AggregateError(errors, 'Request reader release failed; failed native handles remain leased');
   }
 
   private freshnessGraph(graph: CodeGraph): CodeGraph {
@@ -1986,7 +2005,7 @@ export class ToolHandler {
   ): Promise<ToolResult> {
     if (this.closing) return this.errorResult('CodeGraph tool handler is closing');
     this.activeExecutions++;
-    const request: GenerationRequest = { generations: new Map(), retained: new Set() };
+    const request: GenerationRequest = { generations: new Map(), fixedPins: new Map(), retained: new Set() };
     try {
       return await this.generationRequest.run(request, () => this.executionSignal.run(
         options.signal,
@@ -7323,6 +7342,9 @@ export class ToolHandler {
             getPendingFiles: () => this.freshnessGraph(cg).getPendingFiles(),
             isCurrentGeneration: () => {
               if (typeof cg.getDatabaseFilePath !== 'function') return true;
+              const fixedPin = this.generationRequest.getStore()?.fixedPins.get(resolvePath(cg.getProjectRoot()));
+              // A fixed-path pin blocks publication through this entire request.
+              if (fixedPin?.graph === cg) return true;
               try {
                 const dataDirectory = typeof cg.getDataDirectory === 'function'
                   ? cg.getDataDirectory() : getCodeGraphDir(cg.getProjectRoot());
