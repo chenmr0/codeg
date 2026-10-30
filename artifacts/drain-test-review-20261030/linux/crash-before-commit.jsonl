@@ -1,0 +1,10 @@
+{"phase":"prepared","at":93.251933,"operation":"855db76e-3ab5-4e54-87fe-274e33375cb8"}
+{"phase":"draining","at":94.752392,"operation":"855db76e-3ab5-4e54-87fe-274e33375cb8"}
+{"phase":"replacing","at":95.41555,"operation":"855db76e-3ab5-4e54-87fe-274e33375cb8"}
+{"phase":"before-old-rename","at":95.68735,"operation":"855db76e-3ab5-4e54-87fe-274e33375cb8"}
+{"phase":"after-old-rename","at":95.874872,"operation":"855db76e-3ab5-4e54-87fe-274e33375cb8"}
+{"phase":"old-moved","at":95.955573,"operation":"855db76e-3ab5-4e54-87fe-274e33375cb8"}
+{"phase":"before-new-rename","at":95.999429,"operation":"855db76e-3ab5-4e54-87fe-274e33375cb8"}
+{"phase":"after-new-rename","at":96.107162,"operation":"855db76e-3ab5-4e54-87fe-274e33375cb8"}
+{"phase":"new-moved","at":96.187973,"operation":"855db76e-3ab5-4e54-87fe-274e33375cb8"}
+{"phase":"before-commit","at":96.42496,"operation":"855db76e-3ab5-4e54-87fe-274e33375cb8"}

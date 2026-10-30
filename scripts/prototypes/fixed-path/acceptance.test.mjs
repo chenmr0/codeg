@@ -61,19 +61,46 @@ test('five independent prototype participant processes remain consistent across 
  }finally{await Promise.all(clients.map(c=>c.stop().catch(()=>c.kill())));}
 }));
 
-test('long request cancels bounded drain; old request and queued new request complete',()=>record('long-request-timeout',async()=>{
+// A fixed hold measured before publisher startup does not prove a drain timeout.
+// Reproduce that invalid test premise with an explicit preflight barrier.
+test('timed request completed before draining legitimately permits publication',()=>record('timed-hold-preflight-counterexample',async()=>{
+ const p=root(),c=await client(p),pausedFile=path.join(p,'prepared'),resumeFile=path.join(p,'resume');let pub;
+ try{
+  const held=c.request('hold',{ms:1500});held.catch(()=>{});await c.wait(m=>m.event==='held');
+  pub=launch('publisher',p,{pauseAt:'prepared',pausedFile,resumeFile});await pub.wait(m=>m.phase==='prepared');
+  assert.deepEqual(await held,{before:{first:'A',second:'A'},after:{first:'A',second:'A'}});
+  assert.equal(pub.messages.some(m=>m.phase==='draining'),false);
+  assert.equal((await c.request('stats')).active,0);
+  fs.writeFileSync(resumeFile,'resume');const result=(await pub.wait(m=>m.event==='result')).result;await pub.exited;
+  evidence.switches.push(result);assert.equal(result.status,'published');assert.equal((await c.request('query')).first,'B');noOld(p);
+ }finally{pub?.kill();await c.stop().catch(()=>c.kill());}
+}));
+
+for (const startupDelayMs of [0,1700]) test(`long request cancels bounded drain; old request and queued new request complete (startup delay ${startupDelayMs}ms)`,()=>record(`long-request-timeout-${startupDelayMs}`,async()=>{
  const p=root(),c=await client(p);try{
-  const held=c.request('hold',{ms:1500});held.catch(()=>{});await c.wait(m=>m.event==='held');const pub=launch('publisher',p);await pub.wait(m=>m.phase==='draining');const started=performance.now();const queued=c.request('query').then(value=>({value,waitMs:performance.now()-started}));queued.catch(()=>{});
+  const held=c.request('hold',{untilReleased:true,holdKey:'blocked'});held.catch(()=>{});await c.wait(m=>m.event==='held');await delay(startupDelayMs);const pub=launch('publisher',p);await pub.wait(m=>m.phase==='draining');const started=performance.now();const queued=c.request('query').then(value=>({value,waitMs:performance.now()-started}));queued.catch(()=>{});
   const result=(await pub.wait(m=>m.event==='result')).result;await pub.exited;assert.equal(result.status,'cancelled');assert.equal(result.code,'DRAIN_CANCELLED');assert.match(result.error,/budget/);assert.ok(performance.now()-started<1350,'Drain cancellation was unbounded');
-  const queuedResult=await queued;assert.equal(queuedResult.value.first,'A');assert.ok(queuedResult.waitMs<1000,`Queued request exceeded total 1s: ${queuedResult.waitMs}ms`);evidence.queries.push({scenario:'queued-after-long-request-cancel',waitMs:queuedResult.waitMs});assert.deepEqual(await held,{before:{first:'A',second:'A'},after:{first:'A',second:'A'}});assert.equal((await c.request('query')).first,'A');noOld(p);
- }finally{await c.stop().catch(()=>c.kill());}
+  const queuedResult=await queued;assert.equal(queuedResult.value.first,'A');assert.ok(queuedResult.waitMs<1000,`Queued request exceeded total 1s: ${queuedResult.waitMs}ms`);evidence.queries.push({scenario:'queued-after-long-request-cancel',waitMs:queuedResult.waitMs});assert.equal((await c.request('stats')).active,1,'Old request must remain held throughout cancellation');await c.request('releaseHold',{holdKey:'blocked'});assert.deepEqual(await held,{before:{first:'A',second:'A'},after:{first:'A',second:'A'}});assert.equal((await c.request('query')).first,'A');noOld(p);
+ }finally{await c.request('releaseHold',{holdKey:'blocked'}).catch(()=>{});await c.stop().catch(()=>c.kill());}
+}));
+
+test('publisher drain budget cancels while controlled old request remains active without queued requests',()=>record('publisher-budget-without-queued-request',async()=>{
+ const p=root(),c=await client(p);let pub;
+ try{
+  const held=c.request('hold',{untilReleased:true,holdKey:'blocked'});held.catch(()=>{});await c.wait(m=>m.event==='held');
+  pub=launch('publisher',p,{budget:1000});await pub.wait(m=>m.phase==='draining');const started=performance.now();
+  const result=(await pub.wait(m=>m.event==='result')).result;await pub.exited;evidence.switches.push(result);
+  assert.equal(result.status,'cancelled');assert.equal(result.code,'DRAIN_CANCELLED');assert.equal(result.error,'Drain budget exceeded');
+  assert.ok(performance.now()-started<1350,'Drain cancellation was unbounded');assert.equal((await c.request('stats')).active,1);
+  await c.request('releaseHold',{holdKey:'blocked'});assert.equal((await held).after.first,'A');assert.equal((await c.request('query')).first,'A');noOld(p);
+ }finally{pub?.kill();await c.request('releaseHold',{holdKey:'blocked'}).catch(()=>{});await c.stop().catch(()=>c.kill());}
 }));
 
 test('sync SDK call while same process owns async request cancels rather than self-deadlocking',()=>record('sync-sdk-self-deadlock',async()=>{
  const p=root(),c=await client(p);try{
-  const held=c.request('hold',{ms:1500});held.catch(()=>{});await c.wait(m=>m.event==='held');const pub=launch('publisher',p);await pub.wait(m=>m.phase==='draining');const started=performance.now();assert.equal((await c.request('querySync')).first,'A');assert.ok(performance.now()-started<1000);
-  const result=(await pub.wait(m=>m.event==='result')).result;await pub.exited;assert.equal(result.status,'cancelled');assert.match(result.error,/Synchronous caller/);assert.equal((await held).after.first,'A');noOld(p);
- }finally{await c.stop().catch(()=>c.kill());}
+  const held=c.request('hold',{untilReleased:true,holdKey:'blocked'});held.catch(()=>{});await c.wait(m=>m.event==='held');const pub=launch('publisher',p);await pub.wait(m=>m.phase==='draining');const started=performance.now();assert.equal((await c.request('querySync')).first,'A');assert.ok(performance.now()-started<1000);
+  const result=(await pub.wait(m=>m.event==='result')).result;await pub.exited;assert.equal(result.status,'cancelled');assert.match(result.error,/Synchronous caller/);assert.equal((await c.request('stats')).active,1);await c.request('releaseHold',{holdKey:'blocked'});assert.equal((await held).after.first,'A');noOld(p);
+ }finally{await c.request('releaseHold',{holdKey:'blocked'}).catch(()=>{});await c.stop().catch(()=>c.kill());}
 }));
 
 for(const [name,config] of [['candidate-validation',{failValidation:true}],['candidate-corruption',{corruptCandidate:true}],['source-change',{failSource:true}],['space',{fail:'space'}],['rename',{fail:'rename'}]])test(`failure ${name} leaves old active`,()=>record(`failure-${name}`,async()=>{
@@ -127,8 +154,8 @@ test('committed old WAL is checkpointed before switching; sidecars are never ass
 
 test('new process cannot reopen active database while admission is draining',()=>record('cold-admission-during-drain',async()=>{
  const p=root(),old=await client(p);let newcomer;
- try{const held=old.request('hold',{ms:1500});held.catch(()=>{});await old.wait(m=>m.event==='held');const pub=launch('publisher',p);await pub.wait(m=>m.phase==='draining');newcomer=await client(p,'new-SDK');let resolved=false;const queued=newcomer.request('query').then(r=>{resolved=true;return r;});queued.catch(()=>{});await delay(100);assert.equal(resolved,false,'Cold request reopened during drain');const result=(await pub.wait(m=>m.event==='result')).result;await pub.exited;assert.equal(result.status,'cancelled');assert.equal((await queued).first,'A');await held;}
- finally{await old.stop().catch(()=>old.kill());await newcomer?.stop().catch(()=>newcomer.kill());}
+ try{const held=old.request('hold',{untilReleased:true,holdKey:'blocked'});held.catch(()=>{});await old.wait(m=>m.event==='held');newcomer=await client(p,'new-SDK');assert.equal((await newcomer.request('stats')).reopens,0,'Newcomer must not open active database before drain');const pub=launch('publisher',p);await pub.wait(m=>m.phase==='draining');let resolved=false;const queued=newcomer.request('query').then(r=>{resolved=true;return r;});queued.catch(()=>{});await delay(100);assert.equal(resolved,false,'Cold request reopened during drain');const result=(await pub.wait(m=>m.event==='result')).result;await pub.exited;assert.equal(result.status,'cancelled');assert.equal((await queued).first,'A');assert.equal((await old.request('stats')).active,1);await old.request('releaseHold',{holdKey:'blocked'});await held;}
+ finally{await old.request('releaseHold',{holdKey:'blocked'}).catch(()=>{});await old.stop().catch(()=>old.kill());await newcomer?.stop().catch(()=>newcomer.kill());}
 }));
 
 for(const phase of ['after-old-rename','after-new-rename'])test(`file operation error at ${phase} restores old without deleting evidence early`,()=>record(`rename-error-${phase}`,async()=>{

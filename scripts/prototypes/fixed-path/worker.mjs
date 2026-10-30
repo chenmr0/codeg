@@ -60,6 +60,7 @@ if (mode === 'publisher') {
   } catch(error) { process.exitCode=1; try { await send({event:'fatal',error:error.stack}); } finally { await closeIpc(); } }
   if (participant) {
     let loopPromise = null, looping = false, samples = [], tags = [], errors = [];
+    const heldRequests = new Map();
     process.on('message', async message => {
       const {id,command} = message;
       try {
@@ -67,9 +68,17 @@ if (mode === 'publisher') {
         if (command === 'query') value = await participant.request(db => snapshot(db));
         else if (command === 'querySync') value = participant.requestSync(db => snapshot(db));
         else if (command === 'hold') value = await participant.request(async db => {
-          const before = snapshot(db); send({event:'held',id}); await delay(message.ms ?? 1500); const after = snapshot(db);
+          const before = snapshot(db);
+          const started = performance.now();
+          let release;
+          const wait = message.untilReleased ? new Promise(resolve => { release = resolve; heldRequests.set(message.holdKey, resolve); }) : delay(message.ms ?? 1500);
+          send({event:'held',id,holdKey:message.holdKey});
+          try { await wait; } finally { if (release) heldRequests.delete(message.holdKey); }
+          const after = snapshot(db);
+          send({event:'hold-completed',id,holdKey:message.holdKey,durationMs:performance.now()-started});
           return {before,after};
         });
+        else if(command==='releaseHold') { const release=heldRequests.get(message.holdKey); if(!release) throw new Error('No active controlled hold'); release(); value=true; }
         else if(command==='writeAndCrash') value=await participant.write(db=>{db.exec('PRAGMA synchronous=FULL; BEGIN IMMEDIATE');db.prepare('UPDATE snapshot SET first=?,second=? WHERE id=1').run('CONFIRMED-WRITE','CONFIRMED-WRITE');db.exec('COMMIT');fs.writeFileSync(message.proof,'CONFIRMED-WRITE');die();});
         else if(command==='holdWrite') value=await participant.write(async db=>{send({event:'writer-held',id});await delay(message.ms??400);db.prepare('UPDATE snapshot SET first=?,second=? WHERE id=1').run('ACTIVE-WRITER','ACTIVE-WRITER');return snapshot(db);});
         else if (command === 'write') value = await participant.write(db => { db.exec('BEGIN IMMEDIATE'); try { db.prepare('UPDATE snapshot SET first=?, second=? WHERE id=1').run(message.tag,message.tag); db.exec('COMMIT'); } catch(e) { db.exec('ROLLBACK'); throw e; } return snapshot(db); });

@@ -1,0 +1,9 @@
+{"phase":"prepared","at":91.088484,"operation":"6b71e81a-8f5e-4019-a511-e5137a67419c"}
+{"phase":"draining","at":92.735996,"operation":"6b71e81a-8f5e-4019-a511-e5137a67419c"}
+{"phase":"replacing","at":93.378681,"operation":"6b71e81a-8f5e-4019-a511-e5137a67419c"}
+{"phase":"before-old-rename","at":93.605742,"operation":"6b71e81a-8f5e-4019-a511-e5137a67419c"}
+{"phase":"after-old-rename","at":93.734875,"operation":"6b71e81a-8f5e-4019-a511-e5137a67419c"}
+{"phase":"old-moved","at":93.793754,"operation":"6b71e81a-8f5e-4019-a511-e5137a67419c"}
+{"phase":"before-new-rename","at":93.815506,"operation":"6b71e81a-8f5e-4019-a511-e5137a67419c"}
+{"phase":"after-new-rename","at":93.856668,"operation":"6b71e81a-8f5e-4019-a511-e5137a67419c"}
+{"phase":"new-moved","at":93.90431,"operation":"6b71e81a-8f5e-4019-a511-e5137a67419c"}

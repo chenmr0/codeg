@@ -1,0 +1,6 @@
+{"phase":"prepared","at":98.483202,"operation":"f89d2887-b487-4e60-ac3f-a901bb8ff969"}
+{"phase":"draining","at":99.910254,"operation":"f89d2887-b487-4e60-ac3f-a901bb8ff969"}
+{"phase":"replacing","at":100.559328,"operation":"f89d2887-b487-4e60-ac3f-a901bb8ff969"}
+{"phase":"before-old-rename","at":100.80062,"operation":"f89d2887-b487-4e60-ac3f-a901bb8ff969"}
+{"phase":"after-old-rename","at":100.9271,"operation":"f89d2887-b487-4e60-ac3f-a901bb8ff969"}
+{"phase":"old-moved","at":100.985968,"operation":"f89d2887-b487-4e60-ac3f-a901bb8ff969"}
