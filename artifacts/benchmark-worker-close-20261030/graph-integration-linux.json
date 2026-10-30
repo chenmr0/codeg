@@ -1,0 +1,203 @@
+{
+  "platform": "linux",
+  "node": "v24.22.1",
+  "fixture": "/tmp/fixed-real-TUoG3s",
+  "rounds": [
+    {
+      "round": 0,
+      "decision": {
+        "strategy": "rebuild",
+        "reason": "structural-large-change"
+      },
+      "publish": {
+        "status": "published",
+        "operation": "65373db5-7ac9-46ef-8249-6db0c9fe5717",
+        "metrics": {
+          "coordinatorKeeper": {
+            "openedAtMs": 1793322674660,
+            "attachedAtMs": 1793322674660,
+            "closedAtMs": 1793322675146
+          },
+          "buildMs": 366.64229399999994,
+          "validationMs": 8.312556000000086,
+          "checkpointMs": 0.6462669999999662,
+          "drainMs": 6.472454999999968,
+          "replaceMs": 0.24410900000009406,
+          "reopenMs": 0.2858129999999619,
+          "resumeMs": 0.028353000000038264,
+          "checkpointFinalMs": 0.5217890000000125,
+          "admissionPauseMs": 8.281128999999964,
+          "coordinatorCheckpoint": {
+            "busy": 0,
+            "log": 21,
+            "checkpointed": 21,
+            "deferred": false
+          }
+        },
+        "directoryFsync": true,
+        "stdout": "",
+        "stderr": ""
+      },
+      "removalPublish": {
+        "status": "published",
+        "operation": "0d6a1626-5414-484e-af97-7ceb9a9a5254",
+        "metrics": {
+          "coordinatorKeeper": {
+            "openedAtMs": 1793322675398,
+            "attachedAtMs": 1793322675398,
+            "closedAtMs": 1793322675717
+          },
+          "buildMs": 216.78793099999996,
+          "validationMs": 4.639062999999965,
+          "checkpointMs": 0.6872379999999794,
+          "drainMs": 6.425883999999996,
+          "replaceMs": 0.21785899999997582,
+          "reopenMs": 0.4913730000000669,
+          "resumeMs": 0.028092000000015105,
+          "checkpointFinalMs": 0.35258299999998144,
+          "admissionPauseMs": 8.481260999999904,
+          "coordinatorCheckpoint": {
+            "busy": 0,
+            "log": 17,
+            "checkpointed": 17,
+            "deferred": false
+          }
+        },
+        "directoryFsync": true,
+        "stdout": "",
+        "stderr": ""
+      }
+    },
+    {
+      "round": 1,
+      "decision": {
+        "strategy": "rebuild",
+        "reason": "structural-large-change"
+      },
+      "publish": {
+        "status": "published",
+        "operation": "6b5c4d50-1b7e-412c-bd0c-9e8eb723e457",
+        "metrics": {
+          "coordinatorKeeper": {
+            "openedAtMs": 1793322676597,
+            "attachedAtMs": 1793322676598,
+            "closedAtMs": 1793322677090
+          },
+          "buildMs": 370.950306,
+          "validationMs": 8.712931000000026,
+          "checkpointMs": 0.7134750000000167,
+          "drainMs": 6.835344000000077,
+          "replaceMs": 0.4271929999999884,
+          "reopenMs": 0.2787700000000086,
+          "resumeMs": 0.030615999999895394,
+          "checkpointFinalMs": 0.37256200000001627,
+          "admissionPauseMs": 8.683257000000026,
+          "coordinatorCheckpoint": {
+            "busy": 0,
+            "log": 21,
+            "checkpointed": 21,
+            "deferred": false
+          }
+        },
+        "directoryFsync": true,
+        "stdout": "",
+        "stderr": ""
+      },
+      "removalPublish": {
+        "status": "published",
+        "operation": "8b2e55ab-f45f-4ec7-b60e-1243a74ac657",
+        "metrics": {
+          "coordinatorKeeper": {
+            "openedAtMs": 1793322677315,
+            "attachedAtMs": 1793322677315,
+            "closedAtMs": 1793322677637
+          },
+          "buildMs": 225.82383,
+          "validationMs": 5.748016000000007,
+          "checkpointMs": 0.7216169999999806,
+          "drainMs": 7.335761999999988,
+          "replaceMs": 0.2102869999999939,
+          "reopenMs": 0.2857000000000198,
+          "resumeMs": 0.02645999999998594,
+          "checkpointFinalMs": 0.3724109999999996,
+          "admissionPauseMs": 8.981179999999995,
+          "coordinatorCheckpoint": {
+            "busy": 0,
+            "log": 17,
+            "checkpointed": 17,
+            "deferred": false
+          }
+        },
+        "directoryFsync": true,
+        "stdout": "",
+        "stderr": ""
+      }
+    },
+    {
+      "round": 2,
+      "decision": {
+        "strategy": "rebuild",
+        "reason": "structural-large-change"
+      },
+      "publish": {
+        "status": "published",
+        "operation": "1211cf27-26cb-4ca4-a040-84ca52798461",
+        "metrics": {
+          "coordinatorKeeper": {
+            "openedAtMs": 1793322678480,
+            "attachedAtMs": 1793322678480,
+            "closedAtMs": 1793322678910
+          },
+          "buildMs": 320.76270100000005,
+          "validationMs": 8.408743999999956,
+          "checkpointMs": 0.5588320000000522,
+          "drainMs": 5.494235000000003,
+          "replaceMs": 0.21524399999998423,
+          "reopenMs": 0.3858109999999897,
+          "resumeMs": 0.029483999999911248,
+          "checkpointFinalMs": 0.38364799999999377,
+          "admissionPauseMs": 7.279073000000039,
+          "coordinatorCheckpoint": {
+            "busy": 0,
+            "log": 39,
+            "checkpointed": 39,
+            "deferred": false
+          }
+        },
+        "directoryFsync": true,
+        "stdout": "",
+        "stderr": ""
+      },
+      "removalPublish": {
+        "status": "published",
+        "operation": "f4d21961-b814-4f3e-a3d7-3a282184a510",
+        "metrics": {
+          "coordinatorKeeper": {
+            "openedAtMs": 1793322679117,
+            "attachedAtMs": 1793322679118,
+            "closedAtMs": 1793322679414
+          },
+          "buildMs": 206.536562,
+          "validationMs": 4.509882000000005,
+          "checkpointMs": 0.7010559999999941,
+          "drainMs": 6.441110999999978,
+          "replaceMs": 0.23522400000001653,
+          "reopenMs": 0.2768570000000068,
+          "resumeMs": 0.022222999999996773,
+          "checkpointFinalMs": 0.34381799999999885,
+          "admissionPauseMs": 8.062111999999956,
+          "coordinatorCheckpoint": {
+            "busy": 0,
+            "log": 19,
+            "checkpointed": 19,
+            "deferred": false
+          }
+        },
+        "directoryFsync": true,
+        "stdout": "",
+        "stderr": ""
+      }
+    }
+  ],
+  "productionEntryPoints": false
+}

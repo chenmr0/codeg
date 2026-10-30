@@ -1,0 +1,10 @@
+✔ benchmark worker completes two offline overwrite / sync / rebuild / plan / check loops without a manual journal cleanup (4559.009901ms)
+✔ real CodeGraph: repeated portable public import -> incremental -> automatic rebuild -> public import -> query/sync (5956.58071ms)
+ℹ tests 2
+ℹ suites 0
+ℹ pass 2
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 6203.657323

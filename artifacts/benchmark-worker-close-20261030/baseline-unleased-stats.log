@@ -1,0 +1,34 @@
+✖ benchmark worker completes two offline overwrite / sync / plan / check loops without a manual journal cleanup (1211.490108ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 0
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1335.242555
+
+✖ failing tests:
+
+test at scripts/prototypes/fixed-path/baseline-worker-lifecycle.local.test.mjs:23:1
+✖ benchmark worker completes two offline overwrite / sync / plan / check loops without a manual journal cleanup (1211.490108ms)
+  AssertionError [ERR_ASSERTION]: sync: Error: benchmark stats bypassed connection lease
+      at CodeGraph.getStats (file:///tmp/benchmark-worker-lifecycle-XioG32/.codegraph-wx/.runtime/fixed-path-prototype/assert-stats-lease.mjs:1:516)
+      at file:///workspace/scratch/75b00092a0fc/codeg-benchmark-close/scripts/prototypes/fixed-path/real-benchmark/baseline-worker.local.mjs:13:184
+  
+  
+  1 !== 0
+  
+      at invoke (file:///workspace/scratch/75b00092a0fc/codeg-benchmark-close/scripts/prototypes/fixed-path/baseline-worker-lifecycle.local.test.mjs:15:9)
+      at TestContext.<anonymous> (file:///workspace/scratch/75b00092a0fc/codeg-benchmark-close/scripts/prototypes/fixed-path/baseline-worker-lifecycle.local.test.mjs:36:14)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.start (node:internal/test_runner/test:1262:17)
+      at startSubtestAfterBootstrap (node:internal/test_runner/harness:387:17) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 1,
+    expected: 0,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
