@@ -1430,7 +1430,13 @@ export class QueryBuilder {
       const maxFtsScore = Math.max(...results.map(r => r.score));
       const terms = query.split(/\s+/).filter(t => t.length >= 2);
       for (const term of terms) {
-        let sql = 'SELECT * FROM nodes WHERE name = ? COLLATE NOCASE';
+        // Match SQLite's ASCII-only case folding through the existing expression
+        // index. NOCASE on `name` cannot use that index and scans every node.
+        // NOCASE stops comparing at embedded NUL (then compares byte lengths),
+        // unlike lower(); retain its historical semantics for those rare terms.
+        let sql = term.includes('\0')
+          ? 'SELECT * FROM nodes WHERE name = ? COLLATE NOCASE'
+          : 'SELECT * FROM nodes WHERE lower(name) = lower(?)';
         const params: (string | number)[] = [term];
         if (kinds && kinds.length > 0) {
           sql += ` AND kind IN (${kinds.map(() => '?').join(',')})`;

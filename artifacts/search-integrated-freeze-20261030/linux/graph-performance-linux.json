@@ -1,0 +1,153 @@
+{
+  "platform": "linux",
+  "node": "v24.22.1",
+  "files": 1001,
+  "fixture": "/tmp/fixed-graph-load-MxXwZI",
+  "publish": {
+    "status": "published",
+    "operation": "1eb22c90-9218-47a4-bbb7-80a8b29267bc",
+    "metrics": {
+      "coordinatorKeeper": {
+        "openedAtMs": 1793328011126,
+        "attachedAtMs": 1793328011126,
+        "closedAtMs": 1793328011887
+      },
+      "buildMs": 563.648312,
+      "validationMs": 29.059818000000064,
+      "checkpointMs": 1.6600889999999708,
+      "drainMs": 6.890030000000024,
+      "replaceMs": 0.2140510000000404,
+      "reopenMs": 0.320461000000023,
+      "resumeMs": 0.03309000000001561,
+      "checkpointFinalMs": 0.4326689999999189,
+      "admissionPauseMs": 8.616819000000078,
+      "coordinatorCheckpoint": {
+        "busy": 0,
+        "log": 17,
+        "checkpointed": 17,
+        "deferred": false
+      }
+    },
+    "directoryFsync": true
+  },
+  "queries": {
+    "count": 1646,
+    "p50Ms": 2.4310350000000085,
+    "p95Ms": 4.123362000000043,
+    "p99Ms": 7.8995330000000195,
+    "maxMs": 29.51841400000012
+  },
+  "roles": [
+    {
+      "role": "CLI",
+      "queries": {
+        "count": 394,
+        "p50Ms": 2.5180950000000166,
+        "p95Ms": 3.9911840000000325,
+        "p99Ms": 9.055250999999998,
+        "maxMs": 24.438473000000158
+      },
+      "reopens": 2,
+      "reopenDurationsMs": [
+        13.621882,
+        9.760172000000239
+      ],
+      "admissionWait": {
+        "count": 394,
+        "p50Ms": 0.0751430000000255,
+        "p95Ms": 0.1825739999999314,
+        "p99Ms": 0.5450479999999516,
+        "maxMs": 21.810273000000052
+      }
+    },
+    {
+      "role": "MCP",
+      "queries": {
+        "count": 372,
+        "p50Ms": 2.279627000000005,
+        "p95Ms": 3.8458959999998115,
+        "p99Ms": 7.474375999999893,
+        "maxMs": 29.51841400000012
+      },
+      "reopens": 2,
+      "reopenDurationsMs": [
+        16.50012700000002,
+        13.260450000000219
+      ],
+      "admissionWait": {
+        "count": 372,
+        "p50Ms": 0.0701050000000123,
+        "p95Ms": 0.14532800000006318,
+        "p99Ms": 0.36324500000000626,
+        "maxMs": 25.648651999999856
+      }
+    },
+    {
+      "role": "daemon",
+      "queries": {
+        "count": 331,
+        "p50Ms": 2.4088610000001154,
+        "p95Ms": 4.210402999999985,
+        "p99Ms": 8.062266999999792,
+        "maxMs": 26.253079999999983
+      },
+      "reopens": 2,
+      "reopenDurationsMs": [
+        16.10350299999999,
+        10.270578000000114
+      ],
+      "admissionWait": {
+        "count": 331,
+        "p50Ms": 0.07040599999999131,
+        "p95Ms": 0.15998999999999342,
+        "p99Ms": 0.6072800000001735,
+        "maxMs": 16.70235100000002
+      }
+    },
+    {
+      "role": "SDK",
+      "queries": {
+        "count": 297,
+        "p50Ms": 2.3916550000000143,
+        "p95Ms": 3.9217599999999493,
+        "p99Ms": 7.8995330000000195,
+        "maxMs": 25.316063999999983
+      },
+      "reopens": 2,
+      "reopenDurationsMs": [
+        15.996171999999973,
+        8.742426999999907
+      ],
+      "admissionWait": {
+        "count": 297,
+        "p50Ms": 0.07083600000009938,
+        "p95Ms": 0.16986500000007254,
+        "p99Ms": 0.44799200000011297,
+        "maxMs": 16.555319999999995
+      }
+    },
+    {
+      "role": "background-worker",
+      "queries": {
+        "count": 252,
+        "p50Ms": 2.745715999999902,
+        "p95Ms": 4.70193900000001,
+        "p99Ms": 7.465412999999899,
+        "maxMs": 26.085137000000003
+      },
+      "reopens": 2,
+      "reopenDurationsMs": [
+        16.187228000000005,
+        9.621233999999959
+      ],
+      "admissionWait": {
+        "count": 252,
+        "p50Ms": 0.0735700000000179,
+        "p95Ms": 0.16502700000000914,
+        "p99Ms": 0.2994189999999435,
+        "maxMs": 21.601354999999785
+      }
+    }
+  ],
+  "scope": "Real CodeGraph operations through isolated adapters; not production entrypoints; no large-repository claim"
+}

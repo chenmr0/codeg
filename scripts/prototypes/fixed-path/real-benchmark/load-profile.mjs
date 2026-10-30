@@ -8,6 +8,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { Participant } from '../protocol.mjs';
 import { graphAt } from '../graph-adapter.mjs';
 import { createRequestJournal } from './request-journal.mjs';
+import { timedSearch } from './search-timing.mjs';
 
 const here=path.dirname(fileURLToPath(import.meta.url));
 const [mode,root,out,operation]=process.argv.slice(2);
@@ -37,7 +38,7 @@ if(mode==='client'){
       const result=await p.request(g=>{
         actionStartedAt=performance.now();timing.admissionAndOpenMs=actionStartedAt-start;
         let t=performance.now();const a=g.queries.getFileByPath('src/observer/ob_server.cpp')?.contentHash;timing.beforeFileHashMs=performance.now()-t;
-        t=performance.now();const hits=g.searchNodes(pattern,{limit:5});timing.searchMs=performance.now()-t;
+        t=performance.now();const hits=timedSearch(g,pattern,{limit:5},timing);timing.searchMs=performance.now()-t;
         const nodeTimes=[];t=performance.now();const nodes=hits.map(h=>{const s=performance.now(),n=g.getNode(h.node.id);nodeTimes.push(performance.now()-s);return n;});timing.getNodesMs=performance.now()-t;timing.getNodeCallsMs=nodeTimes;
         t=performance.now();const b=g.queries.getFileByPath('src/observer/ob_server.cpp')?.contentHash;timing.afterFileHashMs=performance.now()-t;
         actionEndedAt=performance.now();timing.actionMs=actionEndedAt-actionStartedAt;
@@ -78,7 +79,7 @@ if(mode==='client'){
     await Promise.allSettled(clients.map(c=>c.done));
     const reports=clients.map((_,i)=>{const file=`${out}.client-${i}.json`;return fs.existsSync(file)?JSON.parse(fs.readFileSync(file)): {rows:[],errors:[{error:{message:'Client result missing'}}],missingResult:true};});
     const all=reports.flatMap((r,i)=>r.rows.map(row=>({...row,client:i}))),during=all.filter(r=>r.at>=startedAt&&r.at<=finishedAt);
-    const summary={schema:2,clock:'performance.timeOrigin + performance.now; Date.now child publication hooks retained; monotonic durations per process',startedAt,finishedAt,operation,operationError,offeredQps:clientsCount*1000/intervalMs,intervalMs,clients:clientsCount,operationWindowCount:during.length,totalSuccessfulRequests:all.length,service:quantile(during.map(r=>r.wallMs)),scheduledLatency:quantile(during.map(r=>r.latencyMs)),wholeLifetimeService:quantile(all.map(r=>r.wallMs)),wholeLifetimeScheduled:quantile(all.map(r=>r.latencyMs)),byPattern:Object.fromEntries(patterns.map(p=>[p,quantile(during.filter(r=>r.pattern===p).map(r=>r.wallMs))])),stageQuantiles:Object.fromEntries(['admissionAndOpenMs','beforeFileHashMs','searchMs','getNodesMs','afterFileHashMs','actionMs','finishAndPromiseMs'].map(p=>[p,quantile(during.map(r=>r[p]))])),errors:reports.flatMap(r=>r.errors),closeErrors:reports.flatMap(r=>r.closeError?[r.closeError]:[]),mixedHashReads:all.filter(r=>r.a!==r.b).length,observedHashes:[...new Set(all.map(r=>r.a))],perClientHashes:reports.map(r=>[...new Set(r.rows.map(x=>x.a))]),reopens:reports.map(r=>r.reopens),offeredRequests:reports.reduce((n,r)=>n+(r.offeredRequests??0),0),completedRequests:reports.reduce((n,r)=>n+(r.completedRequests??0),0),pendingScheduled:reports.reduce((n,r)=>n+(r.pendingScheduled??0),0),journal:reports.map(r=>r.journal),missingNodeReads:all.reduce((n,r)=>n+r.missing,0),slowest:all.slice().sort((a,b)=>b.latencyMs-a.latencyMs).slice(0,20),events};
+    const summary={schema:2,clock:'performance.timeOrigin + performance.now; Date.now child publication hooks retained; monotonic durations per process',startedAt,finishedAt,operation,operationError,offeredQps:clientsCount*1000/intervalMs,intervalMs,clients:clientsCount,operationWindowCount:during.length,totalSuccessfulRequests:all.length,service:quantile(during.map(r=>r.wallMs)),scheduledLatency:quantile(during.map(r=>r.latencyMs)),wholeLifetimeService:quantile(all.map(r=>r.wallMs)),wholeLifetimeScheduled:quantile(all.map(r=>r.latencyMs)),byPattern:Object.fromEntries(patterns.map(p=>[p,quantile(during.filter(r=>r.pattern===p).map(r=>r.wallMs))])),stageQuantiles:Object.fromEntries(['admissionAndOpenMs','beforeFileHashMs','searchMs','searchFtsSqlMs','searchSupplementSqlMs','searchOtherSqlMs','getNodesMs','afterFileHashMs','actionMs','finishAndPromiseMs'].map(p=>[p,quantile(during.map(r=>r[p]))])),errors:reports.flatMap(r=>r.errors),closeErrors:reports.flatMap(r=>r.closeError?[r.closeError]:[]),mixedHashReads:all.filter(r=>r.a!==r.b).length,observedHashes:[...new Set(all.map(r=>r.a))],perClientHashes:reports.map(r=>[...new Set(r.rows.map(x=>x.a))]),reopens:reports.map(r=>r.reopens),offeredRequests:reports.reduce((n,r)=>n+(r.offeredRequests??0),0),completedRequests:reports.reduce((n,r)=>n+(r.completedRequests??0),0),pendingScheduled:reports.reduce((n,r)=>n+(r.pendingScheduled??0),0),journal:reports.map(r=>r.journal),missingNodeReads:all.reduce((n,r)=>n+r.missing,0),slowest:all.slice().sort((a,b)=>b.latencyMs-a.latencyMs).slice(0,20),events};
     fs.writeFileSync(out,JSON.stringify(summary,null,2));
     if(operationError || summary.errors.length || summary.closeErrors.length)process.exitCode=1;
   }

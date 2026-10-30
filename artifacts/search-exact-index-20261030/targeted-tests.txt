@@ -1,0 +1,11 @@
+[33mThe CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.[39m
+
+ RUN  v2.1.9 /workspace/scratch/75b00092a0fc/codeg-search-exact-fix
+
+ ✓ __tests__/search-supplement-index.test.ts (4 tests) 257ms
+
+ Test Files  1 passed (1)
+      Tests  4 passed (4)
+   Start at  10:33:36
+   Duration  672ms (transform 186ms, setup 0ms, collect 231ms, tests 257ms, environment 0ms, prepare 52ms)
+

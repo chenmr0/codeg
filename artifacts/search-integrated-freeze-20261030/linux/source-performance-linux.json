@@ -1,0 +1,168 @@
+{
+  "platform": "linux",
+  "node": "v24.22.1",
+  "files": 1001,
+  "convergenceEvidence": {
+    "publication": {
+      "messageIndex": 25,
+      "outcomeIndex": 1,
+      "operation": "ff26c79e-5fee-476e-950e-bf25e11cbfcc"
+    },
+    "verification": {
+      "messageIndex": 25,
+      "outcomeIndex": 2
+    }
+  },
+  "verifiedMarkers": {
+    "old": false,
+    "next": true
+  },
+  "timeline": {
+    "editsStartedAtMs": 1793328018449,
+    "editsCompletedAtMs": 1793328018454,
+    "convergenceObservedAtMs": 1793328019422
+  },
+  "pollMs": 100,
+  "holdWritersDuringCheck": false,
+  "queries": {
+    "count": 1847,
+    "p50Ms": 2.327845000000025,
+    "p95Ms": 4.242743000000019,
+    "p99Ms": 8.784913999999844,
+    "maxMs": 49.85130600000002
+  },
+  "checkTimes": {
+    "count": 6,
+    "p50Ms": 75.77572600000008,
+    "p95Ms": 182.49061,
+    "p99Ms": 182.49061,
+    "maxMs": 182.49061
+  },
+  "writeAdmissionMs": 11.220681999999897,
+  "convergenceMs": 968.0071199999998,
+  "publishes": [
+    {
+      "type": "publish",
+      "status": "published",
+      "operation": "ff26c79e-5fee-476e-950e-bf25e11cbfcc",
+      "metrics": {
+        "coordinatorKeeper": {
+          "openedAtMs": 1793328018615,
+          "attachedAtMs": 1793328018615,
+          "closedAtMs": 1793328019283
+        },
+        "buildMs": 534.7895350000001,
+        "validationMs": 34.174813000000086,
+        "checkpointMs": 1.6484490000000278,
+        "drainMs": 29.110298000000057,
+        "replaceMs": 0.2378559999999652,
+        "reopenMs": 0.3295140000000174,
+        "resumeMs": 0.03322000000002845,
+        "checkpointFinalMs": 0.4900640000000749,
+        "admissionPauseMs": 31.25500000000011,
+        "coordinatorCheckpoint": {
+          "busy": 0,
+          "log": 35,
+          "checkpointed": 35,
+          "deferred": false
+        }
+      },
+      "directoryFsync": true,
+      "startedAtMs": 1793328018614,
+      "finishedAtMs": 1793328019283,
+      "preparation": {
+        "sourceSnapshotMs": 10.391560000000027,
+        "expectedIndexMs": 29.37384499999996,
+        "activeEligibilityMs": 7.567680999999993,
+        "validateSourceMs": 9.362980000000107,
+        "finalSourceFenceMs": 2.1696289999999863
+      }
+    }
+  ],
+  "checks": [
+    {
+      "status": "needs-check",
+      "checkMs": 182.49061,
+      "startedAtMs": 1793328018083,
+      "finishedAtMs": 1793328018266,
+      "stages": {
+        "beforeSnapshotMs": 25.03060000000002,
+        "trackedFilesMs": 2.656407999999999,
+        "adaptivePlanMs": 111.97287700000001,
+        "compatibilityMs": 0.5400579999999877,
+        "afterSnapshotMs": 17.72029500000002
+      }
+    },
+    {
+      "status": "verified-observation",
+      "changedFiles": 0,
+      "checkMs": 78.11692199999993,
+      "startedAtMs": 1793328018368,
+      "finishedAtMs": 1793328018446,
+      "stages": {
+        "beforeSnapshotMs": 10.856606999999997,
+        "trackedFilesMs": 2.314485999999988,
+        "adaptivePlanMs": 39.881718000000035,
+        "compatibilityMs": 0.3136690000000044,
+        "afterSnapshotMs": 9.468749000000003
+      }
+    },
+    {
+      "status": "dirty",
+      "changedFiles": 1001,
+      "checkMs": 63.88786600000003,
+      "startedAtMs": 1793328018549,
+      "finishedAtMs": 1793328018613,
+      "stages": {
+        "beforeSnapshotMs": 8.997641999999928,
+        "trackedFilesMs": 1.379997000000003,
+        "adaptivePlanMs": 31.001021000000037,
+        "compatibilityMs": 0.23628399999995509,
+        "afterSnapshotMs": 8.926425999999992
+      }
+    },
+    {
+      "status": "verified-observation",
+      "changedFiles": 0,
+      "checkMs": 81.79572000000007,
+      "startedAtMs": 1793328019284,
+      "finishedAtMs": 1793328019366,
+      "stages": {
+        "beforeSnapshotMs": 10.410558000000037,
+        "trackedFilesMs": 2.485652000000073,
+        "adaptivePlanMs": 38.07304999999997,
+        "compatibilityMs": 0.3384770000000117,
+        "afterSnapshotMs": 8.436093000000028
+      }
+    },
+    {
+      "status": "verified-observation",
+      "changedFiles": 0,
+      "checkMs": 73.83812499999999,
+      "startedAtMs": 1793328019470,
+      "finishedAtMs": 1793328019544,
+      "stages": {
+        "beforeSnapshotMs": 9.549188999999842,
+        "trackedFilesMs": 3.264809000000014,
+        "adaptivePlanMs": 37.352551000000176,
+        "compatibilityMs": 0.28018900000006397,
+        "afterSnapshotMs": 7.663274999999885
+      }
+    },
+    {
+      "status": "verified-observation",
+      "changedFiles": 0,
+      "checkMs": 75.77572600000008,
+      "startedAtMs": 1793328019645,
+      "finishedAtMs": 1793328019721,
+      "stages": {
+        "beforeSnapshotMs": 9.338932999999997,
+        "trackedFilesMs": 2.809876999999915,
+        "adaptivePlanMs": 38.3372159999999,
+        "compatibilityMs": 0.3190680000000157,
+        "afterSnapshotMs": 11.529743999999937
+      }
+    }
+  ],
+  "scope": "full-hash checker enabled; synthetic Python fixtures; writeAdmissionMs includes a no-op graph read under write admission, not mutation execution cost; no strict filesystem linearizability"
+}

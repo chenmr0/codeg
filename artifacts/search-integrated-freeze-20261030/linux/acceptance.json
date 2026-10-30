@@ -1,0 +1,919 @@
+{
+  "platform": "linux",
+  "arch": "x64",
+  "node": "v24.22.1",
+  "startedAt": "2026-10-30T02:39:14.528Z",
+  "scope": "isolated cooperative protocol adapters; NOT production CLI/MCP coverage",
+  "cases": [
+    {
+      "name": "no-readers",
+      "status": "pass",
+      "durationMs": 121.296977
+    },
+    {
+      "name": "multi-process-query-and-idle",
+      "status": "pass",
+      "durationMs": 1221.327978
+    },
+    {
+      "name": "long-request-timeout",
+      "status": "pass",
+      "durationMs": 1620.1900509999998
+    },
+    {
+      "name": "sync-sdk-self-deadlock",
+      "status": "pass",
+      "durationMs": 1612.9267639999998
+    },
+    {
+      "name": "failure-candidate-validation",
+      "status": "pass",
+      "durationMs": 133.88404199999968
+    },
+    {
+      "name": "failure-candidate-corruption",
+      "status": "pass",
+      "durationMs": 106.44889400000011
+    },
+    {
+      "name": "failure-source-change",
+      "status": "pass",
+      "durationMs": 120.89482099999987
+    },
+    {
+      "name": "failure-space",
+      "status": "pass",
+      "durationMs": 111.17459000000053
+    },
+    {
+      "name": "failure-rename",
+      "status": "pass",
+      "durationMs": 125.9745640000001
+    },
+    {
+      "name": "cleanup-restart",
+      "status": "pass",
+      "durationMs": 217.5675110000002
+    },
+    {
+      "name": "crash-building",
+      "status": "pass",
+      "durationMs": 124.98408300000028
+    },
+    {
+      "name": "crash-prepared",
+      "status": "pass",
+      "durationMs": 127.11661999999978
+    },
+    {
+      "name": "crash-draining",
+      "status": "pass",
+      "durationMs": 123.89656899999954
+    },
+    {
+      "name": "crash-replacing",
+      "status": "pass",
+      "durationMs": 117.44618300000002
+    },
+    {
+      "name": "crash-before-old-rename",
+      "status": "pass",
+      "durationMs": 121.90018499999951
+    },
+    {
+      "name": "crash-after-old-rename",
+      "status": "pass",
+      "durationMs": 129.4167040000002
+    },
+    {
+      "name": "crash-old-moved",
+      "status": "pass",
+      "durationMs": 125.7805330000001
+    },
+    {
+      "name": "crash-before-new-rename",
+      "status": "pass",
+      "durationMs": 108.65504500000043
+    },
+    {
+      "name": "crash-after-new-rename",
+      "status": "pass",
+      "durationMs": 126.91145000000051
+    },
+    {
+      "name": "crash-new-moved",
+      "status": "pass",
+      "durationMs": 109.65892600000006
+    },
+    {
+      "name": "crash-before-commit",
+      "status": "pass",
+      "durationMs": 108.89487000000008
+    },
+    {
+      "name": "crash-committed",
+      "status": "pass",
+      "durationMs": 107.10201599999982
+    },
+    {
+      "name": "crash-resumed",
+      "status": "pass",
+      "durationMs": 113.3138600000002
+    },
+    {
+      "name": "post-commit-write-preserved",
+      "status": "pass",
+      "durationMs": 114.9421769999999
+    },
+    {
+      "name": "ambiguous-recovery-preserves",
+      "status": "pass",
+      "durationMs": 116.64270399999987
+    },
+    {
+      "name": "offline-overwrite-cycle",
+      "status": "pass",
+      "durationMs": 1040.8054489999995
+    },
+    {
+      "name": "corrupt-public-file",
+      "status": "pass",
+      "durationMs": 215.1680120000001
+    },
+    {
+      "name": "reader-process-crash",
+      "status": "pass",
+      "durationMs": 227.45287200000166
+    },
+    {
+      "name": "wal-pairing",
+      "status": "pass",
+      "durationMs": 227.589602
+    },
+    {
+      "name": "cold-admission-during-drain",
+      "status": "pass",
+      "durationMs": 1615.2664779999996
+    },
+    {
+      "name": "rename-error-after-old-rename",
+      "status": "pass",
+      "durationMs": 113.70074000000022
+    },
+    {
+      "name": "rename-error-after-new-rename",
+      "status": "pass",
+      "durationMs": 114.73366999999962
+    },
+    {
+      "name": "unsafe-recovery-path",
+      "status": "pass",
+      "durationMs": 99.82158900000104
+    },
+    {
+      "name": "public-file-different-project",
+      "status": "pass",
+      "durationMs": 207.7900979999995
+    },
+    {
+      "name": "concurrent-cold-bootstrap",
+      "status": "pass",
+      "durationMs": 683.1250929999987
+    },
+    {
+      "name": "cold-admission-after-old-rename",
+      "status": "pass",
+      "durationMs": 307.90838599999915
+    },
+    {
+      "name": "cold-admission-new-moved",
+      "status": "pass",
+      "durationMs": 306.8600119999992
+    },
+    {
+      "name": "dirty-builder-crash-cleanup",
+      "status": "pass",
+      "durationMs": 102.41093100000035
+    },
+    {
+      "name": "unknown-cleanup-artifact",
+      "status": "pass",
+      "durationMs": 115.81155399999989
+    },
+    {
+      "name": "write-during-build-baseline",
+      "status": "pass",
+      "durationMs": 206.4977170000002
+    },
+    {
+      "name": "missing-connections-lease-database",
+      "status": "pass",
+      "durationMs": 2.6312699999998586
+    },
+    {
+      "name": "missing-owner-lease-database",
+      "status": "pass",
+      "durationMs": 2.5397919999995793
+    },
+    {
+      "name": "cleaned-tombstone-unsafe-directory",
+      "status": "pass",
+      "durationMs": 122.26459600000089
+    },
+    {
+      "name": "crashed-writer-committed-mutation",
+      "status": "pass",
+      "durationMs": 209.66586800000005
+    },
+    {
+      "name": "active-writer-baseline-rejection",
+      "status": "pass",
+      "durationMs": 624.017758
+    },
+    {
+      "name": "sync-during-abandoned-drain-recovery",
+      "status": "pass",
+      "durationMs": 1603.4468300000008
+    },
+    {
+      "name": "admission-commit-failure-read",
+      "status": "pass",
+      "durationMs": 5.035939000001235
+    },
+    {
+      "name": "admission-commit-failure-write",
+      "status": "pass",
+      "durationMs": 3.910989999998492
+    },
+    {
+      "name": "admission-commit-failure-keeps-existing-request",
+      "status": "pass",
+      "durationMs": 4.361125999999786
+    }
+  ],
+  "switches": [
+    {
+      "status": "published",
+      "operation": "ba4ef438-c3e5-4d60-9f28-0594d0d02eac",
+      "metrics": {
+        "coordinatorKeeper": {
+          "openedAtMs": 1793327954641,
+          "attachedAtMs": 1793327954641,
+          "closedAtMs": 1793327954648
+        },
+        "buildMs": 0.3432640000000049,
+        "validationMs": 0.8343890000000016,
+        "checkpointMs": 0.22439500000000123,
+        "drainMs": 0.6368829999999974,
+        "replaceMs": 0.24413599999999747,
+        "reopenMs": 0.13858700000000113,
+        "resumeMs": 0.02027000000001067,
+        "checkpointFinalMs": 0.06926300000000651,
+        "admissionPauseMs": 1.7976910000000004,
+        "coordinatorCheckpoint": {
+          "busy": 0,
+          "log": 17,
+          "checkpointed": 17,
+          "deferred": false
+        }
+      },
+      "directoryFsync": true
+    },
+    {
+      "status": "published",
+      "operation": "f75d048c-444e-4728-946f-e5a0e3d599f1",
+      "metrics": {
+        "coordinatorKeeper": {
+          "openedAtMs": 1793327955462,
+          "attachedAtMs": 1793327955463,
+          "closedAtMs": 1793327955476
+        },
+        "buildMs": 0.35559200000000146,
+        "validationMs": 0.9640630000000101,
+        "checkpointMs": 0.19904800000000478,
+        "drainMs": 5.9230269999999905,
+        "replaceMs": 0.48029900000000225,
+        "reopenMs": 0.10071000000000652,
+        "resumeMs": 0.022423000000003412,
+        "checkpointFinalMs": 0.09202799999999911,
+        "admissionPauseMs": 7.405806999999996,
+        "coordinatorCheckpoint": {
+          "busy": 0,
+          "log": 17,
+          "checkpointed": 17,
+          "deferred": false
+        }
+      },
+      "directoryFsync": true
+    },
+    {
+      "status": "published",
+      "operation": "1913e2f8-4cf5-46f0-b1bd-d0a2ffc09905",
+      "metrics": {
+        "coordinatorKeeper": {
+          "openedAtMs": 1793327955595,
+          "attachedAtMs": 1793327955595,
+          "closedAtMs": 1793327955609
+        },
+        "buildMs": 0.4167539999999974,
+        "validationMs": 0.8072889999999973,
+        "checkpointMs": 0.17312900000000297,
+        "drainMs": 6.2559750000000065,
+        "replaceMs": 0.29277799999999843,
+        "reopenMs": 0.09646400000001165,
+        "resumeMs": 0.02382599999999968,
+        "checkpointFinalMs": 0.07717499999999688,
+        "admissionPauseMs": 7.491394,
+        "coordinatorCheckpoint": {
+          "busy": 0,
+          "log": 17,
+          "checkpointed": 17,
+          "deferred": false
+        }
+      },
+      "directoryFsync": true
+    },
+    {
+      "status": "published",
+      "operation": "441c3e42-efec-4381-8a2b-8e6802a863bd",
+      "metrics": {
+        "coordinatorKeeper": {
+          "openedAtMs": 1793327955715,
+          "attachedAtMs": 1793327955715,
+          "closedAtMs": 1793327955729
+        },
+        "buildMs": 0.3151809999999955,
+        "validationMs": 0.7141689999999983,
+        "checkpointMs": 0.2010709999999989,
+        "drainMs": 6.056295999999989,
+        "replaceMs": 0.5101340000000079,
+        "reopenMs": 0.12355499999999608,
+        "resumeMs": 0.023195000000001187,
+        "checkpointFinalMs": 0.09945899999999597,
+        "admissionPauseMs": 7.564835000000002,
+        "coordinatorCheckpoint": {
+          "busy": 0,
+          "log": 17,
+          "checkpointed": 17,
+          "deferred": false
+        }
+      },
+      "directoryFsync": true
+    },
+    {
+      "status": "published",
+      "operation": "d1b164c1-6b23-4669-a9d2-aed1c6b52cd7",
+      "metrics": {
+        "coordinatorKeeper": {
+          "openedAtMs": 1793327955846,
+          "attachedAtMs": 1793327955846,
+          "closedAtMs": 1793327955860
+        },
+        "buildMs": 0.28370499999999765,
+        "validationMs": 0.6527469999999909,
+        "checkpointMs": 0.20224299999999573,
+        "drainMs": 6.9667790000000025,
+        "replaceMs": 0.3034849999999949,
+        "reopenMs": 0.099449000000007,
+        "resumeMs": 0.022344000000003916,
+        "checkpointFinalMs": 0.07267899999999372,
+        "admissionPauseMs": 8.177892,
+        "coordinatorCheckpoint": {
+          "busy": 0,
+          "log": 17,
+          "checkpointed": 17,
+          "deferred": false
+        }
+      },
+      "directoryFsync": true
+    },
+    {
+      "status": "cancelled",
+      "error": "Injected index validation failure",
+      "operation": "b1d753b8-0a09-4f70-9b15-2ff3cb7f08e6",
+      "metrics": {
+        "coordinatorKeeper": {
+          "openedAtMs": 1793327959233,
+          "attachedAtMs": 1793327959233,
+          "closedAtMs": 1793327959238
+        },
+        "buildMs": 0.40228400000000875,
+        "validationMs": 0,
+        "checkpointMs": 0,
+        "drainMs": 0,
+        "replaceMs": 0,
+        "reopenMs": 0,
+        "resumeMs": 0,
+        "coordinatorCheckpoint": {
+          "busy": 0,
+          "log": 6,
+          "checkpointed": 6,
+          "deferred": false
+        }
+      }
+    },
+    {
+      "status": "cancelled",
+      "error": "file is not a database",
+      "code": "ERR_SQLITE_ERROR",
+      "operation": "ed9f5429-45d8-4ab1-9c9e-f6947b8d240c",
+      "metrics": {
+        "coordinatorKeeper": {
+          "openedAtMs": 1793327959342,
+          "attachedAtMs": 1793327959342,
+          "closedAtMs": 1793327959347
+        },
+        "buildMs": 0.4078130000000044,
+        "validationMs": 0,
+        "checkpointMs": 0,
+        "drainMs": 0,
+        "replaceMs": 0,
+        "reopenMs": 0,
+        "resumeMs": 0,
+        "coordinatorCheckpoint": {
+          "busy": 0,
+          "log": 6,
+          "checkpointed": 6,
+          "deferred": false
+        }
+      }
+    },
+    {
+      "status": "cancelled",
+      "error": "Source changed before publication",
+      "operation": "76a0a1ae-1b0f-4126-85bd-8f2f9cce3077",
+      "metrics": {
+        "coordinatorKeeper": {
+          "openedAtMs": 1793327959462,
+          "attachedAtMs": 1793327959462,
+          "closedAtMs": 1793327959469
+        },
+        "buildMs": 0.3971659999999986,
+        "validationMs": 0.9382590000000022,
+        "checkpointMs": 0,
+        "drainMs": 0,
+        "replaceMs": 0,
+        "reopenMs": 0,
+        "resumeMs": 0,
+        "coordinatorCheckpoint": {
+          "busy": 0,
+          "log": 8,
+          "checkpointed": 8,
+          "deferred": false
+        }
+      }
+    },
+    {
+      "status": "cancelled",
+      "error": "Injected insufficient space",
+      "code": "ENOSPC",
+      "operation": "273eb362-cc9f-4f96-818b-2df219ae6599",
+      "metrics": {
+        "coordinatorKeeper": {
+          "openedAtMs": 1793327959573,
+          "attachedAtMs": 1793327959574,
+          "closedAtMs": 1793327959579
+        },
+        "buildMs": 0.5657199999999989,
+        "validationMs": 0,
+        "checkpointMs": 0,
+        "drainMs": 0,
+        "replaceMs": 0,
+        "reopenMs": 0,
+        "resumeMs": 0,
+        "coordinatorCheckpoint": {
+          "busy": 0,
+          "log": 6,
+          "checkpointed": 6,
+          "deferred": false
+        }
+      }
+    },
+    {
+      "status": "cancelled",
+      "error": "Injected rename permission failure",
+      "code": "EACCES",
+      "operation": "319cd82f-b6d2-480b-bbb1-0b6ee3decfe6",
+      "metrics": {
+        "coordinatorKeeper": {
+          "openedAtMs": 1793327959694,
+          "attachedAtMs": 1793327959695,
+          "closedAtMs": 1793327959705
+        },
+        "buildMs": 0.5334909999999979,
+        "validationMs": 0.9930909999999926,
+        "checkpointMs": 0.2134099999999961,
+        "drainMs": 1.3060720000000003,
+        "replaceMs": 0,
+        "reopenMs": 0,
+        "resumeMs": 0,
+        "checkpointFinalMs": 0.09627399999999398,
+        "admissionPauseMs": 4.3585860000000025,
+        "coordinatorCheckpoint": {
+          "busy": 0,
+          "log": 15,
+          "checkpointed": 15,
+          "deferred": false
+        }
+      }
+    },
+    {
+      "status": "published",
+      "operation": "d6aa008c-1935-4ed3-a390-565adcd26fe8",
+      "metrics": {
+        "coordinatorKeeper": {
+          "openedAtMs": 1793327959813,
+          "attachedAtMs": 1793327959813,
+          "closedAtMs": 1793327959821
+        },
+        "buildMs": 0.42079200000000583,
+        "validationMs": 0.8427750000000032,
+        "checkpointMs": 0.1971060000000051,
+        "drainMs": 0.689945999999992,
+        "replaceMs": 0.2701459999999969,
+        "reopenMs": 0.115043,
+        "resumeMs": 0.03325999999999851,
+        "checkpointFinalMs": 0.10568899999999815,
+        "admissionPauseMs": 1.9967889999999926,
+        "coordinatorCheckpoint": {
+          "busy": 0,
+          "log": 15,
+          "checkpointed": 15,
+          "deferred": false
+        }
+      },
+      "cleanupError": "Injected cleanup sharing violation",
+      "directoryFsync": true
+    },
+    {
+      "status": "published",
+      "operation": "de5519b0-6684-4973-ae10-be2e2cab8592",
+      "metrics": {
+        "coordinatorKeeper": {
+          "openedAtMs": 1793327961933,
+          "attachedAtMs": 1793327961934,
+          "closedAtMs": 1793327961948
+        },
+        "buildMs": 0.2904959999999903,
+        "validationMs": 0.6550930000000079,
+        "checkpointMs": 0.20783099999999877,
+        "drainMs": 7.228162999999995,
+        "replaceMs": 0.2690939999999955,
+        "reopenMs": 0.1040660000000031,
+        "resumeMs": 0.02369600000000105,
+        "checkpointFinalMs": 0.07419099999999901,
+        "admissionPauseMs": 8.43780799999999,
+        "coordinatorCheckpoint": {
+          "busy": 0,
+          "log": 18,
+          "checkpointed": 18,
+          "deferred": false
+        }
+      },
+      "directoryFsync": true
+    },
+    {
+      "status": "published",
+      "operation": "64a10dd0-600e-460e-9ae9-7fed0132cfce",
+      "metrics": {
+        "coordinatorKeeper": {
+          "openedAtMs": 1793327962280,
+          "attachedAtMs": 1793327962281,
+          "closedAtMs": 1793327962293
+        },
+        "buildMs": 0.28596899999999437,
+        "validationMs": 0.6662699999999973,
+        "checkpointMs": 0.14424599999999543,
+        "drainMs": 6.097518000000008,
+        "replaceMs": 0.3803300000000007,
+        "reopenMs": 0.13138699999998948,
+        "resumeMs": 0.022885000000002265,
+        "checkpointFinalMs": 0.08686000000000149,
+        "admissionPauseMs": 7.426952,
+        "coordinatorCheckpoint": {
+          "busy": 0,
+          "log": 16,
+          "checkpointed": 16,
+          "deferred": false
+        }
+      },
+      "cleanupError": "Injected cleanup sharing violation",
+      "directoryFsync": true
+    },
+    {
+      "status": "published",
+      "operation": "76a0840e-17aa-4e99-90a4-9d6eac81eb3c",
+      "metrics": {
+        "coordinatorKeeper": {
+          "openedAtMs": 1793327962619,
+          "attachedAtMs": 1793327962619,
+          "closedAtMs": 1793327962632
+        },
+        "buildMs": 0.31783699999999726,
+        "validationMs": 0.7270409999999998,
+        "checkpointMs": 0.2070410000000038,
+        "drainMs": 6.0818940000000055,
+        "replaceMs": 0.25847799999999665,
+        "reopenMs": 0.09709599999999341,
+        "resumeMs": 0.025768999999996822,
+        "checkpointFinalMs": 0.0770159999999862,
+        "admissionPauseMs": 7.374472999999995,
+        "coordinatorCheckpoint": {
+          "busy": 0,
+          "log": 18,
+          "checkpointed": 18,
+          "deferred": false
+        }
+      },
+      "directoryFsync": true
+    },
+    {
+      "status": "published",
+      "operation": "c21d169d-c424-4258-ab93-82a1e836fb2d",
+      "metrics": {
+        "coordinatorKeeper": {
+          "openedAtMs": 1793327962845,
+          "attachedAtMs": 1793327962846,
+          "closedAtMs": 1793327962853
+        },
+        "buildMs": 0.5825240000000065,
+        "validationMs": 0.6674720000000036,
+        "checkpointMs": 0.21975999999999374,
+        "drainMs": 0.5721390000000071,
+        "replaceMs": 0.29371100000000183,
+        "reopenMs": 0.14183300000000543,
+        "resumeMs": 0.019610000000000127,
+        "checkpointFinalMs": 0.0709760000000017,
+        "admissionPauseMs": 1.8619440000000083,
+        "coordinatorCheckpoint": {
+          "busy": 0,
+          "log": 15,
+          "checkpointed": 15,
+          "deferred": false
+        }
+      },
+      "cleanupError": "Injected cleanup sharing violation",
+      "directoryFsync": true
+    },
+    {
+      "status": "published",
+      "operation": "11b70de2-66e5-46dd-a23a-ab39c62c0f1a",
+      "metrics": {
+        "coordinatorKeeper": {
+          "openedAtMs": 1793327963397,
+          "attachedAtMs": 1793327963398,
+          "closedAtMs": 1793327963412
+        },
+        "buildMs": 0.35996000000000095,
+        "validationMs": 0.7496050000000025,
+        "checkpointMs": 0.30934399999999584,
+        "drainMs": 7.250097000000011,
+        "replaceMs": 0.245348000000007,
+        "reopenMs": 0.16897400000000573,
+        "resumeMs": 0.01924900000000207,
+        "checkpointFinalMs": 0.1778060000000039,
+        "admissionPauseMs": 8.71869000000001,
+        "coordinatorCheckpoint": {
+          "busy": 0,
+          "log": 18,
+          "checkpointed": 18,
+          "deferred": false
+        }
+      },
+      "directoryFsync": true
+    },
+    {
+      "status": "cancelled",
+      "error": "Injected failure at after-old-rename",
+      "operation": "a711b273-aa14-401a-8883-c093892b4caf",
+      "metrics": {
+        "coordinatorKeeper": {
+          "openedAtMs": 1793327965135,
+          "attachedAtMs": 1793327965136,
+          "closedAtMs": 1793327965147
+        },
+        "buildMs": 0.30987500000000523,
+        "validationMs": 0.6666799999999995,
+        "checkpointMs": 0.2575259999999986,
+        "drainMs": 0.5908959999999865,
+        "replaceMs": 0,
+        "reopenMs": 0,
+        "resumeMs": 0,
+        "checkpointFinalMs": 0.06877299999999309,
+        "admissionPauseMs": 3.0219629999999995,
+        "coordinatorCheckpoint": {
+          "busy": 0,
+          "log": 15,
+          "checkpointed": 15,
+          "deferred": false
+        }
+      }
+    },
+    {
+      "status": "cancelled",
+      "error": "Injected failure at after-new-rename",
+      "operation": "936edacb-e122-4480-ae4e-ebbb3d9598d5",
+      "metrics": {
+        "coordinatorKeeper": {
+          "openedAtMs": 1793327965253,
+          "attachedAtMs": 1793327965253,
+          "closedAtMs": 1793327965262
+        },
+        "buildMs": 0.3133799999999951,
+        "validationMs": 0.8730000000000047,
+        "checkpointMs": 0.20773099999999545,
+        "drainMs": 0.5941820000000035,
+        "replaceMs": 0,
+        "reopenMs": 0,
+        "resumeMs": 0,
+        "checkpointFinalMs": 0.07094600000000639,
+        "admissionPauseMs": 3.694824000000011,
+        "coordinatorCheckpoint": {
+          "busy": 0,
+          "log": 15,
+          "checkpointed": 15,
+          "deferred": false
+        }
+      }
+    },
+    {
+      "status": "published",
+      "operation": "d3a4c14f-7a99-4e88-9913-fa622b89439a",
+      "metrics": {
+        "coordinatorKeeper": {
+          "openedAtMs": 1793327965465,
+          "attachedAtMs": 1793327965466,
+          "closedAtMs": 1793327965473
+        },
+        "buildMs": 0.33379100000000506,
+        "validationMs": 0.6971259999999972,
+        "checkpointMs": 0.20076099999999997,
+        "drainMs": 0.6056190000000043,
+        "replaceMs": 0.35124700000000075,
+        "reopenMs": 0.11465200000000664,
+        "resumeMs": 0.019408999999996013,
+        "checkpointFinalMs": 0.06795200000000534,
+        "admissionPauseMs": 1.901764,
+        "coordinatorCheckpoint": {
+          "busy": 0,
+          "log": 17,
+          "checkpointed": 17,
+          "deferred": false
+        }
+      },
+      "directoryFsync": true
+    },
+    {
+      "status": "published",
+      "operation": "65132f3d-18e8-4f23-867d-4431e35164de",
+      "metrics": {
+        "coordinatorKeeper": {
+          "openedAtMs": 1793327967075,
+          "attachedAtMs": 1793327967075,
+          "closedAtMs": 1793327967086
+        },
+        "buildMs": 0.403806000000003,
+        "validationMs": 0.7285140000000041,
+        "checkpointMs": 0.40770200000000045,
+        "drainMs": 0.7054190000000062,
+        "replaceMs": 0.3011619999999908,
+        "reopenMs": 0.13873800000000358,
+        "resumeMs": 0.024986999999995874,
+        "checkpointFinalMs": 0.06931400000000565,
+        "admissionPauseMs": 2.038531000000006,
+        "coordinatorCheckpoint": {
+          "busy": 0,
+          "log": 15,
+          "checkpointed": 15,
+          "deferred": false
+        }
+      },
+      "cleanupError": "Injected cleanup sharing violation",
+      "directoryFsync": true
+    },
+    {
+      "status": "published",
+      "operation": "028ed13b-d9a7-4e42-9b34-8e56ced9070d",
+      "metrics": {
+        "coordinatorKeeper": {
+          "openedAtMs": 1793327967399,
+          "attachedAtMs": 1793327967400,
+          "closedAtMs": 1793327967407
+        },
+        "buildMs": 0.335212999999996,
+        "validationMs": 0.6673619999999971,
+        "checkpointMs": 0.16934399999999528,
+        "drainMs": 0.5644479999999987,
+        "replaceMs": 0.2771359999999987,
+        "reopenMs": 0.0951429999999931,
+        "resumeMs": 0.02085099999999329,
+        "checkpointFinalMs": 0.07081700000000524,
+        "admissionPauseMs": 1.7079239999999913,
+        "coordinatorCheckpoint": {
+          "busy": 0,
+          "log": 17,
+          "checkpointed": 17,
+          "deferred": false
+        }
+      },
+      "directoryFsync": true
+    },
+    {
+      "status": "published",
+      "operation": "28740a22-8203-4fd4-89b8-82a048a8df36",
+      "metrics": {
+        "coordinatorKeeper": {
+          "openedAtMs": 1793327968234,
+          "attachedAtMs": 1793327968234,
+          "closedAtMs": 1793327968252
+        },
+        "buildMs": 0.297426999999999,
+        "validationMs": 0.7396499999999975,
+        "checkpointMs": 0.1685329999999965,
+        "drainMs": 7.143163000000001,
+        "replaceMs": 0.3379070000000013,
+        "reopenMs": 0.10710000000000264,
+        "resumeMs": 0.021942999999993162,
+        "checkpointFinalMs": 0.12058100000000138,
+        "admissionPauseMs": 8.494101,
+        "coordinatorCheckpoint": {
+          "busy": 0,
+          "log": 18,
+          "checkpointed": 18,
+          "deferred": false
+        }
+      },
+      "directoryFsync": true
+    }
+  ],
+  "queries": [
+    {
+      "scenario": "five-process repeated switch",
+      "count": 1211,
+      "p50Ms": 0.10578900000007252,
+      "p95Ms": 0.2251569999999674,
+      "p99Ms": 6.12789900000007,
+      "maxMs": 11.678767999999991,
+      "explicitObserved": [
+        {
+          "role": "CLI",
+          "tags": [
+            "A",
+            "B",
+            "C",
+            "D"
+          ]
+        },
+        {
+          "role": "MCP",
+          "tags": [
+            "A",
+            "B",
+            "C",
+            "D"
+          ]
+        },
+        {
+          "role": "daemon",
+          "tags": [
+            "A",
+            "B",
+            "C",
+            "D"
+          ]
+        },
+        {
+          "role": "SDK",
+          "tags": [
+            "A",
+            "B",
+            "C",
+            "D"
+          ]
+        },
+        {
+          "role": "worker",
+          "tags": [
+            "A",
+            "B",
+            "C",
+            "D"
+          ]
+        }
+      ],
+      "explicitQueries": {
+        "count": 20,
+        "p50Ms": 0.6400880000001052,
+        "p95Ms": 3.4812110000000303,
+        "p99Ms": 4.223090999999954,
+        "maxMs": 4.223090999999954
+      },
+      "explicitTimingScope": "parent request-to-reply including IPC"
+    },
+    {
+      "scenario": "queued-after-long-request-cancel",
+      "waitMs": 759.597192
+    }
+  ],
+  "completedAt": "2026-10-30T02:39:29.881Z"
+}

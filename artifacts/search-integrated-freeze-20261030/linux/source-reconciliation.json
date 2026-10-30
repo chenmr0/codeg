@@ -1,0 +1,1874 @@
+{
+  "platform": "linux",
+  "node": "v24.22.1",
+  "startedAt": "2026-10-30T02:40:19.991Z",
+  "scope": "real CodeGraph source reconciliation prototype; conditional convergence, not atomic source snapshot",
+  "cases": [
+    {
+      "name": "post-fence-same-size-mtime-add-delete",
+      "status": "pass",
+      "durationMs": 1367.01484
+    },
+    {
+      "name": "crash-resumed-restart-convergence",
+      "status": "pass",
+      "durationMs": 1221.193427
+    },
+    {
+      "name": "edit-after-verified-observation",
+      "status": "pass",
+      "durationMs": 730.401363
+    },
+    {
+      "name": "continuous-change-bounded-pending",
+      "status": "pass",
+      "durationMs": 846.7560659999999
+    },
+    {
+      "name": "hash-failure-pending-retry",
+      "status": "pass",
+      "durationMs": 970.8769739999998
+    },
+    {
+      "name": "post-fence-ignore-config",
+      "status": "pass",
+      "durationMs": 1478.1384859999998
+    },
+    {
+      "name": "offline-public-replace-source-observation",
+      "status": "pass",
+      "durationMs": 604.8805689999999
+    },
+    {
+      "name": "post-publication-observation-ioerr",
+      "status": "pass",
+      "durationMs": 354.4683420000001
+    },
+    {
+      "name": "writer-overlaps-source-check",
+      "status": "pass",
+      "durationMs": 703.7263599999997
+    },
+    {
+      "name": "unreadable-new-directory",
+      "status": "pass",
+      "durationMs": 402.4149230000003
+    },
+    {
+      "name": "dirty-to-build-ownership-change",
+      "status": "pass",
+      "durationMs": 679.0855250000004
+    }
+  ],
+  "workers": [
+    {
+      "mode": "publish",
+      "exitCode": 0,
+      "signal": null,
+      "stdout": "",
+      "stderr": "",
+      "messages": [
+        {
+          "event": "phase",
+          "phase": "before-build"
+        },
+        {
+          "event": "phase",
+          "phase": "after-build"
+        },
+        {
+          "event": "phase",
+          "phase": "prepared"
+        },
+        {
+          "event": "phase",
+          "phase": "draining"
+        },
+        {
+          "event": "phase",
+          "phase": "replacing"
+        },
+        {
+          "event": "phase",
+          "phase": "before-old-rename"
+        },
+        {
+          "event": "phase",
+          "phase": "after-old-rename"
+        },
+        {
+          "event": "phase",
+          "phase": "old-moved"
+        },
+        {
+          "event": "phase",
+          "phase": "before-new-rename"
+        },
+        {
+          "event": "phase",
+          "phase": "after-new-rename"
+        },
+        {
+          "event": "phase",
+          "phase": "new-moved"
+        },
+        {
+          "event": "phase",
+          "phase": "before-commit"
+        },
+        {
+          "event": "phase",
+          "phase": "committed"
+        },
+        {
+          "event": "phase",
+          "phase": "resumed"
+        },
+        {
+          "event": "phase",
+          "phase": "cleanup"
+        },
+        {
+          "event": "result",
+          "result": {
+            "status": "published",
+            "operation": "4a142196-7fac-4865-b8cc-8ddfd3681b9d",
+            "metrics": {
+              "coordinatorKeeper": {
+                "openedAtMs": 1793328020438,
+                "attachedAtMs": 1793328020438,
+                "closedAtMs": 1793328020761
+              },
+              "buildMs": 217.11004200000002,
+              "validationMs": 4.384573999999986,
+              "checkpointMs": 0.5915370000000166,
+              "drainMs": 13.334493000000009,
+              "replaceMs": 0.2271499999999378,
+              "reopenMs": 0.32141200000000936,
+              "resumeMs": 0.03291899999999259,
+              "checkpointFinalMs": 0.36899300000004587,
+              "admissionPauseMs": 15.154191000000026,
+              "coordinatorCheckpoint": {
+                "busy": 0,
+                "log": 19,
+                "checkpointed": 19,
+                "deferred": false
+              }
+            },
+            "directoryFsync": true,
+            "startedAtMs": 1793328020437,
+            "finishedAtMs": 1793328020761,
+            "preparation": {
+              "sourceSnapshotMs": 7.010746999999981,
+              "expectedIndexMs": 71.02884900000001,
+              "activeEligibilityMs": 2.0452870000000303,
+              "validateSourceMs": 0.13044599999994944,
+              "finalSourceFenceMs": 0.05660499999999047
+            }
+          }
+        }
+      ]
+    },
+    {
+      "mode": "watch",
+      "exitCode": 0,
+      "signal": null,
+      "stdout": "",
+      "stderr": "",
+      "messages": [
+        {
+          "event": "ready"
+        },
+        {
+          "event": "phase",
+          "phase": "hash-start"
+        },
+        {
+          "event": "phase",
+          "phase": "observed"
+        },
+        {
+          "event": "phase",
+          "phase": "before-build"
+        },
+        {
+          "event": "phase",
+          "phase": "after-build"
+        },
+        {
+          "event": "phase",
+          "phase": "prepared"
+        },
+        {
+          "event": "phase",
+          "phase": "draining"
+        },
+        {
+          "event": "phase",
+          "phase": "replacing"
+        },
+        {
+          "event": "phase",
+          "phase": "before-old-rename"
+        },
+        {
+          "event": "phase",
+          "phase": "after-old-rename"
+        },
+        {
+          "event": "phase",
+          "phase": "old-moved"
+        },
+        {
+          "event": "phase",
+          "phase": "before-new-rename"
+        },
+        {
+          "event": "phase",
+          "phase": "after-new-rename"
+        },
+        {
+          "event": "phase",
+          "phase": "new-moved"
+        },
+        {
+          "event": "phase",
+          "phase": "before-commit"
+        },
+        {
+          "event": "phase",
+          "phase": "committed"
+        },
+        {
+          "event": "phase",
+          "phase": "resumed"
+        },
+        {
+          "event": "phase",
+          "phase": "cleanup"
+        },
+        {
+          "event": "phase",
+          "phase": "hash-start"
+        },
+        {
+          "event": "phase",
+          "phase": "observed"
+        },
+        {
+          "event": "tick",
+          "result": {
+            "status": "verified-observation",
+            "outcomes": [
+              {
+                "type": "check",
+                "status": "dirty",
+                "reason": "observed-source-or-config-diff",
+                "checks": 1,
+                "lastObservedAt": "2026-10-30T02:40:21.088Z",
+                "databaseRevision": 1,
+                "startedAtMs": 1793328020993,
+                "finishedAtMs": 1793328021088,
+                "checkMs": 94.998763,
+                "stages": {
+                  "beforeSnapshotMs": 7.415728999999999,
+                  "trackedFilesMs": 0.1563639999999964,
+                  "adaptivePlanMs": 72.45043499999997,
+                  "compatibilityMs": 0.3901749999999993,
+                  "afterSnapshotMs": 0.12092100000000983
+                },
+                "matches": false,
+                "sourceChangedDuringCheck": false,
+                "fullSourceDigest": "689ddb474403b04ec07ad87b471be465faec2b7104f6be47bf4014feee1b9339",
+                "changedFiles": 3,
+                "added": [
+                  "added.py"
+                ],
+                "modified": [
+                  "main.py"
+                ],
+                "removed": [
+                  "removed.py"
+                ],
+                "configChanged": false,
+                "upgrade": false,
+                "observedDigest": "334d0d6efbe5829d4cb41205714ce7383146ff44b9e4adf8c463ad8366d6002e"
+              },
+              {
+                "type": "publish",
+                "status": "published",
+                "operation": "459aaae2-9254-4a5c-9d68-10b202c0ab2d",
+                "metrics": {
+                  "coordinatorKeeper": {
+                    "openedAtMs": 1793328021090,
+                    "attachedAtMs": 1793328021090,
+                    "closedAtMs": 1793328021330
+                  },
+                  "buildMs": 210.35425400000003,
+                  "validationMs": 4.546917000000008,
+                  "checkpointMs": 0.5081419999999071,
+                  "drainMs": 11.930207999999993,
+                  "replaceMs": 0.3045160000000351,
+                  "reopenMs": 0.28636900000003607,
+                  "resumeMs": 0.024926999999934196,
+                  "checkpointFinalMs": 0.28004999999996016,
+                  "admissionPauseMs": 13.568534,
+                  "coordinatorCheckpoint": {
+                    "busy": 0,
+                    "log": 21,
+                    "checkpointed": 21,
+                    "deferred": false
+                  }
+                },
+                "directoryFsync": true,
+                "startedAtMs": 1793328021090,
+                "finishedAtMs": 1793328021330,
+                "preparation": {
+                  "sourceSnapshotMs": 0.171717000000001,
+                  "expectedIndexMs": 4.105095000000006,
+                  "activeEligibilityMs": 1.9454569999999194,
+                  "validateSourceMs": 0.11635499999999865,
+                  "finalSourceFenceMs": 0.06249400000001515
+                }
+              },
+              {
+                "type": "check",
+                "status": "verified-observation",
+                "reason": "indexed-content-matched-full-observation",
+                "checks": 2,
+                "lastObservedAt": "2026-10-30T02:40:21.341Z",
+                "databaseRevision": 2,
+                "startedAtMs": 1793328021330,
+                "finishedAtMs": 1793328021341,
+                "checkMs": 10.615677000000005,
+                "stages": {
+                  "beforeSnapshotMs": 0.09978899999998703,
+                  "trackedFilesMs": 0.07208800000000792,
+                  "adaptivePlanMs": 5.2733670000000075,
+                  "compatibilityMs": 0.17007500000011078,
+                  "afterSnapshotMs": 0.08316500000000815
+                },
+                "matches": true,
+                "sourceChangedDuringCheck": false,
+                "fullSourceDigest": "689ddb474403b04ec07ad87b471be465faec2b7104f6be47bf4014feee1b9339",
+                "changedFiles": 0,
+                "added": [],
+                "modified": [],
+                "removed": [],
+                "configChanged": false,
+                "upgrade": false,
+                "observedDigest": "334d0d6efbe5829d4cb41205714ce7383146ff44b9e4adf8c463ad8366d6002e"
+              }
+            ],
+            "builds": 1,
+            "guarantee": "past-content-observation-only"
+          }
+        },
+        {
+          "event": "result",
+          "result": {
+            "version": 1,
+            "status": "verified-observation",
+            "checks": 2,
+            "builds": 2,
+            "reason": "indexed-content-matched-full-observation",
+            "matches": true,
+            "operation": "459aaae2-9254-4a5c-9d68-10b202c0ab2d",
+            "updatedAt": "2026-10-30T02:40:21.341Z",
+            "expectedSourceDigest": "689ddb474403b04ec07ad87b471be465faec2b7104f6be47bf4014feee1b9339",
+            "lastPublish": "published",
+            "lastPublishError": null,
+            "lastObservedAt": "2026-10-30T02:40:21.341Z",
+            "databaseRevision": 2,
+            "startedAtMs": 1793328021330,
+            "finishedAtMs": 1793328021341,
+            "checkMs": 10.615677000000005,
+            "stages": {
+              "beforeSnapshotMs": 0.09978899999998703,
+              "trackedFilesMs": 0.07208800000000792,
+              "adaptivePlanMs": 5.2733670000000075,
+              "compatibilityMs": 0.17007500000011078,
+              "afterSnapshotMs": 0.08316500000000815
+            },
+            "sourceChangedDuringCheck": false,
+            "fullSourceDigest": "689ddb474403b04ec07ad87b471be465faec2b7104f6be47bf4014feee1b9339",
+            "changedFiles": 0,
+            "added": [],
+            "modified": [],
+            "removed": [],
+            "configChanged": false,
+            "upgrade": false,
+            "observedDigest": "334d0d6efbe5829d4cb41205714ce7383146ff44b9e4adf8c463ad8366d6002e"
+          }
+        }
+      ]
+    },
+    {
+      "mode": "publish",
+      "exitCode": null,
+      "signal": "SIGKILL",
+      "stdout": "",
+      "stderr": "",
+      "messages": [
+        {
+          "event": "phase",
+          "phase": "before-build"
+        },
+        {
+          "event": "phase",
+          "phase": "after-build"
+        },
+        {
+          "event": "phase",
+          "phase": "prepared"
+        },
+        {
+          "event": "phase",
+          "phase": "draining"
+        },
+        {
+          "event": "phase",
+          "phase": "replacing"
+        },
+        {
+          "event": "phase",
+          "phase": "before-old-rename"
+        },
+        {
+          "event": "phase",
+          "phase": "after-old-rename"
+        },
+        {
+          "event": "phase",
+          "phase": "old-moved"
+        },
+        {
+          "event": "phase",
+          "phase": "before-new-rename"
+        },
+        {
+          "event": "phase",
+          "phase": "after-new-rename"
+        },
+        {
+          "event": "phase",
+          "phase": "new-moved"
+        },
+        {
+          "event": "phase",
+          "phase": "before-commit"
+        },
+        {
+          "event": "phase",
+          "phase": "committed"
+        },
+        {
+          "event": "phase",
+          "phase": "resumed"
+        }
+      ]
+    },
+    {
+      "mode": "watch",
+      "exitCode": 0,
+      "signal": null,
+      "stdout": "",
+      "stderr": "",
+      "messages": [
+        {
+          "event": "ready"
+        },
+        {
+          "event": "phase",
+          "phase": "hash-start"
+        },
+        {
+          "event": "phase",
+          "phase": "observed"
+        },
+        {
+          "event": "phase",
+          "phase": "before-build"
+        },
+        {
+          "event": "phase",
+          "phase": "after-build"
+        },
+        {
+          "event": "phase",
+          "phase": "prepared"
+        },
+        {
+          "event": "phase",
+          "phase": "draining"
+        },
+        {
+          "event": "phase",
+          "phase": "replacing"
+        },
+        {
+          "event": "phase",
+          "phase": "before-old-rename"
+        },
+        {
+          "event": "phase",
+          "phase": "after-old-rename"
+        },
+        {
+          "event": "phase",
+          "phase": "old-moved"
+        },
+        {
+          "event": "phase",
+          "phase": "before-new-rename"
+        },
+        {
+          "event": "phase",
+          "phase": "after-new-rename"
+        },
+        {
+          "event": "phase",
+          "phase": "new-moved"
+        },
+        {
+          "event": "phase",
+          "phase": "before-commit"
+        },
+        {
+          "event": "phase",
+          "phase": "committed"
+        },
+        {
+          "event": "phase",
+          "phase": "resumed"
+        },
+        {
+          "event": "phase",
+          "phase": "cleanup"
+        },
+        {
+          "event": "phase",
+          "phase": "hash-start"
+        },
+        {
+          "event": "phase",
+          "phase": "observed"
+        },
+        {
+          "event": "tick",
+          "result": {
+            "status": "verified-observation",
+            "outcomes": [
+              {
+                "type": "check",
+                "status": "dirty",
+                "reason": "observed-source-or-config-diff",
+                "checks": 1,
+                "lastObservedAt": "2026-10-30T02:40:22.298Z",
+                "databaseRevision": 1,
+                "startedAtMs": 1793328022202,
+                "finishedAtMs": 1793328022298,
+                "checkMs": 96.231336,
+                "stages": {
+                  "beforeSnapshotMs": 6.550040999999993,
+                  "trackedFilesMs": 0.12155200000000832,
+                  "adaptivePlanMs": 75.98363699999999,
+                  "compatibilityMs": 0.5611220000000117,
+                  "afterSnapshotMs": 0.12677999999999656
+                },
+                "matches": false,
+                "sourceChangedDuringCheck": false,
+                "fullSourceDigest": "09c36d4a2e59590eb532ef9fe4d5cee0d23b3d889a7aced55476533801b07a51",
+                "changedFiles": 1,
+                "added": [],
+                "modified": [
+                  "main.py"
+                ],
+                "removed": [],
+                "configChanged": false,
+                "upgrade": false,
+                "observedDigest": "1f62040cc810e4cacf1e0def26593c587444d0623c7b598c4c45607b1a53d377"
+              },
+              {
+                "type": "publish",
+                "status": "published",
+                "operation": "840cc498-4d5c-47bd-bce4-82780f1c5851",
+                "metrics": {
+                  "coordinatorKeeper": {
+                    "openedAtMs": 1793328022300,
+                    "attachedAtMs": 1793328022300,
+                    "closedAtMs": 1793328022552
+                  },
+                  "buildMs": 226.61381799999998,
+                  "validationMs": 4.549921999999981,
+                  "checkpointMs": 0.527140999999915,
+                  "drainMs": 6.408714000000032,
+                  "replaceMs": 0.3589079999999285,
+                  "reopenMs": 0.5104450000000043,
+                  "resumeMs": 0.022613000000092143,
+                  "checkpointFinalMs": 0.2797289999999748,
+                  "admissionPauseMs": 8.36102100000005,
+                  "coordinatorCheckpoint": {
+                    "busy": 0,
+                    "log": 21,
+                    "checkpointed": 21,
+                    "deferred": false
+                  }
+                },
+                "directoryFsync": true,
+                "startedAtMs": 1793328022300,
+                "finishedAtMs": 1793328022552,
+                "preparation": {
+                  "sourceSnapshotMs": 0.15701500000000124,
+                  "expectedIndexMs": 5.091183999999998,
+                  "activeEligibilityMs": 2.094280000000083,
+                  "validateSourceMs": 0.11090699999999742,
+                  "finalSourceFenceMs": 0.063054999999963
+                }
+              },
+              {
+                "type": "check",
+                "status": "verified-observation",
+                "reason": "indexed-content-matched-full-observation",
+                "checks": 2,
+                "lastObservedAt": "2026-10-30T02:40:22.564Z",
+                "databaseRevision": 2,
+                "startedAtMs": 1793328022553,
+                "finishedAtMs": 1793328022564,
+                "checkMs": 11.089292,
+                "stages": {
+                  "beforeSnapshotMs": 0.10435600000005252,
+                  "trackedFilesMs": 0.04981499999996686,
+                  "adaptivePlanMs": 5.112646000000041,
+                  "compatibilityMs": 0.3010510000000295,
+                  "afterSnapshotMs": 0.08572900000001482
+                },
+                "matches": true,
+                "sourceChangedDuringCheck": false,
+                "fullSourceDigest": "09c36d4a2e59590eb532ef9fe4d5cee0d23b3d889a7aced55476533801b07a51",
+                "changedFiles": 0,
+                "added": [],
+                "modified": [],
+                "removed": [],
+                "configChanged": false,
+                "upgrade": false,
+                "observedDigest": "1f62040cc810e4cacf1e0def26593c587444d0623c7b598c4c45607b1a53d377"
+              }
+            ],
+            "builds": 1,
+            "guarantee": "past-content-observation-only"
+          }
+        },
+        {
+          "event": "result",
+          "result": {
+            "version": 1,
+            "status": "verified-observation",
+            "checks": 2,
+            "builds": 2,
+            "reason": "indexed-content-matched-full-observation",
+            "matches": true,
+            "operation": "840cc498-4d5c-47bd-bce4-82780f1c5851",
+            "updatedAt": "2026-10-30T02:40:22.564Z",
+            "expectedSourceDigest": "09c36d4a2e59590eb532ef9fe4d5cee0d23b3d889a7aced55476533801b07a51",
+            "lastObservedAt": "2026-10-30T02:40:22.564Z",
+            "databaseRevision": 2,
+            "startedAtMs": 1793328022553,
+            "finishedAtMs": 1793328022564,
+            "checkMs": 11.089292,
+            "stages": {
+              "beforeSnapshotMs": 0.10435600000005252,
+              "trackedFilesMs": 0.04981499999996686,
+              "adaptivePlanMs": 5.112646000000041,
+              "compatibilityMs": 0.3010510000000295,
+              "afterSnapshotMs": 0.08572900000001482
+            },
+            "sourceChangedDuringCheck": false,
+            "fullSourceDigest": "09c36d4a2e59590eb532ef9fe4d5cee0d23b3d889a7aced55476533801b07a51",
+            "changedFiles": 0,
+            "added": [],
+            "modified": [],
+            "removed": [],
+            "configChanged": false,
+            "upgrade": false,
+            "observedDigest": "1f62040cc810e4cacf1e0def26593c587444d0623c7b598c4c45607b1a53d377",
+            "lastPublish": "published",
+            "lastPublishError": null
+          }
+        }
+      ]
+    },
+    {
+      "mode": "watch",
+      "exitCode": 0,
+      "signal": null,
+      "stdout": "",
+      "stderr": "",
+      "messages": [
+        {
+          "event": "ready"
+        },
+        {
+          "event": "phase",
+          "phase": "hash-start"
+        },
+        {
+          "event": "phase",
+          "phase": "observed"
+        },
+        {
+          "event": "tick",
+          "result": {
+            "status": "verified-observation",
+            "outcomes": [
+              {
+                "type": "check",
+                "status": "verified-observation",
+                "reason": "indexed-content-matched-full-observation",
+                "checks": 1,
+                "lastObservedAt": "2026-10-30T02:40:22.997Z",
+                "databaseRevision": 0,
+                "startedAtMs": 1793328022910,
+                "finishedAtMs": 1793328022997,
+                "checkMs": 86.974277,
+                "stages": {
+                  "beforeSnapshotMs": 6.153685999999993,
+                  "trackedFilesMs": 0.1277509999999893,
+                  "adaptivePlanMs": 69.20676700000001,
+                  "compatibilityMs": 0.36787200000000553,
+                  "afterSnapshotMs": 0.1160340000000133
+                },
+                "matches": true,
+                "sourceChangedDuringCheck": false,
+                "fullSourceDigest": "d14e09e1fd15e7d38b05122808745a0dfc8d1c127b321d4f4bbf67ed93f56831",
+                "changedFiles": 0,
+                "added": [],
+                "modified": [],
+                "removed": [],
+                "configChanged": false,
+                "upgrade": false,
+                "observedDigest": "2f2e2dd3138fa340ccae1ee33557a0ac74dba8a522dbfe230fd0f6e3011cb379"
+              }
+            ],
+            "builds": 0,
+            "guarantee": "past-content-observation-only"
+          }
+        },
+        {
+          "event": "phase",
+          "phase": "hash-start"
+        },
+        {
+          "event": "phase",
+          "phase": "observed"
+        },
+        {
+          "event": "phase",
+          "phase": "before-build"
+        },
+        {
+          "event": "phase",
+          "phase": "after-build"
+        },
+        {
+          "event": "phase",
+          "phase": "prepared"
+        },
+        {
+          "event": "phase",
+          "phase": "draining"
+        },
+        {
+          "event": "phase",
+          "phase": "replacing"
+        },
+        {
+          "event": "phase",
+          "phase": "before-old-rename"
+        },
+        {
+          "event": "phase",
+          "phase": "after-old-rename"
+        },
+        {
+          "event": "phase",
+          "phase": "old-moved"
+        },
+        {
+          "event": "phase",
+          "phase": "before-new-rename"
+        },
+        {
+          "event": "phase",
+          "phase": "after-new-rename"
+        },
+        {
+          "event": "phase",
+          "phase": "new-moved"
+        },
+        {
+          "event": "phase",
+          "phase": "before-commit"
+        },
+        {
+          "event": "phase",
+          "phase": "committed"
+        },
+        {
+          "event": "phase",
+          "phase": "resumed"
+        },
+        {
+          "event": "phase",
+          "phase": "cleanup"
+        },
+        {
+          "event": "phase",
+          "phase": "hash-start"
+        },
+        {
+          "event": "phase",
+          "phase": "observed"
+        },
+        {
+          "event": "tick",
+          "result": {
+            "status": "verified-observation",
+            "outcomes": [
+              {
+                "type": "check",
+                "status": "dirty",
+                "reason": "observed-source-or-config-diff",
+                "checks": 2,
+                "lastObservedAt": "2026-10-30T02:40:23.041Z",
+                "databaseRevision": 0,
+                "startedAtMs": 1793328023032,
+                "finishedAtMs": 1793328023042,
+                "checkMs": 9.907144000000017,
+                "stages": {
+                  "beforeSnapshotMs": 0.14774199999999382,
+                  "trackedFilesMs": 0.048412999999982276,
+                  "adaptivePlanMs": 4.3491710000000126,
+                  "compatibilityMs": 0.18170199999997294,
+                  "afterSnapshotMs": 0.08847300000002178
+                },
+                "matches": false,
+                "sourceChangedDuringCheck": false,
+                "fullSourceDigest": "9f59e5a48cba47c05f7bf3950c2926ea81bbccf531cd5712e53ee206542a6b2c",
+                "changedFiles": 1,
+                "added": [],
+                "modified": [
+                  "main.py"
+                ],
+                "removed": [],
+                "configChanged": false,
+                "upgrade": false,
+                "observedDigest": "e714a675550a8987eab46e99ae2f212a86ece2af1889f5f5dfe193921a92981f"
+              },
+              {
+                "type": "publish",
+                "status": "published",
+                "operation": "3a1d1c90-110f-4a15-a292-b1ba3178fcb2",
+                "metrics": {
+                  "coordinatorKeeper": {
+                    "openedAtMs": 1793328023043,
+                    "attachedAtMs": 1793328023043,
+                    "closedAtMs": 1793328023278
+                  },
+                  "buildMs": 210.14751399999994,
+                  "validationMs": 5.288739000000078,
+                  "checkpointMs": 0.9481220000000121,
+                  "drainMs": 6.372254999999996,
+                  "replaceMs": 0.26534800000001724,
+                  "reopenMs": 0.3459389999999303,
+                  "resumeMs": 0.02518699999995988,
+                  "checkpointFinalMs": 0.3001199999999926,
+                  "admissionPauseMs": 8.132843999999977,
+                  "coordinatorCheckpoint": {
+                    "busy": 0,
+                    "log": 21,
+                    "checkpointed": 21,
+                    "deferred": false
+                  }
+                },
+                "directoryFsync": true,
+                "startedAtMs": 1793328023043,
+                "finishedAtMs": 1793328023278,
+                "preparation": {
+                  "sourceSnapshotMs": 0.10149200000000747,
+                  "expectedIndexMs": 3.98842099999996,
+                  "activeEligibilityMs": 1.8804699999999457,
+                  "validateSourceMs": 0.10134200000004512,
+                  "finalSourceFenceMs": 0.06251299999996718
+                }
+              },
+              {
+                "type": "check",
+                "status": "verified-observation",
+                "reason": "indexed-content-matched-full-observation",
+                "checks": 3,
+                "lastObservedAt": "2026-10-30T02:40:23.289Z",
+                "databaseRevision": 1,
+                "startedAtMs": 1793328023279,
+                "finishedAtMs": 1793328023290,
+                "checkMs": 10.720094000000017,
+                "stages": {
+                  "beforeSnapshotMs": 0.09687500000006821,
+                  "trackedFilesMs": 0.049313999999981206,
+                  "adaptivePlanMs": 5.236932000000024,
+                  "compatibilityMs": 0.1664490000000569,
+                  "afterSnapshotMs": 0.11315999999999349
+                },
+                "matches": true,
+                "sourceChangedDuringCheck": false,
+                "fullSourceDigest": "9f59e5a48cba47c05f7bf3950c2926ea81bbccf531cd5712e53ee206542a6b2c",
+                "changedFiles": 0,
+                "added": [],
+                "modified": [],
+                "removed": [],
+                "configChanged": false,
+                "upgrade": false,
+                "observedDigest": "e714a675550a8987eab46e99ae2f212a86ece2af1889f5f5dfe193921a92981f"
+              }
+            ],
+            "builds": 1,
+            "guarantee": "past-content-observation-only"
+          }
+        },
+        {
+          "event": "result",
+          "result": {
+            "version": 1,
+            "status": "verified-observation",
+            "checks": 3,
+            "builds": 1,
+            "reason": "indexed-content-matched-full-observation",
+            "matches": true,
+            "updatedAt": "2026-10-30T02:40:23.290Z",
+            "lastObservedAt": "2026-10-30T02:40:23.289Z",
+            "databaseRevision": 1,
+            "startedAtMs": 1793328023279,
+            "finishedAtMs": 1793328023290,
+            "checkMs": 10.720094000000017,
+            "stages": {
+              "beforeSnapshotMs": 0.09687500000006821,
+              "trackedFilesMs": 0.049313999999981206,
+              "adaptivePlanMs": 5.236932000000024,
+              "compatibilityMs": 0.1664490000000569,
+              "afterSnapshotMs": 0.11315999999999349
+            },
+            "sourceChangedDuringCheck": false,
+            "fullSourceDigest": "9f59e5a48cba47c05f7bf3950c2926ea81bbccf531cd5712e53ee206542a6b2c",
+            "changedFiles": 0,
+            "added": [],
+            "modified": [],
+            "removed": [],
+            "configChanged": false,
+            "upgrade": false,
+            "observedDigest": "e714a675550a8987eab46e99ae2f212a86ece2af1889f5f5dfe193921a92981f",
+            "operation": "3a1d1c90-110f-4a15-a292-b1ba3178fcb2",
+            "expectedSourceDigest": "9f59e5a48cba47c05f7bf3950c2926ea81bbccf531cd5712e53ee206542a6b2c",
+            "lastPublish": "published",
+            "lastPublishError": null
+          }
+        }
+      ]
+    },
+    {
+      "mode": "reconcile",
+      "exitCode": 0,
+      "signal": null,
+      "stdout": "",
+      "stderr": "",
+      "messages": [
+        {
+          "event": "phase",
+          "phase": "hash-start"
+        },
+        {
+          "event": "result",
+          "result": {
+            "status": "pending",
+            "outcomes": [
+              {
+                "type": "check",
+                "status": "blocked",
+                "matches": null,
+                "reason": "source-check-failed",
+                "error": "Injected source hash I/O failure",
+                "startedAtMs": 1793328024552,
+                "finishedAtMs": 1793328024564,
+                "checkMs": 11.497849000000002,
+                "stages": {}
+              }
+            ],
+            "builds": 0,
+            "nextCheckRequired": true
+          }
+        }
+      ]
+    },
+    {
+      "mode": "watch",
+      "exitCode": 0,
+      "signal": null,
+      "stdout": "",
+      "stderr": "",
+      "messages": [
+        {
+          "event": "ready"
+        },
+        {
+          "event": "phase",
+          "phase": "hash-start"
+        },
+        {
+          "event": "phase",
+          "phase": "observed"
+        },
+        {
+          "event": "phase",
+          "phase": "before-build"
+        },
+        {
+          "event": "phase",
+          "phase": "after-build"
+        },
+        {
+          "event": "phase",
+          "phase": "prepared"
+        },
+        {
+          "event": "phase",
+          "phase": "draining"
+        },
+        {
+          "event": "phase",
+          "phase": "replacing"
+        },
+        {
+          "event": "phase",
+          "phase": "before-old-rename"
+        },
+        {
+          "event": "phase",
+          "phase": "after-old-rename"
+        },
+        {
+          "event": "phase",
+          "phase": "old-moved"
+        },
+        {
+          "event": "phase",
+          "phase": "before-new-rename"
+        },
+        {
+          "event": "phase",
+          "phase": "after-new-rename"
+        },
+        {
+          "event": "phase",
+          "phase": "new-moved"
+        },
+        {
+          "event": "phase",
+          "phase": "before-commit"
+        },
+        {
+          "event": "phase",
+          "phase": "committed"
+        },
+        {
+          "event": "phase",
+          "phase": "resumed"
+        },
+        {
+          "event": "phase",
+          "phase": "cleanup"
+        },
+        {
+          "event": "phase",
+          "phase": "hash-start"
+        },
+        {
+          "event": "phase",
+          "phase": "observed"
+        },
+        {
+          "event": "tick",
+          "result": {
+            "status": "verified-observation",
+            "outcomes": [
+              {
+                "type": "check",
+                "status": "dirty",
+                "reason": "observed-source-or-config-diff",
+                "checks": 2,
+                "lastObservedAt": "2026-10-30T02:40:24.871Z",
+                "databaseRevision": 0,
+                "startedAtMs": 1793328024777,
+                "finishedAtMs": 1793328024872,
+                "checkMs": 94.75824600000001,
+                "stages": {
+                  "beforeSnapshotMs": 7.443194000000005,
+                  "trackedFilesMs": 0.12517699999997944,
+                  "adaptivePlanMs": 73.69078499999998,
+                  "compatibilityMs": 0.30145200000004024,
+                  "afterSnapshotMs": 0.11385100000001103
+                },
+                "matches": false,
+                "sourceChangedDuringCheck": false,
+                "fullSourceDigest": "a2b8b91426d7d7f42831f15c200187496c2e33289929137d6d0f6e34a563c7c3",
+                "changedFiles": 1,
+                "added": [],
+                "modified": [
+                  "main.py"
+                ],
+                "removed": [],
+                "configChanged": false,
+                "upgrade": false,
+                "observedDigest": "bc9e49704bfef5a1fff194cb392a55feaae80c8e10ebf2bfecfac6231a83ee33"
+              },
+              {
+                "type": "publish",
+                "status": "published",
+                "operation": "5970b181-beb6-4f98-ac80-8b1b8c70ddc6",
+                "metrics": {
+                  "coordinatorKeeper": {
+                    "openedAtMs": 1793328024874,
+                    "attachedAtMs": 1793328024874,
+                    "closedAtMs": 1793328025104
+                  },
+                  "buildMs": 201.45900899999998,
+                  "validationMs": 4.25861500000002,
+                  "checkpointMs": 0.5670910000000049,
+                  "drainMs": 11.733452,
+                  "replaceMs": 0.3521779999999808,
+                  "reopenMs": 0.2754130000000714,
+                  "resumeMs": 0.0262599999999793,
+                  "checkpointFinalMs": 0.3072910000000775,
+                  "admissionPauseMs": 13.430686999999978,
+                  "coordinatorCheckpoint": {
+                    "busy": 0,
+                    "log": 21,
+                    "checkpointed": 21,
+                    "deferred": false
+                  }
+                },
+                "directoryFsync": true,
+                "startedAtMs": 1793328024873,
+                "finishedAtMs": 1793328025104,
+                "preparation": {
+                  "sourceSnapshotMs": 0.15203799999994771,
+                  "expectedIndexMs": 4.588179000000025,
+                  "activeEligibilityMs": 1.6891029999999887,
+                  "validateSourceMs": 0.138937999999996,
+                  "finalSourceFenceMs": 0.058837999999980184
+                }
+              },
+              {
+                "type": "check",
+                "status": "verified-observation",
+                "reason": "indexed-content-matched-full-observation",
+                "checks": 3,
+                "lastObservedAt": "2026-10-30T02:40:25.115Z",
+                "databaseRevision": 1,
+                "startedAtMs": 1793328025105,
+                "finishedAtMs": 1793328025115,
+                "checkMs": 10.20333800000003,
+                "stages": {
+                  "beforeSnapshotMs": 0.10295400000006794,
+                  "trackedFilesMs": 0.051747999999975036,
+                  "adaptivePlanMs": 4.916310999999951,
+                  "compatibilityMs": 0.1937199999999848,
+                  "afterSnapshotMs": 0.08336499999995794
+                },
+                "matches": true,
+                "sourceChangedDuringCheck": false,
+                "fullSourceDigest": "a2b8b91426d7d7f42831f15c200187496c2e33289929137d6d0f6e34a563c7c3",
+                "changedFiles": 0,
+                "added": [],
+                "modified": [],
+                "removed": [],
+                "configChanged": false,
+                "upgrade": false,
+                "observedDigest": "bc9e49704bfef5a1fff194cb392a55feaae80c8e10ebf2bfecfac6231a83ee33"
+              }
+            ],
+            "builds": 1,
+            "guarantee": "past-content-observation-only"
+          }
+        },
+        {
+          "event": "result",
+          "result": {
+            "version": 1,
+            "status": "verified-observation",
+            "checks": 3,
+            "builds": 1,
+            "reason": "indexed-content-matched-full-observation",
+            "matches": true,
+            "updatedAt": "2026-10-30T02:40:25.116Z",
+            "lastObservedAt": "2026-10-30T02:40:25.115Z",
+            "databaseRevision": 1,
+            "startedAtMs": 1793328025105,
+            "finishedAtMs": 1793328025115,
+            "checkMs": 10.20333800000003,
+            "stages": {
+              "beforeSnapshotMs": 0.10295400000006794,
+              "trackedFilesMs": 0.051747999999975036,
+              "adaptivePlanMs": 4.916310999999951,
+              "compatibilityMs": 0.1937199999999848,
+              "afterSnapshotMs": 0.08336499999995794
+            },
+            "sourceChangedDuringCheck": false,
+            "fullSourceDigest": "a2b8b91426d7d7f42831f15c200187496c2e33289929137d6d0f6e34a563c7c3",
+            "changedFiles": 0,
+            "added": [],
+            "modified": [],
+            "removed": [],
+            "configChanged": false,
+            "upgrade": false,
+            "observedDigest": "bc9e49704bfef5a1fff194cb392a55feaae80c8e10ebf2bfecfac6231a83ee33",
+            "error": "Injected source hash I/O failure",
+            "operation": "5970b181-beb6-4f98-ac80-8b1b8c70ddc6",
+            "expectedSourceDigest": "a2b8b91426d7d7f42831f15c200187496c2e33289929137d6d0f6e34a563c7c3",
+            "lastPublish": "published",
+            "lastPublishError": null
+          }
+        }
+      ]
+    },
+    {
+      "mode": "publish",
+      "exitCode": 0,
+      "signal": null,
+      "stdout": "",
+      "stderr": "",
+      "messages": [
+        {
+          "event": "phase",
+          "phase": "before-build"
+        },
+        {
+          "event": "phase",
+          "phase": "after-build"
+        },
+        {
+          "event": "phase",
+          "phase": "prepared"
+        },
+        {
+          "event": "phase",
+          "phase": "draining"
+        },
+        {
+          "event": "phase",
+          "phase": "replacing"
+        },
+        {
+          "event": "phase",
+          "phase": "before-old-rename"
+        },
+        {
+          "event": "phase",
+          "phase": "after-old-rename"
+        },
+        {
+          "event": "phase",
+          "phase": "old-moved"
+        },
+        {
+          "event": "phase",
+          "phase": "before-new-rename"
+        },
+        {
+          "event": "phase",
+          "phase": "after-new-rename"
+        },
+        {
+          "event": "phase",
+          "phase": "new-moved"
+        },
+        {
+          "event": "phase",
+          "phase": "before-commit"
+        },
+        {
+          "event": "phase",
+          "phase": "committed"
+        },
+        {
+          "event": "phase",
+          "phase": "resumed"
+        },
+        {
+          "event": "phase",
+          "phase": "cleanup"
+        },
+        {
+          "event": "result",
+          "result": {
+            "status": "published",
+            "operation": "7f74167a-30e4-4b7f-bb5a-37983aecf1bd",
+            "metrics": {
+              "coordinatorKeeper": {
+                "openedAtMs": 1793328025477,
+                "attachedAtMs": 1793328025477,
+                "closedAtMs": 1793328025793
+              },
+              "buildMs": 205.52567500000004,
+              "validationMs": 5.180936999999972,
+              "checkpointMs": 0.4890229999999747,
+              "drainMs": 13.273670999999979,
+              "replaceMs": 0.2529389999999694,
+              "reopenMs": 0.27233799999999064,
+              "resumeMs": 0.02409699999998338,
+              "checkpointFinalMs": 0.29615400000000136,
+              "admissionPauseMs": 14.787319999999966,
+              "coordinatorCheckpoint": {
+                "busy": 0,
+                "log": 19,
+                "checkpointed": 19,
+                "deferred": false
+              }
+            },
+            "directoryFsync": true,
+            "startedAtMs": 1793328025476,
+            "finishedAtMs": 1793328025793,
+            "preparation": {
+              "sourceSnapshotMs": 7.606304999999992,
+              "expectedIndexMs": 75.25252699999999,
+              "activeEligibilityMs": 1.878706999999963,
+              "validateSourceMs": 0.20506699999998546,
+              "finalSourceFenceMs": 0.11079599999999346
+            }
+          }
+        }
+      ]
+    },
+    {
+      "mode": "watch",
+      "exitCode": 0,
+      "signal": null,
+      "stdout": "",
+      "stderr": "",
+      "messages": [
+        {
+          "event": "ready"
+        },
+        {
+          "event": "phase",
+          "phase": "hash-start"
+        },
+        {
+          "event": "phase",
+          "phase": "observed"
+        },
+        {
+          "event": "phase",
+          "phase": "before-build"
+        },
+        {
+          "event": "phase",
+          "phase": "after-build"
+        },
+        {
+          "event": "phase",
+          "phase": "prepared"
+        },
+        {
+          "event": "phase",
+          "phase": "draining"
+        },
+        {
+          "event": "phase",
+          "phase": "replacing"
+        },
+        {
+          "event": "phase",
+          "phase": "before-old-rename"
+        },
+        {
+          "event": "phase",
+          "phase": "after-old-rename"
+        },
+        {
+          "event": "phase",
+          "phase": "old-moved"
+        },
+        {
+          "event": "phase",
+          "phase": "before-new-rename"
+        },
+        {
+          "event": "phase",
+          "phase": "after-new-rename"
+        },
+        {
+          "event": "phase",
+          "phase": "new-moved"
+        },
+        {
+          "event": "phase",
+          "phase": "before-commit"
+        },
+        {
+          "event": "phase",
+          "phase": "committed"
+        },
+        {
+          "event": "phase",
+          "phase": "resumed"
+        },
+        {
+          "event": "phase",
+          "phase": "cleanup"
+        },
+        {
+          "event": "phase",
+          "phase": "hash-start"
+        },
+        {
+          "event": "phase",
+          "phase": "observed"
+        },
+        {
+          "event": "tick",
+          "result": {
+            "status": "verified-observation",
+            "outcomes": [
+              {
+                "type": "check",
+                "status": "dirty",
+                "reason": "observed-source-or-config-diff",
+                "checks": 1,
+                "lastObservedAt": "2026-10-30T02:40:26.085Z",
+                "databaseRevision": 1,
+                "startedAtMs": 1793328025996,
+                "finishedAtMs": 1793328026085,
+                "checkMs": 88.82536599999997,
+                "stages": {
+                  "beforeSnapshotMs": 7.210791,
+                  "trackedFilesMs": 0.13493199999999206,
+                  "adaptivePlanMs": 69.19723799999997,
+                  "compatibilityMs": 0.4253479999999854,
+                  "afterSnapshotMs": 0.2025639999999953
+                },
+                "matches": false,
+                "sourceChangedDuringCheck": false,
+                "fullSourceDigest": "45e9f7506671dfab7436f9c9cb59d1e7ad97e699a1f6c099db3a2516bfdab62e",
+                "changedFiles": 1,
+                "added": [],
+                "modified": [],
+                "removed": [
+                  "ignored.py"
+                ],
+                "configChanged": true,
+                "upgrade": false,
+                "observedDigest": "35d89dff98e9f6336decee7927522d31eaed1c115acf486c0c27aa25e0fd34e9"
+              },
+              {
+                "type": "publish",
+                "status": "published",
+                "operation": "76131d11-a0b6-4b35-b39a-d7e12b46da82",
+                "metrics": {
+                  "coordinatorKeeper": {
+                    "openedAtMs": 1793328026087,
+                    "attachedAtMs": 1793328026088,
+                    "closedAtMs": 1793328026335
+                  },
+                  "buildMs": 218.31683399999997,
+                  "validationMs": 4.617883000000006,
+                  "checkpointMs": 0.5208299999999895,
+                  "drainMs": 10.823157999999978,
+                  "replaceMs": 0.35720500000002176,
+                  "reopenMs": 0.3036049999999477,
+                  "resumeMs": 0.02732099999991533,
+                  "checkpointFinalMs": 0.2778960000000552,
+                  "admissionPauseMs": 12.493652000000054,
+                  "coordinatorCheckpoint": {
+                    "busy": 0,
+                    "log": 21,
+                    "checkpointed": 21,
+                    "deferred": false
+                  }
+                },
+                "directoryFsync": true,
+                "startedAtMs": 1793328026087,
+                "finishedAtMs": 1793328026335,
+                "preparation": {
+                  "sourceSnapshotMs": 0.16165300000000116,
+                  "expectedIndexMs": 5.268439000000001,
+                  "activeEligibilityMs": 1.8601689999999849,
+                  "validateSourceMs": 0.128612999999973,
+                  "finalSourceFenceMs": 0.06931400000001986
+                }
+              },
+              {
+                "type": "check",
+                "status": "verified-observation",
+                "reason": "indexed-content-matched-full-observation",
+                "checks": 2,
+                "lastObservedAt": "2026-10-30T02:40:26.347Z",
+                "databaseRevision": 2,
+                "startedAtMs": 1793328026335,
+                "finishedAtMs": 1793328026347,
+                "checkMs": 11.898648999999978,
+                "stages": {
+                  "beforeSnapshotMs": 0.1280819999999494,
+                  "trackedFilesMs": 0.051918000000000575,
+                  "adaptivePlanMs": 5.962638999999967,
+                  "compatibilityMs": 0.16607900000008158,
+                  "afterSnapshotMs": 0.10262399999999161
+                },
+                "matches": true,
+                "sourceChangedDuringCheck": false,
+                "fullSourceDigest": "45e9f7506671dfab7436f9c9cb59d1e7ad97e699a1f6c099db3a2516bfdab62e",
+                "changedFiles": 0,
+                "added": [],
+                "modified": [],
+                "removed": [],
+                "configChanged": false,
+                "upgrade": false,
+                "observedDigest": "35d89dff98e9f6336decee7927522d31eaed1c115acf486c0c27aa25e0fd34e9"
+              }
+            ],
+            "builds": 1,
+            "guarantee": "past-content-observation-only"
+          }
+        },
+        {
+          "event": "phase",
+          "phase": "hash-start"
+        },
+        {
+          "event": "phase",
+          "phase": "observed"
+        },
+        {
+          "event": "phase",
+          "phase": "before-build"
+        },
+        {
+          "event": "phase",
+          "phase": "after-build"
+        },
+        {
+          "event": "phase",
+          "phase": "prepared"
+        },
+        {
+          "event": "phase",
+          "phase": "draining"
+        },
+        {
+          "event": "phase",
+          "phase": "replacing"
+        },
+        {
+          "event": "phase",
+          "phase": "before-old-rename"
+        },
+        {
+          "event": "phase",
+          "phase": "after-old-rename"
+        },
+        {
+          "event": "phase",
+          "phase": "old-moved"
+        },
+        {
+          "event": "phase",
+          "phase": "before-new-rename"
+        },
+        {
+          "event": "phase",
+          "phase": "after-new-rename"
+        },
+        {
+          "event": "phase",
+          "phase": "new-moved"
+        },
+        {
+          "event": "phase",
+          "phase": "before-commit"
+        },
+        {
+          "event": "phase",
+          "phase": "committed"
+        },
+        {
+          "event": "phase",
+          "phase": "resumed"
+        },
+        {
+          "event": "phase",
+          "phase": "cleanup"
+        },
+        {
+          "event": "phase",
+          "phase": "hash-start"
+        },
+        {
+          "event": "phase",
+          "phase": "observed"
+        },
+        {
+          "event": "tick",
+          "result": {
+            "status": "verified-observation",
+            "outcomes": [
+              {
+                "type": "check",
+                "status": "dirty",
+                "reason": "observed-source-or-config-diff",
+                "checks": 3,
+                "lastObservedAt": "2026-10-30T02:40:26.392Z",
+                "databaseRevision": 2,
+                "startedAtMs": 1793328026380,
+                "finishedAtMs": 1793328026392,
+                "checkMs": 12.285058999999933,
+                "stages": {
+                  "beforeSnapshotMs": 0.12707100000000082,
+                  "trackedFilesMs": 0.05543300000010731,
+                  "adaptivePlanMs": 6.423270000000002,
+                  "compatibilityMs": 0.27089599999999336,
+                  "afterSnapshotMs": 0.1078019999999924
+                },
+                "matches": false,
+                "sourceChangedDuringCheck": false,
+                "fullSourceDigest": "01f65f2c37e0cc006bfca185f381cc674609c0293a3e7cd5c207f2e337a59012",
+                "changedFiles": 1,
+                "added": [
+                  "ignored.py"
+                ],
+                "modified": [],
+                "removed": [],
+                "configChanged": true,
+                "upgrade": false,
+                "observedDigest": "93d5bc6821c1ddd766671298a006fcbd267b039750f3f7e63d98e3476924ce45"
+              },
+              {
+                "type": "publish",
+                "status": "published",
+                "operation": "fd9ac62d-494e-4b8b-9b63-573b2193f2bd",
+                "metrics": {
+                  "coordinatorKeeper": {
+                    "openedAtMs": 1793328026394,
+                    "attachedAtMs": 1793328026394,
+                    "closedAtMs": 1793328026588
+                  },
+                  "buildMs": 170.65432299999998,
+                  "validationMs": 4.128288999999995,
+                  "checkpointMs": 0.5636349999999766,
+                  "drainMs": 5.3717040000000225,
+                  "replaceMs": 0.1278819999999996,
+                  "reopenMs": 0.2934189999999717,
+                  "resumeMs": 0.033349999999927604,
+                  "checkpointFinalMs": 0.33549300000004223,
+                  "admissionPauseMs": 6.73489799999993,
+                  "coordinatorCheckpoint": {
+                    "busy": 0,
+                    "log": 21,
+                    "checkpointed": 21,
+                    "deferred": false
+                  }
+                },
+                "directoryFsync": true,
+                "startedAtMs": 1793328026394,
+                "finishedAtMs": 1793328026588,
+                "preparation": {
+                  "sourceSnapshotMs": 0.11914899999999307,
+                  "expectedIndexMs": 5.670552000000043,
+                  "activeEligibilityMs": 2.0242350000000897,
+                  "validateSourceMs": 0.2609610000000657,
+                  "finalSourceFenceMs": 0.028343000000063512
+                }
+              },
+              {
+                "type": "check",
+                "status": "verified-observation",
+                "reason": "indexed-content-matched-full-observation",
+                "checks": 4,
+                "lastObservedAt": "2026-10-30T02:40:26.600Z",
+                "databaseRevision": 3,
+                "startedAtMs": 1793328026589,
+                "finishedAtMs": 1793328026600,
+                "checkMs": 11.332681000000093,
+                "stages": {
+                  "beforeSnapshotMs": 0.21118599999999788,
+                  "trackedFilesMs": 0.07639500000004773,
+                  "adaptivePlanMs": 5.852945000000091,
+                  "compatibilityMs": 0.14951399999995374,
+                  "afterSnapshotMs": 0.08887300000003506
+                },
+                "matches": true,
+                "sourceChangedDuringCheck": false,
+                "fullSourceDigest": "01f65f2c37e0cc006bfca185f381cc674609c0293a3e7cd5c207f2e337a59012",
+                "changedFiles": 0,
+                "added": [],
+                "modified": [],
+                "removed": [],
+                "configChanged": false,
+                "upgrade": false,
+                "observedDigest": "93d5bc6821c1ddd766671298a006fcbd267b039750f3f7e63d98e3476924ce45"
+              }
+            ],
+            "builds": 1,
+            "guarantee": "past-content-observation-only"
+          }
+        },
+        {
+          "event": "result",
+          "result": {
+            "version": 1,
+            "status": "verified-observation",
+            "checks": 4,
+            "builds": 3,
+            "reason": "indexed-content-matched-full-observation",
+            "matches": true,
+            "operation": "fd9ac62d-494e-4b8b-9b63-573b2193f2bd",
+            "updatedAt": "2026-10-30T02:40:26.600Z",
+            "expectedSourceDigest": "01f65f2c37e0cc006bfca185f381cc674609c0293a3e7cd5c207f2e337a59012",
+            "lastPublish": "published",
+            "lastPublishError": null,
+            "lastObservedAt": "2026-10-30T02:40:26.600Z",
+            "databaseRevision": 3,
+            "startedAtMs": 1793328026589,
+            "finishedAtMs": 1793328026600,
+            "checkMs": 11.332681000000093,
+            "stages": {
+              "beforeSnapshotMs": 0.21118599999999788,
+              "trackedFilesMs": 0.07639500000004773,
+              "adaptivePlanMs": 5.852945000000091,
+              "compatibilityMs": 0.14951399999995374,
+              "afterSnapshotMs": 0.08887300000003506
+            },
+            "sourceChangedDuringCheck": false,
+            "fullSourceDigest": "01f65f2c37e0cc006bfca185f381cc674609c0293a3e7cd5c207f2e337a59012",
+            "changedFiles": 0,
+            "added": [],
+            "modified": [],
+            "removed": [],
+            "configChanged": false,
+            "upgrade": false,
+            "observedDigest": "93d5bc6821c1ddd766671298a006fcbd267b039750f3f7e63d98e3476924ce45"
+          }
+        }
+      ]
+    },
+    {
+      "mode": "reconcile",
+      "exitCode": 0,
+      "signal": null,
+      "stdout": "",
+      "stderr": "",
+      "messages": [
+        {
+          "event": "phase",
+          "phase": "hash-start"
+        },
+        {
+          "event": "phase",
+          "phase": "observed"
+        },
+        {
+          "event": "result",
+          "result": {
+            "status": "verified-observation",
+            "outcomes": [
+              {
+                "type": "check",
+                "status": "verified-observation",
+                "reason": "indexed-content-matched-full-observation",
+                "checks": 2,
+                "lastObservedAt": "2026-10-30T02:40:27.204Z",
+                "databaseRevision": 0,
+                "startedAtMs": 1793328027116,
+                "finishedAtMs": 1793328027204,
+                "checkMs": 88.23861600000001,
+                "stages": {
+                  "beforeSnapshotMs": 7.052094000000011,
+                  "trackedFilesMs": 0.14071100000001024,
+                  "adaptivePlanMs": 68.955254,
+                  "compatibilityMs": 0.3476209999999753,
+                  "afterSnapshotMs": 0.11108699999999772
+                },
+                "matches": true,
+                "sourceChangedDuringCheck": false,
+                "fullSourceDigest": "70471f5ddcd3679929fc53b40da849e9203e0e2fd419aea77d7ec4e3cf94f4cc",
+                "changedFiles": 0,
+                "added": [],
+                "modified": [],
+                "removed": [],
+                "configChanged": false,
+                "upgrade": false,
+                "observedDigest": "bb35dbdbc3edb23a3feec59dbca8b8f384b59d8e3568ffbb880accb620c768be"
+              }
+            ],
+            "builds": 0,
+            "guarantee": "past-content-observation-only"
+          }
+        }
+      ]
+    },
+    {
+      "mode": "publish",
+      "exitCode": 0,
+      "signal": null,
+      "stdout": "",
+      "stderr": "",
+      "messages": [
+        {
+          "event": "phase",
+          "phase": "before-build"
+        },
+        {
+          "event": "phase",
+          "phase": "after-build"
+        },
+        {
+          "event": "phase",
+          "phase": "prepared"
+        },
+        {
+          "event": "result",
+          "result": {
+            "status": "cancelled",
+            "error": "Active source ownership changed; compensation refused",
+            "operation": "64470251-9d32-49b0-bc6f-a4f11a65e555",
+            "metrics": {
+              "coordinatorKeeper": {
+                "openedAtMs": 1793328029028,
+                "attachedAtMs": 1793328029029,
+                "closedAtMs": 1793328029341
+              },
+              "buildMs": 225.57614299999997,
+              "validationMs": 4.95891499999999,
+              "checkpointMs": 0,
+              "drainMs": 0,
+              "replaceMs": 0,
+              "reopenMs": 0,
+              "resumeMs": 0,
+              "coordinatorCheckpoint": {
+                "busy": 0,
+                "log": 13,
+                "checkpointed": 13,
+                "deferred": false
+              }
+            },
+            "startedAtMs": 1793328029028,
+            "finishedAtMs": 1793328029341,
+            "preparation": {
+              "sourceSnapshotMs": 7.035368000000005,
+              "expectedIndexMs": 67.37080900000001,
+              "activeEligibilityMs": 1.840599999999995
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "completedAt": "2026-10-30T02:40:29.361Z"
+}

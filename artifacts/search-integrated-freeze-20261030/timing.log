@@ -1,0 +1,17 @@
+✔ async batches preserve all request order and normal close drains (14.224718ms)
+✔ timer persists partial batch while producer is still running (13.310702ms)
+✔ existing evidence is not truncated (1.951746ms)
+✔ bounded backlog refuses silent loss (1.390601ms)
+✔ flushed records survive producer SIGKILL without final report (103.039554ms)
+✔ real load-profile journals every request and closes active readers normally (6299.774671ms)
+✔ benchmark SQL timing preserves receiver, return/throw and restores db (false) (2.844699ms)
+✔ benchmark SQL timing preserves receiver, return/throw and restores db (true) (0.707424ms)
+✔ cached statements charge only the current scope and never mutate past evidence (0.336006ms)
+ℹ tests 9
+ℹ suites 0
+ℹ pass 9
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 6567.054147

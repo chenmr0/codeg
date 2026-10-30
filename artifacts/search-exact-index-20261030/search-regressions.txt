@@ -1,0 +1,24 @@
+
+ RUN  v2.1.9 /workspace/scratch/75b00092a0fc/codeg-search-exact-fix
+
+ ✓ __tests__/search-exact.test.ts (19 tests) 6069ms
+   ✓ searchNodes exact mode > returns only nodes whose name is byte-equal to the query 605ms
+   ✓ searchNodes exact mode > is case-sensitive: GetUser and getuser do not match getUser 315ms
+   ✓ searchNodes exact mode > respects the kind filter 301ms
+   ✓ searchNodes exact mode > preserves literal path prefixes with globstar patterns 316ms
+   ✓ searchNodes exact mode > honors SearchOptions excludePatterns for exact symbols 314ms
+   ✓ searchNodes exact mode > uses source line to disambiguate more than 100 identical qualified names 320ms
+   ✓ searchNodes exact mode > applies path filters inside FTS before its candidate LIMIT 323ms
+   ✓ searchNodes exact mode > resolves C++-style and dotted qualified names without FTS 307ms
+   ✓ searchNodes exact mode > preserves whitespace and ellipses in an exact C++ template qualified name 316ms
+   ✓ searchNodes exact mode > intersects inline kind filters with SearchOptions kinds 305ms
+   ✓ searchNodes exact mode > default (non-exact) mode still surfaces prefix matches — regression guard 306ms
+ ✓ __tests__/search-query-parser.test.ts (23 tests) 8ms
+ ✓ __tests__/search-supplement-index.test.ts (4 tests) 224ms
+ ✓ __tests__/search-natural-language-detection.test.ts (22 tests) 2ms
+
+ Test Files  4 passed (4)
+      Tests  68 passed (68)
+   Start at  10:34:17
+   Duration  8.12s (transform 1.24s, setup 0ms, collect 1.59s, tests 6.30s, environment 0ms, prepare 49ms)
+

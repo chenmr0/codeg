@@ -1,0 +1,110 @@
+{
+  "scope": "small warm fixture; alternating batches, not large-repository gate or causal latency guarantee",
+  "rounds": 20,
+  "callsPerBatch": 100,
+  "rows": [
+    {
+      "round": 0,
+      "plainMsPerQuery": 0.2722047100000003,
+      "observedMsPerQuery": 0.25463229000000015
+    },
+    {
+      "round": 1,
+      "observedMsPerQuery": 0.2728134399999999,
+      "plainMsPerQuery": 0.24287698999999974
+    },
+    {
+      "round": 2,
+      "plainMsPerQuery": 0.19736212999999964,
+      "observedMsPerQuery": 0.20973400999999967
+    },
+    {
+      "round": 3,
+      "observedMsPerQuery": 0.2655411700000002,
+      "plainMsPerQuery": 0.16200134999999932
+    },
+    {
+      "round": 4,
+      "plainMsPerQuery": 0.1689749299999994,
+      "observedMsPerQuery": 0.18861650999999938
+    },
+    {
+      "round": 5,
+      "observedMsPerQuery": 0.2446706400000005,
+      "plainMsPerQuery": 0.16600246999999968
+    },
+    {
+      "round": 6,
+      "plainMsPerQuery": 0.15293514000000072,
+      "observedMsPerQuery": 0.1858827999999994
+    },
+    {
+      "round": 7,
+      "observedMsPerQuery": 0.24081925999999954,
+      "plainMsPerQuery": 0.16000555000000077
+    },
+    {
+      "round": 8,
+      "plainMsPerQuery": 0.15940305999999965,
+      "observedMsPerQuery": 0.17501927000000023
+    },
+    {
+      "round": 9,
+      "observedMsPerQuery": 0.27686497999999915,
+      "plainMsPerQuery": 0.17628287
+    },
+    {
+      "round": 10,
+      "plainMsPerQuery": 0.16988608,
+      "observedMsPerQuery": 0.183372720000001
+    },
+    {
+      "round": 11,
+      "observedMsPerQuery": 0.24813961000000062,
+      "plainMsPerQuery": 0.15841835999999943
+    },
+    {
+      "round": 12,
+      "plainMsPerQuery": 0.15538099999999985,
+      "observedMsPerQuery": 0.2629710699999998
+    },
+    {
+      "round": 13,
+      "observedMsPerQuery": 0.17801908000000025,
+      "plainMsPerQuery": 0.17121016999999938
+    },
+    {
+      "round": 14,
+      "plainMsPerQuery": 0.1600650200000007,
+      "observedMsPerQuery": 0.2311830699999996
+    },
+    {
+      "round": 15,
+      "observedMsPerQuery": 0.17883780999999885,
+      "plainMsPerQuery": 0.15918942000000016
+    },
+    {
+      "round": 16,
+      "plainMsPerQuery": 0.1530830500000002,
+      "observedMsPerQuery": 0.2469107199999985
+    },
+    {
+      "round": 17,
+      "observedMsPerQuery": 0.1740999899999997,
+      "plainMsPerQuery": 0.16247926000000007
+    },
+    {
+      "round": 18,
+      "plainMsPerQuery": 0.15996758999999883,
+      "observedMsPerQuery": 0.23980931000000055
+    },
+    {
+      "round": 19,
+      "observedMsPerQuery": 0.1718660399999999,
+      "plainMsPerQuery": 0.16017669999999953
+    }
+  ],
+  "medianPlainMs": 0.16200134999999932,
+  "medianObservedMs": 0.23980931000000055,
+  "medianPairedDeltaMs": 0.032947659999998685
+}

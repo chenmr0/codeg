@@ -1,0 +1,142 @@
+{
+  "node": "v24.22.1",
+  "db": "../benchmark-real/evidence/bounded-2-timeout180/init-b-data/codegraph.db",
+  "note": "5 paired alternating-order repeats, readonly native SQLite, warm/cold not controlled; not full-build/cutover gate",
+  "plans": {
+    "old": [
+      {
+        "id": 5,
+        "parent": 0,
+        "notused": 210,
+        "detail": "SCAN nodes USING INDEX idx_nodes_name"
+      },
+      {
+        "id": 42,
+        "parent": 0,
+        "notused": 0,
+        "detail": "USE TEMP B-TREE FOR ORDER BY"
+      }
+    ],
+    "next": [
+      {
+        "id": 5,
+        "parent": 0,
+        "notused": 105,
+        "detail": "SEARCH nodes USING INDEX idx_nodes_lower_name (<expr>=?)"
+      },
+      {
+        "id": 45,
+        "parent": 0,
+        "notused": 0,
+        "detail": "USE TEMP B-TREE FOR ORDER BY"
+      }
+    ]
+  },
+  "samples": [
+    {
+      "round": 0,
+      "term": "ObObj",
+      "oldMs": 39.01313900000001,
+      "nextMs": 0.37441099999999494,
+      "count": 20
+    },
+    {
+      "round": 0,
+      "term": "ObString",
+      "oldMs": 38.353382999999994,
+      "nextMs": 0.45108499999997775,
+      "count": 20
+    },
+    {
+      "round": 0,
+      "term": "ObServer",
+      "oldMs": 38.364799000000005,
+      "nextMs": 1.3376419999999882,
+      "count": 20
+    },
+    {
+      "round": 1,
+      "term": "ObObj",
+      "nextMs": 0.1986880000000042,
+      "oldMs": 37.50727600000002,
+      "count": 20
+    },
+    {
+      "round": 1,
+      "term": "ObString",
+      "nextMs": 0.4479599999999948,
+      "oldMs": 36.80189100000001,
+      "count": 20
+    },
+    {
+      "round": 1,
+      "term": "ObServer",
+      "nextMs": 1.3304410000000075,
+      "oldMs": 38.394682999999986,
+      "count": 20
+    },
+    {
+      "round": 2,
+      "term": "ObObj",
+      "oldMs": 36.93462900000003,
+      "nextMs": 0.317025000000001,
+      "count": 20
+    },
+    {
+      "round": 2,
+      "term": "ObString",
+      "oldMs": 38.515264,
+      "nextMs": 0.46424500000000535,
+      "count": 20
+    },
+    {
+      "round": 2,
+      "term": "ObServer",
+      "oldMs": 38.67494399999998,
+      "nextMs": 1.37573900000001,
+      "count": 20
+    },
+    {
+      "round": 3,
+      "term": "ObObj",
+      "nextMs": 0.2417220000000384,
+      "oldMs": 37.10414300000002,
+      "count": 20
+    },
+    {
+      "round": 3,
+      "term": "ObString",
+      "nextMs": 0.414841000000024,
+      "oldMs": 37.667956000000004,
+      "count": 20
+    },
+    {
+      "round": 3,
+      "term": "ObServer",
+      "nextMs": 1.3090389999999843,
+      "oldMs": 39.058478000000036,
+      "count": 20
+    },
+    {
+      "round": 4,
+      "term": "ObObj",
+      "oldMs": 36.53388899999993,
+      "nextMs": 0.2892930000000433,
+      "count": 20
+    },
+    {
+      "round": 4,
+      "term": "ObString",
+      "oldMs": 38.66329699999994,
+      "nextMs": 0.422362000000021,
+      "count": 20
+    },
+    {
+      "round": 4,
+      "term": "ObServer",
+      "oldMs": 38.674874000000045,
+      "nextMs": 1.3966499999999087,
+      "count": 20
+    }
+  ]
+}

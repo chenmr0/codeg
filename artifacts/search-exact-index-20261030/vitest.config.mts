@@ -1,0 +1,2 @@
+import { defineConfig } from 'vitest/config';
+export default defineConfig({test:{environment:'node',env:{CODEGRAPH_ALLOW_UNSAFE_NODE:'1',CODEGRAPH_ALL_LANGUAGES:'1'},include:['__tests__/search-exact.test.ts','__tests__/search-query-parser.test.ts','__tests__/search-natural-language-detection.test.ts','__tests__/search-supplement-index.test.ts'],pool:'forks',poolOptions:{forks:{execArgv:['--liftoff-only'],singleFork:true}}}});

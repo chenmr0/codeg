@@ -17,7 +17,7 @@ test('real load-profile journals every request and closes active readers normall
  const summary=JSON.parse(fs.readFileSync(out));assert.deepEqual(summary.errors,[]);assert.deepEqual(summary.closeErrors,[]);
  for(let i=0;i<5;i++){
   const report=JSON.parse(fs.readFileSync(`${out}.client-${i}.json`)),records=fs.readFileSync(`${out}.client-${i}.json.ndjson`,'utf8').trim().split('\n').map(x=>JSON.parse(x));
-  assert.equal(records[0].type,'start');assert.equal(records.at(-1).type,'stop');assert.deepEqual(records.filter(r=>r.type==='request').map(r=>r.record),report.rows);assert.equal(report.journal.writtenRecords,report.completedRequests+2);assert.ok(report.completedRequests>0);
+  assert.equal(records[0].type,'start');assert.equal(records.at(-1).type,'stop');assert.deepEqual(records.filter(r=>r.type==='request').map(r=>r.record),report.rows);assert.equal(report.journal.writtenRecords,report.completedRequests+2);for(const row of report.rows){assert.ok(row.searchSql.fts.calls>0);if(row.pattern==='ObServer')assert.ok(row.searchSql.supplement.calls>0);assert.ok(row.searchFtsSqlMs>=0);assert.ok(row.searchSupplementSqlMs>=0);}assert.ok(report.completedRequests>0);
  }
  for(const suffix of ['-wal','-shm','-journal'])assert.equal(fs.existsSync(path.join(root,'.codegraph-wx/codegraph.db')+suffix),false,'no unleased post-close evidence query');
 });
