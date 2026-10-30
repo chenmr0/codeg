@@ -11,14 +11,17 @@ if(process.env.FIXED_SYNC_CHILD){
     if(role==='publisher'){
       const {beginOperation}=require('../../dist/sync/fixed-path/protocol');const op=beginOperation(root);
       process.send({type:'publisher-ready',pid:process.pid,candidate:op.record.directory});
-      await new Promise(resolve=>{const timer=setInterval(()=>{if(fs.existsSync(path.join(root,'publisher.release'))){clearInterval(timer);resolve();}},10);});
+      await new Promise(resolve=>{let last;const timer=setInterval(()=>{const challenge=path.join(root,'publisher.challenge');if(fs.existsSync(challenge)){const nonce=fs.readFileSync(challenge,'utf8');if(nonce!==last){fs.writeFileSync(path.join(root,'publisher.ack'),nonce);last=nonce;}}if(fs.existsSync(path.join(root,'publisher.release'))){clearInterval(timer);resolve();}},10);});
       op.owner.close();if(process.connected)process.disconnect();return;
     }
     if(role==='holder'||role==='parent-and-child'){
       const {acquireFixedSyncAdmission}=require('../../dist/sync/fixed-path/sync-admission');
       const held=await acquireFixedSyncAdmission({project:root,dataDirectory:path.join(root,'.codegraph-wx')});
       if(role==='parent-and-child'){
-        const child=fork(__filename,[root],{execArgv:['--liftoff-only'],env:{...process.env,FIXED_SYNC_CHILD:'publisher'},stdio:['ignore','ignore','ignore','ipc']});
+        // Windows non-detached children are in libuv's kill-on-parent-close job.
+        // Detach this failure-injection child to exercise a genuinely surviving owner.
+        const errFd=fs.openSync(path.join(root,'publisher.stderr'),'w');
+        const child=fork(__filename,[root],{detached:true,windowsHide:true,execArgv:['--liftoff-only'],env:{...process.env,FIXED_SYNC_CHILD:'publisher'},stdio:['ignore','ignore',errFd,'ipc']});fs.closeSync(errFd);
         const ready=await new Promise(resolve=>child.once('message',resolve));process.send({type:'held',...ready,type:'held'});
       }else process.send({type:'held'});
       await new Promise(resolve=>process.once('message',resolve));held.close();process.disconnect();return;
@@ -76,6 +79,10 @@ test('parent-only crash does not let a follower bypass its still-live publisher 
  try{
   parent=start(root,'parent-and-child');const ready=await parent.wait('held');pid=ready.pid;
   parent.child.kill('SIGKILL');await parent.exited;
+  const nonce=require('node:crypto').randomUUID();fs.writeFileSync(path.join(root,'publisher.challenge'),nonce);
+  const deadline=Date.now()+5000;while(Date.now()<deadline&&(!fs.existsSync(path.join(root,'publisher.ack'))||fs.readFileSync(path.join(root,'publisher.ack'),'utf8')!==nonce))await new Promise(r=>setTimeout(r,10));
+  assert.equal(fs.existsSync(path.join(root,'publisher.ack'))&&fs.readFileSync(path.join(root,'publisher.ack'),'utf8'),nonce,'fixture must prove child responds after parent exit: '+fs.readFileSync(path.join(root,'publisher.stderr'),'utf8'));
+  const probe=require('../../dist/sync/fixed-path/protocol').lease(paths(root).owner,true);if(probe)probe.close();assert.equal(probe,null,'live child must still hold publisher OS ownership');
   await assert.rejects(graph.sync({adaptive:false,syncCoordinationTimeoutMs:100}),/timed out/);
   process.kill(pid,0);assert(graph.searchNodes('stable').length);assert(fs.existsSync(ready.candidate));
   const pending=graph.sync({adaptive:false,syncCoordinationTimeoutMs:10000});

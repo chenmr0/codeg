@@ -1,7 +1,7 @@
 name: Fixed-path production complete verification
 on:
   push:
-    branches: [verify/fixed-path-production-sync-admission-20261030]
+    branches: [verify/fixed-path-production-fixture-20261030]
   workflow_dispatch: {}
 permissions:
   contents: read

@@ -13,7 +13,17 @@ function client(dir,direct=false,preload,watch=false){
  child.stdout.on('data',b=>{buf+=b;let i;while((i=buf.indexOf('\n'))>=0){const line=buf.slice(0,i);buf=buf.slice(i+1);try{const m=JSON.parse(line),p=pending.get(m.id);if(p){pending.delete(m.id);clearTimeout(p.timer);samples.push(performance.now()-p.start);m.error?p.reject(new Error(JSON.stringify(m.error))):p.resolve(m.result);}}catch{}}});
  const exited=new Promise(r=>child.once('close',code=>{for(const p of pending.values())p.reject(new Error(`server exited ${code}: ${stderr}`));r(code);}));
  function rpc(method,params){const id=++seq;return new Promise((resolve,reject)=>{const timer=setTimeout(()=>{pending.delete(id);reject(new Error(`RPC timeout ${method}: ${stderr}`));},25000);pending.set(id,{resolve,reject,timer,start:performance.now()});child.stdin.write(JSON.stringify({jsonrpc:'2.0',id,method,params})+'\n');});}
- return {child,samples,get stderr(){return stderr},async start(){await rpc('initialize',{protocolVersion:'2024-11-05',capabilities:{},clientInfo:{name:'fixed-path-e2e',version:'1'},rootUri:pathToFileURL(dir).href});child.stdin.write(JSON.stringify({jsonrpc:'2.0',method:'notifications/initialized'})+'\n');},async search(query){const r=await rpc('tools/call',{name:'search',arguments:{query}});assert(!r.isError,JSON.stringify(r));return JSON.stringify(r);},async close(){child.stdin.end();await Promise.race([exited,sleep(5000).then(()=>{child.kill();return exited;})]);}};
+ return {child,samples,get stderr(){return stderr},async waitForDaemon(){
+  // initialize is intentionally answered locally before the daemon connects.
+  // stdout response arrival also does not order delivery on the stderr pipe.
+  const started=Date.now();
+  while(!/Attached to shared daemon/.test(stderr)){
+   if(child.exitCode!==null||child.signalCode!==null)throw new Error(`MCP exited before real daemon attachment: ${stderr}`);
+   if(/falling back|serving this session in-process|Proxy path failed/i.test(stderr))throw new Error(`MCP daemon fallback is not daemon coverage: ${stderr}`);
+   if(Date.now()-started>=10000)throw new Error(`Real daemon attachment not confirmed within 10 seconds: ${stderr}`);
+   await sleep(10);
+  }
+ },async start(){await rpc('initialize',{protocolVersion:'2024-11-05',capabilities:{},clientInfo:{name:'fixed-path-e2e',version:'1'},rootUri:pathToFileURL(dir).href});child.stdin.write(JSON.stringify({jsonrpc:'2.0',method:'notifications/initialized'})+'\n');},async search(query){const r=await rpc('tools/call',{name:'search',arguments:{query}});assert(!r.isError,JSON.stringify(r));return JSON.stringify(r);},async close(){child.stdin.end();await Promise.race([exited,sleep(5000).then(()=>{child.kill();return exited;})]);}};
 }
 function main(dir,n=1){fs.writeFileSync(path.join(dir,'main.py'),`def stable(value=${n}):\n    return value\n`);}
 function files(dir,prefix){for(let n=0;n<140;n++)fs.writeFileSync(path.join(dir,`${prefix}${n}.py`),`def ${prefix}${n}():\n    return ${n}\n`);}
@@ -24,7 +34,7 @@ for(const mode of ['direct','daemon'])test(`real ${mode}: cross-process watcher 
  let clients=[],stop=false,load;const logs=[];
  try{
   clients=mode==='daemon'?[client(dir,true),client(dir),client(dir)]:[client(dir,true,undefined,true),client(dir,true),client(dir,true)];await Promise.all(clients.map(c=>c.start()));await Promise.all(clients.map(c=>c.search('stable')));
-  if(mode==='daemon'){await until(()=>fs.existsSync(path.join(dir,'.codegraph-wx/daemon.pid')));assert(clients.slice(1).every(c=>/Attached to shared daemon/.test(c.stderr)),clients.map(c=>c.stderr).join('\n'));}
+  if(mode==='daemon'){await until(()=>fs.existsSync(path.join(dir,'.codegraph-wx/daemon.pid')));await Promise.all(clients.slice(1).map(c=>c.waitForDaemon()));}
   const identity=graph.getDatabaseIdentity();let count=0;
   load=(async()=>{while(!stop){await Promise.all(clients.map(async c=>assert.match(await c.search('stable'),/stable/)));count+=clients.length;await sleep(30);}})();
   files(dir,'automatic_');await until(()=>graph.searchNodes('automatic_139').some(n=>n.node.name==='automatic_139'),30000);
@@ -46,7 +56,7 @@ for(const direct of [true,false]) test(`actual ${direct?'direct stdio':'shared d
   fs.writeFileSync(hook,`const fs=require('node:fs');const {ToolHandler}=require(${JSON.stringify(path.resolve('dist/mcp/tools.js'))});const original=ToolHandler.prototype.handleSearch;ToolHandler.prototype.handleSearch=async function(args){const result=await original.call(this,args);if(args.query==='stable'&&fs.existsSync(${JSON.stringify(path.join(dir,'arm'))})){fs.writeFileSync(${JSON.stringify(ready)},'pinned');while(!fs.existsSync(${JSON.stringify(release)}))await new Promise(r=>setTimeout(r,10));}return result;};`);
   const c=client(dir,direct,hook);let pending;
   try{
-   await c.start();await c.search('stable');if(!direct)assert.match(c.stderr,/Attached to shared daemon/);const oldFile=fs.statSync(path.join(dir,'.codegraph-wx/codegraph.db'),{bigint:true});fs.writeFileSync(path.join(dir,'arm'),'');pending=c.search('stable');await until(()=>fs.existsSync(ready));files(dir,'blocked_');
+   await c.start();await c.search('stable');if(!direct)await c.waitForDaemon();const oldFile=fs.statSync(path.join(dir,'.codegraph-wx/codegraph.db'),{bigint:true});fs.writeFileSync(path.join(dir,'arm'),'');pending=c.search('stable');await until(()=>fs.existsSync(ready));files(dir,'blocked_');
    await assert.rejects(graph.sync(),/Drain|drain|cancelled/);const retainedFile=fs.statSync(path.join(dir,'.codegraph-wx/codegraph.db'),{bigint:true});assert.equal(retainedFile.ino,oldFile.ino);assert.equal(retainedFile.dev,oldFile.dev);assert.equal(graph.searchNodes('blocked_139').length,0);assert.equal(graph.searchNodes('stable').length,1);
    fs.writeFileSync(release,'');assert.match(await pending,/stable/);pending=null;fs.unlinkSync(path.join(dir,'arm'));await graph.sync();assert.match(await c.search('blocked_139'),/blocked_139/);
    // A direct stdio EOF drains already-admitted async response, not close under it.
@@ -60,11 +70,24 @@ for(const direct of [true,false])test(`real ${direct?'direct':'daemon'} cold cat
  let release,entered;const hold=new Promise(r=>release=r),ready=new Promise(r=>entered=r);let c,pending;
  rebuild.runFixedPathRebuild=async(...args)=>{entered();await hold;return original(...args);};
  try{
-  pending=graph.sync();await ready;c=client(dir,direct);await c.start();
-  if(!direct)assert.match(c.stderr,/Attached to shared daemon/);
+  pending=graph.sync();await ready;c=client(dir,direct);
+  // Force initialize/stdout to be observed before attachment/stderr, a valid
+  // cold-start ordering that previously failed an immediate log assertion.
+  if(!direct)c.child.stderr.pause();
+  await c.start();
+  if(!direct){
+   assert.equal(c.stderr,'');
+   let attached=false;const attachment=c.waitForDaemon().then(()=>attached=true);
+   await sleep(30);assert.equal(attached,false);
+   c.child.stderr.resume();await attachment;
+   assert.match(c.stderr,/Attached to shared daemon/);
+  }
   await sleep(150);const querying=c.search('join_139');release();
   const result=await pending;assert.equal(result.adaptive.strategy,'rebuild');
-  assert.match(await querying,/join_139/);assert(!/Catch-up sync failed|Another publisher\/recovery/.test(c.stderr),c.stderr);
+  const response=await querying;assert.match(response,/join_139/);assert(!/Startup index refresh was incomplete/.test(response),response);
+  const daemonLog=!direct?fs.readFileSync(path.join(dir,'.codegraph-wx/daemon.log'),'utf8'):'';
+  assert(!/Catch-up sync failed|Another publisher\/recovery/.test(c.stderr+daemonLog),c.stderr+daemonLog);
+  fs.mkdirSync('artifacts/phase2-real-mcp',{recursive:true});fs.writeFileSync(`artifacts/phase2-real-mcp/cold-${direct?'direct':'daemon'}.json`,JSON.stringify({response,stderr:c.stderr,daemonLog},null,2));
   assert.equal(records(paths(dir)).filter(r=>r.phase==='cleaned').length,1);
  }finally{release();rebuild.runFixedPathRebuild=original;await pending?.catch(()=>{});await c?.close();await until(()=>!fs.existsSync(path.join(dir,'.codegraph-wx/daemon.pid'))).catch(()=>{});await graph.whenIdle();graph.close();fs.rmSync(dir,{recursive:true,force:true});}
 });
