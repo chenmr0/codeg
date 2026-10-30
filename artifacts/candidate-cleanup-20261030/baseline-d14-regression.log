@@ -1,0 +1,58 @@
+✖ live candidate builder is protected; after process crash recovery removes real indexer lock and dirty candidate (135.937558ms)
+✖ aborted candidate cleanup: partial-lock (7.020856ms)
+✔ aborted candidate cleanup: unexpected-file (5.48082ms)
+✔ aborted candidate cleanup: directory-lock (6.79304ms)
+✔ aborted candidate cleanup: symlink-lock (6.832434ms)
+✔ aborted candidate cleanup: sealed-lock (5.201671ms)
+ℹ tests 6
+ℹ suites 0
+ℹ pass 4
+ℹ fail 2
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 307.075746
+
+✖ failing tests:
+
+test at scripts/prototypes/fixed-path/candidate-cleanup.test.mjs:27:2
+✖ live candidate builder is protected; after process crash recovery removes real indexer lock and dirty candidate (135.937558ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  + actual - expected
+  
+  + 'aborted'
+  - 'cleaned'
+  
+      at TestContext.<anonymous> (file:///workspace/scratch/75b00092a0fc/codeg-candidate-cleanup/scripts/prototypes/fixed-path/candidate-cleanup.test.mjs:37:43)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 'aborted',
+    expected: 'cleaned',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at scripts/prototypes/fixed-path/candidate-cleanup.test.mjs:40:101
+✖ aborted candidate cleanup: partial-lock (7.020856ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  true !== false
+  
+      at TestContext.<anonymous> (file:///workspace/scratch/75b00092a0fc/codeg-candidate-cleanup/scripts/prototypes/fixed-path/candidate-cleanup.test.mjs:49:36)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:974:18)
+      at Test.postRun (node:internal/test_runner/test:1542:19)
+      at Test.run (node:internal/test_runner/test:1467:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: true,
+    expected: false,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }

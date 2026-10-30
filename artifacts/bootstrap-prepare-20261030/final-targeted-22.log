@@ -1,0 +1,30 @@
+✔ a contender can finish while another spends over 500 ms preparing a lease, without widening gate budget (667.822064ms)
+✔ crash after private lease 1 commit leaves unadopted evidence; fresh bootstrap succeeds (79.459202ms)
+✔ crash after private lease 2 commit leaves unadopted evidence; fresh bootstrap succeeds (83.738648ms)
+✔ crash after private lease 3 commit leaves unadopted evidence; fresh bootstrap succeeds (77.491099ms)
+✔ crash after promoted lease 1 remains fail-closed with unchanged evidence (75.602517ms)
+✔ crash after promoted lease 2 remains fail-closed with unchanged evidence (79.341007ms)
+✔ crash after promoted lease 3 remains fail-closed with unchanged evidence (77.877765ms)
+✔ failure creating bootstrap state preserves promoted lease evidence (7.909889ms)
+✔ private cleanup preserves an unexpected file instead of recursively sweeping the directory (3.922085ms)
+✔ uncertain candidate close retains database and journal evidence (1.673901ms)
+✔ process crash before state COMMIT respects committed authority (79.150913ms)
+✔ process crash after state COMMIT respects committed authority (68.371938ms)
+✔ connections private preparation CREATE error never publishes a fixed lease (8.244347ms)
+✔ connections private preparation INSERT error never publishes a fixed lease (4.26154ms)
+✔ connections private preparation COMMIT error never publishes a fixed lease (3.333891ms)
+✔ owner private preparation CREATE error never publishes a fixed lease (3.126837ms)
+✔ owner private preparation INSERT error never publishes a fixed lease (4.463576ms)
+✔ owner private preparation COMMIT error never publishes a fixed lease (4.093885ms)
+✔ writers private preparation CREATE error never publishes a fixed lease (3.819218ms)
+✔ writers private preparation INSERT error never publishes a fixed lease (4.45971ms)
+✔ writers private preparation COMMIT error never publishes a fixed lease (6.870195ms)
+✔ lease probes begin at busy_timeout=0 and still honor independent-process exclusion (77.522712ms)
+ℹ tests 22
+ℹ suites 0
+ℹ pass 22
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1417.209969

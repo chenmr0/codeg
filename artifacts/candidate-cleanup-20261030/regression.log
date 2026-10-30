@@ -1,0 +1,14 @@
+✔ live candidate builder is protected; after process crash recovery removes real indexer lock and dirty candidate (125.191797ms)
+✔ aborted candidate cleanup: partial-lock (6.239798ms)
+✔ aborted candidate cleanup: unexpected-file (6.418396ms)
+✔ aborted candidate cleanup: directory-lock (6.549442ms)
+✔ aborted candidate cleanup: symlink-lock (5.570585ms)
+✔ aborted candidate cleanup: sealed-lock (5.589333ms)
+ℹ tests 6
+ℹ suites 0
+ℹ pass 6
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 280.61394

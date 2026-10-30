@@ -1,0 +1,34 @@
+✖ live candidate builder is protected; after process crash recovery removes real indexer lock and dirty candidate (123.029345ms)
+✔ aborted candidate cleanup: partial-lock (9.868223ms)
+✔ aborted candidate cleanup: unexpected-file (8.488861ms)
+✔ aborted candidate cleanup: directory-lock (5.697748ms)
+✔ aborted candidate cleanup: symlink-lock (6.992764ms)
+✔ aborted candidate cleanup: sealed-lock (5.433103ms)
+ℹ tests 6
+ℹ suites 0
+ℹ pass 5
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 304.925217
+
+✖ failing tests:
+
+test at scripts/prototypes/fixed-path/candidate-cleanup.test.mjs:26:2
+✖ live candidate builder is protected; after process crash recovery removes real indexer lock and dirty candidate (123.029345ms)
+  AssertionError [ERR_ASSERTION]: The expression evaluated to a falsy value:
+  
+    assert(fs.existsSync(record.candidate+'-wal'))
+  
+      at TestContext.<anonymous> (file:///workspace/scratch/75b00092a0fc/codeg-candidate-cleanup/scripts/prototypes/fixed-path/candidate-cleanup.test.mjs:33:3)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }

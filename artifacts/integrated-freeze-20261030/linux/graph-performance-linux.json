@@ -1,0 +1,153 @@
+{
+  "platform": "linux",
+  "node": "v24.22.1",
+  "files": 1001,
+  "fixture": "/tmp/fixed-graph-load-SFolYN",
+  "publish": {
+    "status": "published",
+    "operation": "fd3e23a3-21b7-46ba-9c8f-8b2f203ec5af",
+    "metrics": {
+      "coordinatorKeeper": {
+        "openedAtMs": 1793323843007,
+        "attachedAtMs": 1793323843008,
+        "closedAtMs": 1793323843931
+      },
+      "buildMs": 681.2057289999999,
+      "validationMs": 58.812795999999935,
+      "checkpointMs": 1.4657910000000811,
+      "drainMs": 12.28559499999983,
+      "replaceMs": 0.23695599999996375,
+      "reopenMs": 0.4895850000000337,
+      "resumeMs": 0.043445999999903506,
+      "checkpointFinalMs": 0.36842300000012074,
+      "admissionPauseMs": 14.436065999999983,
+      "coordinatorCheckpoint": {
+        "busy": 0,
+        "log": 17,
+        "checkpointed": 17,
+        "deferred": false
+      }
+    },
+    "directoryFsync": true
+  },
+  "queries": {
+    "count": 1582,
+    "p50Ms": 3.3792359999999917,
+    "p95Ms": 7.641397999999981,
+    "p99Ms": 11.613584999999944,
+    "maxMs": 51.87815899999987
+  },
+  "roles": [
+    {
+      "role": "CLI",
+      "queries": {
+        "count": 399,
+        "p50Ms": 3.1135369999997238,
+        "p95Ms": 7.5703920000000835,
+        "p99Ms": 12.19539900000018,
+        "maxMs": 25.94144899999992
+      },
+      "reopens": 2,
+      "reopenDurationsMs": [
+        13.833533000000017,
+        16.991153000000395
+      ],
+      "admissionWait": {
+        "count": 399,
+        "p50Ms": 0.0836659999999938,
+        "p95Ms": 0.16320400000000745,
+        "p99Ms": 1.8254819999999654,
+        "maxMs": 23.173701000000165
+      }
+    },
+    {
+      "role": "MCP",
+      "queries": {
+        "count": 342,
+        "p50Ms": 3.4894919999999274,
+        "p95Ms": 8.254920000000084,
+        "p99Ms": 11.015271999999868,
+        "maxMs": 36.650264000000334
+      },
+      "reopens": 2,
+      "reopenDurationsMs": [
+        18.15393800000001,
+        18.387890999999854
+      ],
+      "admissionWait": {
+        "count": 342,
+        "p50Ms": 0.09091599999999289,
+        "p95Ms": 0.2122889999999984,
+        "p99Ms": 0.6798909999999978,
+        "maxMs": 30.281696999999895
+      }
+    },
+    {
+      "role": "daemon",
+      "queries": {
+        "count": 316,
+        "p50Ms": 3.2702320000003056,
+        "p95Ms": 7.506486000000223,
+        "p99Ms": 10.677458999999999,
+        "maxMs": 39.74272599999995
+      },
+      "reopens": 2,
+      "reopenDurationsMs": [
+        15.493112999999994,
+        20.056842999999844
+      ],
+      "admissionWait": {
+        "count": 316,
+        "p50Ms": 0.08682999999996355,
+        "p95Ms": 0.15742699999998422,
+        "p99Ms": 0.2860599999999067,
+        "maxMs": 33.69154100000014
+      }
+    },
+    {
+      "role": "SDK",
+      "queries": {
+        "count": 284,
+        "p50Ms": 3.3842429999999695,
+        "p95Ms": 7.411603000000014,
+        "p99Ms": 11.216710000000148,
+        "maxMs": 30.56586500000003
+      },
+      "reopens": 2,
+      "reopenDurationsMs": [
+        13.521400999999997,
+        15.187744000000066
+      ],
+      "admissionWait": {
+        "count": 284,
+        "p50Ms": 0.08894300000002886,
+        "p95Ms": 0.16343599999999014,
+        "p99Ms": 0.5615839999999821,
+        "maxMs": 26.403894000000037
+      }
+    },
+    {
+      "role": "background-worker",
+      "queries": {
+        "count": 241,
+        "p50Ms": 3.4593360000000075,
+        "p95Ms": 7.6235320000000115,
+        "p99Ms": 15.087754000000018,
+        "maxMs": 51.87815899999987
+      },
+      "reopens": 2,
+      "reopenDurationsMs": [
+        22.84671800000001,
+        31.128378999999995
+      ],
+      "admissionWait": {
+        "count": 241,
+        "p50Ms": 0.08887300000003506,
+        "p95Ms": 0.2114969999997811,
+        "p99Ms": 4.9629150000000095,
+        "maxMs": 43.87065099999995
+      }
+    }
+  ],
+  "scope": "Real CodeGraph operations through isolated adapters; not production entrypoints; no large-repository claim"
+}

@@ -1,0 +1,14 @@
+✔ async batches preserve all request order and normal close drains (11.166705ms)
+✔ timer persists partial batch while producer is still running (12.812535ms)
+✔ existing evidence is not truncated (2.659424ms)
+✔ bounded backlog refuses silent loss (1.903482ms)
+✔ flushed records survive producer SIGKILL without final report (103.005123ms)
+✔ real load-profile journals every request and closes active readers normally (6327.283592ms)
+ℹ tests 6
+ℹ suites 0
+ℹ pass 6
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 6607.740993

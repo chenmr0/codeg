@@ -1,0 +1,10 @@
+{
+  "at": "2026-10-30T01:29:43.756Z",
+  "platform": "linux",
+  "node": "v24.22.1",
+  "arch": "x64",
+  "cpu": "AMD EPYC 9V74 80-Core Processor",
+  "logicalCpus": 9,
+  "totalMemoryBytes": 10451439616,
+  "scope": "phase-one follow-up, no production integration, conditional eventual convergence"
+}

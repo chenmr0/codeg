@@ -3,7 +3,7 @@ name: Fixed-path WAL coordination verification
 on:
   push:
     branches:
-      - verify/fixed-path-worker-close-20261030
+      - verify/fixed-path-integrated-freeze-20261030
   workflow_dispatch: {}
 permissions:
   contents: read

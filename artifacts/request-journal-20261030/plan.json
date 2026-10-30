@@ -1,0 +1,14 @@
+{
+  "rounds": 3,
+  "order": [
+    "baseline",
+    "journal",
+    "journal",
+    "baseline",
+    "baseline",
+    "journal"
+  ],
+  "requestsPerRun": 100,
+  "intervalMs": 100,
+  "scope": "10 QPS synthetic evidence serialization/write scheduling; no claim about real database query latency"
+}

@@ -1,0 +1,75 @@
+✖ a contender can finish while another spends over 500 ms preparing a lease, without widening gate budget (571.946714ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 0
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 668.905144
+
+✖ failing tests:
+
+test at ../../../../tmp/bootstrap-prebuild-old-d9mW/bootstrap-prepare.test.mjs:14:1
+✖ a contender can finish while another spends over 500 ms preparing a lease, without widening gate budget (571.946714ms)
+  AssertionError [ERR_ASSERTION]: node:internal/modules/run_main:107
+      triggerUncaughtException(
+      ^
+  
+  Error: database is locked
+      at gate (file:///tmp/bootstrap-prebuild-old-d9mW/protocol.mjs:177:11)
+      at initialize (file:///tmp/bootstrap-prebuild-old-d9mW/protocol.mjs:141:3)
+      at file:///workspace/scratch/75b00092a0fc/codeg-cold-fairness/[eval1]:1:144
+      at ModuleJob.run (node:internal/modules/esm/module_job:561:25)
+      at async node:internal/modules/esm/loader:223:26
+      at async ModuleLoader.executeModuleJob (node:internal/modules/esm/loader:220:20)
+      at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:101:5)
+  Gate diagnostic: {"label":"gate","readOnly":false,"startedAtMs":1793323628710,"phase":"begin","actionStarted":false,"openMs":0.2185010000000034,"beginMs":7.633124000000024,"actionMs":0,"commitMs":0,"closeMs":0.13455399999998008,"retries":235,"totalMs":501.81119199999995,"pid":23,"project":"/tmp/bootstrap-preparation-Lp5PLC","finishedAtMs":1793323629212,"error":"database is locked","code":"ERR_SQLITE_ERROR","errcode":5} {
+    code: 'ERR_SQLITE_ERROR',
+    errcode: 5,
+    errstr: 'database is locked',
+    gateDiagnostic: {
+      label: 'gate',
+      readOnly: false,
+      startedAtMs: 1793323628710,
+      phase: 'begin',
+      actionStarted: false,
+      openMs: 0.2185010000000034,
+      beginMs: 7.633124000000024,
+      actionMs: 0,
+      commitMs: 0,
+      closeMs: 0.13455399999998008,
+      retries: 235,
+      totalMs: 501.81119199999995,
+      pid: 23,
+      project: '/tmp/bootstrap-preparation-Lp5PLC',
+      finishedAtMs: 1793323629212,
+      error: 'database is locked',
+      code: 'ERR_SQLITE_ERROR',
+      errcode: 5
+    }
+  }
+  
+  Node.js v24.22.1
+  
+  
+  1 !== 0
+  
+      at DatabaseSync.exec (file:///tmp/bootstrap-prebuild-old-d9mW/bootstrap-prepare.test.mjs:16:137)
+      at file:///tmp/bootstrap-prebuild-old-d9mW/protocol.mjs:147:30
+      at gate (file:///tmp/bootstrap-prebuild-old-d9mW/protocol.mjs:202:16)
+      at initialize (file:///tmp/bootstrap-prebuild-old-d9mW/protocol.mjs:141:3)
+      at TestContext.<anonymous> (file:///tmp/bootstrap-prebuild-old-d9mW/bootstrap-prepare.test.mjs:16:369)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.start (node:internal/test_runner/test:1262:17)
+      at startSubtestAfterBootstrap (node:internal/test_runner/harness:387:17)
+  Gate diagnostic: {"label":"gate","readOnly":false,"startedAtMs":1793323628650,"phase":"action","actionStarted":true,"openMs":0.19642799999999738,"beginMs":0.004126000000013619,"actionMs":567.4550449999999,"commitMs":0,"closeMs":0.07624599999996917,"retries":0,"acquiredAtMs":1793323628650,"actionEndedAtMs":1793323629217,"totalMs":567.860229,"pid":15,"project":"/tmp/bootstrap-preparation-Lp5PLC","finishedAtMs":1793323629218,"error":"node:internal/modules/run_main:107\n    triggerUncaughtException(\n    ^\n\nError: database is locked\n    at gate (file:///tmp/bootstrap-prebuild-old-d9mW/protocol.mjs:177:11)\n    at initialize (file:///tmp/bootstrap-prebuild-old-d9mW/protocol.mjs:141:3)\n    at file:///workspace/scratch/75b00092a0fc/codeg-cold-fairness/[eval1]:1:144\n    at ModuleJob.run (node:internal/modules/esm/module_job:561:25)\n    at async node:internal/modules/esm/loader:223:26\n    at async ModuleLoader.executeModuleJob (node:internal/modules/esm/loader:220:20)\n    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:101:5)\nGate diagnostic: {\"label\":\"gate\",\"readOnly\":false,\"startedAtMs\":1793323628710,\"phase\":\"begin\",\"actionStarted\":false,\"openMs\":0.2185010000000034,\"beginMs\":7.633124000000024,\"actionMs\":0,\"commitMs\":0,\"closeMs\":0.13455399999998008,\"retries\":235,\"totalMs\":501.81119199999995,\"pid\":23,\"project\":\"/tmp/bootstrap-preparation-Lp5PLC\",\"finishedAtMs\":1793323629212,\"error\":\"database is locked\",\"code\":\"ERR_SQLITE_ERROR\",\"errcode\":5} {\n  code: 'ERR_SQLITE_ERROR',\n  errcode: 5,\n  errstr: 'database is locked',\n  gateDiagnostic: {\n    label: 'gate',\n    readOnly: false,\n    startedAtMs: 1793323628710,\n    phase: 'begin',\n    actionStarted: false,\n    openMs: 0.2185010000000034,\n    beginMs: 7.633124000000024,\n    actionMs: 0,\n    commitMs: 0,\n    closeMs: 0.13455399999998008,\n    retries: 235,\n    totalMs: 501.81119199999995,\n    pid: 23,\n    project: '/tmp/bootstrap-preparation-Lp5PLC',\n    finishedAtMs: 1793323629212,\n    error: 'database is locked',\n    code: 'ERR_SQLITE_ERROR',\n    errcode: 5\n  }\n}\n\nNode.js v24.22.1\n\n\n1 !== 0\n","code":"ERR_ASSERTION"} {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 1,
+    expected: 0,
+    operator: 'strictEqual',
+    diff: 'simple',
+    gateDiagnostic: { label: 'gate', readOnly: false, startedAtMs: 1793323628650, phase: 'action', actionStarted: true, openMs: 0.19642799999999738, beginMs: 0.004126000000013619, actionMs: 567.4550449999999, commitMs: 0, closeMs: 0.07624599999996917, retries: 0, acquiredAtMs: 1793323628650, actionEndedAtMs: 1793323629217, totalMs: 567.860229, pid: 15, project: '/tmp/bootstrap-preparation-Lp5PLC', finishedAtMs: 1793323629218, error: `node:internal/modules/run_main:107\n    triggerUncaughtException(\n    ^\n\nError: database is locked\n    at gate (file:///tmp/bootstrap-prebuild-old-d9mW/protocol.mjs:177:11)\n    at initialize (file:///tmp/bootstrap-prebuild-old-d9mW/protocol.mjs:141:3)\n    at file:///workspace/scratch/75b00092a0fc/codeg-cold-fairness/[eval1]:1:144\n    at ModuleJob.run (node:internal/modules/esm/module_job:561:25)\n    at async node:internal/modules/esm/loader:223:26\n    at async ModuleLoader.executeModuleJob (node:internal/modules/esm/loader:220:20)\n    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:101:5)\nGate diagnostic: {"label":"gate","readOnly":false,"startedAtMs":1793323628710,"phase":"begin","actionStarted":false,"openMs":0.2185010000000034,"beginMs":7.633124000000024,"actionMs":0,"commitMs":0,"closeMs":0.13455399999998008,"retries":235,"totalMs":501.81119199999995,"pid":23,"project":"/tmp/bootstrap-preparation-Lp5PLC","finishedAtMs":1793323629212,"error":"database is locked","code":"ERR_SQLITE_ERROR","errcode":5} {\n  code: 'ERR_SQLITE_ERROR',\n  errcode: 5,\n  errstr: 'database is locked',\n  gateDiagnostic: {\n    label: 'gate',\n    readOnly: false,\n    startedAtMs: 1793323628710,\n    phase: 'begin',\n    actionStarted: false,\n    openMs: 0.2185010000000034,\n    beginMs: 7.633124000000024,\n    actionMs: 0,\n    commitMs: 0,\n    closeMs: 0.13455399999998008,\n    retries: 235,\n    totalMs: 501.81119199999995,\n    pid: 23,\n    project: '/tmp/bootstrap-preparation-Lp5PLC',\n    finishedAtMs: 1793323629212,\n    error: 'database is locked',\n    code: 'ERR_SQLITE_ERROR',\n    errcode: 5\n  }\n}\n\nNode.js v24.22.1\n\n\n1 !== 0\n`, code: 'ERR_ASSERTION', errcode: undefined }
+  }

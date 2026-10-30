@@ -138,19 +138,49 @@ export function initialize(project) {
     }
   }
   if(established){for(const file of[p.connections,p.owner,p.writers])regular(file);return p;}
-  gate(p,g=>{
-    const exists=!!g.prepare("SELECT name FROM sqlite_master WHERE name='state'").get();
-    if(!exists && [p.connections,p.owner,p.writers].some(file=>fs.existsSync(file)))throw new Error('Missing coordination state with existing leases; refusing unsafe reinitialization');
-    for(const file of[p.connections,p.owner,p.writers]){
-      if(fs.existsSync(file)){regular(file);continue;}
-      if(exists)throw new Error('Missing protocol lease database; cannot safely reconstruct live locks');
-      const l=db(file);try{l.exec('BEGIN IMMEDIATE; CREATE TABLE lease(value INTEGER); INSERT INTO lease VALUES(1); COMMIT');}finally{l.close();}
+  // FULL-sync preparation must not hold the shared coordinator writer lock.
+  // Each contender owns only its freshly allocated directory. A crash before
+  // promotion leaves private evidence, never a partially initialized fixed lease.
+  const prepared=fs.mkdtempSync(path.join(p.runtime,'bootstrap-'));
+  const leaseFiles=[p.connections,p.owner,p.writers], attempted=new Set(), closed=new Set();
+  let failure;
+  try {
+    for(const file of leaseFiles){
+      attempted.add(file);
+      const l=db(path.join(prepared,path.basename(file)));
+      let prepareError;
+      try{l.exec('BEGIN IMMEDIATE; CREATE TABLE lease(value INTEGER); INSERT INTO lease VALUES(1); COMMIT');}
+      catch(error){prepareError=error;throw error;}
+      finally{try{l.close();closed.add(file);}catch(closeError){throw prepareError?new AggregateError([prepareError,closeError],'Lease preparation and close both failed'):closeError;}}
     }
-    if(!exists)g.exec(`CREATE TABLE state(id INTEGER PRIMARY KEY CHECK(id=1), mode TEXT NOT NULL, operation TEXT, cancel INTEGER NOT NULL DEFAULT 0, revision INTEGER NOT NULL DEFAULT 0);
-      INSERT INTO state(id,mode) VALUES(1,'idle');
-      CREATE TABLE operations(id TEXT PRIMARY KEY, record TEXT NOT NULL);
-      CREATE TABLE costs(identity TEXT PRIMARY KEY, value TEXT NOT NULL)`);
-  });
+    gate(p,g=>{
+      const exists=!!g.prepare("SELECT name FROM sqlite_master WHERE name='state'").get();
+      if(!exists&&leaseFiles.some(file=>fs.existsSync(file)))throw new Error('Missing coordination state with existing leases; refusing to reconstruct protocol state');
+      for(const file of leaseFiles){
+        if(exists){regular(file);continue;}
+        // No cooperative initializer can publish a fixed lease outside this gate.
+        // A failure after any rename intentionally leaves fixed-path evidence;
+        // later initialization must fail closed, not silently reconstruct it.
+        fs.renameSync(path.join(prepared,path.basename(file)),file);
+      }
+      if(!exists)g.exec(`CREATE TABLE state(id INTEGER PRIMARY KEY CHECK(id=1), mode TEXT NOT NULL, operation TEXT, cancel INTEGER NOT NULL DEFAULT 0, revision INTEGER NOT NULL DEFAULT 0);
+        INSERT INTO state(id,mode) VALUES(1,'idle');
+        CREATE TABLE operations(id TEXT PRIMARY KEY, record TEXT NOT NULL);
+        CREATE TABLE costs(identity TEXT PRIMARY KEY, value TEXT NOT NULL);`);
+    },{label:'bootstrap-install'});
+  } catch(error){failure=error;throw error;} finally {
+    // Do not sweep other bootstraps by age/PID. Only files allocated by this
+    // invocation are eligible; a crashed invocation's directory is retained.
+    const cleanupErrors=[];
+    for(const file of closed){
+      const own=path.join(prepared,path.basename(file));
+      for(const suffix of ['', '-journal']){const target=own+suffix;try{if(fs.existsSync(target)){regular(target);fs.unlinkSync(target);}}catch(error){cleanupErrors.push(error);}}
+    }
+    // A close failure leaves ownership of the handle uncertain. In particular,
+    // never unlink its potentially recoverable rollback journal.
+    if([...attempted].every(file=>closed.has(file)))try{fs.rmdirSync(prepared);}catch(error){cleanupErrors.push(error);}
+    if(cleanupErrors.length)throw new AggregateError([...(failure?[failure]:[]),...cleanupErrors],'Bootstrap preparation cleanup failed; evidence retained');
+  }
   return p;
 }
 function gateDiagnostic(p,metrics,error){
@@ -286,9 +316,15 @@ export function cleanup(p, record, hook) {
   operationPaths(p, record);
   const names = fs.readdirSync(record.directory);
   const unsealed = record.phase === 'aborted' && !record.candidateIdentity;
-  const allowed = new Set(['owner.json', 'candidate.db', 'old.db', ...(unsealed ? ['candidate.db-wal','candidate.db-shm','candidate.db-journal'] : [])]);
+  const allowed = new Set(['owner.json', 'candidate.db', 'old.db', ...(unsealed ? ['candidate.db-wal','candidate.db-shm','candidate.db-journal','codegraph.lock'] : [])]);
   // Unexpected sidecars or files preserve all evidence; no age-based rmtree.
   if (names.some(n => !allowed.has(n))) throw new Error('Unexpected operation artifacts; preserved for diagnosis');
+  // The real indexer writes codegraph.lock beside this operation's candidate.
+  // Only an unsealed aborted operation may retain it. Recovery holds the OS
+  // publisher lease (the builder runs in that same process), not a PID/age guess.
+  // Preflight every recognized artifact before deleting anything; symlinks and
+  // unexpected files preserve the whole operation for diagnosis.
+  for (const name of names) regular(path.join(record.directory, name));
   for (const [file, expected] of [[record.backup, record.oldIdentity], [record.candidate, record.candidateIdentity]]) {
     if (!fs.existsSync(file)) continue;
     if (file === record.candidate && unsealed) regular(file);
@@ -296,6 +332,7 @@ export function cleanup(p, record, hook) {
     hook?.('cleanup'); fs.unlinkSync(file);
   }
   if (unsealed) for (const suffix of ['-wal','-shm','-journal']) { const file=record.candidate+suffix; if(fs.existsSync(file)) { regular(file); fs.unlinkSync(file); } }
+  if (unsealed && names.includes('codegraph.lock')) fs.unlinkSync(path.join(record.directory, 'codegraph.lock'));
   // Exclusive publisher ownership proves the unsealed candidate builder has exited.
   // Persist cleanup before removing the final marker; restart may remove empty owned dir.
   record.phase = 'cleaned'; gate(p, g => put(g, record));

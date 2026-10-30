@@ -1,0 +1,10 @@
+FIXED_PATH_EVIDENCE=/workspace/scratch/75b00092a0fc/codeg-cold-fairness/artifacts/fixed-path-prototype/linux-1793323681794/acceptance.json
+✔ simultaneous cold clients initialize protocol metadata without a partially-created lease database (714.642894ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 1
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 809.228791

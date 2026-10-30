@@ -4,12 +4,14 @@ import{paths,initialize,lease,sha}from './protocol.mjs';import{waitForChildClose
 const fields=['connections','owner','writers'];
 function root(t){const project=fs.mkdtempSync(path.join(os.tmpdir(),'lease-bootstrap-'));t.after(()=>fs.rmSync(project,{recursive:true,force:true}));return project;}
 function noState(p){const db=new DatabaseSync(p.gate);try{assert.equal(db.prepare("SELECT name FROM sqlite_master WHERE name='state'").get(),undefined,'coordination state must not commit after a failed lease');}finally{db.close();}}
-for(const target of fields)for(const phase of ['CREATE','INSERT','COMMIT'])test(`${target} bootstrap ${phase} error rolls back its lease and refuses automatic reinitialization`,t=>{
+for(const target of fields)for(const phase of ['CREATE','INSERT','COMMIT'])test(`${target} private preparation ${phase} error never publishes a fixed lease`,t=>{
  const project=root(t),p=paths(project),original=DatabaseSync.prototype.exec,targetIndex=fields.indexOf(target),failure=Object.assign(Error(`injected ${target} ${phase} IOERR`),{errcode:10});let transactions=0,injected=0;
  try{DatabaseSync.prototype.exec=function(sql){if(sql.includes('CREATE TABLE lease(value INTEGER)')){const index=transactions++;if(index===targetIndex){for(const statement of sql.split(';').map(s=>s.trim()).filter(Boolean)){if(statement.startsWith(phase)){injected++;throw failure;}original.call(this,statement);}return;} }return original.call(this,sql);};assert.throws(()=>initialize(project),e=>e===failure);}finally{DatabaseSync.prototype.exec=original;}
  assert.equal(injected,1);assert.equal(transactions,targetIndex+1);noState(p);
- for(let i=0;i<fields.length;i++){const file=p[fields[i]];if(i>targetIndex){assert.equal(fs.existsSync(file),false);continue;}assert(fs.existsSync(file),'leave failed/earlier lease evidence in place');const db=new DatabaseSync(file);try{const table=db.prepare("SELECT name FROM sqlite_master WHERE name='lease'").get();if(i<targetIndex){assert(table);assert.deepEqual(db.prepare('SELECT value FROM lease').all().map(r=>r.value),[1]);}else assert.equal(table,undefined,'transaction rollback removes even successful pre-fault CREATE/INSERT');}finally{db.close();}}
- const evidence=fields.filter(field=>fs.existsSync(p[field])).map(field=>[p[field],sha(p[field])]);assert.throws(()=>initialize(project),/Missing coordination state with existing leases|Incompatible DELETE coordinator/);noState(p);for(const[file,before]of evidence)assert.equal(sha(file),before,'retry must not rewrite or reconstruct lease evidence');
+ for(const field of fields)assert.equal(fs.existsSync(p[field]),false,'private failed preparation must not publish fixed lease evidence');
+ assert.deepEqual(fs.readdirSync(p.runtime).filter(n=>n.startsWith('bootstrap-')),[],'own closed candidates are removed');
+ assert.doesNotThrow(()=>initialize(project),'failure before promotion leaves shared bootstrap untouched');
+
 });
 
 test('lease probes begin at busy_timeout=0 and still honor independent-process exclusion',async t=>{
