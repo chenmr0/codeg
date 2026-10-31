@@ -88,22 +88,63 @@ function syncDirectory(dir: string): void {
 function noSidecars(file: string): void {
   for (const suffix of ['-wal','-shm','-journal']) if (exists(file + suffix)) throw new Error(`Unresolved SQLite sidecar; close/checkpoint normally first: ${file + suffix}`);
 }
-function validate(file: string, extra?: (file: string) => void): void {
-  regular(file); noSidecars(file);
-  const header=Buffer.alloc(16), fd=fs.openSync(file,'r');
-  try { if (fs.statSync(file).size < 100 || fs.readSync(fd,header,0,16,0) !== 16 || header.toString('binary') !== 'SQLite format 3\0') throw new Error('Invalid SQLite snapshot header'); }
+/** Only the explicit offline entry may ask SQLite to finish closed WAL state.
+ * Never unlink SQLite files ourselves, nor infer quiescence from their size. */
+function validateOfflineSidecars(file: string, header: Buffer): void {
+  if (exists(file + '-journal')) throw new Error(`Unresolved SQLite rollback sidecar retained: ${file}-journal`);
+  const wal=file+'-wal',shm=file+'-shm';
+  if (!exists(wal) && !exists(shm)) return;
+  if (header[18] !== 2 || header[19] !== 2) throw new Error('Unexpected SQLite sidecars on a non-WAL source; evidence retained');
+  if (exists(wal)) {
+    regular(wal);const size=fs.statSync(wal).size;
+    if (size !== 0) {
+      const bytes=Buffer.alloc(32),fd=fs.openSync(wal,'r');
+      try { if(fs.readSync(fd,bytes,0,32,0)!==32)throw new Error('Invalid SQLite WAL sidecar retained'); } finally {fs.closeSync(fd);}
+      const magic=bytes.readUInt32BE(0),pageSize=bytes.readUInt32BE(8),databasePageSize=header.readUInt16BE(16)===1?65536:header.readUInt16BE(16);
+      if(![0x377f0682,0x377f0683].includes(magic)||bytes.readUInt32BE(4)!==3007000||pageSize!==databasePageSize||pageSize<512||pageSize>65536||(pageSize&(pageSize-1))!==0||(size-32)%(pageSize+24)!==0)throw new Error('Invalid SQLite WAL sidecar retained');
+      // SQLite may silently ignore a corrupt WAL tail. Offline migration must
+      // preserve that evidence rather than checkpoint a guessed older snapshot.
+      let first=0,second=0;
+      const checksum=(data:Buffer):void=>{for(let i=0;i<data.length;i+=8){const a=magic===0x377f0682?data.readUInt32LE(i):data.readUInt32BE(i),b=magic===0x377f0682?data.readUInt32LE(i+4):data.readUInt32BE(i+4);first=(first+a+second)>>>0;second=(second+b+first)>>>0;}};
+      checksum(bytes.subarray(0,24));
+      if(first!==bytes.readUInt32BE(24)||second!==bytes.readUInt32BE(28))throw new Error('Invalid SQLite WAL header checksum; sidecar retained');
+      const frame=Buffer.alloc(pageSize+24),reader=fs.openSync(wal,'r');
+      try {for(let offset=32;offset<size;offset+=frame.length){
+        if(fs.readSync(reader,frame,0,frame.length,offset)!==frame.length||frame.readUInt32BE(0)===0||frame.readUInt32BE(8)!==bytes.readUInt32BE(16)||frame.readUInt32BE(12)!==bytes.readUInt32BE(20))throw new Error('Noncanonical SQLite WAL frame or recycled tail; sidecar retained, close/checkpoint with the source tool before retrying');
+        checksum(frame.subarray(0,8));checksum(frame.subarray(24));
+        if(first!==frame.readUInt32BE(16)||second!==frame.readUInt32BE(20))throw new Error('Invalid SQLite WAL frame checksum; sidecar retained');
+      }}finally{fs.closeSync(reader);}
+    }
+  }
+  if(exists(shm)){regular(shm);if(fs.statSync(shm).size%32768!==0)throw new Error('Invalid SQLite SHM sidecar retained');}
+}
+function validate(file: string, extra?: (file: string) => void, offlineSidecars = false): void {
+  regular(file); if(!offlineSidecars)noSidecars(file);
+  const header=Buffer.alloc(20), fd=fs.openSync(file,'r');
+  try { if (fs.statSync(file).size < 100 || fs.readSync(fd,header,0,20,0) !== 20 || header.subarray(0,16).toString('binary') !== 'SQLite format 3\0') throw new Error('Invalid SQLite snapshot header'); }
   finally { fs.closeSync(fd); }
+  if(offlineSidecars)validateOfflineSidecars(file,header);
   const { DatabaseSync } = require('node:sqlite');
+  // A last writable connection may checkpoint on close even after validation
+  // throws. Validate the combined main+WAL snapshot read-only FIRST, so corrupt
+  // pages (including a checksummed but semantically invalid WAL) stay evidence.
+  const inspection = new DatabaseSync(file, { readOnly: true });
+  try {
+    inspection.exec('PRAGMA busy_timeout=0');
+    if (inspection.prepare('PRAGMA quick_check').get().quick_check !== 'ok') throw new Error('Invalid migration database; original snapshot retained');
+  } finally { inspection.close(); }
+  extra?.(file);
   const db = new DatabaseSync(file);
   try {
     db.exec('PRAGMA busy_timeout=0; PRAGMA synchronous=FULL');
-    if (db.prepare('PRAGMA quick_check').get().quick_check !== 'ok') throw new Error('Invalid migration database');
     const checkpoint=db.prepare('PRAGMA wal_checkpoint(TRUNCATE)').get();
-    if (checkpoint.busy !== 0) throw new Error('Migration checkpoint blocked');
+    if (checkpoint.busy !== 0) throw new Error('Migration checkpoint blocked by a live SQLite reader/writer');
+    // DELETE transition needs SQLite's exclusive lock even for a zero-byte WAL.
+    // A live external reader must block it; absence of a CodeGraph PID is irrelevant.
     if (Object.values(db.prepare('PRAGMA journal_mode=DELETE').get())[0] !== 'delete') throw new Error('Cannot seal migration snapshot');
   }
   finally { db.close(); }
-  noSidecars(file); extra?.(file);
+  noSidecars(file);
 }
 function marker(p: ReturnType<typeof names>): LayoutMarker | null {
   if (!exists(p.marker)) return null;
@@ -349,7 +390,7 @@ export function migrateToFixedPath(dataDir: string, options: FixedPathMigrationO
     const legacyLeases = holdLegacyLeasesClosed(p.root);
     try {
     if (marker(p)) {
-      validate(p.active,options.validateDatabase);
+      validate(p.active,options.validateDatabase,true);
       const previous = records(p).find(record => record.id === marker(p)!.migrationId && record.outcome === 'committed');
       prepareLegacyLayoutCleanup(p.root, previous?.generation ?? null, previous?.sourceIdentity); return;
     }
@@ -361,7 +402,7 @@ export function migrateToFixedPath(dataDir: string, options: FixedPathMigrationO
     if (!rootPresent) noSidecars(p.active);
     const writerPath=exists(path.join(p.root,'codegraph.lock')) ? path.join(p.root,'codegraph.lock') : path.join(p.runtime,'migration-writer.lock');
     if (exists(writerPath)) throw new Error('Existing writer lock blocks offline migration');
-    validate(source.databasePath,options.validateDatabase); syncFile(source.databasePath);
+    validate(source.databasePath,options.validateDatabase,true); syncFile(source.databasePath);
     let writerToken: string | null = null;
     let operation: RecordState | undefined;
     try {

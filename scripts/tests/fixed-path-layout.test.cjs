@@ -99,3 +99,46 @@ for(const artifact of ['custom.db','owner.json'])test(`migration allocation pres
   const root=fixture(t),source=legacy(root);interrupt(root,'directory-created',true);const r=pending(root)[0];const file=path.join(root,'.runtime','layout-migrations',r.id,artifact);fs.writeFileSync(file,'custom evidence');
   assert.throws(()=>api.recoverFixedPathMigration(root),/Unknown migration allocation/);assert.equal(fs.readFileSync(file,'utf8'),'custom evidence');assert.equal(value(source),'old');
 });
+
+for(const kind of ['root','generation'])test(`offline ${kind} migration lets SQLite reclaim sidecars left by the final readonly close`,async t=>{
+  const root=fixture(t),source=kind==='root'?active(root):legacy(root,'old',true);if(kind==='root')db(source,'old',true);
+  assert.equal(value(source),'old');assert(fs.existsSync(source+'-wal'));assert(fs.existsSync(source+'-shm'));
+  await api.migrateToFixedPath(root,{offline:true}).cleanup;assert.equal(value(active(root)),'old');assert.deepEqual(fs.readdirSync(root).sort(),['.runtime','codegraph.db']);
+});
+for(const modified of [false,true])test(`offline migration rejects an independent live readonly snapshot (${modified?'committed':'empty'} WAL)`,async t=>{
+  const root=fixture(t);db(active(root),'old',true);const {spawn}=require('node:child_process'),{once}=require('node:events');
+  const code=`const {DatabaseSync}=require('node:sqlite'),d=new DatabaseSync(${JSON.stringify(active(root))},{readOnly:true});d.exec('BEGIN');d.prepare('SELECT * FROM data').all();process.stdout.write('ready');process.stdin.on('data',b=>{if(String(b).trim()==='check')process.stdout.write(d.prepare('SELECT value FROM data').get().value);else{d.close();process.exit(0)}});`;
+  const child=spawn(process.execPath,['-e',code],{stdio:['pipe','pipe','pipe']});t.after(()=>child.kill());await once(child.stdout,'data');
+  if(modified){const writer=new DatabaseSync(active(root));writer.exec("UPDATE data SET value='new-committed'");writer.close();}
+  assert.throws(()=>api.migrateToFixedPath(root,{offline:true}),/locked|blocked|busy/i);assert.equal(api.inspectFixedPathLayout(root),'legacy');assert.equal(value(active(root)),modified?'new-committed':'old');assert(fs.existsSync(active(root)+'-wal'));
+  const snapshot=once(child.stdout,'data');child.stdin.write('check\n');assert.equal(String((await snapshot)[0]),'old');
+  const ended=once(child,'exit');child.stdin.write('close');await ended;
+  await api.migrateToFixedPath(root,{offline:true}).cleanup;assert.equal(value(active(root)),modified?'new-committed':'old');
+});
+function exitedWalWriter(root){
+  db(active(root),'old',true);
+  const code=`const {DatabaseSync}=require('node:sqlite'),d=new DatabaseSync(${JSON.stringify(active(root))});d.exec('PRAGMA wal_autocheckpoint=0');d.exec("UPDATE data SET value='committed-in-wal'");process.exit(73);`;
+  const child=spawnSync(process.execPath,['-e',code],{encoding:'utf8'});assert.equal(child.status,73,child.stderr);assert(fs.statSync(active(root)+'-wal').size>32);
+}
+test('offline migration checkpoints a real committed WAL from an exited writer without losing its data',async t=>{
+  const root=fixture(t);exitedWalWriter(root);await api.migrateToFixedPath(root,{offline:true}).cleanup;assert.equal(value(active(root)),'committed-in-wal');assert.deepEqual(fs.readdirSync(root).sort(),['.runtime','codegraph.db']);
+});
+test('corrupt committed WAL is preserved byte-for-byte rather than silently discarded by SQLite',t=>{
+  const root=fixture(t);exitedWalWriter(root);const wal=active(root)+'-wal',bytes=fs.readFileSync(wal);bytes[bytes.length-1]^=1;fs.writeFileSync(wal,bytes);const main=fs.readFileSync(active(root));
+  assert.throws(()=>api.migrateToFixedPath(root,{offline:true}),/WAL frame checksum/);assert.deepEqual(fs.readFileSync(wal),bytes);assert.deepEqual(fs.readFileSync(active(root)),main);assert.equal(api.inspectFixedPathLayout(root),'legacy');
+});
+
+test('checksummed but structurally corrupt WAL is rejected read-only without checkpointing bad pages',t=>{
+  const root=fixture(t);exitedWalWriter(root);const wal=active(root)+'-wal',bytes=fs.readFileSync(wal),pageSize=bytes.readUInt32BE(8),little=bytes.readUInt32BE(0)===0x377f0682;
+  let first=0,second=0,damaged=false;
+  const checksum=data=>{for(let i=0;i<data.length;i+=8){const a=little?data.readUInt32LE(i):data.readUInt32BE(i),b=little?data.readUInt32LE(i+4):data.readUInt32BE(i+4);first=(first+a+second)>>>0;second=(second+b+first)>>>0;}};
+  checksum(bytes.subarray(0,24));bytes.writeUInt32BE(first,24);bytes.writeUInt32BE(second,28);
+  for(let off=32;off<bytes.length;off+=24+pageSize){if(bytes.readUInt32BE(off)===2){bytes[off+24]=0;damaged=true;}checksum(bytes.subarray(off,off+8));checksum(bytes.subarray(off+24,off+24+pageSize));bytes.writeUInt32BE(first,off+16);bytes.writeUInt32BE(second,off+20);}
+  assert(damaged,'real fixture must include data btree page');fs.writeFileSync(wal,bytes);const main=fs.readFileSync(active(root));
+  assert.throws(()=>api.migrateToFixedPath(root,{offline:true}),/Invalid migration database|malformed/);assert.deepEqual(fs.readFileSync(active(root)),main);assert.deepEqual(fs.readFileSync(wal),bytes);assert(fs.existsSync(active(root)+'-shm'));
+});
+test('extra offline validation rejects before any writable checkpoint changes source files',t=>{
+  const root=fixture(t);exitedWalWriter(root);const main=fs.readFileSync(active(root)),wal=fs.readFileSync(active(root)+'-wal');
+  assert.throws(()=>api.migrateToFixedPath(root,{offline:true,validateDatabase:()=>{throw new Error('unsupported source schema')}}),/unsupported source schema/);
+  assert.deepEqual(fs.readFileSync(active(root)),main);assert.deepEqual(fs.readFileSync(active(root)+'-wal'),wal);
+});
