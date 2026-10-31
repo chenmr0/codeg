@@ -4,11 +4,14 @@ const rawTest=require('node:test'),assert=require('node:assert/strict'),fs=requi
 function test(name,options,fn){if(!process.env.E2E_CASE||name.includes(process.env.E2E_CASE))rawTest(name,options,fn);}
 const {spawn}=require('node:child_process');const {pathToFileURL}=require('node:url');
 const packageRoot=path.resolve(process.env.CODEGRAPH_TEST_PACKAGE||path.join(__dirname,'../..'));
-const {CodeGraph}=require(path.join(packageRoot,'dist'));const {records,paths,seal}=require(path.join(packageRoot,'dist/sync/fixed-path/protocol'));
-process.env.CODEGRAPH_ALL_LANGUAGES='1';process.env.CODEGRAPH_FIXED_PATH='1';
+// Exercise the user-facing default, even when an outer test runner sets the old opt-in.
+delete process.env.CODEGRAPH_FIXED_PATH;
+const {CodeGraph,DatabaseConnection}=require(path.join(packageRoot,'dist'));const {records,paths,seal}=require(path.join(packageRoot,'dist/sync/fixed-path/protocol'));
+process.env.CODEGRAPH_ALL_LANGUAGES='1';
 const bin=path.join(packageRoot,'dist/bin/codegraph.js');const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 async function until(fn,ms=20000){const start=Date.now();let last;while(Date.now()-start<ms){try{const value=await fn();if(value)return value;}catch(e){last=e;}await sleep(50);}throw new Error(`condition timed out: ${last?.stack||''}`);}
 function client(dir,direct=false,preload,watch=false){
+ assert.equal(process.env.CODEGRAPH_FIXED_PATH,undefined,'MCP must run without the fixed-layout opt-in');
  const child=spawn(process.execPath,['--liftoff-only',...(preload?['--require',preload]:[]),bin,'serve','--mcp','--path',dir,...((direct&&!watch)||preload?['--no-watch']:[])],{cwd:dir,env:{...process.env,CODEGRAPH_NO_DAEMON:direct?'1':'0',CODEGRAPH_DAEMON_IDLE_TIMEOUT_MS:'200',CODEGRAPH_WATCH_DEBOUNCE_MS:'100',CODEGRAPH_MCP_LOG_ATTACH:'1',CODEGRAPH_MCP_CATCHUP_BUDGET_MS:'5000'},stdio:['pipe','pipe','pipe']});
  let buf='',seq=0,stderr='';const pending=new Map(),samples=[];child.stderr.on('data',b=>stderr+=b);child.stdin.on('error',()=>{});
  child.stdout.on('data',b=>{buf+=b;let i;while((i=buf.indexOf('\n'))>=0){const line=buf.slice(0,i);buf=buf.slice(i+1);try{const m=JSON.parse(line),p=pending.get(m.id);if(p){pending.delete(m.id);clearTimeout(p.timer);samples.push(performance.now()-p.start);m.error?p.reject(new Error(JSON.stringify(m.error))):p.resolve(m.result);}}catch{}}});
@@ -36,9 +39,9 @@ function root(){return fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir
 // databases are not counted as business copies. UUID task directories must drain.
 const evidenceRoot=path.resolve(process.env.CODEGRAPH_LAYOUT_EVIDENCE_DIR||'artifacts/phase2-real-mcp');
 const {snapshot:diskSnapshot,contract,reclaimed}=require('./helpers/layout-disk-evidence.cjs');
-function inventory(dir){return diskSnapshot(path.join(dir,'.codegraph-wx'));}
-function disk(dir,phase,{clean=false,check=true}={}){
- const state={phase,platform:process.platform,node:process.version,atomic:false,at:new Date().toISOString(),project:dir,...inventory(dir)};
+function inventory(dir,dataDirectory){return diskSnapshot(dataDirectory||path.join(dir,'.codegraph-wx'));}
+function disk(dir,phase,{clean=false,check=true,dataDirectory}={}){
+ const state={phase,platform:process.platform,node:process.version,atomic:false,at:new Date().toISOString(),project:dir,...inventory(dir,dataDirectory)};
  fs.mkdirSync(evidenceRoot,{recursive:true});fs.writeFileSync(path.join(evidenceRoot,`${path.basename(dir)}-${phase}.json`),JSON.stringify(state,null,2));
  if(check){
   contract(state);
@@ -125,4 +128,43 @@ for(const direct of [true,false])test(`real ${direct?'direct':'daemon'} cold cat
   fs.mkdirSync(evidenceRoot,{recursive:true});fs.writeFileSync(path.join(evidenceRoot,`cold-${direct?'direct':'daemon'}.json`),JSON.stringify({response,stderr:c.stderr,daemonLog},null,2));
   assert.equal(records(paths(dir)).filter(r=>r.phase==='cleaned').length,1);await collected(dir,`catchup-${direct}-completed`);
  }finally{release();rebuild.runFixedPathRebuild=original;await pending?.catch(()=>{});await c?.close();await until(()=>!fs.existsSync(path.join(dir,'.codegraph-wx/.runtime/daemon.pid'))).catch(()=>{});await graph.whenIdle();graph.close();await graph.whenIdle();disk(dir,`catchup-${direct}-closed`,{check:false});fs.rmSync(dir,{recursive:true,force:true});}
+});
+
+
+// Existing projects are deliberately NOT subject to the fresh-directory contract.
+// These are complete on-disk legacy fixtures, not a forced environment mode.
+for(const direct of [true,false])for(const layout of ['root','community-root','generation'])test(`real ${direct?'direct':'daemon'} default open preserves legacy ${layout} without silent migration`,{timeout:45000},async()=>{
+ const dir=root(),data=path.join(dir,layout==='community-root'?'.codegraph':'.codegraph-wx');main(dir,91);
+ const generation='g-existing-default-test',manifest=JSON.stringify({version:1,generation,token:require('node:crypto').randomUUID(),complete:true});
+ const active=layout!=='generation'?path.join(data,'codegraph.db'):path.join(data,'generations',generation,'codegraph.db');
+ fs.mkdirSync(path.dirname(active),{recursive:true});
+ const db=DatabaseConnection.initialize(active);
+ db.getDb().exec("CREATE TABLE legacy_user_data(value TEXT NOT NULL); INSERT INTO legacy_user_data VALUES ('preserve-custom-data')");db.close();
+ if(layout==='generation'){fs.writeFileSync(path.join(path.dirname(active),'READY.json'),manifest);fs.writeFileSync(path.join(data,'CURRENT'),manifest);}
+ let graph=CodeGraph.openSync(dir),c;
+ function unchanged(phase){
+  disk(dir,`legacy-${layout}-${direct}-${phase}`,{check:false,dataDirectory:data});
+  assert(!fs.existsSync(path.join(data,'.runtime','layout.json')),'normal open must not authorize legacy migration');
+  assert(fs.existsSync(active),'legacy active business database must survive');
+  if(layout==='community-root')assert(!fs.existsSync(path.join(dir,'.codegraph-wx')),'community index must be used in place, not replaced');
+  if(layout==='generation'){
+   assert.equal(fs.readFileSync(path.join(data,'CURRENT'),'utf8'),manifest);
+   assert(!fs.existsSync(path.join(data,'codegraph.db')),'legacy generation must not silently gain a fixed root copy');
+  }else assert(!fs.existsSync(path.join(data,'CURRENT')),'legacy root must not silently become generational');
+ }
+ try{
+  assert.equal((await graph.indexAll()).complete,true);unchanged('initialized');
+  graph.close();await graph.whenIdle();graph=null;
+  c=client(dir,direct);await c.start();if(!direct)await c.waitForDaemon();
+  assert.match(await c.search('stable'),/91/);assert.equal(await c.generation(),'91');unchanged('running');
+  await c.close();c=null;await until(()=>!fs.existsSync(path.join(data,'daemon.pid')));
+  unchanged('closed');graph=CodeGraph.openSync(dir);assert.equal(graph.getDatabaseFilePath(),active);
+  assert.equal(graph.searchNodes('stable').filter(n=>n.node.name==='stable').length,1);unchanged('reopened');
+  graph.close();await graph.whenIdle();graph=null;
+  const verify=DatabaseConnection.openReadOnly(active);
+  try{assert.equal(verify.getDb().prepare('SELECT value FROM legacy_user_data').get().value,'preserve-custom-data');}finally{verify.close();}
+ }finally{
+  await c?.close();await until(()=>!fs.existsSync(path.join(data,'daemon.pid'))).catch(()=>{});
+  graph?.close();await graph?.whenIdle();disk(dir,`legacy-${layout}-${direct}-final`,{check:false,dataDirectory:data});fs.rmSync(dir,{recursive:true,force:true});
+ }
 });
