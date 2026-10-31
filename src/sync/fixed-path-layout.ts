@@ -5,7 +5,7 @@ import fs from 'fs';
 import path from 'path';
 import { createHash, randomUUID } from 'crypto';
 import { resolveGeneration } from './generation-store';
-import { assertLegacyRootNames, holdLegacyLeasesClosed, prepareLegacyLayoutCleanup, finishLegacyLayoutCleanup, hasLegacyLayoutCleanup } from './legacy-layout-cleanup';
+import { assertLegacyRootNames, holdLegacyLeasesClosed, prepareLegacyLayoutCleanup, finishLegacyLayoutCleanup, hasLegacyLayoutCleanup, reconcileLegacyCleanupOwner, revokeAbortedLegacyCleanup, type LegacyCleanupOwner } from './legacy-layout-cleanup';
 import { assertLegacyRuntimeArtifactsSafe, ensureFixedPathGitProtection } from '../runtime-paths';
 import { lease, paths as protocolPaths } from './fixed-path/protocol';
 
@@ -251,9 +251,19 @@ function finishCommittedCleanup(p: ReturnType<typeof names>, record: RecordState
   catch (error) { deferCommittedCleanup(p,record,error); return false; }
 }
 const cleanupRetries = new Map<string, NodeJS.Timeout>();
+function cleanupOwner(record: RecordState): LegacyCleanupOwner {
+  return {migrationId:record.id,source:record.source,sourceIdentity:record.sourceIdentity};
+}
 function finishLegacyCleanupDiagnosed(p: ReturnType<typeof names>): void {
   try {
-    finishLegacyLayoutCleanup(p.root);
+    if(hasLegacyLayoutCleanup(p.root))mutex(p,()=>{
+      const current=marker(p),all=records(p,false);
+      reconcileLegacyCleanupOwner(p.root,all,current?.migrationId??null);
+      if(!current)return;
+      const record=all.find(item=>item.id===current.migrationId);
+      if(!record||record.outcome==='aborted')throw new Error('Committed legacy cleanup lacks matching migration evidence');
+      finishLegacyLayoutCleanup(p.root,cleanupOwner(record));
+    });
     const timer = cleanupRetries.get(p.root); if (timer) clearTimeout(timer);
     cleanupRetries.delete(p.root);
   } catch (error) {
@@ -266,7 +276,7 @@ function finishLegacyCleanupDiagnosed(p: ReturnType<typeof names>): void {
     if (['EPERM', 'EACCES', 'EBUSY', 'ENOTEMPTY'].includes((error as NodeJS.ErrnoException).code ?? '') && !cleanupRetries.has(p.root)) {
       const timer = setTimeout(() => {
         cleanupRetries.delete(p.root);
-        try { mutex(p, () => finishLegacyCleanupDiagnosed(p)); } catch { /* diagnosed and rescheduled while safe */ }
+        try { finishLegacyCleanupDiagnosed(p); } catch { /* diagnosed and rescheduled while safe */ }
       }, 250);
       timer.unref(); cleanupRetries.set(p.root, timer);
     }
@@ -307,7 +317,7 @@ function settled(p: ReturnType<typeof names>, current: LayoutMarker | null, all:
 }
 /** Recover only previously authorized operations. No new migration is authorized
  * by calling this method. All participating opens must call it before SQLite. */
-export function recoverFixedPathMigration(dataDir: string): void {
+export function recoverFixedPathMigration(dataDir: string, options: { hook?: (phase: string) => void } = {}): void {
   const p = names(dataDir);
   if (!exists(p.root)) return;
   directories(p,false);
@@ -323,8 +333,9 @@ export function recoverFixedPathMigration(dataDir: string): void {
     if (code !== 776 && !(typeof code === 'number' && (code & 255) === 5)) throw error;
   }
   mutex(p, () => {
-    const current = marker(p);
-    for (const record of records(p, false)) {
+    const current = marker(p), all = records(p, false);
+    reconcileLegacyCleanupOwner(p.root,all,current?.migrationId??null);
+    for (const record of all) {
       if ((record.outcome === 'committed' || !['cleaned','aborted'].includes(record.phase)) && current && current.migrationId !== record.id) throw new Error('Layout marker does not match migration evidence');
       if (record.outcome === 'committed' && !current) throw new Error('Committed migration lost authoritative layout marker');
       if(record.phase==='allocating'){abortMigrationAllocation(p,record);continue;}
@@ -340,7 +351,9 @@ export function recoverFixedPathMigration(dataDir: string): void {
         }
       }
       if (record.phase === 'cleaned' || record.phase === 'aborted') {
-        if (record.outcome === 'committed') finishCommittedCleanup(p,record); else cleanupOperation(p,record);
+        if (record.outcome === 'committed') finishCommittedCleanup(p,record); else {
+          revokeAbortedLegacyCleanup(p.root,record);options.hook?.('cleanup-obligation-revoked');cleanupOperation(p,record);
+        }
         continue;
       }
       if (current?.migrationId === record.id || record.phase === 'committed') {
@@ -356,7 +369,8 @@ export function recoverFixedPathMigration(dataDir: string): void {
         if (record.phase !== 'installing' || !record.candidateIdentity || exists(files.candidate) || hash(p.active) !== record.candidateIdentity) throw new Error('Unknown root database during migration; evidence preserved');
         noSidecars(p.active); fs.renameSync(p.active,files.candidate); syncDirectory(p.root); syncDirectory(files.dir);
       }
-      record.phase='aborted'; record.outcome='aborted'; save(p,record); cleanupOperation(p,record);
+      record.phase='aborted'; record.outcome='aborted'; save(p,record);options.hook?.('rollback-confirmed');
+      revokeAbortedLegacyCleanup(p.root,record);options.hook?.('cleanup-obligation-revoked');cleanupOperation(p,record);
     }
   });
   if (marker(p)) { finishLegacyCleanupDiagnosed(p); scheduleStartupReclamation(p); }
@@ -392,7 +406,8 @@ export function migrateToFixedPath(dataDir: string, options: FixedPathMigrationO
     if (marker(p)) {
       validate(p.active,options.validateDatabase,true);
       const previous = records(p).find(record => record.id === marker(p)!.migrationId && record.outcome === 'committed');
-      prepareLegacyLayoutCleanup(p.root, previous?.generation ?? null, previous?.sourceIdentity); return;
+      if(!previous)throw new Error('Fixed layout lacks matching committed migration evidence');
+      prepareLegacyLayoutCleanup(p.root, cleanupOwner(previous), previous.generation); return;
     }
     const rootPresent = exists(p.active), currentPresent = exists(path.join(p.root,'CURRENT'));
     // Resolve first: malformed manifests never become permission to fall back.
@@ -427,7 +442,7 @@ export function migrateToFixedPath(dataDir: string, options: FixedPathMigrationO
         noSidecars(p.active); fs.renameSync(files.candidate,p.active); syncDirectory(p.root); syncDirectory(files.dir); options.hook?.('root-installed');
       }
       validate(p.active,options.validateDatabase);
-      prepareLegacyLayoutCleanup(p.root, source.id, record.sourceIdentity);
+      prepareLegacyLayoutCleanup(p.root, cleanupOwner(record), source.id);options.hook?.('inventory-prepared');
       fs.writeFileSync(files.stagedMarker,JSON.stringify({version:1,layout:'fixed-path-v1',migrationId:record.id}),{flag:'wx',mode:0o600}); syncFile(files.stagedMarker);
       if (exists(p.marker)) throw new Error('Layout changed during migration');
       fs.renameSync(files.stagedMarker,p.marker); syncDirectory(p.runtime); options.hook?.('layout-committed');

@@ -8,7 +8,27 @@ import { migrateLegacyRuntimeArtifacts, ensureFixedPathGitProtection } from '../
 const ROOT_FILES = new Set(['CURRENT', '.generation-lifecycle.sqlite']);
 const TREE_FILES = new Set(['.generation-owner.json', 'codegraph.db', 'READY.json', 'build.stdout.log', 'build.stderr.log', 'build-result.json']);
 const ROOT_ALLOWED = new Set(['codegraph.db', 'codegraph.db-wal', 'codegraph.db-shm', '.runtime', 'CURRENT', 'generations', '.generation-leases', '.generation-lifecycle.sqlite', '.generation-lifecycle.sqlite-journal', '.gitignore', 'errors.log', 'daemon.log', 'daemon.pid', 'daemon.sock', 'adaptive-sync.log', 'adaptive-sync.log.1', 'adaptive-cost-history.json']);
-interface Inventory { version: 1; files: { name: string; hash: string }[]; directories: string[]; }
+export interface LegacyCleanupOwner { migrationId: string; source: string; sourceIdentity: string; }
+interface InventoryV1 { version: 1; files: { name: string; hash: string }[]; directories: string[]; }
+interface InventoryV2 extends LegacyCleanupOwner { version: 2; files: { name: string; hash: string }[]; directories: string[]; }
+type Inventory = InventoryV1 | InventoryV2;
+export interface LegacyCleanupEvidence { id: string; source: string; sourceIdentity: string; outcome: 'committed' | 'aborted' | null; }
+const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/;
+function validateOwner(root: string, owner: LegacyCleanupOwner): void {
+  const relative=path.relative(root,owner.source).split(path.sep).join('/');
+  if(!UUID.test(owner.migrationId)||!/^[a-f0-9]{64}$/.test(owner.sourceIdentity)||
+      (relative!=='codegraph.db'&&!/^generations\/g-[a-zA-Z0-9-]{1,100}\/codegraph\.db$/.test(relative))||path.join(root,relative)!==owner.source)throw new Error('Invalid legacy cleanup owner; evidence retained');
+}
+function sameOwner(a: LegacyCleanupOwner, b: LegacyCleanupOwner): boolean {
+  return a.migrationId===b.migrationId&&a.source===b.source&&a.sourceIdentity===b.sourceIdentity;
+}
+function committedMarker(root: string): string | null {
+  const file=path.join(root,'.runtime','layout.json');if(!exists(file))return null;regular(file);
+  if(fs.statSync(file).size>4096)throw new Error('Invalid fixed layout marker');
+  const marker=JSON.parse(fs.readFileSync(file,'utf8'));
+  if(!marker||marker.version!==1||marker.layout!=='fixed-path-v1'||!UUID.test(marker.migrationId)||Object.keys(marker).some(k=>!['version','layout','migrationId'].includes(k)))throw new Error('Invalid fixed layout marker');
+  return marker.migrationId;
+}
 const pendingName = 'legacy-layout-cleanup.sqlite';
 function journal(root: string): any {
   const file = path.join(root, '.runtime', pendingName);
@@ -81,15 +101,19 @@ function read(root: string): Inventory | null {
   try { raw = db.prepare('SELECT inventory FROM cleanup WHERE id=1').get()?.inventory; } finally { db.close(); }
   if (!raw) return null;
   const value = JSON.parse(raw) as Inventory;
-  if (value.version !== 1 || !Array.isArray(value.files) || !Array.isArray(value.directories) ||
+  if (![1,2].includes(value.version) || !Array.isArray(value.files) || !Array.isArray(value.directories) ||
       value.files.some(row => !allowed(row.name) || !/^[a-f0-9]{64}$/.test(row.hash)) ||
       value.directories.some(name => name !== 'generations' && name !== '.generation-leases' && !/^generations\/g-[a-zA-Z0-9-]{1,100}$/.test(name))) throw new Error('Invalid legacy cleanup inventory; evidence retained');
+  if(value.version===2)validateOwner(root,value);
   return value;
 }
 /** Call before layout commit, after all source validation. Existing evidence is never overwritten. */
-export function prepareLegacyLayoutCleanup(root: string, authorizedSource: string | null = null, sourceIdentity?: string): void {
-  if (read(root)) return;
-  const inventory: Inventory = { version: 1, files: [], directories: [] };
+export function prepareLegacyLayoutCleanup(root: string, owner: LegacyCleanupOwner, authorizedSource: string | null = null): void {
+  validateOwner(root,owner);
+  const existing=read(root);
+  if(existing){if(existing.version!==2||!sameOwner(existing,owner))throw new Error('Legacy cleanup inventory belongs to another migration; evidence retained');return;}
+  const inventory: InventoryV2 = { version: 2, ...owner, files: [], directories: [] };
+  const sourceIdentity=owner.sourceIdentity;
   let selected: string | null = null;
   const current = path.join(root, 'CURRENT');
   if (exists(current)) {
@@ -143,9 +167,12 @@ export function prepareLegacyLayoutCleanup(root: string, authorizedSource: strin
   try { db.prepare('INSERT INTO cleanup(id,inventory) VALUES (1,?)').run(JSON.stringify(inventory)); } finally { db.close(); }
 }
 /** Only a committed fixed marker grants deletion. Missing files are an idempotent partial cleanup. */
-export function finishLegacyLayoutCleanup(root: string): void {
+export function finishLegacyLayoutCleanup(root: string, owner: LegacyCleanupOwner): void {
   const inventory = read(root); if (!inventory) return;
-  if (!exists(path.join(root, '.runtime', 'layout.json'))) return;
+  validateOwner(root,owner);
+  if(inventory.version!==2||!sameOwner(inventory,owner))throw new Error('Legacy cleanup inventory owner mismatch; evidence retained');
+  const marker=committedMarker(root);if(marker===null)return;
+  if(marker!==inventory.migrationId)throw new Error('Committed layout does not own legacy cleanup inventory; evidence retained');
   ensureFixedPathGitProtection(root);
   const held = holdLegacyLeasesClosed(root);
   const coordination = (name: string): boolean => name === '.generation-lifecycle.sqlite' || name.startsWith('.generation-leases/');
@@ -168,8 +195,52 @@ export function finishLegacyLayoutCleanup(root: string): void {
   for (const row of inventory.files.filter(row => coordination(row.name))) { const file = path.join(root, row.name); if (exists(file)) fs.unlinkSync(file); }
   for (const dir of [...inventory.directories].sort((a, b) => b.length - a.length)) { const full = path.join(root, dir); if (exists(full)) fs.rmdirSync(full); }
   migrateLegacyRuntimeArtifacts(root);
-  const db = journal(root); try { db.exec('DELETE FROM cleanup WHERE id=1'); } finally { db.close(); }
-  fs.unlinkSync(path.join(root, '.runtime', pendingName + '.pending'));
+  replaceInventory(root,inventory,null);
+}
+
+/** Caller holds the layout owner mutex. Compare-and-swap makes a stale caller
+ * incapable of replacing or revoking a different operation's obligation. */
+function replaceInventory(root: string, previous: Inventory, next: InventoryV2 | null): void {
+  const db=journal(root);
+  try {
+    db.exec('BEGIN IMMEDIATE');const raw=db.prepare('SELECT inventory FROM cleanup WHERE id=1').get()?.inventory;
+    if(typeof raw!=='string'||JSON.stringify(JSON.parse(raw))!==JSON.stringify(previous))throw new Error('Legacy cleanup inventory changed concurrently; evidence retained');
+    if(next)db.prepare('UPDATE cleanup SET inventory=? WHERE id=1').run(JSON.stringify(next));else db.exec('DELETE FROM cleanup WHERE id=1');
+    db.exec('COMMIT');
+  } finally { db.close(); }
+  if(!next){const flag=path.join(root,'.runtime',pendingName+'.pending');if(exists(flag)){regular(flag);fs.unlinkSync(flag);}}
+}
+/** Upgrade old unbound inventories only with unique persisted source evidence.
+ * A previously poisoned committed B + stale A inventory is NOT relabeled B. */
+export function reconcileLegacyCleanupOwner(root: string, evidence: LegacyCleanupEvidence[], markerId: string | null): void {
+  const inventory=read(root);if(!inventory)return;
+  if(inventory.version===2){
+    const record=evidence.find(r=>r.id===inventory.migrationId);
+    if(!record||!sameOwner(inventory,{migrationId:record.id,source:record.source,sourceIdentity:record.sourceIdentity}))throw new Error('Legacy cleanup owner does not match migration journal; evidence retained');
+    if(markerId!==null&&markerId!==inventory.migrationId)throw new Error('Committed layout has a foreign legacy cleanup obligation; evidence retained');
+    return;
+  }
+  const generations=inventory.files.some(row=>row.name==='CURRENT');
+  const candidates=evidence.filter(record=>{
+    const source=path.relative(root,record.source).split(path.sep).join('/');
+    return generations ? inventory.files.some(row=>row.name===source&&row.hash===record.sourceIdentity) : source==='codegraph.db';
+  });
+  if(candidates.length!==1)throw new Error('Unbound legacy cleanup inventory has ambiguous migration ownership; evidence retained');
+  const record=candidates[0]!;
+  if(markerId!==null&&markerId!==record.id)throw new Error('Committed layout has stale unbound cleanup from another migration; evidence retained');
+  const owner={migrationId:record.id,source:record.source,sourceIdentity:record.sourceIdentity};validateOwner(root,owner);
+  replaceInventory(root,inventory,{...inventory,version:2,...owner});
+}
+/** Only a durably aborted operation may revoke its own metadata. No business
+ * file is read, rehashed, changed, or removed here; historical A cannot cancel B. */
+export function revokeAbortedLegacyCleanup(root: string, evidence: LegacyCleanupEvidence): void {
+  if(evidence.outcome!=='aborted')throw new Error('Cleanup revocation requires a confirmed aborted migration');
+  const inventory=read(root);if(!inventory)return;
+  if(inventory.version!==2)throw new Error('Unbound cleanup must be reconciled before revocation');
+  if(inventory.migrationId!==evidence.id)return;
+  if(!sameOwner(inventory,{migrationId:evidence.id,source:evidence.source,sourceIdentity:evidence.sourceIdentity}))throw new Error('Aborted cleanup owner identity mismatch; evidence retained');
+  if(committedMarker(root)===evidence.id)throw new Error('Committed cleanup obligation cannot be revoked');
+  replaceInventory(root,inventory,null);
 }
 
 export function hasLegacyLayoutCleanup(root: string): boolean { return read(root) !== null; }
