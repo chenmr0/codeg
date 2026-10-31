@@ -77,7 +77,11 @@ const FILE_IO_BATCH_SIZE = 10;
  * the daemon liveness heartbeat even though the sync itself is healthy.
  */
 const SYNC_RECONCILE_YIELD_INTERVAL = 1000;
-const SYNC_STAT_REFRESH_BATCH_SIZE = 500;
+// A file-count bound alone is not a latency bound: unchanged contents with
+// changed mtimes still require synchronous reads and hashes. Check elapsed
+// time between files as well, without yielding inside a SQLite transaction.
+const SYNC_RECONCILE_BUDGET_MS = 8;
+const SYNC_STAT_REFRESH_BATCH_SIZE = 32;
 
 // Keep the retention fast path and the fallback rewire's identity contract
 // identical. Non-callable signatures may contain mutable initializers.
@@ -2942,6 +2946,7 @@ export class ExtractionOrchestrator {
     };
 
     let reconcileChecks = 0;
+    let reconcileYieldAt = performance.now();
     let reconcileComplete = false;
     try {
       for (const tracked of trackedFiles) {
@@ -2964,9 +2969,11 @@ export class ExtractionOrchestrator {
           }
         }
         else if (nativeCapture.snapshot && diagnostics) diagnostics.counts.snapshotPresence++;
-        if (++reconcileChecks % SYNC_RECONCILE_YIELD_INTERVAL === 0) {
+        if (++reconcileChecks % SYNC_RECONCILE_YIELD_INTERVAL === 0 ||
+            performance.now() - reconcileYieldAt >= SYNC_RECONCILE_BUDGET_MS) {
           await flushDeletes();
           await new Promise<void>((resolve) => setImmediate(resolve));
+          reconcileYieldAt = performance.now();
         }
       }
       await flushDeletes();
@@ -2999,8 +3006,10 @@ export class ExtractionOrchestrator {
       for (const filePath of currentFiles) {
         // Keep the unchanged-file fast path cooperative too: most entries leave
         // through `continue` after stat, so the yield must happen at loop entry.
-        if (++reconcileChecks % SYNC_RECONCILE_YIELD_INTERVAL === 0) {
+        if (++reconcileChecks % SYNC_RECONCILE_YIELD_INTERVAL === 0 ||
+            performance.now() - reconcileYieldAt >= SYNC_RECONCILE_BUDGET_MS) {
           await new Promise<void>((resolve) => setImmediate(resolve));
+          reconcileYieldAt = performance.now();
         }
         const fullPath = path.join(this.rootDir, filePath);
         const tracked = trackedMap.get(filePath);
