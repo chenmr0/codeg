@@ -154,21 +154,13 @@ export class Daemon {
   }
 
   /**
-   * Bind the socket, kick off engine init, and register signal handlers. The
+   * Bind the socket and register signal handlers. Engine initialization waits
+   * for an accepted session so cold database work cannot block first admission. The
    * lockfile body was already written atomically by `tryAcquireDaemonLock`, so
    * there is nothing to write here. The promise resolves once the server is
    * listening — the daemon then sticks around until idle/shutdown.
    */
   async start(): Promise<DaemonStartResult> {
-    // Engine init is deliberately backgrounded — see #172. The first session
-    // to land waits on `ensureInitialized` either way, and unloaded sessions
-    // (cross-project tool calls only) shouldn't pay any open cost.
-    this.trace('engine-init-start');
-    void this.engine.ensureInitialized(this.projectRoot).then(
-      () => this.trace('engine-init-complete'),
-      error => this.trace('engine-init-failed', { error: String(error) }),
-    );
-
     // Stale socket file (left over from a SIGKILL'd previous daemon) will
     // wedge `listen` with EADDRINUSE. We arrived here holding the lockfile,
     // which means there's no live daemon, so it's safe to clear.
@@ -304,6 +296,18 @@ export class Daemon {
       // 'data' listener that reads nothing, added AFTER the transport's so the
       // unshifted client-hello tail reaches the transport intact.
       socket.on('data', () => { this.lastActivityAt = Date.now(); });
+      // Native opens/catch-up can occupy the main thread even though this API
+      // returns a Promise. Do not start them in start(): a queued connection
+      // may not have reached handleConnection when an overdue startup-idle
+      // timer runs. Here transport admission owns lifetime and the daemon
+      // hello has already been consumed (or the legacy hello deadline elapsed).
+      // Preserve connect-time watcher/catch-up rather than waiting for a tool.
+      // The engine deduplicates concurrent callers and retains retry semantics.
+      this.trace('engine-init-start');
+      void this.engine.ensureInitialized(this.projectRoot).then(
+        () => this.trace('engine-init-complete'),
+        error => this.trace('engine-init-failed', { error: String(error) }),
+      );
     });
   }
 
