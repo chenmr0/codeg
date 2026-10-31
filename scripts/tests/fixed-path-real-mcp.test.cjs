@@ -54,7 +54,7 @@ async function collected(dir,phase){
 }
 
 for(const mode of ['direct','daemon'])test(`real ${mode}: cross-process watcher rebuild, idle reconnect and offline public overwrite`, {timeout:90000},async()=>{
- const dir=root(),producer=root();main(dir);main(producer,77);let graph=await CodeGraph.init(dir,{index:true});let p=await CodeGraph.init(producer,{index:true});p.close();const publicDb=path.join(producer,'.codegraph-wx/codegraph.db');seal(publicDb,{standalone:true});const active=path.join(dir,'.codegraph-wx/codegraph.db');
+ const dir=root(),producer=root();main(dir);main(producer,77);let graph=await CodeGraph.init(dir,{index:true});let p=await CodeGraph.init(producer,{index:true});p.close();await p.whenIdle();const publicDb=path.join(producer,'.codegraph-wx/codegraph.db');seal(publicDb,{standalone:true});const active=path.join(dir,'.codegraph-wx/codegraph.db');
  let clients=[],stop=false,load;const logs=[];
  try{
   disk(dir,`${mode}-initialized`,{clean:true});
@@ -77,10 +77,10 @@ for(const mode of ['direct','daemon'])test(`real ${mode}: cross-process watcher 
   await Promise.all(clients.map(async c=>assert.match(await c.search('third_139'),/third_139/)));
   assert.equal(graph.searchNodes('automatic_139').length,0);assert.equal(graph.searchNodes('second_139').length,0);
   await collected(dir,`${mode}-third-completed`);
-  stop=true;await load;load=null;logs.push({requests:count,clients:clients.map(c=>({samples:c.samples,stderr:c.stderr}))});await Promise.all(clients.map(c=>c.close()));clients=[];await until(()=>!fs.existsSync(path.join(dir,'.codegraph-wx/.runtime/daemon.pid')));graph.close();graph=null;await collected(dir,`${mode}-closed`);
+  stop=true;await load;load=null;logs.push({requests:count,clients:clients.map(c=>({samples:c.samples,stderr:c.stderr}))});await Promise.all(clients.map(c=>c.close()));clients=[];await until(()=>!fs.existsSync(path.join(dir,'.codegraph-wx/.runtime/daemon.pid')));graph.close();await graph.whenIdle();graph=null;await collected(dir,`${mode}-closed`);
   assert(!fs.existsSync(active+'-wal'));assert(!fs.existsSync(active+'-shm'));for(const f of fs.readdirSync(dir))if(f.endsWith('.py'))fs.unlinkSync(path.join(dir,f));main(dir,77);fs.copyFileSync(publicDb,active);
   clients=mode==='daemon'?[client(dir,true),client(dir)]:[client(dir,true,undefined,true),client(dir,true)];await Promise.all(clients.map(c=>c.start()));await Promise.all(clients.map(async c=>assert.match(await c.search('stable'),/77/)));graph=CodeGraph.openSync(dir);disk(dir,`${mode}-restarted-public-overwrite`);assert.equal(graph.getDatabaseFilePath(),active);assert.equal(graph.searchNodes('third_139').length,0);main(dir,88);await until(()=>graph.searchNodes('stable').some(n=>/88/.test(n.node.signature)),15000);await Promise.all(clients.map(async c=>assert.match(await c.search('stable'),/88/)));
- }finally{disk(dir,`${mode}-final-before-close`,{check:false});logs.push({phase:'final-state',clients:clients.map(c=>({samples:c.samples,stderr:c.stderr,exitCode:c.child.exitCode}))});stop=true;if(load)await load.catch(()=>{});await Promise.all(clients.map(c=>c.close()));await until(()=>!fs.existsSync(path.join(dir,'.codegraph-wx/.runtime/daemon.pid'))).catch(()=>{});graph?.close();disk(dir,`${mode}-final-after-close`,{check:false});fs.mkdirSync(evidenceRoot,{recursive:true});fs.writeFileSync(path.join(evidenceRoot,`transport-${mode}.json`),JSON.stringify(logs,null,2));fs.rmSync(dir,{recursive:true,force:true});fs.rmSync(producer,{recursive:true,force:true});}
+ }finally{disk(dir,`${mode}-final-before-close`,{check:false});logs.push({phase:'final-state',clients:clients.map(c=>({samples:c.samples,stderr:c.stderr,exitCode:c.child.exitCode}))});stop=true;if(load)await load.catch(()=>{});await Promise.all(clients.map(c=>c.close()));await until(()=>!fs.existsSync(path.join(dir,'.codegraph-wx/.runtime/daemon.pid'))).catch(()=>{});graph?.close();await graph?.whenIdle();disk(dir,`${mode}-final-after-close`,{check:false});fs.mkdirSync(evidenceRoot,{recursive:true});fs.writeFileSync(path.join(evidenceRoot,`transport-${mode}.json`),JSON.stringify(logs,null,2));fs.rmSync(dir,{recursive:true,force:true});fs.rmSync(producer,{recursive:true,force:true});}
 });
 
 for(const direct of [true,false]) test(`actual ${direct?'direct stdio':'shared daemon'} MCP in-flight response pins old database; failed drain preserves it`, {timeout:60000},async()=>{
@@ -96,7 +96,7 @@ for(const direct of [true,false]) test(`actual ${direct?'direct stdio':'shared d
    fs.writeFileSync(release,'');assert.match(await pending,/stable/);pending=null;fs.unlinkSync(path.join(dir,'arm'));await graph.sync();assert.match(await c.search('blocked_139'),/blocked_139/);await collected(dir,`pin-${direct}-completed`);
    // A direct stdio EOF drains already-admitted async response, not close under it.
    if(direct){fs.unlinkSync(ready);fs.unlinkSync(release);fs.writeFileSync(path.join(dir,'arm'),'');pending=c.search('stable').then(value=>({value}),error=>({error}));await until(()=>fs.existsSync(ready));c.child.stdin.end();await sleep(100);assert.equal(c.child.exitCode,null);fs.writeFileSync(release,'');const eof=await pending;if(eof.error)assert.match(eof.error.message,/Request cancelled/);else assert.match(eof.value,/stable/);pending=null;}
-  }finally{fs.writeFileSync(release,'');if(pending)await pending.catch(()=>{});await c.close();await until(()=>!fs.existsSync(path.join(dir,'.codegraph-wx/.runtime/daemon.pid'))).catch(()=>{});graph.close();disk(dir,`pin-${direct}-closed`,{check:false});fs.rmSync(dir,{recursive:true,force:true});fs.rmSync(hook,{force:true});}
+  }finally{fs.writeFileSync(release,'');if(pending)await pending.catch(()=>{});await c.close();await until(()=>!fs.existsSync(path.join(dir,'.codegraph-wx/.runtime/daemon.pid'))).catch(()=>{});graph.close();await graph.whenIdle();disk(dir,`pin-${direct}-closed`,{check:false});fs.rmSync(dir,{recursive:true,force:true});fs.rmSync(hook,{force:true});}
 });
 
 for(const direct of [true,false])test(`real ${direct?'direct':'daemon'} cold catch-up joins a concurrent SDK rebuild without publisher collision`,{timeout:45000},async()=>{
@@ -124,5 +124,5 @@ for(const direct of [true,false])test(`real ${direct?'direct':'daemon'} cold cat
   assert(!/Catch-up sync failed|Another publisher\/recovery/.test(c.stderr+daemonLog),c.stderr+daemonLog);
   fs.mkdirSync(evidenceRoot,{recursive:true});fs.writeFileSync(path.join(evidenceRoot,`cold-${direct?'direct':'daemon'}.json`),JSON.stringify({response,stderr:c.stderr,daemonLog},null,2));
   assert.equal(records(paths(dir)).filter(r=>r.phase==='cleaned').length,1);await collected(dir,`catchup-${direct}-completed`);
- }finally{release();rebuild.runFixedPathRebuild=original;await pending?.catch(()=>{});await c?.close();await until(()=>!fs.existsSync(path.join(dir,'.codegraph-wx/.runtime/daemon.pid'))).catch(()=>{});await graph.whenIdle();graph.close();disk(dir,`catchup-${direct}-closed`,{check:false});fs.rmSync(dir,{recursive:true,force:true});}
+ }finally{release();rebuild.runFixedPathRebuild=original;await pending?.catch(()=>{});await c?.close();await until(()=>!fs.existsSync(path.join(dir,'.codegraph-wx/.runtime/daemon.pid'))).catch(()=>{});await graph.whenIdle();graph.close();await graph.whenIdle();disk(dir,`catchup-${direct}-closed`,{check:false});fs.rmSync(dir,{recursive:true,force:true});}
 });
