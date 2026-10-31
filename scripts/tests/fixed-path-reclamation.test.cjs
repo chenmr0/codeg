@@ -93,3 +93,97 @@ test('initialization sharing failure records diagnostics and retries without reo
   const d=new DatabaseSync(path.join(data,'codegraph.db'),{readOnly:true});try{assert.equal(d.prepare('SELECT n FROM value').get().n,99);}finally{d.close();}
  }finally{fs.unlinkSync=original;fs.rmSync(dir,{recursive:true,force:true});}
 });
+
+for(const phase of ['allocation-recorded','allocation-directory-created','allocation-marker-opened','allocation-marker-created','allocation-building']) {
+ test(`durable task allocation recovers actual process kill at ${phase}`,async()=>{
+  const {dir,p}=setup();let c,participant;
+  try{
+   c=child(dir,`p.beginOperation(dir,{hook(phase,record){if(phase===${JSON.stringify(phase)}){process.send({directory:record.directory});Atomics.wait(new Int32Array(new SharedArrayBuffer(4)),0,0);}}});`);
+   const [message]=await Promise.race([once(c,'message'),once(c,'exit').then(()=>{throw new Error(c.failureOutput());})]);snapshot(dir,`${phase}-live`);
+   const exit=once(c,'exit');c.kill('SIGKILL');await exit;
+   recover(dir);assert(!fs.existsSync(message.directory));assert(records(p).every(r=>r.phase==='cleaned'));
+   snapshot(dir,`${phase}-recovered`);participant=reader(dir);assert.equal(value(participant),1);
+  }finally{c?.kill('SIGKILL');participant?.close();fs.rmSync(dir,{recursive:true,force:true});}
+ });
+}
+
+const bootstrapCrashes=[{phase:'bootstrap-intent'},{phase:'bootstrap-installed'},
+ ...['connections.sqlite','publisher.sqlite','writers.sqlite','mutations.sqlite'].flatMap(file=>
+  ['bootstrap-lease-open','bootstrap-lease-transaction','bootstrap-lease-closed'].map(phase=>({phase,file})))];
+for(const point of bootstrapCrashes) {
+ test(`bootstrap durable intent recovers kill at ${point.phase}/${point.file??'-'}`,async()=>{
+  const dir=fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(),'fixed-bootstrap-crash-'))),data=path.join(dir,'.codegraph-wx');fs.mkdirSync(data);make(path.join(data,'codegraph.db'),1);
+  let c,participant;
+  try{
+   c=child(dir,`p.initialize(dir,{hook(phase,info){if(phase===${JSON.stringify(point.phase)}&&(!${JSON.stringify(point.file??null)}||require('node:path').basename(info.file??'')===${JSON.stringify(point.file??null)})){process.send({phase});Atomics.wait(new Int32Array(new SharedArrayBuffer(4)),0,0);}}});`);
+   await Promise.race([once(c,'message'),once(c,'exit').then(()=>{throw new Error(c.failureOutput());})]);snapshot(dir,`${point.phase}-${point.file??'state'}-live`);
+   const exit=once(c,'exit');c.kill('SIGKILL');await exit;
+   recover(dir);participant=reader(dir);assert.equal(value(participant),1);participant.close();participant=null;
+   const files=snapshot(dir,`${point.phase}-${point.file??'state'}-recovered`);
+   assert.equal(files.filter(f=>f.directory&&/bootstrap-/.test(f.path)).length,0);
+   const p=paths(dir);assert.equal(gate(p,g=>g.prepare('SELECT phase FROM bootstrap_intent WHERE id=1').get().phase),'completed');
+  }finally{c?.kill('SIGKILL');participant?.close();fs.rmSync(dir,{recursive:true,force:true});}
+ });
+}
+
+test('incomplete allocation and legacy bootstrap unknown files are retained with diagnostics',async()=>{
+ const {dir,p}=setup();let c;
+ try{
+  c=child(dir,`p.beginOperation(dir,{hook(phase,record){if(phase==='allocation-directory-created'){fs.writeFileSync(require('node:path').join(record.directory,'foreign.db'),'user-custom-data');process.send({directory:record.directory});Atomics.wait(new Int32Array(new SharedArrayBuffer(4)),0,0);}}});`);
+  const [message]=await once(c,'message');const exit=once(c,'exit');c.kill('SIGKILL');await exit;
+  const maintenance={};recover(dir,{maintenance});assert.equal(fs.readFileSync(path.join(message.directory,'foreign.db'),'utf8'),'user-custom-data');
+  assert.match(maintenance.cleanupDeferred[0].error,/Unknown incomplete allocation/);assert(records(p)[0].cleanupDiagnostic);
+  const legacy=path.join(p.runtime,'bootstrap-legacy-unrecorded');fs.mkdirSync(legacy);fs.writeFileSync(path.join(legacy,'unknown.sqlite'),'unknown-old-owner');
+  initialize(dir);assert.equal(fs.readFileSync(path.join(legacy,'unknown.sqlite'),'utf8'),'unknown-old-owner');
+  const diagnostic=JSON.parse(fs.readFileSync(path.join(p.runtime,'bootstrap-diagnostic.json'),'utf8'));assert(diagnostic.artifacts.includes(path.basename(legacy)));snapshot(dir,'unknown-artifacts-preserved-diagnosed');
+ }finally{c?.kill('SIGKILL');fs.rmSync(dir,{recursive:true,force:true});}
+});
+
+test('unrecorded partial old bootstrap fails closed and established old schema remains compatible',async()=>{
+ const dir=fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(),'fixed-bootstrap-old-'))),data=path.join(dir,'.codegraph-wx');fs.mkdirSync(data);make(path.join(data,'codegraph.db'),1);
+ let c,participant;
+ try{
+  c=child(dir,`p.initialize(dir,{hook(phase,info){if(phase==='bootstrap-lease-closed'){process.send({file:info.file});Atomics.wait(new Int32Array(new SharedArrayBuffer(4)),0,0);}}});`);
+  const [message]=await once(c,'message');const exit=once(c,'exit');c.kill('SIGKILL');await exit;
+  const p=paths(dir),d=new DatabaseSync(p.gate);d.exec('DROP TABLE bootstrap_intent');d.close();
+  const before=fs.readFileSync(message.file);assert.throws(()=>initialize(dir),/Missing coordination state with existing leases/);assert.deepEqual(fs.readFileSync(message.file),before);snapshot(dir,'legacy-unrecorded-partial-preserved');
+ }finally{c?.kill('SIGKILL');participant?.close();fs.rmSync(dir,{recursive:true,force:true});}
+ const established=setup();
+ try{
+  const d=new DatabaseSync(established.p.gate);d.exec('DROP TABLE bootstrap_intent');d.close();fs.unlinkSync(path.join(established.p.runtime,'bootstrap-owner.sqlite'));
+  participant=reader(established.dir);assert.equal(value(participant),1);assert(!fs.existsSync(path.join(established.p.runtime,'bootstrap-owner.sqlite')));participant.close();participant=null;snapshot(established.dir,'old-established-state-compatible');
+ }finally{participant?.close();fs.rmSync(established.dir,{recursive:true,force:true});}
+});
+
+for(const file of ['connections.sqlite','publisher.sqlite','writers.sqlite','mutations.sqlite'])for(const statement of ['CREATE','INSERT','COMMIT']) {
+ test(`bootstrap ${file} ${statement} IOERR retains intent and recovers without task debris`,()=>{
+  const dir=fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(),'fixed-bootstrap-ioerr-'))),data=path.join(dir,'.codegraph-wx');fs.mkdirSync(data);make(path.join(data,'codegraph.db'),1);
+  const exec=DatabaseSync.prototype.exec;let injected=false;
+  try{
+   DatabaseSync.prototype.exec=function(sql){
+    if(!injected&&path.basename(this.prepare('PRAGMA database_list').get().file)===file){
+     for(const part of sql.split(';').map(s=>s.trim()).filter(Boolean)){
+      if(part.startsWith(statement)){injected=true;throw Object.assign(new Error(`Injected ${statement} IOERR`),{errcode:10});}
+      exec.call(this,part);
+     }return;
+    }return exec.call(this,sql);
+   };
+   assert.throws(()=>initialize(dir),/Injected/);DatabaseSync.prototype.exec=exec;assert(injected);
+   const p=paths(dir);assert.equal(gate(p,g=>g.prepare("SELECT name FROM sqlite_master WHERE name='state'").get()),undefined);
+   assert.equal(gate(p,g=>g.prepare('SELECT phase FROM bootstrap_intent').get().phase),'preparing');
+   initialize(dir);assert.equal(gate(p,g=>g.prepare('SELECT mode FROM state').get().mode),'idle');snapshot(dir,`${file}-${statement}-IOERR-recovered`);
+  }finally{DatabaseSync.prototype.exec=exec;fs.rmSync(dir,{recursive:true,force:true});}
+ });
+}
+
+test('uncertain bootstrap native close retains OS ownership until actual process exit',async()=>{
+ const dir=fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(),'fixed-bootstrap-close-'))),data=path.join(dir,'.codegraph-wx');fs.mkdirSync(data);make(path.join(data,'codegraph.db'),1);
+ let c;
+ try{
+  c=child(dir,`const close=DatabaseSync.prototype.close;let failed=false;DatabaseSync.prototype.close=function(){if(!failed&&require('node:path').basename(this.prepare('PRAGMA database_list').get().file)==='connections.sqlite'){failed=true;throw new Error('Injected uncertain native close');}return close.call(this);};try{p.initialize(dir);}catch(error){process.send({error:error.message});setInterval(()=>{},1000);}`);
+  const [message]=await once(c,'message');assert.match(message.error,/uncertain native close/);
+  const started=Date.now();assert.throws(()=>initialize(dir),error=>(error.errcode&255)===5);assert(Date.now()-started<1000);
+  snapshot(dir,'bootstrap-uncertain-close-live-retained');const exit=once(c,'exit');c.kill('SIGKILL');await exit;
+  recover(dir);const participant=reader(dir);try{assert.equal(value(participant),1);}finally{participant.close();}snapshot(dir,'bootstrap-uncertain-close-exited-recovered');
+ }finally{c?.kill('SIGKILL');fs.rmSync(dir,{recursive:true,force:true});}
+});

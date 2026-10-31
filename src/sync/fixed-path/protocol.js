@@ -128,15 +128,43 @@ export function checkpointCoordinator(projectOrPaths){
     return {...result,deferred:result.busy!==0 || result.checkpointed<result.log};
   }finally{d.close();}
 }
+// Bootstrap ownership is separate from publisher ownership because the latter
+// lease does not exist yet. The persistent intent is committed before any fixed
+// lease file is created; SQLite rollback recovery handles an interrupted schema
+// transaction. No unrecorded private preparation directories are allocated.
+const retainedBootstrapOwners=new Set();
+function bootstrapOwner(p) {
+  const file=path.join(p.runtime,'bootstrap-owner.sqlite'),deadline=now()+500;
+  while(true) {
+    let d;
+    try {
+      d=db(file,true,0);
+      d.exec('CREATE TABLE IF NOT EXISTS lease(value INTEGER); BEGIN EXCLUSIVE');
+      return {close(){d.close();}};
+    }catch(error){
+      try{d?.close();}catch(closeError){retainedBootstrapOwners.add(d);throw new AggregateError([error,closeError],'Bootstrap owner close failed');}
+      if(!coordinatorOpenBusy(error)||now()>=deadline)throw error;
+      Atomics.wait(pause,0,0,2);
+    }
+  }
+}
+const diagnosedBootstrapOrphans=new Set();
+function diagnoseLegacyBootstrapDirectories(p) {
+  const unknown=fs.readdirSync(p.runtime).filter(name=>name.startsWith('bootstrap-') && name!=='bootstrap-owner.sqlite' && !['bootstrap-owner.sqlite-journal','bootstrap-owner.sqlite-wal','bootstrap-owner.sqlite-shm'].includes(name) && name!=='bootstrap-diagnostic.json');
+  if(!unknown.length)return;
+  const diagnostic=path.join(p.runtime,'bootstrap-diagnostic.json');regular(diagnostic,true);
+  fs.writeFileSync(diagnostic,JSON.stringify({error:'Unrecorded legacy bootstrap artifacts retained; offline inspection required',artifacts:unknown.sort()}),{mode:0o600});
+  if(!diagnosedBootstrapOrphans.has(p.runtime)){diagnosedBootstrapOrphans.add(p.runtime);process.stderr.write(`Unrecorded legacy bootstrap artifacts retained: ${diagnostic}\n`);}
+}
 // Keep one attached, transaction-free coordinator connection across bootstrap.
 // Public standalone initialization closes it at the end; Participant transfers
 // ownership rather than forcing a last-close/reopen recovery window.
-export function initialize(project) {
-  const initialized=initializeCoordinator(project);
+export function initialize(project, options = {}) {
+  const initialized=initializeCoordinator(project,options);
   initialized.coordination.close();
   return initialized.p;
 }
-function initializeCoordinator(project) {
+function initializeCoordinator(project, options = {}) {
   const p=paths(project);
   fs.mkdirSync(p.runtime,{recursive:true});directory(p.data);directory(path.dirname(p.runtime));directory(p.runtime);
   // Established startup validates without taking a writer transaction. No online
@@ -167,49 +195,56 @@ function initializeCoordinator(project) {
   }
   gateDiagnostic(p,{label:'bootstrap-probe',readOnly:true,startedAtMs:bootstrapWallStarted,totalMs:now()-bootstrapStarted,attempts:bootstrapPhases});
   try {
+  diagnoseLegacyBootstrapDirectories(p);
   if(established){for(const file of[p.connections,p.owner,p.writers,p.mutations])regular(file);return {p,coordination};}
-  // FULL-sync preparation must not hold the shared coordinator writer lock.
-  // Each contender owns only its freshly allocated directory. A crash before
-  // promotion leaves private evidence, never a partially initialized fixed lease.
-  const prepared=fs.mkdtempSync(path.join(p.runtime,'bootstrap-'));
-  const leaseFiles=[p.connections,p.owner,p.writers,p.mutations], attempted=new Set(), closed=new Set();
-  let failure;
+  const leaseFiles=[p.connections,p.owner,p.writers,p.mutations],bootstrap=bootstrapOwner(p);
+  let retainBootstrap=false;
   try {
-    for(const file of leaseFiles){
-      attempted.add(file);
-      const l=db(path.join(prepared,path.basename(file)));
-      let prepareError;
-      try{l.exec('BEGIN IMMEDIATE; CREATE TABLE lease(value INTEGER); INSERT INTO lease VALUES(1); COMMIT');}
-      catch(error){prepareError=error;throw error;}
-      finally{try{l.close();closed.add(file);}catch(closeError){throw prepareError?new AggregateError([prepareError,closeError],'Lease preparation and close both failed'):closeError;}}
-    }
-    gate(p,g=>{
-      const exists=!!g.prepare("SELECT name FROM sqlite_master WHERE name='state'").get();
-      if(!exists&&leaseFiles.some(file=>fs.existsSync(file)))throw new Error('Missing coordination state with existing leases; refusing to reconstruct protocol state');
-      for(const file of leaseFiles){
-        if(exists){regular(file);continue;}
-        // No cooperative initializer can publish a fixed lease outside this gate.
-        // A failure after any rename intentionally leaves fixed-path evidence;
-        // later initialization must fail closed, not silently reconstruct it.
-        fs.renameSync(path.join(prepared,path.basename(file)),file);
+    const prepare=gate(p,g=>{
+      if(g.prepare("SELECT name FROM sqlite_master WHERE name='state'").get())return false;
+      const intentTable=g.prepare("SELECT name FROM sqlite_master WHERE name='bootstrap_intent'").get();
+      const intent=intentTable&&g.prepare('SELECT phase FROM bootstrap_intent WHERE id=1').get();
+      if(!intent&&leaseFiles.some(file=>fs.existsSync(file)))throw new Error('Missing coordination state with existing leases; refusing to reconstruct protocol state');
+      if(intent&&intent.phase!=='preparing')throw new Error('Missing coordination state with completed or invalid bootstrap intent; evidence retained');
+      g.exec("CREATE TABLE IF NOT EXISTS bootstrap_intent(id INTEGER PRIMARY KEY CHECK(id=1),phase TEXT NOT NULL); INSERT OR IGNORE INTO bootstrap_intent VALUES(1,'preparing')");
+      return true;
+    },{label:'bootstrap-intent'});
+    if(prepare) {
+      options.hook?.('bootstrap-intent',{p});
+      for(const file of leaseFiles) {
+        let l;
+        try {
+          l=db(file);options.hook?.('bootstrap-lease-open',{p,file});
+          const tables=l.prepare("SELECT name FROM sqlite_master WHERE type='table'").all();
+          if(tables.some(t=>t.name!=='lease'))throw new Error('Unknown bootstrap lease schema; preserved');
+          if(tables.length){const columns=l.prepare('PRAGMA table_info(lease)').all();if(columns.length!==1||columns[0].name!=='value'||columns[0].type!=='INTEGER')throw new Error('Unknown bootstrap lease columns; preserved');}
+          l.exec('BEGIN IMMEDIATE; CREATE TABLE IF NOT EXISTS lease(value INTEGER)');
+          options.hook?.('bootstrap-lease-transaction',{p,file});
+          l.exec('INSERT INTO lease SELECT 1 WHERE NOT EXISTS(SELECT 1 FROM lease); COMMIT');
+          const rows=l.prepare('SELECT value FROM lease').all();
+          if(rows.length!==1||rows[0].value!==1)throw new Error('Unknown bootstrap lease contents; preserved');
+        }catch(error){
+          // Conservatively retain the bootstrap OS owner if construction itself
+          // failed before returning a closeable handle. Never guess native exit.
+          if(!l)retainBootstrap=true;
+          throw error;
+        }finally{
+          if(l)try{l.close();}catch(error){retainBootstrap=true;retainedBootstrapOwners.add(l);throw error;}
+        }
+        options.hook?.('bootstrap-lease-closed',{p,file});
       }
-      if(!exists)g.exec(`CREATE TABLE state(id INTEGER PRIMARY KEY CHECK(id=1), mode TEXT NOT NULL, operation TEXT, cancel INTEGER NOT NULL DEFAULT 0, revision INTEGER NOT NULL DEFAULT 0);
-        INSERT INTO state(id,mode) VALUES(1,'idle');
-        CREATE TABLE operations(id TEXT PRIMARY KEY, record TEXT NOT NULL);
-        CREATE TABLE costs(identity TEXT PRIMARY KEY, value TEXT NOT NULL);`);
-    },{label:'bootstrap-install'});
-  } catch(error){failure=error;throw error;} finally {
-    // Do not sweep other bootstraps by age/PID. Only files allocated by this
-    // invocation are eligible; a crashed invocation's directory is retained.
-    const cleanupErrors=[];
-    for(const file of closed){
-      const own=path.join(prepared,path.basename(file));
-      for(const suffix of ['', '-journal']){const target=own+suffix;try{if(fs.existsSync(target)){regular(target);fs.unlinkSync(target);}}catch(error){cleanupErrors.push(error);}}
-    }
-    // A close failure leaves ownership of the handle uncertain. In particular,
-    // never unlink its potentially recoverable rollback journal.
-    if([...attempted].every(file=>closed.has(file)))try{fs.rmdirSync(prepared);}catch(error){cleanupErrors.push(error);}
-    if(cleanupErrors.length)throw new AggregateError([...(failure?[failure]:[]),...cleanupErrors],'Bootstrap preparation cleanup failed; evidence retained');
+      gate(p,g=>{
+        if(g.prepare("SELECT name FROM sqlite_master WHERE name='state'").get())throw new Error('Bootstrap state changed under exclusive owner');
+        g.exec(`CREATE TABLE state(id INTEGER PRIMARY KEY CHECK(id=1), mode TEXT NOT NULL, operation TEXT, cancel INTEGER NOT NULL DEFAULT 0, revision INTEGER NOT NULL DEFAULT 0);
+          INSERT INTO state(id,mode) VALUES(1,'idle');
+          CREATE TABLE operations(id TEXT PRIMARY KEY, record TEXT NOT NULL);
+          CREATE TABLE costs(identity TEXT PRIMARY KEY, value TEXT NOT NULL);
+          UPDATE bootstrap_intent SET phase='completed' WHERE id=1;`);
+      },{label:'bootstrap-install'});
+      options.hook?.('bootstrap-installed',{p});
+    }else for(const file of leaseFiles)regular(file);
+  }finally{
+    if(retainBootstrap)retainedBootstrapOwners.add(bootstrap);else try{bootstrap.close();}catch(error){retainedBootstrapOwners.add(bootstrap);throw error;}
   }
   return {p,coordination};
   } catch(error) {
@@ -347,6 +382,24 @@ export function cleanup(p, record, hook) {
     if (fs.readdirSync(record.directory).join(',') !== 'owner.json') throw new Error('Unexpected cleaned artifacts');
     fs.unlinkSync(path.join(record.directory,'owner.json')); fs.rmdirSync(record.directory); return;
   }
+  // Allocation is durable BEFORE mkdir or marker creation. No builder can be
+  // given the candidate path until allocationComplete commits. Recover only
+  // these exact small artifacts; a candidate/unknown name preserves evidence.
+  if(record.allocationComplete===false) {
+    if(fs.existsSync(record.directory)) {
+      directory(record.directory);
+      const names=fs.readdirSync(record.directory);
+      if(names.some(name=>name!=='owner.json'))throw new Error('Unknown incomplete allocation artifacts; preserved');
+      if(names.includes('owner.json')) {
+        const marker=path.join(record.directory,'owner.json');regular(marker);
+        const expected=JSON.stringify({operation:record.id});
+        if(fs.statSync(marker).size>expected.length || !expected.startsWith(fs.readFileSync(marker,'utf8')))throw new Error('Unknown incomplete allocation marker; preserved');
+        fs.unlinkSync(marker);
+      }
+      fs.rmdirSync(record.directory);
+    }
+    record.phase='cleaned';gate(p,g=>put(g,record),{label:'allocation-cleaned'});return;
+  }
   operationPaths(p, record);
   const names = fs.readdirSync(record.directory);
   const unsealed = record.phase === 'aborted' && !record.candidateIdentity;
@@ -446,7 +499,7 @@ function recoverInitialized(p, options = {}) {
     }
     for (const r of records(p)) {
       if(['draining','replacing','old-moved','new-moved'].includes(r.phase))throw new Error('Orphaned unresolved publication record; admission denied');
-      if (r.phase === 'building' || r.phase === 'prepared') { r.phase = 'aborted'; gate(p,g=>put(g,r)); }
+      if (r.phase === 'allocating' || r.phase === 'building' || r.phase === 'prepared') { r.phase = 'aborted'; gate(p,g=>put(g,r)); }
       if (['committed', 'aborted', 'cleaned'].includes(r.phase)) {
         const diagnostic=cleanupAttempt(p,r);
         if(diagnostic && options.maintenance)(options.maintenance.cleanupDeferred??=[]).push({operation:r.id,...diagnostic});
@@ -463,7 +516,7 @@ function recoverInitialized(p, options = {}) {
     }finally{owner.close();}
   }
 }
-export function beginOperation(project) {
+export function beginOperation(project, options = {}) {
   const initialized=initializeCoordinator(project),p=initialized.p;
   let owner;
   try{owner=coordinatedOwner(p);}
@@ -476,9 +529,14 @@ export function beginOperation(project) {
     if(!baselineFence)throw new Error('Cannot capture build baseline while a write is active');
     if (state(p).mode !== 'idle') throw new Error('Recovery required before building');
     const id = crypto.randomUUID(), directory = path.join(p.runtime, id);
-    fs.mkdirSync(directory); fs.writeFileSync(path.join(directory, 'owner.json'), JSON.stringify({ operation: id }), { flag: 'wx' });
-    const record = { version: 1, id, directory, active: p.active, candidate: path.join(directory, 'candidate.db'), backup: path.join(directory, 'old.db'), phase: 'building', oldIdentity: null, candidateIdentity: null, baselineRevision: 0 };
+    const record = { version: 1, id, directory, active: p.active, candidate: path.join(directory, 'candidate.db'), backup: path.join(directory, 'old.db'), phase: 'allocating', allocationComplete:false, oldIdentity: null, candidateIdentity: null, baselineRevision: 0 };
     gate(p, g => { const s=g.prepare('SELECT * FROM state WHERE id=1').get(); if(s.mode!=='idle')throw new Error('Publication state changed'); record.baselineRevision=s.revision; put(g,record); });
+    options.hook?.('allocation-recorded',record);
+    fs.mkdirSync(directory);flushDirectory(p.runtime);options.hook?.('allocation-directory-created',record);
+    const marker=path.join(directory,'owner.json'),fd=fs.openSync(marker,'wx');
+    try{options.hook?.('allocation-marker-opened',record);fs.writeFileSync(fd,JSON.stringify({operation:id}));fs.fsyncSync(fd);}finally{fs.closeSync(fd);}
+    flushDirectory(directory);options.hook?.('allocation-marker-created',record);
+    record.allocationComplete=true;checkpoint(p,record,'building');options.hook?.('allocation-building',record);
     baselineFence.close(); baselineFence=null;
     return { p, record, owner };
   } catch (e) { baselineFence?.close(); owner.close(); throw e; }
