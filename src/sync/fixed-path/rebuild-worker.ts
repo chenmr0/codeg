@@ -5,7 +5,7 @@ import { statSync } from 'node:fs';
 import * as path from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { CodeGraph } from '../../index';
-import { DatabaseConnection, DatabaseOpenError } from '../../db';
+import { DatabaseConnection } from '../../db';
 import { beginOperation, publish } from './protocol';
 import { validateAdaptiveSnapshot, adaptiveRuntimeKey, type AdaptivePlan } from '../adaptive-plan';
 import { validateRebuiltDatabase } from '../rebuild-controller';
@@ -16,19 +16,16 @@ async function main(plan: AdaptivePlan, expectedRevision: number): Promise<void>
   if (!project || !dataDirectory || !process.send) throw new Error('Fixed-path publisher requires IPC parent');
   const op = beginOperation({ project, dataDirectory });
   const started = performance.now();
-  let consumed = false, builderClosed = true;
   try {
     if (op.record.baselineRevision !== expectedRevision) throw new Error('Database changed after planning; rebuild cancelled before construction');
     const graph = await CodeGraph.createFixedPathCandidate(project, op.record.candidate);
     let built;
     try { built = await graph.indexAll({ onProgress: progress => process.connected && process.send?.({ type: 'progress', progress }) }); }
     finally {
-      try { await graph.whenIdle(); graph.close(); }
-      catch (error) { builderClosed = false; throw error; }
+      await graph.whenIdle(); graph.close();
     }
     if (!built.success || built.complete !== true) throw new Error('Fixed-path candidate index is incomplete');
     const buildMs = performance.now() - started;
-    consumed = true;
     const publication = await publish(op, {
       buildMs,
       validate(file: string) { if (!validateRebuiltDatabase(file, plan.snapshot)) throw new Error('Candidate failed full index validation'); },
@@ -65,11 +62,9 @@ async function main(plan: AdaptivePlan, expectedRevision: number): Promise<void>
     };
     await new Promise<void>((resolve, reject) => process.send?.({ type: 'result', result, publication }, error => error ? reject(error) : resolve()));
   } catch (error) {
-    // A failed native close is not proof that the builder has exited. Retain
-    // owner + candidate evidence until this process exits; later recovery owns cleanup.
-    if (!consumed && builderClosed && !(error instanceof DatabaseOpenError)) {
-      consumed = true; await publish(op, { validate() { throw error; } });
-    }
+    // Retain publisher ownership on every construction failure, even when
+    // graph.close succeeded. The parent recovers only after child close proves
+    // the process AND all its native worker threads have actually exited.
     throw error;
   }
 }

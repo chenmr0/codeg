@@ -10,6 +10,7 @@ import crypto from 'node:crypto';
 const DatabaseSync = function(...args) { const Native = require('node:sqlite').DatabaseSync; return new Native(...args); };
 import { setTimeout as delay } from 'node:timers/promises';
 import { performance } from 'node:perf_hooks';
+import { Worker } from 'node:worker_threads';
 
 const ID = /^[a-f0-9-]{36}$/;
 const phasesBeforeRename = new Set(['building', 'prepared', 'draining']);
@@ -371,6 +372,28 @@ export function cleanup(p, record, hook) {
   record.phase = 'cleaned'; gate(p, g => put(g, record));
   cleanup(p, record);
 }
+/** Called only while holding the publisher OS lease. A retry timestamp is
+ * scheduling, never evidence of ownership or permission to delete a file. */
+function cleanupAttempt(p, record, hook) {
+  try {
+    cleanup(p, record, hook);
+    if (record.cleanupDiagnostic) {
+      delete record.cleanupDiagnostic;
+      gate(p, g => put(g, record), { label: 'cleanup-complete' });
+    }
+    return null;
+  } catch (error) {
+    record.cleanupDiagnostic = {
+      attempts: (record.cleanupDiagnostic?.attempts ?? 0) + 1,
+      lastAttemptAt: Date.now(), nextRetryAt: Date.now() + 250,
+      error: error.message, code: error.code ?? null,
+    };
+    // Keep the error with its exact operation and owned paths durably, not just
+    // in an optional stderr stream. Unknown artifacts are never silently swept.
+    gate(p, g => put(g, record), { label: 'cleanup-deferred' });
+    return record.cleanupDiagnostic;
+  }
+}
 /** Exclusive publisher + connection leases are held here. No application may open yet. */
 function resolveOperation(p, record, hook) {
   operationPaths(p, record);
@@ -424,7 +447,10 @@ function recoverInitialized(p, options = {}) {
     for (const r of records(p)) {
       if(['draining','replacing','old-moved','new-moved'].includes(r.phase))throw new Error('Orphaned unresolved publication record; admission denied');
       if (r.phase === 'building' || r.phase === 'prepared') { r.phase = 'aborted'; gate(p,g=>put(g,r)); }
-      if (['committed', 'aborted', 'cleaned'].includes(r.phase)) { try { cleanup(p, r); } catch { /* preserve exact owned evidence for retry */ } }
+      if (['committed', 'aborted', 'cleaned'].includes(r.phase)) {
+        const diagnostic=cleanupAttempt(p,r);
+        if(diagnostic && options.maintenance)(options.maintenance.cleanupDeferred??=[]).push({operation:r.id,...diagnostic});
+      }
     }
     recoveryCompleted=true;return true;
   } finally {
@@ -533,9 +559,7 @@ export async function publish(op, options = {}) {
     admissionClosed=false;writers.close();writers=null;
     metrics.resumeMs = now() - t; metrics.admissionPauseMs = now() - drainStart;
     hook?.('resumed');
-    let cleanupError;
-    try { cleanup(p, record, options.fail === 'cleanup' ? () => { throw new Error('Injected cleanup sharing violation'); } : hook); }
-    catch (e) { cleanupError = e.message; }
+    const cleanupError=cleanupAttempt(p,record,options.fail === 'cleanup' ? () => { throw new Error('Injected cleanup sharing violation'); } : hook)?.error;
     return { status: 'published', operation: record.id, metrics, cleanupError, directoryFsync: process.platform !== 'win32' };
   } catch (e) {
     preparedConnection?.close(); preparedConnection = null;
@@ -551,7 +575,8 @@ export async function publish(op, options = {}) {
       }
     } else if (!committed) { record.phase = 'aborted'; gate(p, g => put(g, record)); }
     const persisted = records(p).find(r => r.id === record.id);
-    try { cleanup(p, persisted); } catch { /* evidence retained, retry after restart */ }
+    const deferred=cleanupAttempt(p,persisted);
+    if(deferred)metrics.cleanupDeferred=deferred;
     if(drainStart!==undefined){ if(!metrics.drainMs)metrics.drainMs=now()-drainStart; metrics.admissionPauseMs=now()-drainStart; }
     return { status: committed ? 'published' : 'cancelled', error: e.message, code: e.code, operation: record.id, metrics };
   } finally {
@@ -589,7 +614,8 @@ export class Participant {
       // Conservative startup invalidation is outside query admission. A missing
       // history never triggers indexing; publication invalidates in its commit.
       if(this.coordination.prepare('SELECT 1 FROM costs LIMIT 1').get())gate(this.p,g=>{if(g.prepare('SELECT 1 FROM costs LIMIT 1').get())g.prepare('DELETE FROM costs').run();},{label:'startup-cost-invalidation'});
-      this.timer=setInterval(()=>{try{this.retireIfNeeded();}catch(e){this.backgroundError=e;}},options.pollMs??10);this.timer.unref();
+      this.nextMaintenanceAt=now()+250;
+      this.timer=setInterval(()=>{try{this.retireIfNeeded();this.maintainIfNeeded();}catch(e){this.backgroundError=e;}},options.pollMs??10);this.timer.unref();
     }catch(error){
       try{this.coordination.close();}catch(closeError){throw new AggregateError([error,closeError],'Participant startup and keeper close failed');}finally{this.coordination=null;}
       throw error;
@@ -621,6 +647,35 @@ export class Participant {
     // A concurrent uncommitted draining state is safe: our lease blocks rename.
     const observed=this.readSnapshot(g=>g.prepare('SELECT mode FROM state WHERE id=1').get(),deadline,'retire-state');
     if(observed.mode!=='idle')this.closeHandle();
+  }
+  maintainIfNeeded() {
+    if(this.closed || this.maintenanceWorker || now()<this.nextMaintenanceAt)return;
+    this.nextMaintenanceAt=now()+250;
+    // No reader action is required for recovery after publisher exit. The
+    // snapshot is only a hint: recoverInitialized must acquire OS ownership,
+    // and rename recovery still requires every native connection to drain.
+    const pending=this.readSnapshot(g=>{
+      if(g.prepare('SELECT mode FROM state WHERE id=1').get().mode!=='idle')return true;
+      return g.prepare("SELECT record FROM operations WHERE json_extract(record,'$.phase') != 'cleaned' OR json_type(record,'$.cleanupDiagnostic') IS NOT NULL").all().some(row=>{
+        const r=JSON.parse(row.record);
+        return (r.phase!=='cleaned' || r.cleanupDiagnostic) &&
+          (!r.cleanupDiagnostic || r.cleanupDiagnostic.nextRetryAt<=Date.now());
+      });
+    },now()+100,'maintenance-pending');
+    if(!pending)return;
+    // Avoid spawning while the real publisher is alive. This probe grants no
+    // cleanup authority; the worker must acquire ownership again itself.
+    const owner=lease(this.p.owner,true);if(!owner)return;owner.close();
+    // Identity hashing and filesystem cleanup can be large. Keep them off the
+    // query event loop, without changing the existing admission time budget.
+    const worker=new Worker(path.join(__dirname,'sync-recovery-worker.js'),{
+      workerData:{project:this.p.project,dataDirectory:this.p.data},execArgv:[],env:{...process.env,NODE_OPTIONS:''},
+    });
+    this.maintenanceWorker=worker;
+    worker.on('message',message=>{if(message.error)this.backgroundError=Object.assign(new Error(message.error),{code:message.code});});
+    worker.on('error',error=>{this.backgroundError=error;});
+    worker.once('exit',()=>{this.maintenanceWorker=null;});
+    worker.unref();
   }
   closeHandle() {
     if (this.handle) { this.handle.close(); this.handle = null; }
@@ -759,6 +814,9 @@ export class Participant {
   close() {
     if (this.active) throw new Error('Cannot close participant with active requests');
     clearInterval(this.timer);this.closeHandle();this.coordination?.close();this.coordination=null;this.closed=true;
+    // Last normal close also retries owned debris; a live publisher remains the
+    // authority and simply defers this pass until its real process exit.
+    recoverInitialized(this.p,{deferMaintenance:true});
     // Clean offline-overwrite shutdown includes SQLite-owned sidecar cleanup.
     // This is outside the cutover hot path and never deletes journal files itself.
     gate(this.p, g => {
