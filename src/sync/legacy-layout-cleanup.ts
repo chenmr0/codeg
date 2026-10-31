@@ -83,7 +83,7 @@ function read(root: string): Inventory | null {
   return value;
 }
 /** Call before layout commit, after all source validation. Existing evidence is never overwritten. */
-export function prepareLegacyLayoutCleanup(root: string, authorizedSource: string | null = null): void {
+export function prepareLegacyLayoutCleanup(root: string, authorizedSource: string | null = null, sourceIdentity?: string): void {
   if (read(root)) return;
   const inventory: Inventory = { version: 1, files: [], directories: [] };
   let selected: string | null = null;
@@ -93,7 +93,7 @@ export function prepareLegacyLayoutCleanup(root: string, authorizedSource: strin
     if (manifest.version !== 1 || !/^g-[a-zA-Z0-9-]{1,100}$/.test(manifest.generation)) throw new Error('Unknown legacy manifest retained');
     if (authorizedSource !== null && manifest.generation === authorizedSource) {
       const resolved = resolveGeneration(root);
-      if (resolved.id !== authorizedSource) throw new Error('Legacy source authority changed');
+      if (resolved.id !== authorizedSource || !sourceIdentity || digest(resolved.databasePath) !== sourceIdentity) throw new Error('Legacy source authority or identity changed; evidence retained');
       selected = authorizedSource;
     }
   }

@@ -336,7 +336,7 @@ export function migrateToFixedPath(dataDir: string, options: FixedPathMigrationO
     if (marker(p)) {
       validate(p.active,options.validateDatabase);
       const previous = records(p).find(record => record.id === marker(p)!.migrationId && record.outcome === 'committed');
-      prepareLegacyLayoutCleanup(p.root, previous?.generation ?? null); return;
+      prepareLegacyLayoutCleanup(p.root, previous?.generation ?? null, previous?.sourceIdentity); return;
     }
     const rootPresent = exists(p.active), currentPresent = exists(path.join(p.root,'CURRENT'));
     // Resolve first: malformed manifests never become permission to fall back.
@@ -370,7 +370,7 @@ export function migrateToFixedPath(dataDir: string, options: FixedPathMigrationO
         noSidecars(p.active); fs.renameSync(files.candidate,p.active); syncDirectory(p.root); syncDirectory(files.dir); options.hook?.('root-installed');
       }
       validate(p.active,options.validateDatabase);
-      prepareLegacyLayoutCleanup(p.root, source.id);
+      prepareLegacyLayoutCleanup(p.root, source.id, record.sourceIdentity);
       fs.writeFileSync(files.stagedMarker,JSON.stringify({version:1,layout:'fixed-path-v1',migrationId:record.id}),{flag:'wx',mode:0o600}); syncFile(files.stagedMarker);
       if (exists(p.marker)) throw new Error('Layout changed during migration');
       fs.renameSync(files.stagedMarker,p.marker); syncDirectory(p.runtime); options.hook?.('layout-committed');
