@@ -192,6 +192,8 @@ codegraph init -i
 
 离线更新公共库时，先正常关闭所有相关工具，再用发行方提供的完整、已 checkpoint 的 `codegraph.db` 覆盖根目录同名文件，然后重启；不需要复制或编辑 `.runtime/`。数据库损坏或存在未清理的 SQLite sidecar 时，请保留现场并按错误信息处理。
 
+使用 SDK 时，在离线覆盖或删除目录之前，对每个实例执行 `graph.close(); await graph.whenIdle();`，并等待其他进程也正常退出。`close()` 仍同步返回，关闭后的 `whenIdle()` 会等待最终后台维护；默认 5 秒内未完成会报错并保留现场，不应忽略该错误后强行覆盖。
+
 ### 2. 配置 AI 助手
 
 ```bash
