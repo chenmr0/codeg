@@ -57,7 +57,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Installed native auto-mode smoke without compiler paths
         run: node scripts/smoke-native-package.mjs --installed package-install/node_modules/@sdd/codegraph-wx --macros
-      - name: Real disk layout suites against installed package, zero skips
+      - name: Installed disk and real daemon suites, strict platform skip allowlist
         if: ${{ !cancelled() }}
         run: node scripts/verify-installed-layout-package.mjs package-install/node_modules/@sdd/codegraph-wx artifacts/installed-layout
       - uses: actions/upload-artifact@v4
