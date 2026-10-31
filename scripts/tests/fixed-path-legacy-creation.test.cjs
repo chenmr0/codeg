@@ -40,6 +40,6 @@ test('public offline migration cannot bypass a live initializer after its legacy
     }return result;};
     initializeFixedPathStorage(dataDir,file=>{const db=DatabaseConnection.initialize(file);db.close();});
     assert(intercepted);assert.match(String(await pending),/locked|busy/i);
-    const graph=CodeGraph.openSync(root);graph.close();
-  }finally{fs.unlinkSync=original;fs.rmSync(root,{recursive:true,force:true});}
+    const graph=CodeGraph.openSync(root);graph.close();await graph.whenIdle();
+  }finally{fs.unlinkSync=original;await require('../../dist/sync/fixed-path/protocol').whenMaintenanceIdle(root,{timeoutMs:5000});fs.rmSync(root,{recursive:true,force:true});}
 });
