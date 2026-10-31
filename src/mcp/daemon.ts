@@ -128,6 +128,8 @@ export class Daemon {
   private clients = new Set<MCPSession>();
   /** Per-client peer pids from the optional client-hello, for the liveness sweep. */
   private clientPeers = new Map<MCPSession, { pid: number | null; hostPid: number | null }>();
+  /** Accepted sockets own daemon lifetime even before their client hello arrives. */
+  private readonly pendingHandshakes = new Set<net.Socket>();
   private idleTimer: NodeJS.Timeout | null = null;
   private idleTimeoutMs: number;
   private maxIdleMs: number;
@@ -161,7 +163,11 @@ export class Daemon {
     // Engine init is deliberately backgrounded — see #172. The first session
     // to land waits on `ensureInitialized` either way, and unloaded sessions
     // (cross-project tool calls only) shouldn't pay any open cost.
-    void this.engine.ensureInitialized(this.projectRoot);
+    this.trace('engine-init-start');
+    void this.engine.ensureInitialized(this.projectRoot).then(
+      () => this.trace('engine-init-complete'),
+      error => this.trace('engine-init-failed', { error: String(error) }),
+    );
 
     // Stale socket file (left over from a SIGKILL'd previous daemon) will
     // wedge `listen` with EADDRINUSE. We arrived here holding the lockfile,
@@ -198,6 +204,7 @@ export class Daemon {
     // No clients yet: arm the idle timer immediately so a daemon that nobody
     // ever connects to (e.g. spawned then abandoned because the launcher died)
     // doesn't pin resources forever.
+    this.trace('listening');
     this.armIdleTimer();
     this.startLivenessTimers();
 
@@ -221,6 +228,7 @@ export class Daemon {
   async stop(reason: string = 'stop'): Promise<void> {
     if (this.stopping) return;
     this.stopping = true;
+    this.trace('stopping', { reason });
     if (this.idleTimer) {
       clearTimeout(this.idleTimer);
       this.idleTimer = null;
@@ -238,6 +246,8 @@ export class Daemon {
       try { session.stop(); } catch { /* best-effort */ }
     }
     this.clients.clear();
+    for (const socket of this.pendingHandshakes) socket.destroy();
+    this.pendingHandshakes.clear();
     if (this.server) {
       await new Promise<void>((resolve) => this.server!.close(() => resolve()));
       this.server = null;
@@ -251,6 +261,10 @@ export class Daemon {
   }
 
   private handleConnection(socket: net.Socket): void {
+    if (this.stopping) { socket.destroy(); return; }
+    this.pendingHandshakes.add(socket);
+    this.disarmIdleTimer();
+    this.trace('accepted');
     // Hello first so the proxy can verify versions before piping any
     // application bytes. The proxy reads exactly one line, then forwards.
     const hello: DaemonHello = {
@@ -266,6 +280,12 @@ export class Daemon {
     // timeout, a non-hello first line, an early close — yields null pids and we
     // fall back to the socket-close lifecycle exactly as before (#692).
     void readClientHello(socket).then((peers) => {
+      this.pendingHandshakes.delete(socket);
+      this.trace('client-hello', { destroyed: socket.destroyed });
+      if (this.stopping || socket.destroyed) {
+        if (!this.stopping && this.clients.size === 0 && this.pendingHandshakes.size === 0) this.armIdleTimer();
+        return;
+      }
       const transport = new SocketTransport(socket);
       const session = new MCPSession(transport, this.engine, {
         explicitProjectPath: this.projectRoot,
@@ -290,18 +310,25 @@ export class Daemon {
   private dropClient(session: MCPSession): void {
     if (!this.clients.delete(session)) return;
     this.clientPeers.delete(session);
-    if (this.clients.size === 0) this.armIdleTimer();
+    this.trace('client-closed');
+    if (this.clients.size === 0 && this.pendingHandshakes.size === 0) this.armIdleTimer();
+  }
+
+  private trace(event: string, fields: Record<string, unknown> = {}): void {
+    if (process.env.CODEGRAPH_DAEMON_TRACE !== '1') return;
+    process.stderr.write(`[CodeGraph daemon trace] ${JSON.stringify({ at: Date.now(), event, pid: process.pid, root: this.projectRoot, socket: this.socketPath, clients: this.clients.size, handshakes: this.pendingHandshakes.size, ...fields })}\n`);
   }
 
   private armIdleTimer(): void {
-    if (this.idleTimer || this.stopping) return;
+    if (this.idleTimer || this.stopping || this.pendingHandshakes.size > 0) return;
     if (this.idleTimeoutMs <= 0) return; // 0 = never idle-exit
     this.idleTimer = setTimeout(() => {
       this.idleTimer = null;
       // Last-second sanity check: if a connection landed between the timer
       // firing and now, don't exit. (setImmediate-ordering is the only way
       // this races; cheap to defend against.)
-      if (this.clients.size > 0) {
+      this.trace('idle-timer-fired');
+      if (this.clients.size > 0 || this.pendingHandshakes.size > 0) {
         this.armIdleTimer();
         return;
       }

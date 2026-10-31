@@ -133,7 +133,11 @@ export async function connectWithHello(
   if (process.platform !== 'win32' && !fs.existsSync(socketPath)) return null;
   const socket = net.createConnection(socketPath);
   socket.setEncoding('utf8');
-  const hello = await readHelloLine(socket).catch(() => null);
+  const started = Date.now();
+  const hello = await readHelloLine(socket).catch(error => {
+    if (process.env.CODEGRAPH_DAEMON_TRACE === '1') process.stderr.write(`[CodeGraph proxy trace] ${JSON.stringify({ at: Date.now(), event: 'hello-failed', socketPath, elapsedMs: Date.now() - started, error: String(error) })}\n`);
+    return null;
+  });
   if (!hello) {
     socket.destroy();
     return null; // no daemon yet — caller should keep polling
@@ -148,6 +152,7 @@ export async function connectWithHello(
     socket.destroy();
     return 'version-mismatch';
   }
+  if (process.env.CODEGRAPH_DAEMON_TRACE === '1') process.stderr.write(`[CodeGraph proxy trace] ${JSON.stringify({ at: Date.now(), event: 'hello-received', socketPath, daemonPid: hello.pid, elapsedMs: Date.now() - started })}\n`);
   logAttachedDaemon(socketPath, hello);
   sendClientHello(socket);
   return socket;

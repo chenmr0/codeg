@@ -12,7 +12,7 @@ const bin=path.join(packageRoot,'dist/bin/codegraph.js');const sleep=ms=>new Pro
 async function until(fn,ms=20000){const start=Date.now();let last;while(Date.now()-start<ms){try{const value=await fn();if(value)return value;}catch(e){last=e;}await sleep(50);}throw new Error(`condition timed out: ${last?.stack||''}`);}
 function client(dir,direct=false,preload,watch=false){
  assert.equal(process.env.CODEGRAPH_FIXED_PATH,undefined,'MCP must run without the fixed-layout opt-in');
- const child=spawn(process.execPath,['--liftoff-only',...(preload?['--require',preload]:[]),bin,'serve','--mcp','--path',dir,...((direct&&!watch)||preload?['--no-watch']:[])],{cwd:dir,env:{...process.env,CODEGRAPH_NO_DAEMON:direct?'1':'0',CODEGRAPH_DAEMON_IDLE_TIMEOUT_MS:'200',CODEGRAPH_WATCH_DEBOUNCE_MS:'100',CODEGRAPH_MCP_LOG_ATTACH:'1',CODEGRAPH_MCP_CATCHUP_BUDGET_MS:'5000'},stdio:['pipe','pipe','pipe']});
+ const child=spawn(process.execPath,['--liftoff-only',...(preload?['--require',preload]:[]),bin,'serve','--mcp','--path',dir,...((direct&&!watch)||preload?['--no-watch']:[])],{cwd:dir,env:{...process.env,CODEGRAPH_NO_DAEMON:direct?'1':'0',CODEGRAPH_DAEMON_IDLE_TIMEOUT_MS:'200',CODEGRAPH_WATCH_DEBOUNCE_MS:'100',CODEGRAPH_MCP_LOG_ATTACH:'1',CODEGRAPH_DAEMON_TRACE:'1',CODEGRAPH_MCP_CATCHUP_BUDGET_MS:'5000'},stdio:['pipe','pipe','pipe']});
  let buf='',seq=0,stderr='';const pending=new Map(),samples=[];child.stderr.on('data',b=>stderr+=b);child.stdin.on('error',()=>{});
  child.stdout.on('data',b=>{buf+=b;let i;while((i=buf.indexOf('\n'))>=0){const line=buf.slice(0,i);buf=buf.slice(i+1);try{const m=JSON.parse(line),p=pending.get(m.id);if(p){pending.delete(m.id);clearTimeout(p.timer);samples.push(performance.now()-p.start);m.error?p.reject(new Error(JSON.stringify(m.error))):p.resolve(m.result);}}catch{}}});
  const exited=new Promise(r=>child.once('close',code=>{for(const p of pending.values())p.reject(new Error(`server exited ${code}: ${stderr}`));r(code);}));
@@ -41,6 +41,12 @@ const evidenceRoot=path.resolve(process.env.CODEGRAPH_LAYOUT_EVIDENCE_DIR||'arti
 const {snapshot:diskSnapshot,contract,reclaimed}=require('./helpers/layout-disk-evidence.cjs');
 function inventory(dir,dataDirectory){return diskSnapshot(dataDirectory||path.join(dir,'.codegraph-wx'));}
 function disk(dir,phase,{clean=false,check=true,dataDirectory}={}){
+ const data=dataDirectory||path.join(dir,'.codegraph-wx');
+ fs.mkdirSync(evidenceRoot,{recursive:true});
+ for(const leaf of ['daemon.log','daemon.pid'])for(const home of [data,path.join(data,'.runtime')]){
+  const file=path.join(home,leaf);
+  if(fs.existsSync(file))fs.copyFileSync(file,path.join(evidenceRoot,`${path.basename(dir)}-${phase}-${leaf}`));
+ }
  const state={phase,platform:process.platform,node:process.version,atomic:false,at:new Date().toISOString(),project:dir,...inventory(dir,dataDirectory)};
  fs.mkdirSync(evidenceRoot,{recursive:true});fs.writeFileSync(path.join(evidenceRoot,`${path.basename(dir)}-${phase}.json`),JSON.stringify(state,null,2));
  if(check){

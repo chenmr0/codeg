@@ -74,12 +74,28 @@ test('fixed Git protection ignores root database without adding a root .gitignor
   const exclude = fs.readFileSync(path.join(project, '.git/info/exclude'), 'utf8');
   assert.equal(exclude.split('\n').filter(line => line === '/.codegraph-wx/').length, 1);
 });
-test('runtime directory and marker symlinks fail closed', t => {
-  if (process.platform === 'win32') return t.skip('symlink creation needs privileges on Windows');
+test('runtime directory junctions fail closed on every platform', t => {
   const { project, data } = fixture(t);
-  fs.symlinkSync(project, path.join(data, '.runtime'));
+  fs.symlinkSync(project, path.join(data, '.runtime'), 'junction');
   assert.throws(() => runtime.ensureRuntimeDirectory(data), /Unsafe runtime/);
   assert.throws(() => runtime.getInternalFilePath(data, 'errors.log'), /Unsafe runtime/);
+});
+test('runtime marker file symlink fails closed (requires actual file-symlink capability)', t => {
+  const { project, data } = fixture(t); runtime.ensureRuntimeDirectory(data);
+  const target = path.join(project, 'foreign-layout.json');
+  const bytes = JSON.stringify({version:1, layout:'fixed-path-v1', migrationId:randomUUID()});
+  fs.writeFileSync(target, bytes);
+  const marker = path.join(data, '.runtime', 'layout.json');
+  try { fs.symlinkSync(target, marker, 'file'); }
+  catch (error) {
+    if (['EPERM','EACCES','ENOSYS'].includes(error.code) && process.env.STRICT_SYMLINK_TESTS !== '1') {
+      return t.skip(`actual file symlink unavailable: ${error.code}; rerun with capability and STRICT_SYMLINK_TESTS=1`);
+    }
+    throw error;
+  }
+  assert(fs.lstatSync(marker).isSymbolicLink());
+  assert.throws(() => runtime.getInternalFilePath(data, 'errors.log'), /Unsafe layout marker/);
+  assert.equal(fs.readFileSync(target, 'utf8'), bytes);
 });
 test('Git exclusion respects a custom global excludesFile and linked worktree', t => {
   const { project } = fixture(t);

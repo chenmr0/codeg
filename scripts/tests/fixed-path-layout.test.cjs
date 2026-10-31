@@ -77,7 +77,10 @@ test('legacy admission stays closed throughout migration commit',async t=>{
 
 test('dangling legacy layout symlink is retained and never mistaken for absence',t=>{
   const root=fixture(t);db(active(root));const link=path.join(root,'generations');
-  fs.symlinkSync(path.join(root,'missing-target'),link,'junction');
+  // Windows junction creation resolves its target. Create a real directory
+  // first, then remove only that target to obtain an actual dangling link.
+  const target=path.join(root,'missing-target');fs.mkdirSync(target);
+  fs.symlinkSync(target,link,'junction');fs.rmdirSync(target);
   assert.throws(()=>api.migrateToFixedPath(root,{offline:true}),/Unsafe legacy directory/);
   assert(fs.lstatSync(link).isSymbolicLink());assert.equal(value(active(root)),'old');
 });
