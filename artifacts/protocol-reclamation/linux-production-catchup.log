@@ -1,0 +1,35 @@
+✔ same-size/restored-mtime edit after publication converges, removes old symbol and becomes a stable no-op (3329.99723ms)
+✔ cancelled post-publication catchup survives reopen and ordinary sync (3397.677027ms)
+✔ cancelled post-publication catchup survives reopen and scoped nonadaptive sync (3301.479026ms)
+✔ cancelled post-publication catchup survives reopen and environment-disabled sync (3286.603969ms)
+✔ publisher process exits after durable commit: reopened sync recovers pending hash catchup (3752.7256ms)
+✔ failed incremental catchup retains durable intent and concurrent retries converge once (3906.769641ms)
+✔ offline database replacement owns its own catchup intent, not the retired publication record (5238.321253ms)
+✔ cancellation during mismatch parsing keeps catchup pending until a reopened sync finishes (3670.705112ms)
+✔ configuration-only edit after publication re-extracts and converges its config fingerprint (3309.674756ms)
+✔ pending catchup resumes in a real input-type module caller using an isolated worker runtime (2825.731785ms)
+✔ failure after source storage cannot clear pending catchup before the resolution tail is retried (3103.536774ms)
+✔ module-parent catchup runs real fan-in store and parallel resolver workers (4963.188437ms)
+✔ already-open module facade waits for a crashed committed publisher and runs off-thread recovery before catchup (4153.442032ms)
+✔ real SDK fixed initialization, ordinary sync and marker authority with opt-in unset (1795.158907ms)
+✔ real SDK and ToolHandler survive repeated automatic rebuilds at the same active path (3616.219544ms)
+✔ long SDK read pin cancels bounded drain without closing or mixing the old request (4178.567443ms)
+✔ single standalone public database repeats offline cover -> CLI increment -> rebuild -> cover -> sync (7739.318711ms)
+✔ real legacy generation migrates offline and normal open ignores the retired CURRENT (1392.20509ms)
+✔ real OS watcher triggers fixed-path sync and stays running through a rebuild (2608.72813ms)
+✔ whenIdle waits for retained SDK pin even without a promise query (612.306668ms)
+✔ actual SDK mutator crash releases OS mutation ownership without stale root lock (860.310779ms)
+✔ scoped watcher sync rebuilds changed configuration then performs a full post-publication check (2358.104598ms)
+✔ write committed after planning cannot be overwritten by a later candidate baseline (1164.522362ms)
+✔ source edits immediately after actual publication converge automatically before sync completes (3236.011233ms)
+✔ project-directory aliases share one fixed database and recovery namespace (1988.168648ms)
+✔ real fixed indexing runs leased native store and parallel resolver workers through actual exit (728.179695ms)
+✔ low-level filename symlinks cannot bypass registered fixed native admission (48.35164ms)
+ℹ tests 27
+ℹ suites 0
+ℹ pass 27
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 48514.744945

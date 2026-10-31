@@ -10,6 +10,8 @@ const {ToolHandler} = require('../../dist/mcp/tools.js');
 const {records, paths, seal} = require('../../dist/sync/fixed-path/protocol.js');
 process.env.CODEGRAPH_ALL_LANGUAGES = '1';
 process.env.CODEGRAPH_FIXED_PATH = '1';
+// Node 24 test runners expand default flags; exercise the supported production runtime.
+process.execArgv = ['--liftoff-only'];
 function root() { return fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'fixed-production-'))); }
 function source(dir, value=1, flask=false) {
   fs.writeFileSync(path.join(dir,'main.py'), `${flask?'from flask import Flask\napp = Flask(__name__)\n':'# stable line\n# stable line\n'}def stable(value=${value}):\n    return value\n`);

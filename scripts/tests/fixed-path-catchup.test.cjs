@@ -219,7 +219,7 @@ test('module-parent catchup runs real fan-in store and parallel resolver workers
 
 test('already-open module facade waits for a crashed committed publisher and runs off-thread recovery before catchup', {timeout:30000}, async()=>{
   const dir=root();source(dir);let graph=await CodeGraph.init(dir,{index:true});graph.close();graph=null;addFiles(dir);
-  const release=path.join(dir,'.release-publisher'),fixture=path.join(dir,'queued-publisher-crash.cjs');
+  const release=path.join(dir,'.release-publisher'),fixture=path.join(dir,'queued-publisher-crash.cjs'),recoveryEvidence=path.join(dir,'.off-thread-recovery');
   const protocol=path.resolve('dist/sync/fixed-path/protocol.js'),worker=path.resolve('dist/sync/fixed-path/rebuild-worker.js');
   fs.writeFileSync(fixture,`const fs=require('node:fs'),path=require('node:path');const protocol=require(${JSON.stringify(protocol)}),original=protocol.publish;protocol.publish=(op,options={})=>original(op,{...options,hook(phase){options.hook?.(phase);if(phase==='prepared'){process.send({type:'test-prepared'});while(!fs.existsSync(${JSON.stringify(release)}))Atomics.wait(new Int32Array(new SharedArrayBuffer(4)),0,0,10);}if(phase==='committed'){const file=path.join(op.p.project,'main.py'),s=fs.statSync(file);fs.writeFileSync(file,'def after__symbol():\\n    return 1\\n');fs.utimesSync(file,s.atime,s.mtime);process.exit(73);}}});require(${JSON.stringify(worker)});`);
   const children=[];
@@ -244,13 +244,16 @@ test('already-open module facade waits for a crashed committed publisher and run
     const {CodeGraph}=require(${JSON.stringify(path.resolve('dist/index.js'))});const graph=CodeGraph.openSync(${JSON.stringify(dir)});
     process.send({type:'ready'});process.once('message',async()=>{try{
       const result=await graph.sync({adaptive:false,paths:['extra_0.py']});assert.notEqual(result.complete,false);
-      assert(recoveryWorkers>0,'queued sync must launch the recovery worker, not rely on openSync recovery');
+      assert(recoveryWorkers>0 || require('node:fs').existsSync(${JSON.stringify(recoveryEvidence)}),
+        'the waiting facade or exited publisher parent must complete off-thread recovery, not rely on reopening');
       assert(graph.searchNodes('after__symbol').some(r=>r.node.name==='after__symbol'));
       assert(!graph.searchNodes('before_symbol').some(r=>r.node.name==='before_symbol'));
       await graph.whenIdle();graph.close();process.disconnect();
     }catch(error){console.error(error.stack);process.exit(1);}});
   `;
-  const publisherCode=`process.execArgv=['--liftoff-only'];const cp=require('node:child_process'),original=cp.fork;cp.fork=function(file,args,options){const child=original(file.endsWith('rebuild-worker.js')?${JSON.stringify(fixture)}:file,args,options);child.on('message',m=>{if(m?.type==='test-prepared')process.send(m);});return child;};const {CodeGraph}=require(${JSON.stringify(path.resolve('dist/index.js'))});const graph=CodeGraph.openSync(${JSON.stringify(dir)});graph.sync().then(()=>process.exit(2),async error=>{console.error(error.message);await graph.whenIdle();graph.close();process.exit(0);});`;
+  // Parent close now proactively recovers before releasing sync admission;
+  // either that worker or the already-open waiter's recovery is legitimate.
+  const publisherCode=`process.execArgv=['--liftoff-only'];const wt=require('node:worker_threads'),Worker=wt.Worker;wt.Worker=class extends Worker {constructor(file,options){super(file,options);if(require('node:path').basename(String(file))==='sync-recovery-worker.js')require('node:fs').writeFileSync(${JSON.stringify(recoveryEvidence)},'started');}};const cp=require('node:child_process'),original=cp.fork;cp.fork=function(file,args,options){const child=original(file.endsWith('rebuild-worker.js')?${JSON.stringify(fixture)}:file,args,options);child.on('message',m=>{if(m?.type==='test-prepared')process.send(m);});return child;};const {CodeGraph}=require(${JSON.stringify(path.resolve('dist/index.js'))});const graph=CodeGraph.openSync(${JSON.stringify(dir)});graph.sync().then(()=>process.exit(2),async error=>{console.error(error.message);await graph.whenIdle();graph.close();process.exit(0);});`;
   try {
     const waiting=launch(['--liftoff-only','--input-type=module','--eval',moduleCode]);await message(waiting,'ready');
     const publisher=launch(['--liftoff-only','--eval',publisherCode]);await message(publisher,'test-prepared');
