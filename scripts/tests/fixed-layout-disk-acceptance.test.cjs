@@ -1,0 +1,99 @@
+/** Real disk acceptance; fixtures intentionally retained, including failures.
+ * node --liftoff-only scripts/tests/fixed-layout-disk-acceptance.test.cjs
+ * CODEGRAPH_TEST_PACKAGE=/absolute/installed/node_modules/@sdd/codegraph-wx
+ * CODEGRAPH_LAYOUT_EVIDENCE=/absolute/output-directory
+ */
+const test=require('node:test'),assert=require('node:assert/strict');
+const fs=require('node:fs'),path=require('node:path'),os=require('node:os');
+const {spawnSync}=require('node:child_process');
+const {DatabaseSync}=require('node:sqlite');
+const {randomUUID}=require('node:crypto');
+const {snapshot,contract,reclaimed}=require('./helpers/layout-disk-evidence.cjs');
+const packageRoot=path.resolve(process.env.CODEGRAPH_TEST_PACKAGE||path.join(__dirname,'../..'));
+const dist=path.join(packageRoot,'dist');
+const {CodeGraph}=require(dist);
+const layout=require(path.join(dist,'sync/fixed-path-layout'));
+const protocol=require(path.join(dist,'sync/fixed-path/protocol'));
+const output=path.resolve(process.env.CODEGRAPH_LAYOUT_EVIDENCE||path.join('artifacts','layout-disk',`${process.platform}-${Date.now()}`));
+fs.mkdirSync(output,{recursive:true});
+process.env.CODEGRAPH_ALL_LANGUAGES='1';process.env.CODEGRAPH_FIXED_PATH='1';
+fs.writeFileSync(path.join(output,'environment.json'),JSON.stringify({platform:process.platform,arch:process.arch,node:process.version,packageRoot,package:require(path.join(packageRoot,'package.json')),scope:'Real filesystem, production SDK and subprocess restart. Does not substitute for Windows or MCP/daemon execution.',fixturePolicy:'All fixtures retained; no test cleanup removes product files.'},null,2));
+console.log('LAYOUT_DISK_EVIDENCE='+output);
+let sequence=0;
+function fixture(name){const project=fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(),'layout-disk-')));const data=path.join(project,'.codegraph-wx');const evidence=path.join(output,`${++sequence}-${name}`);fs.mkdirSync(evidence);return {project,data,evidence,step:0};}
+function snap(f,phase,strict=true){const s=snapshot(f.data);fs.writeFileSync(path.join(f.evidence,`${String(++f.step).padStart(2,'0')}-${phase}.json`),JSON.stringify(s,null,2));if(strict)contract(s);return s;}
+function source(f,value=1){fs.writeFileSync(path.join(f.project,'main.py'),`def stable(value=${value}):\n    return value\n`);}
+function additions(f,prefix){for(const name of fs.readdirSync(f.project))if(name.endsWith('.py')&&name!=='main.py')fs.unlinkSync(path.join(f.project,name));for(let n=0;n<140;n++)fs.writeFileSync(path.join(f.project,`${prefix}${n}.py`),`def ${prefix}${n}():\n    return ${n}\n`);}
+function custom(file,value){const d=new DatabaseSync(file);try{d.exec('CREATE TABLE IF NOT EXISTS acceptance_custom(value TEXT)');d.prepare('INSERT INTO acceptance_custom VALUES (?)').run(value);}finally{d.close();}}
+function customValue(file){const d=new DatabaseSync(file,{readOnly:true});try{return d.prepare('SELECT value FROM acceptance_custom').all().map(x=>x.value);}finally{d.close();}}
+function restart(f,query='stable'){const code=`const {CodeGraph}=require(${JSON.stringify(dist)});const g=CodeGraph.openSync(process.argv[1]);try{if(!g.searchNodes(process.argv[2]).length)throw Error('missing query result');process.stdout.write(JSON.stringify({path:g.getDatabaseFilePath(),results:g.searchNodes(process.argv[2])}));}finally{g.close()}`;const result=spawnSync(process.execPath,['--liftoff-only','-e',code,f.project,query],{env:process.env,encoding:'utf8',timeout:20000});fs.writeFileSync(path.join(f.evidence,`restart-${f.step}.log`),JSON.stringify(result,null,2));assert.equal(result.status,0,result.stderr);return JSON.parse(result.stdout);}
+async function clean(f,phase){await reclaimed(f.data);const s=snap(f,phase);assert.equal(s.businessCopyBytes,0);assert.equal(s.taskDirectoryCount,0);return s;}
+
+test('SDK fresh init, incremental sync and three rebuild/restart cycles: full disk contract',{timeout:90000},async()=>{
+ const f=fixture('sdk-three-cycles');source(f);let graph=await CodeGraph.init(f.project,{index:true});
+ try{snap(f,'running');assert.equal(graph.searchNodes('stable').length,1);await clean(f,'initialization-completed');source(f,2);await graph.sync({adaptive:false});assert.match(graph.searchNodes('stable')[0].node.signature,/value=2/);await clean(f,'incremental-completed');
+ for(let round=1;round<=3;round++){
+  additions(f,`round${round}_`);let progress=false;const result=await graph.sync({onProgress(){if(!progress){progress=true;assert(snap(f,`round-${round}-building`).taskDirectoryCount>0,'must observe actual rebuild candidate on disk');}}});
+  assert.equal(result.adaptive?.strategy,'rebuild');assert(progress,'must observe actual worker running');assert.equal(graph.getDatabaseFilePath(),path.join(f.data,'codegraph.db'));assert(graph.searchNodes(`round${round}_139`).length);await clean(f,`round-${round}-completed`);graph.close();graph=null;await clean(f,`round-${round}-closed`);restart(f,`round${round}_139`);await clean(f,`round-${round}-restarted`);graph=CodeGraph.openSync(f.project);
+ }
+ }finally{graph?.close();snap(f,'final-closed',false);}
+});
+
+for(const mode of ['failure','cancel'])test(`actual rebuild worker ${mode}: old data survives; no post-failure query needed for cleanup`,{timeout:30000},async()=>{
+ const f=fixture(mode);source(f);let graph=await CodeGraph.init(f.project,{index:true});const abort=new AbortController();let observed=false;
+ try{snap(f,'running');additions(f,'discard_');await assert.rejects(graph.sync({signal:abort.signal,onProgress(){if(!observed){observed=true;assert(snap(f,'worker-running').taskDirectoryCount>0,'actual worker candidate must exist before injecting failure/cancellation');if(mode==='failure')throw Error('intentional acceptance build failure');abort.abort();}}}),mode==='failure'?/intentional acceptance build failure/:/cancel|abort/i);assert(observed);await clean(f,'operation-failed-cleaned-before-query');assert.equal(graph.searchNodes('stable').length,1);assert.equal(graph.searchNodes('discard_139').length,0);graph.close();graph=null;await clean(f,'closed');restart(f);await clean(f,'restarted');}finally{graph?.close();snap(f,'final-closed',false);}
+});
+
+test('retained request pin: bounded failed drain; released reader and worker require no new request for cleanup',{timeout:30000},async()=>{
+ const f=fixture('reader-pin');source(f);let graph=await CodeGraph.init(f.project,{index:true});const pin=graph.acquireFixedPathRead();
+ try{snap(f,'reader-running');additions(f,'held_');await assert.rejects(graph.sync(),/drain|cancel/i);assert.equal(pin.graph.searchNodes('stable').length,1);assert.equal(pin.graph.searchNodes('held_139').length,0);snap(f,'drain-rejected');pin.release();await clean(f,'reader-released-no-new-query');await graph.sync();assert(graph.searchNodes('held_139').length);await clean(f,'published');graph.close();graph=null;await clean(f,'closed');restart(f,'held_139');await clean(f,'restarted');}finally{pin.release();graph?.close();snap(f,'final-closed',false);}
+});
+
+for(const kind of ['generational','root','scattered-fixed'])test(`offline ${kind} migration preserves custom data, cleans legacy layout and is idempotent`,{timeout:30000},async()=>{
+ const f=fixture(`migration-${kind}`);source(f);let graph;
+ if(kind==='generational'){delete process.env.CODEGRAPH_FIXED_PATH;try{graph=await CodeGraph.init(f.project,{index:true});}finally{process.env.CODEGRAPH_FIXED_PATH='1';}}
+ else graph=await CodeGraph.init(f.project,{index:true});
+ const old=graph.getDatabaseFilePath();graph.close();custom(old,kind);
+ if(kind==='root'){
+  // Construct an old root-only fixture independently, not by deleting current layout.
+  const legacy=fixture('root-fixture');source(legacy);fs.mkdirSync(legacy.data);fs.copyFileSync(old,path.join(legacy.data,'codegraph.db'));Object.assign(f,legacy);
+ }else if(kind==='scattered-fixed'){
+  fs.writeFileSync(path.join(f.data,'errors.log'),'retained diagnostic\n');fs.writeFileSync(path.join(f.data,'adaptive-cost-history.json'),'{}');
+ }
+ snap(f,'before-migration',false);const result=await CodeGraph.migrateStorage(f.project,{offline:true});snap(f,'migration-completed',false);await clean(f,'automatically-cleaned');if(kind==='scattered-fixed'){assert.equal(fs.readFileSync(path.join(f.data,'.runtime','errors.log'),'utf8'),'retained diagnostic\n');assert.equal(fs.readFileSync(path.join(f.data,'.runtime','adaptive-cost-history.json'),'utf8'),'{}');}assert.deepEqual(customValue(path.join(f.data,'codegraph.db')),[kind]);restart(f);await clean(f,'restarted');const first=snap(f,'before-repeat');await CodeGraph.migrateStorage(f.project,{offline:true});const second=await clean(f,'repeat-completed');assert.equal(second.businessCopyCount,first.businessCopyCount);assert.equal(second.taskDirectoryCount,first.taskDirectoryCount);assert.deepEqual(customValue(path.join(f.data,'codegraph.db')),[kind]);snap(f,'closed');
+});
+
+test('offline public overwrite keeps local runtime, reads new custom/index data and rejects corrupt replacement',{timeout:30000},async()=>{
+ const local=fixture('public-consumer'),producer=fixture('public-producer');source(local,1);source(producer,77);let a=await CodeGraph.init(local.project,{index:true}),b=await CodeGraph.init(producer.project,{index:true});snap(local,'running');a.close();b.close();a=null;protocol.gate(protocol.paths(local.project),db=>db.prepare('INSERT INTO costs(identity,value) VALUES (?,?)').run('retired-public-identity','{"sentinel":true}'));custom(path.join(producer.data,'codegraph.db'),'public');protocol.seal(path.join(producer.data,'codegraph.db'),{standalone:true});await clean(local,'closed');const runtimeBefore=snapshot(local.data).entries.filter(e=>e.path.startsWith('.runtime/')).map(e=>e.path);fs.copyFileSync(path.join(producer.data,'codegraph.db'),path.join(local.data,'codegraph.db'));snap(local,'overwritten-runtime-retained');assert(runtimeBefore.every(name=>fs.existsSync(path.join(local.data,name))));a=CodeGraph.openSync(local.project);try{assert.equal(protocol.gate(protocol.paths(local.project),db=>db.prepare('SELECT count(*) AS n FROM costs').get().n,{readOnly:true}),0,'old public costs must be invalidated');assert.match(a.searchNodes('stable')[0].node.signature,/value=77/);assert.deepEqual(customValue(path.join(local.data,'codegraph.db')),['public']);snap(local,'new-public-running');}finally{a.close();}await clean(local,'completed');const answer=restart(local);assert.match(answer.results[0].node.signature,/value=77/);await clean(local,'restarted');fs.writeFileSync(path.join(local.data,'codegraph.db'),'intentionally corrupt public database');const invalidCode=`require(${JSON.stringify(dist)}).CodeGraph.openSync(process.argv[1])`;let rejected=spawnSync(process.execPath,['--liftoff-only','-e',invalidCode,local.project],{encoding:'utf8',timeout:10000});assert.notEqual(rejected.status,0);fs.writeFileSync(path.join(local.evidence,'corrupt-rejected.log'),JSON.stringify(rejected,null,2));snap(local,'corrupt-rejected',false);fs.unlinkSync(path.join(local.data,'codegraph.db'));rejected=spawnSync(process.execPath,['--liftoff-only','-e',invalidCode,local.project],{encoding:'utf8',timeout:10000});assert.notEqual(rejected.status,0);assert(!fs.existsSync(path.join(local.data,'codegraph.db')),'missing replacement must not resurrect old image');fs.writeFileSync(path.join(local.evidence,'missing-rejected.log'),JSON.stringify(rejected,null,2));snap(local,'missing-rejected',false);
+});
+
+for(const phase of ['preparing','installing','root-installed','layout-committed','committed','cleaned'])test(`migration actual process exit at ${phase}; disk recovery and repeat cleanup`,{timeout:30000},async()=>{
+ const f=fixture(`crash-${phase}`);fs.mkdirSync(f.data);const id='g-'+randomUUID(),generation=path.join(f.data,'generations',id);fs.mkdirSync(generation,{recursive:true});custom(path.join(generation,'codegraph.db'),'survives-crash');const manifest={version:1,generation:id,token:randomUUID(),complete:true};fs.writeFileSync(path.join(generation,'READY.json'),JSON.stringify(manifest));fs.writeFileSync(path.join(f.data,'CURRENT'),JSON.stringify(manifest));snap(f,'running-before-migration',false);
+ const code=`const fs=require('node:fs');const a=require(${JSON.stringify(path.join(dist,'sync/fixed-path-layout'))});a.migrateToFixedPath(process.argv[1],{offline:true,hook:p=>{if(p===process.argv[2])process.exit(77)}})`;const child=spawnSync(process.execPath,['--liftoff-only','-e',code,f.data,phase],{encoding:'utf8',timeout:20000});fs.writeFileSync(path.join(f.evidence,'child.log'),JSON.stringify(child,null,2));assert.equal(child.status,77,child.stderr);snap(f,'process-exited',false);layout.recoverFixedPathMigration(f.data);snap(f,'recovery-completed',false);await layout.migrateToFixedPath(f.data,{offline:true}).cleanup;await clean(f,'migration-retried');assert.deepEqual(customValue(path.join(f.data,'codegraph.db')),['survives-crash']);layout.recoverFixedPathMigration(f.data);await clean(f,'recovery-repeated');snap(f,'closed');
+});
+
+test('unknown file and root/generation conflict report failure without erasing evidence',async()=>{
+ const f=fixture('unknown-file');fs.mkdirSync(f.data);custom(path.join(f.data,'codegraph.db'),'keep');fs.writeFileSync(path.join(f.data,'unknown.user-data'),'KEEP EXACTLY');snap(f,'before',false);let error,result;try{result=layout.migrateToFixedPath(f.data,{offline:true});await result.cleanup;}catch(e){error=e;}snap(f,'after',false);assert(error||result?.cleanupWarnings?.length,'unknown root entry must explicitly report blocked/incomplete migration');assert.equal(fs.readFileSync(path.join(f.data,'unknown.user-data'),'utf8'),'KEEP EXACTLY');assert.deepEqual(customValue(path.join(f.data,'codegraph.db')),['keep']);
+ const conflict=fixture('source-conflict');fs.mkdirSync(conflict.data);custom(path.join(conflict.data,'codegraph.db'),'root');const id='g-'+randomUUID(),dir=path.join(conflict.data,'generations',id);fs.mkdirSync(dir,{recursive:true});custom(path.join(dir,'codegraph.db'),'generation');const m={version:1,generation:id,token:randomUUID(),complete:true};fs.writeFileSync(path.join(conflict.data,'CURRENT'),JSON.stringify(m));fs.writeFileSync(path.join(dir,'READY.json'),JSON.stringify(m));snap(conflict,'before',false);assert.throws(()=>layout.migrateToFixedPath(conflict.data,{offline:true}),/conflict/i);snap(conflict,'after',false);assert.deepEqual(customValue(path.join(conflict.data,'codegraph.db')),['root']);assert.deepEqual(customValue(path.join(dir,'codegraph.db')),['generation']);
+});
+
+for(const phase of ['prepared','draining','replacing','old-moved','new-moved','before-commit','committed','resumed'])test(`production publication actual process exit at ${phase}: recovery preserves one authoritative database`,{timeout:30000},async()=>{
+ const f=fixture(`publication-crash-${phase}`);fs.mkdirSync(f.data);custom(path.join(f.data,'codegraph.db'),'old');await layout.migrateToFixedPath(f.data,{offline:true}).cleanup;snap(f,'running');
+ const code=`const {DatabaseSync}=require('node:sqlite');const p=require(${JSON.stringify(path.join(dist,'sync/fixed-path/protocol'))});(async()=>{const op=p.beginOperation(process.argv[1]);const d=new DatabaseSync(op.record.candidate);d.exec("CREATE TABLE acceptance_custom(value TEXT); INSERT INTO acceptance_custom VALUES ('new')");d.close();await p.publish(op,{hook:phase=>{if(phase===process.argv[2])process.exit(77)}})})().catch(e=>{console.error(e);process.exit(1)});`;
+ const child=spawnSync(process.execPath,['--liftoff-only','-e',code,f.project,phase],{env:process.env,encoding:'utf8',timeout:20000});fs.writeFileSync(path.join(f.evidence,'publisher.log'),JSON.stringify(child,null,2));assert.equal(child.status,77,child.stderr);snap(f,'publisher-exited',false);
+ const recovery=`const p=require(${JSON.stringify(path.join(dist,'sync/fixed-path/protocol'))});if(!p.recover(process.argv[1]))throw Error('recovery not acquired');`;
+ const restarted=spawnSync(process.execPath,['--liftoff-only','-e',recovery,f.project],{env:process.env,encoding:'utf8',timeout:20000});fs.writeFileSync(path.join(f.evidence,'recovery.log'),JSON.stringify(restarted,null,2));assert.equal(restarted.status,0,restarted.stderr);await clean(f,'restarted-recovered');assert.deepEqual(customValue(path.join(f.data,'codegraph.db')),['committed','resumed'].includes(phase)?['new']:['old']);protocol.recover(f.project);await clean(f,'recovery-repeated');snap(f,'closed');
+});
+
+test('real native in-flight reader completes old snapshot, publisher switches, idle timer reclaims without subsequent query',{timeout:30000},async()=>{
+ const {spawn}=require('node:child_process');const f=fixture('inflight-success');fs.mkdirSync(f.data);custom(path.join(f.data,'codegraph.db'),'old');await layout.migrateToFixedPath(f.data,{offline:true}).cleanup;
+ const participant=new protocol.Participant(f.project,file=>new DatabaseSync(file,{readOnly:true}));let release;const hold=new Promise(r=>release=r);let started;const ready=new Promise(r=>started=r);
+ const read=participant.request(async db=>{const first=db.prepare('SELECT value FROM acceptance_custom').get().value;started();await hold;const second=db.prepare('SELECT value FROM acceptance_custom').get().value;return [first,second];});await ready;snap(f,'reader-running');
+ const code=`const {DatabaseSync}=require('node:sqlite');const p=require(${JSON.stringify(path.join(dist,'sync/fixed-path/protocol'))});(async()=>{const op=p.beginOperation(process.argv[1]);const d=new DatabaseSync(op.record.candidate);d.exec("CREATE TABLE acceptance_custom(value TEXT); INSERT INTO acceptance_custom VALUES ('new')");d.close();const result=await p.publish(op,{hook:phase=>{if(phase==='draining')process.stdout.write('DRAINING\\n')}});process.stdout.write(JSON.stringify(result));})().catch(e=>{console.error(e);process.exit(1)});`;
+ const child=spawn(process.execPath,['--liftoff-only','-e',code,f.project],{env:process.env,stdio:['ignore','pipe','pipe']});let stdout='',stderr='',released=false;child.stdout.on('data',b=>{stdout+=b;if(!released&&stdout.includes('DRAINING')){released=true;snap(f,'draining-reader-still-pinned');release();}});child.stderr.on('data',b=>stderr+=b);
+ try{const status=await new Promise((resolve,reject)=>{const timer=setTimeout(()=>{child.kill();reject(Error('publisher timeout'));},15000);child.once('error',reject);child.once('close',code=>{clearTimeout(timer);resolve(code);});});fs.writeFileSync(path.join(f.evidence,'publisher.log'),JSON.stringify({status,stdout,stderr},null,2));assert.equal(status,0,stderr);assert(released,'publisher must reach drain while real reader holds database');assert.deepEqual(await read,['old','old']);await clean(f,'completed-no-followup-query');assert.deepEqual(customValue(path.join(f.data,'codegraph.db')),['new']);participant.close();await clean(f,'closed');assert(protocol.recover(f.project));await clean(f,'recovered');}finally{release();await read.catch(()=>{});participant.close();if(child.exitCode===null)child.kill();snap(f,'final',false);}
+});
+
+test('Git ignores active database and internal state without root .gitignore exception',{timeout:15000},async()=>{
+ const f=fixture('git-protection');const init=spawnSync('git',['init','--quiet',f.project],{encoding:'utf8'});assert.equal(init.status,0,init.stderr);source(f);const graph=await CodeGraph.init(f.project,{index:true});try{snap(f,'running');const checked=spawnSync('git',['-C',f.project,'check-ignore','.codegraph-wx/codegraph.db','.codegraph-wx/.runtime/layout.json'],{encoding:'utf8'});fs.writeFileSync(path.join(f.evidence,'git-check-ignore.log'),JSON.stringify(checked,null,2));assert.equal(checked.status,0,checked.stderr);assert.equal(checked.stdout.trim().split('\n').length,2);await clean(f,'completed');}finally{graph.close();}await clean(f,'closed');restart(f);await clean(f,'restarted');
+});
