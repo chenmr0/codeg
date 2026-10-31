@@ -2,7 +2,7 @@
  * protocol, without editing the prototype or claiming those are production E2E. */
 import fs from 'node:fs';
 import path from 'node:path';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 const source = path.resolve('scripts/prototypes/fixed-path');
 const target = fs.mkdtempSync(path.resolve('scripts/prototypes/fixed-path-parity-'));
 try {
@@ -31,10 +31,13 @@ try {
     const file=path.join(target,name);let body=fs.readFileSync(file,'utf8');
     const removal=/fs\.rmSync\(([^,\n]+),\s*\{\s*recursive:\s*true,\s*force:\s*true\s*\}\)/g;
     if(!removal.test(body))continue;removal.lastIndex=0;
+    if(name==='git-worktree.test.mjs')body=body.replaceAll('{timeout:30000},()=>{','{timeout:30000},async()=>{');
     body=body.replace(removal,'await __removeClosedFixture($1,{recursive:true,force:true})')
       .replaceAll('after(()=>','after(async()=>');
     body="import {whenMaintenanceIdle as __whenMaintenanceIdle} from './protocol.mjs';\nasync function __removeClosedFixture(root,options){await __whenMaintenanceIdle(undefined,{timeoutMs:5000});fs.rmSync(root,options); }\n"+body;
     fs.writeFileSync(file,body);
+    const syntax=spawnSync(process.execPath,['--check',file],{encoding:'utf8'});
+    if(syntax.status!==0)throw new Error(`Production teardown syntax check failed for ${name}: ${syntax.stderr}`);
   }
   console.log('Production bootstrap parity: obsolete private-allocation cases replaced by durable-intent real-kill/IOERR matrix; budgets and OS exclusion unchanged.');
   const tests = fs.readdirSync(target).filter(file=>file.endsWith('.test.mjs')).sort().map(file=>path.join(target,file));

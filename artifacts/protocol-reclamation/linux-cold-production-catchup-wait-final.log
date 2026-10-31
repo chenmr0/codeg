@@ -1,0 +1,42 @@
+✔ same-size/restored-mtime edit after publication converges, removes old symbol and becomes a stable no-op (4060.05856ms)
+✔ cancelled post-publication catchup survives reopen and ordinary sync (4038.411591ms)
+✔ cancelled post-publication catchup survives reopen and scoped nonadaptive sync (5152.094397ms)
+✔ cancelled post-publication catchup survives reopen and environment-disabled sync (3276.620493ms)
+✔ publisher process exits after durable commit: reopened sync recovers pending hash catchup (4918.320143ms)
+✔ failed incremental catchup retains durable intent and concurrent retries converge once (5078.792936ms)
+✔ offline database replacement owns its own catchup intent, not the retired publication record (5261.008694ms)
+✔ cancellation during mismatch parsing keeps catchup pending until a reopened sync finishes (3764.917549ms)
+✔ configuration-only edit after publication re-extracts and converges its config fingerprint (3885.804514ms)
+✔ pending catchup resumes in a real input-type module caller using an isolated worker runtime (3400.551371ms)
+✔ failure after source storage cannot clear pending catchup before the resolution tail is retried (3401.550249ms)
+✔ module-parent catchup runs real fan-in store and parallel resolver workers (5562.282009ms)
+✔ already-open module facade waits for a crashed committed publisher and runs off-thread recovery before catchup (3914.074504ms)
+✔ cold fixed-path open does not compute graph-wide statistics (99.886148ms)
+✔ cold fixed-path open rejects a missing nodes table (53.001305ms)
+✔ cold fixed-path open rejects a missing edges table (47.155286ms)
+✔ cold fixed-path open rejects a missing files table (53.03382ms)
+✔ cold fixed-path open validates required columns even on empty tables (61.262921ms)
+✔ cold fixed-path open rejects a corrupt offline public replacement (54.333911ms)
+✔ cold fixed-path open rejects an absent offline public replacement (48.094885ms)
+✔ real SDK fixed initialization, ordinary sync and marker authority with opt-in unset (2372.519937ms)
+✔ real SDK and ToolHandler survive repeated automatic rebuilds at the same active path (4307.322607ms)
+✔ long SDK read pin cancels bounded drain without closing or mixing the old request (5417.445473ms)
+✔ single standalone public database repeats offline cover -> CLI increment -> rebuild -> cover -> sync (9367.944828ms)
+✔ real legacy generation migrates offline and normal open ignores the retired CURRENT (2135.25315ms)
+✔ real OS watcher triggers fixed-path sync and stays running through a rebuild (3485.528476ms)
+✔ whenIdle waits for retained SDK pin even without a promise query (644.543473ms)
+✔ actual SDK mutator crash releases OS mutation ownership without stale root lock (1064.502401ms)
+✔ scoped watcher sync rebuilds changed configuration then performs a full post-publication check (2173.52673ms)
+✔ write committed after planning cannot be overwritten by a later candidate baseline (1235.251869ms)
+✔ source edits immediately after actual publication converge automatically before sync completes (3178.002538ms)
+✔ project-directory aliases share one fixed database and recovery namespace (2412.418275ms)
+✔ real fixed indexing runs leased native store and parallel resolver workers through actual exit (851.464833ms)
+✔ low-level filename symlinks cannot bypass registered fixed native admission (67.433403ms)
+ℹ tests 34
+ℹ suites 0
+ℹ pass 34
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 55999.347445
