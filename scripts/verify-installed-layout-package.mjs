@@ -6,7 +6,7 @@ import {spawnSync} from 'node:child_process';
 const installed = fs.realpathSync(path.resolve(process.argv[2] ?? 'package-install/node_modules/@sdd/codegraph-wx'));
 const evidence = path.resolve(process.argv[3] ?? 'artifacts/installed-layout');
 fs.mkdirSync(evidence, {recursive:true});
-const env = {...process.env, STRICT_SYMLINK_TESTS:'1', CODEGRAPH_ALL_LANGUAGES:'1', CODEGRAPH_PROTOTYPE_READ_GATES:'0', GATE_DIAGNOSTICS_DIR:path.join(evidence,'gate-diagnostics'), CODEGRAPH_LAYOUT_EVIDENCE:path.join(evidence,'layout-disk'), CODEGRAPH_LAYOUT_EVIDENCE_DIR:path.join(evidence,'mcp-disk')};
+const env = {...process.env, STRICT_SYMLINK_TESTS:'1', CODEGRAPH_ALL_LANGUAGES:'1', CODEGRAPH_PROTOTYPE_READ_GATES:'0', GATE_DIAGNOSTICS_DIR:path.join(evidence,'gate-diagnostics'), CODEGRAPH_LAYOUT_EVIDENCE:path.join(evidence,'layout-disk'), CODEGRAPH_LAYOUT_EVIDENCE_DIR:path.join(evidence,'mcp-disk'), CODEGRAPH_MIGRATION_RETRY_EVIDENCE:path.join(evidence,'migration-retry')};
 for (const key of ['E2E_CASE','CODEGRAPH_NO_DAEMON','CODEGRAPH_NO_WATCH','CODEGRAPH_ADAPTIVE_SYNC']) delete env[key];
 const tests = fs.readdirSync(path.join(installed,'scripts/tests')).filter(n=>/^fixed-(?:path|layout)-.*\.test\.cjs$/.test(n)).sort();
 if (!tests.length) throw Error('Installed package has no fixed-path acceptance tests');
