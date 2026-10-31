@@ -11,6 +11,7 @@ const {DatabaseSync}=require('node:sqlite');
 const protocolPath=path.resolve(__dirname,'../../dist/sync/fixed-path/protocol.js');
 const {Participant,initialize,paths,records,gate,recover}=require(protocolPath);
 const pause=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+async function removeFixture(dir){await require(protocolPath).whenMaintenanceIdle(dir,{timeoutMs:5000});fs.rmSync(dir,{recursive:true,force:true});}
 function make(file,value){const d=new DatabaseSync(file);try{d.exec('CREATE TABLE value(n INTEGER)');d.prepare('INSERT INTO value VALUES(?)').run(value);}finally{d.close();}}
 function reader(dir){return new Participant(dir,file=>new DatabaseSync(file,{readOnly:true}));}
 function value(p){return p.requestSync(d=>d.prepare('SELECT n FROM value').get().n);}
@@ -29,7 +30,7 @@ test('live child and native worker prevent reclamation; idle participant collect
   const exited=once(c,'exit');c.kill('SIGKILL');await exited;
   await until(()=>!fs.existsSync(message.directory));snapshot(dir,'worker-exited-idle-reclaimed');assert.equal(value(participant),1);
   participant.close();participant=null;snapshot(dir,'closed');participant=reader(dir);assert.equal(value(participant),1);snapshot(dir,'reopened');
- }finally{c?.kill('SIGKILL');participant?.close();fs.rmSync(dir,{recursive:true,force:true});}
+ }finally{c?.kill('SIGKILL');participant?.close();await removeFixture(dir);}
 });
 
 test('cleanup error is durable and automatically retried; three publications do not accumulate task databases',async()=>{
@@ -44,7 +45,7 @@ test('cleanup error is durable and automatically retried; three publications do 
    const files=snapshot(dir,`round-${round}-idle-reclaimed`);assert.equal(files.filter(f=>/\/(candidate|old)\.db$/.test(f.path)).length,0);assert.equal(value(participant),round);
    participant.close();snapshot(dir,`round-${round}-closed`);participant=reader(dir);assert.equal(value(participant),round);snapshot(dir,`round-${round}-reopened`);
   }
- }finally{participant.close();fs.rmSync(dir,{recursive:true,force:true});}
+ }finally{participant.close();await removeFixture(dir);}
 });
 
 test('an in-flight reader finishes on its original image before publication and idle collection',async()=>{
@@ -57,7 +58,7 @@ test('an in-flight reader finishes on its original image before publication and 
   assert.equal(records(p).at(-1).phase,'draining');release();assert.equal(await request,1);
   const [code]=await exited;assert.equal(code,0,c.failureOutput());await until(()=>records(p).every(r=>r.phase==='cleaned'&&!fs.existsSync(r.directory)));
   snapshot(dir,'reader-released-idle-collected');assert.equal(value(participant),2);
- }finally{release?.();c?.kill('SIGKILL');participant.close();fs.rmSync(dir,{recursive:true,force:true});}
+ }finally{release?.();c?.kill('SIGKILL');participant.close();await removeFixture(dir);}
 });
 
 test('offline public replacement preserves runtime but never revives retired content or costs',async()=>{
@@ -76,7 +77,7 @@ test('offline public replacement preserves runtime but never revives retired con
   participant.close();participant=null;recover(dir);participant=reader(dir);assert.equal(value(participant),77);snapshot(dir,'public-recovered');
   participant.close();participant=null;fs.writeFileSync(p.active,'not a database');participant=reader(dir);assert.throws(()=>value(participant),/database/);participant.close();participant=null;
   fs.unlinkSync(p.active);participant=reader(dir);assert.throws(()=>value(participant),/ENOENT/);assert(!fs.existsSync(p.active),'missing public image must not be created or resurrected');
- }finally{participant?.close();fs.rmSync(dir,{recursive:true,force:true});}
+ }finally{participant?.close();await removeFixture(dir);}
 });
 
 test('initialization sharing failure records diagnostics and retries without reopening or queries',async()=>{
@@ -103,7 +104,7 @@ for(const phase of ['allocation-recorded','allocation-directory-created','alloca
    const exit=once(c,'exit');c.kill('SIGKILL');await exit;
    recover(dir);assert(!fs.existsSync(message.directory));assert(records(p).every(r=>r.phase==='cleaned'));
    snapshot(dir,`${phase}-recovered`);participant=reader(dir);assert.equal(value(participant),1);
-  }finally{c?.kill('SIGKILL');participant?.close();fs.rmSync(dir,{recursive:true,force:true});}
+  }finally{c?.kill('SIGKILL');participant?.close();await removeFixture(dir);}
  });
 }
 
@@ -122,7 +123,7 @@ for(const point of bootstrapCrashes) {
    const files=snapshot(dir,`${point.phase}-${point.file??'state'}-recovered`);
    assert.equal(files.filter(f=>f.directory&&/bootstrap-/.test(f.path)).length,0);
    const p=paths(dir);assert.equal(gate(p,g=>g.prepare('SELECT phase FROM bootstrap_intent WHERE id=1').get().phase),'completed');
-  }finally{c?.kill('SIGKILL');participant?.close();fs.rmSync(dir,{recursive:true,force:true});}
+  }finally{c?.kill('SIGKILL');participant?.close();await removeFixture(dir);}
  });
 }
 
@@ -147,12 +148,12 @@ test('unrecorded partial old bootstrap fails closed and established old schema r
   const [message]=await once(c,'message');const exit=once(c,'exit');c.kill('SIGKILL');await exit;
   const p=paths(dir),d=new DatabaseSync(p.gate);d.exec('DROP TABLE bootstrap_intent');d.close();
   const before=fs.readFileSync(message.file);assert.throws(()=>initialize(dir),/Missing coordination state with existing leases/);assert.deepEqual(fs.readFileSync(message.file),before);snapshot(dir,'legacy-unrecorded-partial-preserved');
- }finally{c?.kill('SIGKILL');participant?.close();fs.rmSync(dir,{recursive:true,force:true});}
+ }finally{c?.kill('SIGKILL');participant?.close();await removeFixture(dir);}
  const established=setup();
  try{
   const d=new DatabaseSync(established.p.gate);d.exec('DROP TABLE bootstrap_intent');d.close();fs.unlinkSync(path.join(established.p.runtime,'bootstrap-owner.sqlite'));
   participant=reader(established.dir);assert.equal(value(participant),1);assert(!fs.existsSync(path.join(established.p.runtime,'bootstrap-owner.sqlite')));participant.close();participant=null;snapshot(established.dir,'old-established-state-compatible');
- }finally{participant?.close();fs.rmSync(established.dir,{recursive:true,force:true});}
+ }finally{participant?.close();await removeFixture(established.dir);}
 });
 
 for(const file of ['connections.sqlite','publisher.sqlite','writers.sqlite','mutations.sqlite'])for(const statement of ['CREATE','INSERT','COMMIT']) {

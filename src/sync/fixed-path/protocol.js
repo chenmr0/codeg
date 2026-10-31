@@ -479,6 +479,11 @@ export function recover(project, options = {}) {
   catch(error){failure=error;throw error;}
   finally{try{initialized.coordination.close();}catch(closeError){throw failure?new AggregateError([failure,closeError],'Recovery and bootstrap keeper close failed'):closeError;}}
 }
+/** Maintenance belongs to an already established participant. Never recreate
+ * a removed data directory while a final off-thread sweep is winding down. */
+export function recoverExisting(project, options = {}) {
+  return recoverInitialized(paths(project), options);
+}
 // Existing participants already validated the layout; do not acquire the gate
 // merely to discover that a live publisher owns recovery. Missing lock files
 // still fail in lease(), and external callers retain full initialize validation.
@@ -655,6 +660,27 @@ function preActionBusy(error){
 }
 function admissionTimeout(){return Object.assign(new Error('Admission exceeded total 1000ms budget; no unsafe fallback'),{code:'ADMISSION_TIMEOUT'});}
 
+const closingMaintenance=new Map();
+function trackClosing(participant) {
+  let entries=closingMaintenance.get(participant.p.runtime);
+  if(!entries){entries=new Set();closingMaintenance.set(participant.p.runtime,entries);}
+  entries.add(participant);
+}
+function untrackClosing(participant) {
+  const entries=closingMaintenance.get(participant.p.runtime);entries?.delete(participant);
+  if(entries?.size===0)closingMaintenance.delete(participant.p.runtime);
+}
+/** Await the real final worker exit before removing an already closed project.
+ * This is also used by production parity fixture teardown, never to hide errors. */
+export async function whenMaintenanceIdle(project, options = {}) {
+  const key=project===undefined?undefined:paths(project).runtime,timeoutMs=options.timeoutMs??5000;
+  const entries=()=>key===undefined?[...closingMaintenance.values()].flatMap(group=>[...group]):[...(closingMaintenance.get(key)??[])];
+  if(!Number.isFinite(timeoutMs)||timeoutMs<0)throw new Error('Maintenance wait must have a finite non-negative timeout');
+  const deadline=now()+timeoutMs;
+  while(entries().length) {
+    await Promise.all(entries().map(p=>p.whenMaintenanceIdle({timeoutMs:Math.max(0,deadline-now())})));
+  }
+}
 /** All graph handles (including cached readers) MUST be owned by factory's close().
  * Factory is synchronous and must not reenter this Participant. If it throws,
  * it must close any internal native handles that it has not returned to us.
@@ -667,7 +693,13 @@ export class Participant {
       this.p.readGates=options.readGates??process.env.CODEGRAPH_FIXED_PATH_READ_GATES==='1';
       if(options.measureGates??process.env.CODEGRAPH_FIXED_PATH_MEASURE_GATES==='1')this.p.gateMetrics=[];
       this.factory=factory;this.options=options;this.active=0;this.handle=null;this.holder=null;this.closed=false;this.reopens=0;this.reopenDurationsMs=[];this.admissionWaitMs=[];
-      recoverInitialized(this.p,{deferMaintenance:true});
+      // Capture BEFORE recovery: any concurrent commit during startup remains
+      // visible as a changed version and cannot lose a maintenance notification.
+      this.coordinationEpoch=0;
+      this.lastMaintenanceVersion=this.coordination.prepare('PRAGMA data_version').get().data_version;
+      const startupMaintenance={};
+      const recovered=recoverInitialized(this.p,{deferMaintenance:true,maintenance:startupMaintenance});
+      this.maintenancePending=!recovered || !!startupMaintenance.cleanupDeferred?.length;
       this.coordinationIdentity=fs.statSync(this.p.gate,{bigint:true});
       // Conservative startup invalidation is outside query admission. A missing
       // history never triggers indexing; publication invalidates in its commit.
@@ -684,7 +716,7 @@ export class Participant {
     const start=now(),metrics={label,readOnly:true,startedAtMs:Date.now(),phase:'begin',actionStarted:false,openMs:0,beginMs:0,actionMs:0,commitMs:0,closeMs:0,retries:0};
     regular(this.p.gate);const identity=fs.statSync(this.p.gate,{bigint:true});
     if(identity.dev!==this.coordinationIdentity.dev || identity.ino!==this.coordinationIdentity.ino)throw new Error('Coordination file identity changed; restart/recovery required');
-    if(!this.coordination)this.coordination=openCoordinatorBounded(this.p,deadline);
+    if(!this.coordination){this.coordination=openCoordinatorBounded(this.p,deadline);this.lastMaintenanceVersion=undefined;this.maintenancePending=true;this.coordinationEpoch++;}
     const d=this.coordination;let began=false,committed=false,failure;
     try{
       if(now()>=deadline)throw admissionTimeout();
@@ -695,6 +727,7 @@ export class Participant {
       metrics.phase='commit';t=now();d.exec('COMMIT');committed=true;metrics.commitMs=now()-t;metrics.phase='complete';return result;
     }catch(error){failure=error;
       if(began&&!committed){try{d.exec('ROLLBACK');}catch(rollbackError){failure=new AggregateError([error,rollbackError],'WAL read rollback failed');}}
+      this.lastMaintenanceVersion=undefined;this.maintenancePending=true;this.coordinationEpoch++;
       try{d.close();this.coordination=null;}catch(closeError){failure=new AggregateError([failure,closeError],'WAL read connection close failed');}
       throw failure;
     }finally{metrics.totalMs=now()-start;gateDiagnostic(this.p,metrics,failure);this.p.gateMetrics?.push(metrics);}
@@ -706,34 +739,71 @@ export class Participant {
     const observed=this.readSnapshot(g=>g.prepare('SELECT mode FROM state WHERE id=1').get(),deadline,'retire-state');
     if(observed.mode!=='idle')this.closeHandle();
   }
-  maintainIfNeeded() {
-    if(this.closed || this.maintenanceWorker || now()<this.nextMaintenanceAt)return;
+  maintainIfNeeded(finalPass = false) {
+    if((this.closed&&!finalPass) || this.maintenanceWorker || (!finalPass&&now()<this.nextMaintenanceAt))return;
     this.nextMaintenanceAt=now()+250;
-    // No reader action is required for recovery after publisher exit. The
-    // snapshot is only a hint: recoverInitialized must acquire OS ownership,
-    // and rename recovery still requires every native connection to drain.
-    const pending=this.readSnapshot(g=>{
-      if(g.prepare('SELECT mode FROM state WHERE id=1').get().mode!=='idle')return true;
-      return g.prepare("SELECT record FROM operations WHERE json_extract(record,'$.phase') != 'cleaned' OR json_type(record,'$.cleanupDiagnostic') IS NOT NULL").all().some(row=>{
-        const r=JSON.parse(row.record);
-        return (r.phase!=='cleaned' || r.cleanupDiagnostic) &&
-          (!r.cleanupDiagnostic || r.cleanupDiagnostic.nextRetryAt<=Date.now());
-      });
-    },now()+100,'maintenance-pending');
-    if(!pending)return;
-    // Avoid spawning while the real publisher is alive. This probe grants no
-    // cleanup authority; the worker must acquire ownership again itself.
-    const owner=lease(this.p.owner,true);if(!owner)return;owner.close();
-    // Identity hashing and filesystem cleanup can be large. Keep them off the
-    // query event loop, without changing the existing admission time budget.
+    // Constant-work hint on the query thread. A persistent SQLite connection's
+    // data_version observes ALL other connections' commits, including old
+    // compatible protocol writers. No JSON scan, history migration, hashing or
+    // directory sweep runs here. Cached versions are never cleanup authority.
+    const version=this.closed?(this.closeObservedVersion??this.lastMaintenanceVersion):this.readSnapshot(g=>g.prepare('PRAGMA data_version').get().data_version,now()+100,'maintenance-version');
+    if(!this.maintenancePending&&version===this.lastMaintenanceVersion)return;
+    const owner=lease(this.p.owner,true);
+    if(!owner){this.maintenancePending=true;return;}
+    owner.close();
+    // The worker reobtains ownership and checks every historical recovery
+    // record, including legacy cleaned records whose final unlink was killed.
+    // A pending result keeps retries alive even without another metadata write.
+    const epoch=this.coordinationEpoch;
     const worker=new Worker(path.join(__dirname,'sync-recovery-worker.js'),{
-      workerData:{project:this.p.project,dataDirectory:this.p.data},execArgv:[],env:{...process.env,NODE_OPTIONS:''},
+      workerData:{project:this.p.project,dataDirectory:this.p.data,maintenance:true},execArgv:[],env:{...process.env,NODE_OPTIONS:''},
     });
-    this.maintenanceWorker=worker;
-    worker.on('message',message=>{if(message.error)this.backgroundError=Object.assign(new Error(message.error),{code:message.code});});
-    worker.on('error',error=>{this.backgroundError=error;});
-    worker.once('exit',()=>{this.maintenanceWorker=null;});
-    worker.unref();
+    this.maintenanceWorker=worker;this.maintenancePending=true;
+    let response,failure;
+    const report=error=>{
+      if(this.backgroundError?.message!==error.message)process.stderr.write(`Fixed-path background recovery deferred: ${error.message}\n`);
+      this.backgroundError=error;
+    };
+    worker.on('message',message=>{response=message;this.maintenanceDeferred=message.cleanupDeferred;if(message.error){failure=new Error(message.error);report(failure);}});
+    worker.on('error',error=>{failure=error;report(error);});
+    worker.once('exit',code=>{
+      this.maintenanceWorker=null;
+      if(epoch!==this.coordinationEpoch){this.lastMaintenanceVersion=undefined;this.maintenancePending=true;if(this.closed)try{this.maintainIfNeeded(true);}catch(error){report(error);}return;}
+      if(!failure&&code===0&&typeof response?.recovered==='boolean') {
+        // Remember the version observed BEFORE worker launch. Changes racing
+        // its sweep necessarily trigger a fresh pass; never swallow a commit.
+        this.lastMaintenanceVersion=version;
+        const newerClose=this.closed&&this.closeObservedVersion!==undefined&&this.closeObservedVersion!==version;
+        this.maintenancePending=(response.pending??!response.recovered)||newerClose;
+        if(newerClose)try{this.maintainIfNeeded(true);}catch(error){report(error);}
+        if(!this.maintenancePending){this.backgroundError=undefined;if(this.closed&&!this.closeFailure&&!this.coordination)untrackClosing(this);}
+      }else {this.maintenancePending=true;if(!failure)report(new Error(`Maintenance worker exited ${code} without recovery result`));}
+    });
+    this.maintenanceDone=new Promise(resolve=>worker.once('exit',resolve));
+    if(!finalPass)worker.unref(); // Final close keeps the process alive until exit.
+  }
+  /** close stays synchronous; callers needing a deletion/offline-copy barrier
+   * await this method (SDK: await graph.whenIdle() AFTER graph.close()). */
+  async whenMaintenanceIdle({timeoutMs=5000}={}) {
+    if(!Number.isFinite(timeoutMs)||timeoutMs<0)throw new Error('Maintenance wait must have a finite non-negative timeout');
+    if(this.closeFailure)throw this.closeFailure;
+    if(this.closed&&this.coordination)throw new Error('Native coordinator close remains uncertain; retry close before waiting for maintenance');
+    const deadline=now()+timeoutMs;
+    const timeout=()=>Object.assign(new Error(`Fixed-path maintenance deferred after ${timeoutMs}ms: ${this.backgroundError?.message??JSON.stringify(this.maintenanceDeferred??'owner or cleanup still pending')}`),{code:'MAINTENANCE_TIMEOUT'});
+    while(true) {
+      if(this.closeFailure)throw this.closeFailure;
+      if(!this.maintenanceWorker) {
+        if(!this.maintenancePending){if(this.closed)untrackClosing(this);return;}
+        if(now()>=deadline)throw timeout();
+        try{this.maintainIfNeeded(true);}catch(error){this.backgroundError=error;this.maintenancePending=true;}
+      }
+      const remaining=deadline-now();if(remaining<=0)throw timeout();
+      if(this.maintenanceWorker) {
+        let timer;
+        try{await Promise.race([this.maintenanceDone,new Promise((_,reject)=>{timer=setTimeout(()=>reject(timeout()),remaining);})]);}
+        finally{clearTimeout(timer);}
+      }else await delay(Math.min(50,remaining));
+    }
   }
   closeHandle() {
     if (this.handle) { this.handle.close(); this.handle = null; }
@@ -870,14 +940,27 @@ export class Participant {
   }
   async write(action) { return this.request(action, true); }
   close() {
+    if(this.closed&&!this.closeFailure&&!this.coordination)return;
     if (this.active) throw new Error('Cannot close participant with active requests');
-    clearInterval(this.timer);this.closeHandle();this.coordination?.close();this.coordination=null;this.closed=true;
-    // Last normal close also retries owned debris; a live publisher remains the
-    // authority and simply defers this pass until its real process exit.
-    recoverInitialized(this.p,{deferMaintenance:true});
+    this.closeFailure=undefined;
+    clearInterval(this.timer);try{this.closeHandle();}catch(error){this.closeFailure=error;throw error;}trackClosing(this);
+    // Never hash retired databases on a different SDK's query event loop during
+    // close. An existing/final worker finishes under its own real OS leases.
+    // A live publisher still owns its work and its parent owns exit recovery.
+    let maintenanceFailure;
+    try{
+      // Even an already-running worker must not acknowledge a version older
+      // than close observed. Its exit schedules one final follow-up if needed.
+      this.closeObservedVersion=this.readSnapshot(g=>g.prepare('PRAGMA data_version').get().data_version,now()+100,'close-maintenance-version');
+      this.maintainIfNeeded(true);
+    }catch(error){maintenanceFailure=error;this.closeFailure=error;this.backgroundError=error;this.maintenancePending=true;process.stderr.write(`Fixed-path final recovery deferred: ${error.message}\n`);}
+    finally{
+      this.maintenanceWorker?.ref();
+      try{this.coordination?.close();this.coordination=null;}catch(error){this.closeFailure=error;throw error;}finally{this.closed=true;this.factory=null;this.options={};}
+    }
     // Clean offline-overwrite shutdown includes SQLite-owned sidecar cleanup.
     // This is outside the cutover hot path and never deletes journal files itself.
-    gate(this.p, g => {
+    try{gate(this.p, g => {
       if(g.prepare('SELECT mode FROM state WHERE id=1').get().mode!=='idle')return;
       const fence=lease(this.p.connections,true); if(!fence)return;
       try {
@@ -887,6 +970,8 @@ export class Participant {
           noSidecars(this.p.active);
         }
       }finally{fence.close();}
-    });
+    });}catch(error){this.closeFailure=error;throw error;}
+    if(!this.closeFailure&&!this.maintenanceWorker&&!this.maintenancePending)untrackClosing(this);
+    if(maintenanceFailure)throw maintenanceFailure;
   }
 }

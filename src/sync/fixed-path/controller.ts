@@ -22,6 +22,7 @@ export class FixedPathController<T extends ManagedGraphHandle> {
   private readonly writers: Participant;
   private readonly identities = new WeakMap<object, string>();
   private closed = false;
+  private closeFailure: unknown;
   private pending = new Set<Promise<unknown>>();
   private pins = 0;
   private backgroundWriters = 0;
@@ -137,11 +138,18 @@ export class FixedPathController<T extends ManagedGraphHandle> {
       if (this.backgroundWriters) await new Promise<void>(resolve => this.backgroundWaiters.push(resolve));
     }
     if (this.backgroundReleaseError) throw this.backgroundReleaseError;
+    if (this.closeFailure) throw this.closeFailure;
+    // close() remains synchronous. The existing lifecycle await is the explicit
+    // barrier for final maintenance worker exit before deleting/copying files.
+    if (this.readers.closed || this.writers.closed) await Promise.all([
+      this.readers.whenMaintenanceIdle(), this.writers.whenMaintenanceIdle(),
+    ]);
   }
   get isWriting(): boolean { return this.writers.active > 0; }
   close(): void {
     if (this.closed) return;
     if (this.pending.size || this.backgroundWriters || this.writeMutex.isLocked() || this.readers.active || this.writers.active) throw new Error('Cannot close fixed-path facade with active operations; await whenIdle()');
+    this.closeFailure = undefined;
     const errors: unknown[] = [];
     try { this.writers.close(); } catch (error) { errors.push(error); }
     for (const connection of this.failedNative) {
@@ -154,7 +162,8 @@ export class FixedPathController<T extends ManagedGraphHandle> {
     try { this.readers.close(); } catch (error) { errors.push(error); }
     if (errors.length) {
       FixedPathController.failedControllers.add(this);
-      throw new AggregateError(errors, 'Fixed-path close failed; unresolved native handles retain ownership');
+      this.closeFailure = new AggregateError(errors, 'Fixed-path close failed; unresolved native handles retain ownership');
+      throw this.closeFailure;
     }
     FixedPathController.failedControllers.delete(this);
     this.closed = true;

@@ -13,6 +13,7 @@ process.env.CODEGRAPH_FIXED_PATH = '1';
 // Node 24 test runners expand default flags; exercise the supported production runtime.
 process.execArgv = ['--liftoff-only'];
 function root() { return fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'fixed-production-'))); }
+async function removeFixture(dir){await require('../../dist/sync/fixed-path/protocol.js').whenMaintenanceIdle(dir,{timeoutMs:5000});fs.rmSync(dir,{recursive:true,force:true});}
 function source(dir, value=1, flask=false) {
   fs.writeFileSync(path.join(dir,'main.py'), `${flask?'from flask import Flask\napp = Flask(__name__)\n':'# stable line\n# stable line\n'}def stable(value=${value}):\n    return value\n`);
 }
@@ -40,7 +41,7 @@ test('real SDK fixed initialization, ordinary sync and marker authority with opt
     delete process.env.CODEGRAPH_FIXED_PATH;
     graph=CodeGraph.openSync(dir);assert.match(graph.getNode(id).signature,/value=3/);
     graph.clear();assert.equal(graph.getNode(id),null);
-  } finally { graph?.close();process.env.CODEGRAPH_FIXED_PATH='1';fs.rmSync(dir,{recursive:true,force:true}); }
+  } finally { graph?.close();process.env.CODEGRAPH_FIXED_PATH='1';await removeFixture(dir); }
 });
 
 test('real SDK and ToolHandler survive repeated automatic rebuilds at the same active path', {timeout:30000}, async()=>{
@@ -57,7 +58,7 @@ test('real SDK and ToolHandler survive repeated automatic rebuilds at the same a
       const response=await handler.execute('search',{query:`round${n}_139`});assert.equal(response.isError,undefined);assert.match(JSON.stringify(response),new RegExp(`round${n}_139`));
       assert(records(paths(dir)).every(record=>record.phase==='cleaned'));
     }
-  } finally {handler.closeAll();graph.close();fs.rmSync(dir,{recursive:true,force:true});}
+  } finally {handler.closeAll();graph.close();await removeFixture(dir);}
 });
 
 test('long SDK read pin cancels bounded drain without closing or mixing the old request', {timeout:15000}, async()=>{
@@ -67,7 +68,7 @@ test('long SDK read pin cancels bounded drain without closing or mixing the old 
     assert.equal(pin.graph.searchNodes('stable').length,1);assert.equal(pin.graph.searchNodes('blocked_139').length,0);
     assert.equal(graph.searchNodes('stable').length,1);pin.release();
     assert.equal((await graph.sync()).adaptive.strategy,'rebuild');assert(graph.searchNodes('blocked_139').some(r=>r.node.name==='blocked_139'));
-  } finally {pin.release();graph.close();fs.rmSync(dir,{recursive:true,force:true});}
+  } finally {pin.release();graph.close();await removeFixture(dir);}
 });
 
 test('single standalone public database repeats offline cover -> CLI increment -> rebuild -> cover -> sync', {timeout:40000}, async()=>{
@@ -87,7 +88,7 @@ test('single standalone public database repeats offline cover -> CLI increment -
       assert(!fs.existsSync(active+'-wal'));assert(!fs.existsSync(active+'-shm'));
     }
     fs.writeFileSync(active,'corrupt public file');assert.throws(()=>CodeGraph.openSync(consumer));
-  } finally {graph?.close();fs.rmSync(producer,{recursive:true,force:true});fs.rmSync(consumer,{recursive:true,force:true});}
+  } finally {graph?.close();await removeFixture(producer);await removeFixture(consumer);}
 });
 
 test('real legacy generation migrates offline and normal open ignores the retired CURRENT', {timeout:15000}, async()=>{
@@ -100,7 +101,7 @@ test('real legacy generation migrates offline and normal open ignores the retire
     assert.equal(graph.searchNodes('stable').length,1);source(dir,42);await graph.sync({adaptive:false});
     assert.match(graph.searchNodes('stable')[0].node.signature,/42/);
     assert(!fs.existsSync(original));
-  } finally {graph?.close();process.env.CODEGRAPH_FIXED_PATH='1';fs.rmSync(dir,{recursive:true,force:true});}
+  } finally {graph?.close();process.env.CODEGRAPH_FIXED_PATH='1';await removeFixture(dir);}
 });
 
 test('real OS watcher triggers fixed-path sync and stays running through a rebuild', {timeout:20000}, async()=>{
@@ -112,7 +113,7 @@ test('real OS watcher triggers fixed-path sync and stays running through a rebui
     assert(graph.searchNodes('watched_139').some(r=>r.node.name==='watched_139'));
     assert(graph.isWatching());assert(records(paths(dir)).some(record=>record.phase==='cleaned'));
     graph.unwatch();await graph.whenIdle();
-  } finally {graph.unwatch();await graph.whenIdle();graph.close();fs.rmSync(dir,{recursive:true,force:true});}
+  } finally {graph.unwatch();await graph.whenIdle();graph.close();await removeFixture(dir);}
 });
 
 test('whenIdle waits for retained SDK pin even without a promise query', async()=>{
@@ -121,7 +122,7 @@ test('whenIdle waits for retained SDK pin even without a promise query', async()
     let idle=false;const wait=graph.whenIdle().then(()=>idle=true);
     await new Promise(r=>setTimeout(r,20));assert.equal(idle,false);
     pin.release();await wait;assert.equal(idle,true);
-  } finally {pin.release();graph.close();fs.rmSync(dir,{recursive:true,force:true});}
+  } finally {pin.release();graph.close();await removeFixture(dir);}
 });
 
 test('actual SDK mutator crash releases OS mutation ownership without stale root lock', {timeout:15000}, async()=>{
@@ -134,7 +135,7 @@ test('actual SDK mutator crash releases OS mutation ownership without stale root
     child.kill('SIGKILL');await exited;
     assert(!fs.existsSync(path.join(dir,'.codegraph-wx','codegraph.lock')));
     graph.clear();assert.equal(graph.searchNodes('stable').length,0);
-  } finally {graph.close();fs.rmSync(dir,{recursive:true,force:true});}
+  } finally {graph.close();await removeFixture(dir);}
 });
 
 test('scoped watcher sync rebuilds changed configuration then performs a full post-publication check', {timeout:15000}, async()=>{
@@ -145,7 +146,7 @@ test('scoped watcher sync rebuilds changed configuration then performs a full po
     const result=await graph.sync({paths:['main.py']});
     assert.equal(result.adaptive?.strategy,'rebuild');assert.equal(result.complete,true);
     assert.match(graph.searchNodes('stable')[0].node.signature,/value=9/);
-  } finally {graph.close();fs.rmSync(dir,{recursive:true,force:true});}
+  } finally {graph.close();await removeFixture(dir);}
 });
 
 test('write committed after planning cannot be overwritten by a later candidate baseline', {timeout:15000}, async()=>{
@@ -155,7 +156,7 @@ test('write committed after planning cannot be overwritten by a later candidate 
     await assert.rejects(graph.sync({onAdaptiveDecision(decision){if(decision.strategy==='rebuild'&&!cleared){cleared=true;graph.clear();}}}),/changed after planning/);
     assert(cleared);assert.equal(graph.getFiles().length,0);assert.equal(graph.searchNodes('stable').length,0);
     assert(records(paths(dir)).every(record=>record.phase==='cleaned'));
-  } finally {graph.close();fs.rmSync(dir,{recursive:true,force:true});}
+  } finally {graph.close();await removeFixture(dir);}
 });
 
 test('source edits immediately after actual publication converge automatically before sync completes', {timeout:15000}, async()=>{
@@ -172,7 +173,7 @@ test('source edits immediately after actual publication converge automatically b
     assert.equal(result.complete,true);assert.equal(result.adaptive.strategy,'rebuild');
     assert.match(graph.searchNodes('stable')[0].node.signature,/value=77/);
     assert(graph.searchNodes('late_added').some(r=>r.node.name==='late_added'));
-  } finally {worker.runFixedPathRebuild=original;graph.close();fs.rmSync(dir,{recursive:true,force:true});}
+  } finally {worker.runFixedPathRebuild=original;graph.close();await removeFixture(dir);}
 });
 
 test('project-directory aliases share one fixed database and recovery namespace', {timeout:15000}, async()=>{
@@ -183,7 +184,7 @@ test('project-directory aliases share one fixed database and recovery namespace'
     addFiles(dir,'alias_');assert.equal((await other.sync()).adaptive.strategy,'rebuild');
     assert(graph.searchNodes('alias_139').some(r=>r.node.name==='alias_139'));
     assert.deepEqual(paths(alias),paths(dir));assert(records(paths(dir)).every(record=>record.phase==='cleaned'));
-  } finally {other?.close();graph.close();fs.rmSync(alias,{force:true,recursive:true});fs.rmSync(dir,{recursive:true,force:true});}
+  } finally {other?.close();graph.close();fs.rmSync(alias,{force:true,recursive:true});await removeFixture(dir);}
 });
 
 test('real fixed indexing runs leased native store and parallel resolver workers through actual exit', {timeout:30000}, async()=>{
@@ -206,7 +207,7 @@ test('real fixed indexing runs leased native store and parallel resolver workers
   } finally {
     lifetime.startDatabaseWorker=original;graph?.close();
     for(const [key,value] of [['CODEGRAPH_PARALLEL_RESOLVE_MIN',previous.min],['CODEGRAPH_RESOLVE_WORKERS',previous.workers]]){if(value===undefined)delete process.env[key];else process.env[key]=value;}
-    fs.rmSync(dir,{recursive:true,force:true});
+    await removeFixture(dir);
   }
 });
 
@@ -219,5 +220,5 @@ test('low-level filename symlinks cannot bypass registered fixed native admissio
     assert.throws(()=>DatabaseConnection.open(alias),/lifecycle admission/);
     assert.throws(()=>DatabaseConnection.initialize(alias),/lifecycle admission/);
     graph=CodeGraph.openSync(dir);assert.equal(graph.getDatabaseFilePath(),active);
-  }finally{graph?.close();fs.rmSync(dir,{recursive:true,force:true});}
+  }finally{graph?.close();await removeFixture(dir);}
 });

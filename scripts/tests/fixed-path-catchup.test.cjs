@@ -30,7 +30,7 @@ function updated(graph) {
   assert(graph.searchNodes('after__symbol').some(r=>r.node.name==='after__symbol'));
   assert(!graph.searchNodes('before_symbol').some(r=>r.node.name==='before_symbol'));
 }
-async function dispose(graph,dir) { if(graph){graph.abortActiveWork();await graph.whenIdle();graph.close();}fs.rmSync(dir,{recursive:true,force:true}); }
+async function dispose(graph,dir) { if(graph){graph.abortActiveWork();await graph.whenIdle();graph.close();await graph.whenIdle();}await require('../../dist/sync/fixed-path/protocol.js').whenMaintenanceIdle(dir,{timeoutMs:5000});fs.rmSync(dir,{recursive:true,force:true}); }
 
 // Guard against the original endless loop without depending on a wall-clock race.
 test('same-size/restored-mtime edit after publication converges, removes old symbol and becomes a stable no-op', {timeout:20000}, async()=>{

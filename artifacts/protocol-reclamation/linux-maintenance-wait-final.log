@@ -1,0 +1,20 @@
+MAINTENANCE_PRESSURE {"history":100000,"dispatchMs":2.8555300000000443,"workers":1,"queryP99Ms":0.50683499999991,"eventLoopP99Ms":6.099680999999919,"eventLoopMaxMs":11.760310000000004}
+✔ 100000 legacy cleaned records never scan on the query timer; unchanged data_version does not respawn work (1436.467663ms)
+MAINTENANCE_CLOSE {"bytes":33554432,"closeMs":1.7329349999999977,"concurrentQueries":37,"maxQueryMs":0.26638199999979406}
+✔ close reclaims a real 32MiB retired database off-thread while another SDK continues querying (295.683409ms)
+Fixed-path final recovery deferred: Injected worker construction failure
+✔ coordinator reconnect invalidates cached data_version and still collects an exited builder (364.460754ms)
+✔ close failure while dispatching maintenance still releases native handles and keeper (57.4513ms)
+✔ a pre-reconnect worker response cannot overwrite the new keeper epoch or lose pending cleanup (117.366467ms)
+✔ closed participant maintenance wait has a finite timeout and resumes after genuine publisher exit (189.405514ms)
+✔ SDK close remains synchronous and existing whenIdle waits final cleanup across multiple participants (325.82006ms)
+✔ close tail checkpoint failure is retained by the wait barrier and a repeated close can repair it (53.642981ms)
+✔ close observes a newer publication than an in-flight worker and automatically completes a final pass (56.336577ms)
+ℹ tests 9
+ℹ suites 0
+ℹ pass 9
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 3003.282384
