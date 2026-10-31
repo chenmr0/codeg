@@ -1,3 +1,5 @@
+import { useLegacyStorageFixtures } from './helpers/legacy-layout';
+useLegacyStorageFixtures();
 /** Runs the real old release with only schema file line endings transformed.
  * No version/ownership/recovery stamps are manufactured or modified. */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';

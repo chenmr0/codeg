@@ -1,3 +1,5 @@
+import { useLegacyStorageFixtures } from './helpers/legacy-layout';
+useLegacyStorageFixtures();
 /** Fresh native stores participate in cross-process generation lifetime from birth. */
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { spawnSync } from 'child_process';

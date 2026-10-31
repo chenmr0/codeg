@@ -1,3 +1,5 @@
+import { useLegacyStorageFixtures } from './helpers/legacy-layout';
+useLegacyStorageFixtures();
 /** Acceptance checks against an independent fresh index. Synthetic cost history
  * is used solely to choose the rebuild branch, never as timing evidence.
  */

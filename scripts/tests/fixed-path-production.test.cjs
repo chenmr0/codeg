@@ -92,7 +92,7 @@ test('single standalone public database repeats offline cover -> CLI increment -
 });
 
 test('real legacy generation migrates offline and normal open ignores the retired CURRENT', {timeout:15000}, async()=>{
-  const dir=root();source(dir);delete process.env.CODEGRAPH_FIXED_PATH;
+  const dir=root();source(dir);process.env.CODEGRAPH_FIXED_PATH='0';
   let graph=await CodeGraph.init(dir,{index:true});const original=graph.getDatabaseFilePath();graph.close();graph=null;
   try {
     assert.match(original, /generations/);

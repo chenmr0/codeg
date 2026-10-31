@@ -1,3 +1,5 @@
+import { useLegacyStorageFixtures } from './helpers/legacy-layout';
+useLegacyStorageFixtures();
 /** Real processes: atomic CURRENT admission, operation leases, and fail-closed corruption. */
 import { afterEach, expect, it } from 'vitest';
 import fs from 'fs'; import os from 'os'; import path from 'path';

@@ -1,3 +1,5 @@
+import { useLegacyStorageFixtures } from './helpers/legacy-layout';
+useLegacyStorageFixtures();
 /** Actual stdio JSON-RPC process shutdown must drain last-reader retirement GC. */
 import { it, expect } from 'vitest';
 import fs from 'fs'; import os from 'os'; import path from 'path';

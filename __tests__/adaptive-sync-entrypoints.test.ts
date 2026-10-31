@@ -1,3 +1,5 @@
+import { useLegacyStorageFixtures } from './helpers/legacy-layout';
+useLegacyStorageFixtures();
 /** Built CLI and real OS watcher acceptance. Artificial history selects a
  * functional path only; it is not a benchmark or a production calibration.
  */

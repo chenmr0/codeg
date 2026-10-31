@@ -1,3 +1,5 @@
+import { useLegacyStorageFixtures } from './helpers/legacy-layout';
+useLegacyStorageFixtures();
 /** Real child-process publication tests. Injected history selects the branch;
  * invented timing observations are NOT performance evidence or calibration.
  */

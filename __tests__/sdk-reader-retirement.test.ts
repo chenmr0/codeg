@@ -1,3 +1,5 @@
+import { useLegacyStorageFixtures } from './helpers/legacy-layout';
+useLegacyStorageFixtures();
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import fs from 'fs'; import os from 'os'; import path from 'path';
 const { CodeGraph } = require('../dist') as typeof import('../src');

@@ -6,7 +6,7 @@
  */
 
 import * as path from 'path';
-import { getInternalFilePath, ensureInternalDirectory } from './runtime-paths';
+import { getInternalFilePath, ensureInternalDirectory, shouldInitializeFixedPath } from './runtime-paths';
 import { existsSync, statSync, appendFileSync, renameSync, realpathSync, lstatSync, openSync, fstatSync, readSync, closeSync, constants } from 'fs';
 import {
   Node,
@@ -231,6 +231,7 @@ export interface IndexDataReadiness {
  * Provides the primary interface for interacting with the code knowledge graph.
  */
 export class CodeGraph {
+  private static warnedLegacyLayouts = new Set<string>();
   // Exceptional native close failures must stay protected until retry/process
   // exit; GC order must not release a lease before its still-live DB handle.
   private static failedOpens = new Map<GenerationLease, DatabaseConnection>();
@@ -389,7 +390,7 @@ export class CodeGraph {
     await initGrammars();
     options.signal?.throwIfAborted();
     const root = path.resolve(projectRoot);
-    if (process.env.CODEGRAPH_FIXED_PATH === '1') {
+    if (shouldInitializeFixedPath()) {
       const fixed = CodeGraph.initFixedPathStorage(root);
       try {
         if (options.index) {
@@ -449,7 +450,7 @@ export class CodeGraph {
   }
 
   private static initFixedPathStorage(root: string): CodeGraph {
-    if (!CodeGraph.nativeInitializationAvailable()) throw new Error('Fixed-path storage requires node:sqlite');
+    if (!CodeGraph.nativeInitializationAvailable()) throw new Error('Default fixed-path storage requires node:sqlite; use a supported native Node.js runtime. CODEGRAPH_FIXED_PATH=0 explicitly selects legacy compatibility storage for a new project');
     createDirectory(root);
     const dataDir = getCodeGraphDir(root);
     CodeGraph.assertUninitialized(root, dataDir);
@@ -475,7 +476,7 @@ export class CodeGraph {
   /** Initialize schema-only storage; this does not claim source-index completeness. */
   static initSync(projectRoot: string): CodeGraph {
     const root = path.resolve(projectRoot);
-    if (process.env.CODEGRAPH_FIXED_PATH === '1') return CodeGraph.initFixedPathStorage(root);
+    if (shouldInitializeFixedPath()) return CodeGraph.initFixedPathStorage(root);
     createDirectory(root);
     const dataDir = getCodeGraphDir(root);
     const lock = new GenerationWriterLock(dataDir);
@@ -530,6 +531,12 @@ export class CodeGraph {
       db = readOnly ? DatabaseConnection.openReadOnly(lease.databasePath) :
         DatabaseConnection.open(lease.databasePath, { nativeOnly: lease.id !== null });
       const graph = new CodeGraph(db, new QueryBuilder(db.getDb()), root, false, readOnly, pinnedRead, dataDirectory, lease);
+      // Defaults only govern NEW storage. Discovering an existing legacy store
+      // never grants permission to migrate it while other readers may be alive.
+      if (!CodeGraph.warnedLegacyLayouts.has(dataDirectory)) {
+        CodeGraph.warnedLegacyLayouts.add(dataDirectory);
+        console.warn(`[codegraph] Existing storage at ${dataDirectory} remains usable without reinitialization or migration. To adopt managed .runtime coordination and safe fixed-path replacement, close all CodeGraph processes and external SQLite tools, then run codegraph migrate-storage --offline in the project directory. No layout migration is performed by opening this database.`);
+      }
       void collectRetiredGenerations(dataDirectory).catch(() => {});
       return graph;
     } catch (error) {
@@ -1317,6 +1324,7 @@ export class CodeGraph {
     let initiallyOwned = false;
     try {
       if (options.adaptive === false || process.env.CODEGRAPH_ADAPTIVE_SYNC === '0') decision.reason = 'disabled';
+      else if (shouldInitializeFixedPath() && !existsSync(path.join(this.dataDir, 'CURRENT'))) decision.reason = 'legacy-root-layout-retained-offline-migration-required-for-replacement';
       else if (getCodeGraphDir(this.projectRoot) !== this.dataDir) decision.reason = 'data-directory-selection-changed';
       else if (process.execArgv.some(arg => arg !== '--liftoff-only' && !/^--max[-_]old[-_]space[-_]size=\d+$/.test(arg)) || process.env.NODE_OPTIONS?.trim()) decision.reason = 'unsupported-child-runtime-options';
       else if (this.db.getBackend() !== 'node-sqlite') decision.reason = 'unsupported-sqlite-backend';
