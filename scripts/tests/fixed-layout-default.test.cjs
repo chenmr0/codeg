@@ -47,7 +47,11 @@ function cli(f,args,expected=0) {
  assert.equal(result.status,expected,result.stdout+result.stderr);return result;
 }
 function custom(file,value) {const db=new DatabaseSync(file);try{db.exec('CREATE TABLE default_custom(value TEXT)');db.prepare('INSERT INTO default_custom VALUES (?)').run(value);}finally{db.close();}}
+// Deliberately readonly: validation may leave SQLite-owned empty WAL/SHM.
+// Do not clean those in the test; explicitly offline product migration owns
+// safe checkpoint/recovery of closed-reader state, or must report a limitation.
 function readCustom(file) {const db=new DatabaseSync(file,{readOnly:true});try{return db.prepare('SELECT value FROM default_custom').get().value;}finally{db.close();}}
+
 
 for(const method of ['init','initSync'])test(`unset environment: SDK ${method} creates strict fixed layout and reopens`,{timeout:30000},async()=>{
  assert.equal(process.env.CODEGRAPH_FIXED_PATH,undefined);
@@ -89,9 +93,9 @@ for(const kind of ['generational','root'])test(`unset environment: existing ${ki
  custom(file,kind);const pointer=kind==='generational'?fs.readFileSync(path.join(f.data,'CURRENT'),'utf8'):null;
  capture(f,'before-open',false);graph=CodeGraph.openSync(f.project);
  try{assert.equal(graph.getDatabaseFilePath(),file);assert(graph.searchNodes('default_layout_symbol').length);capture(f,'legacy-running',false);}finally{await close(graph);}
- assert(!fs.existsSync(path.join(f.data,'.runtime','layout.json')),'normal open must not silently migrate');
- assert.throws(()=>CodeGraph.initSync(f.project),/already initialized/i);
- await assert.rejects(CodeGraph.init(f.project,{index:true}),/already initialized/i);
+ capture(f,'legacy-sdk-closed',false);assert(!fs.existsSync(path.join(f.data,'.runtime','layout.json')),'normal open must not silently migrate');
+ assert.throws(()=>CodeGraph.initSync(f.project),/already initialized/i);capture(f,'after-rejected-initsync',false);
+ await assert.rejects(CodeGraph.init(f.project,{index:true}),/already initialized/i);capture(f,'after-rejected-init',false);
  cli(f,['init',f.project]);capture(f,'init-no-overwrite',false);
  assert(!fs.existsSync(path.join(f.data,'.runtime','layout.json')),'CLI init existing data must not silently migrate');
  assert.equal(readCustom(file),kind);if(pointer!==null)assert.equal(fs.readFileSync(path.join(f.data,'CURRENT'),'utf8'),pointer);
