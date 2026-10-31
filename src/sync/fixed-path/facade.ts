@@ -14,7 +14,7 @@ const synchronousWrites = new Set(['clear', 'optimize', 'resolveReferences']);
 const synchronousReads = new Set([
   'getChangedFiles', 'getLastIndexedAt', 'getIndexBuildInfo', 'getIndexCompleteness', 'isIndexStale',
   'extractFromSource', 'getPendingReferenceCount', 'getDetectedFrameworks', 'reinitializeResolver',
-  'getStats', 'getBackend', 'getJournalMode', 'getNode', 'getNodesInFile', 'getNodesByKind',
+  'getStats', 'getFileCount', 'getBackend', 'getJournalMode', 'getNode', 'getNodesInFile', 'getNodesByKind',
   'getNodesByName', 'getNodesBySymbolExact', 'searchNodes', 'getProjectNameTokens', 'getTopRouteFile',
   'getRoutingManifest', 'getOutgoingEdges', 'getIncomingEdges', 'getDirectRelationshipGroups',
   'getFile', 'getFiles', 'getContext', 'traverse', 'getCallGraph', 'getTypeHierarchy', 'findUsages',
@@ -196,7 +196,7 @@ export function createFixedPathFacade(project: FixedPathProject, prototype: obje
     set() { throw new Error('Fixed-path facade state is private'); },
   });
   // Fail a corrupt/missing public replacement at open, not later on first query.
-  try { controller.readSync(graph => graph.getStats()); }
+  try { controller.readSync(graph => graph.validateFixedPathReadable()); }
   catch (error) { controller.close(); throw error; }
   return facade;
 }

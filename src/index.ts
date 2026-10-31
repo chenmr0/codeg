@@ -32,6 +32,7 @@ import { FixedPathWriterLock } from './sync/fixed-path/writer-lock';
 import { createFixedPathFacade } from './sync/fixed-path/facade';
 import { markFixedPathCatchup, readFixedPathCatchup, clearFixedPathCatchup } from './sync/fixed-path/catchup';
 import { withFixedPathOpen } from './sync/fixed-path/open-context';
+import { repairLegacyIncludesOffThread } from './db/legacy-include-repair';
 import { isFixedPathLayout } from './sync/fixed-path/probe';
 import { migrateToFixedPath } from './sync/fixed-path-layout';
 import { initializeFixedPathStorage, recoverFixedPathInitialization } from './sync/fixed-path-initialization';
@@ -658,6 +659,19 @@ export class CodeGraph {
 
   /** @internal Read on a controller-owned handle, never a public facade method. */
   getFixedPathCatchup(): string | null { return readFixedPathCatchup(this.db.getDb()); }
+
+  /** @internal Probe the admitted image without scanning its complete graph.
+   * This is an open/readability check, not a whole-database integrity check.
+   * Aggregate statistics likewise never guaranteed every database page was sound.
+   * Keep schema/column validation even for empty tables and read a real row when
+   * present, so missing tables or malformed public replacements fail at open.
+   */
+  validateFixedPathReadable(): void {
+    const db = this.db.getDb();
+    db.prepare('SELECT id, kind FROM nodes LIMIT 1').get();
+    db.prepare('SELECT id, source, target, kind FROM edges LIMIT 1').get();
+    db.prepare('SELECT path, language FROM files LIMIT 1').get();
+  }
 
   /** @internal A matching file hash is not proof that its resolution tail ran. */
   hasFixedPathCatchupWork(): boolean {
@@ -1513,7 +1527,13 @@ export class CodeGraph {
 
         this.queries.recoverDeferredConformanceReferences();
         const recoveredDeltaFiles = await recoverAppendDeltas(this.queries);
-        const repairedIncludeFiles = this.queries.repairLegacyCppIncludes();
+        // A first sync of a public/legacy image may scan millions of edges.
+        // An async sync must not perform that transaction on the MCP event loop.
+        const repairedIncludeFiles = this.db.getBackend() === 'node-sqlite' && this.db.getJournalMode() === 'wal' &&
+          existsSync(path.join(__dirname, 'db', 'legacy-include-repair-worker.js')) &&
+          this.queries.getMetadata('repair:cpp-include-targets-v1') !== 'done'
+          ? await repairLegacyIncludesOffThread(this.db.getPath(), () => this.db.retainBackgroundLease(), options.signal, deferWal)
+          : this.queries.repairLegacyCppIncludes();
         const macroEvidenceStarted = options.verbose ? performance.now() : 0;
         const recoveredMacroFiles = deferredMacroBaseline ? [] : await this.queries.invalidateCppMacroCalls();
         const macroEvidenceMs = options.verbose ? performance.now() - macroEvidenceStarted : 0;
@@ -2400,6 +2420,14 @@ export class CodeGraph {
   // ===========================================================================
   // Graph Statistics
   // ===========================================================================
+
+  /** Indexed file count without scanning node/edge aggregates. */
+  getFileCount(): number {
+    return this.withReadView(view => {
+      if (view !== this) return view.getFileCount();
+      return this.queries.getFileCount();
+    });
+  }
 
   /**
    * Get statistics about the knowledge graph

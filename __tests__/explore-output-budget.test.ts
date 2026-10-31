@@ -6,7 +6,7 @@
  * grep+Read. These tests pin the per-tier budget shape so future tuning
  * doesn't silently drift the small-project case back into bloat.
  */
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
@@ -197,6 +197,18 @@ describe('codegraph_explore output respects the adaptive budget', () => {
     // Allow a small overshoot for the trailing markers — the cap is enforced
     // per-file rather than as an absolute output ceiling.
     expect(text.length).toBeLessThan(smallBudget.maxOutputChars + 500);
+  });
+
+  it('derives explore output and call budgets without full graph statistics', async () => {
+    const stats = vi.spyOn(cg, 'getStats').mockImplementation(() => { throw new Error('full statistics forbidden'); });
+    const count = vi.spyOn(cg, 'getFileCount');
+    try {
+      expect(cg.getFileCount()).toBe(6);
+      const result = await handler.execute('explore', { query: 'Session method helper' });
+      expect(result.isError).not.toBe(true);
+      expect(result.content?.[0]?.text ?? '').not.toContain('Explore budget:');
+      expect(count).toHaveBeenCalled(); expect(stats).not.toHaveBeenCalled();
+    } finally { count.mockRestore(); stats.mockRestore(); }
   });
 
   it('omits the meta-text gated off for small projects', async () => {

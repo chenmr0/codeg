@@ -1466,8 +1466,8 @@ export class ToolHandler {
     if (!this.cg) return visible;
 
     try {
-      const stats = this.cg.getStats();
-      const budget = getExploreBudget(stats.fileCount);
+      const fileCount = this.cg.getFileCount();
+      const budget = getExploreBudget(fileCount);
 
       // Tiny-repo tool gating: on projects under TINY_REPO_FILE_THRESHOLD
       // files, only expose the 5 core tools (search, context, node,
@@ -1498,7 +1498,7 @@ export class ToolHandler {
         'context',
         'node',
       ]);
-      if (stats.fileCount < TINY_REPO_FILE_THRESHOLD) {
+      if (fileCount < TINY_REPO_FILE_THRESHOLD) {
         visible = visible.filter(t => TINY_REPO_CORE_TOOLS.has(t.name));
       }
 
@@ -1506,7 +1506,7 @@ export class ToolHandler {
         if (tool.name === 'explore') {
           return {
             ...tool,
-            description: `${tool.description} Budget: make at most ${budget} calls for this project (${stats.fileCount.toLocaleString()} files indexed).`,
+            description: `${tool.description} Budget: make at most ${budget} calls for this project (${fileCount.toLocaleString()} files indexed).`,
           };
         }
         return tool;
@@ -3890,7 +3890,7 @@ export class ToolHandler {
     // pre-#185 behavior for callers that hit the rare stats failure.
     let budget: ExploreOutputBudget;
     try {
-      budget = getExploreOutputBudget(cg.getStats().fileCount);
+      budget = getExploreOutputBudget(cg.getFileCount());
     } catch {
       budget = getExploreOutputBudget(Infinity);
     }
@@ -4809,10 +4809,10 @@ export class ToolHandler {
     // Add explore budget note based on project size
     if (budget.includeBudgetNote) {
       try {
-        const stats = cg.getStats();
-        const callBudget = getExploreBudget(stats.fileCount);
+        const fileCount = cg.getFileCount();
+        const callBudget = getExploreBudget(fileCount);
         lines.push('');
-        lines.push(`> **Explore budget: ${callBudget} calls for this project (${stats.fileCount.toLocaleString()} files indexed).** Each call covers ~6 files; if your question spans more, spend your remaining calls on the uncovered area BEFORE falling back to Read — another explore is cheaper and more complete than reading those files. Synthesize once you've used ${callBudget}.`);
+        lines.push(`> **Explore budget: ${callBudget} calls for this project (${fileCount.toLocaleString()} files indexed).** Each call covers ~6 files; if your question spans more, spend your remaining calls on the uncovered area BEFORE falling back to Read — another explore is cheaper and more complete than reading those files. Synthesize once you've used ${callBudget}.`);
       } catch {
         // Stats unavailable — skip budget note
       }

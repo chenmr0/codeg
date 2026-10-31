@@ -3403,9 +3403,12 @@ WHERE e.kind = 'imports'
     return new Set(rows.map((row) => row.language));
   }
 
-  /**
-   * Get graph statistics
-   */
+  /** Count indexed files without scanning node/edge aggregates. */
+  getFileCount(): number {
+    return (this.db.prepare('SELECT COUNT(*) AS count FROM files').get() as { count: number }).count;
+  }
+
+  /** Get full graph statistics. */
   getStats(): GraphStats {
     // Single query for all three aggregate counts
     const counts = this.db.prepare(`

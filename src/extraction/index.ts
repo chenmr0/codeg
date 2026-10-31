@@ -5,6 +5,7 @@
  */
 
 import { workerRuntimeOptions } from '../worker-runtime';
+import { canScanOffThread, scanOffThread } from './scan-off-thread';
 import * as fs from 'fs';
 import { repositoryExcludePath } from '../git-metadata';
 import * as fsp from 'fs/promises';
@@ -858,6 +859,16 @@ async function scanDirectoryAsyncInScope(
   diagnostics?: ScanDiagnostics,
   capture?: RustScanCapture,
 ): Promise<string[]> {
+  // The old first yield followed a complete synchronous Git/path/ignore scan.
+  // On large repositories canonicalization alone can block MCP for seconds.
+  if (canScanOffThread()) {
+    const files = await scanOffThread(rootDir, diagnostics, capture);
+    for (let i = 0; i < files.length; i++) {
+      onProgress?.(i + 1, files[i]!);
+      if ((i + 1) % 100 === 0) await new Promise<void>(resolve => setImmediate(resolve));
+    }
+    return files;
+  }
   if (capture) { capture.snapshot = undefined; capture.fallback = undefined; }
   const native = tryRustDirectoryScan(rootDir, diagnostics, capture);
   if (native) {

@@ -233,12 +233,14 @@ describe('extended sync graph integrity scenarios', () => {
     db().prepare("UPDATE unresolved_refs SET name_tail='h' WHERE reference_name='missing.h'").run();
     const failedBefore = db().prepare('SELECT * FROM unresolved_refs ORDER BY id').all();
     const damaged = edges();
-    const stamp = vi.spyOn((cg as any).queries, 'setMetadata').mockImplementationOnce(() => {throw new Error('repair-stamp-failure');});
+    db().exec(`CREATE TRIGGER fail_include_repair_stamp BEFORE INSERT ON project_metadata
+      WHEN NEW.key='repair:cpp-include-targets-v1'
+      BEGIN SELECT RAISE(ABORT, 'repair-stamp-failure'); END`);
     await expect(cg!.sync()).rejects.toThrow('repair-stamp-failure');
     expect(edges()).toEqual(damaged);
     expect(db().prepare('SELECT * FROM unresolved_refs ORDER BY id').all()).toEqual(failedBefore);
     expect(db().prepare("SELECT value FROM project_metadata WHERE key='repair:cpp-include-targets-v1'").get()).toBeUndefined();
-    stamp.mockRestore();
+    db().exec('DROP TRIGGER fail_include_repair_stamp');
     await cg!.sync();
     expect(edges()).toEqual(correct);
     expect(db().prepare("SELECT name_tail,status FROM unresolved_refs WHERE reference_name='missing.h'").get()).toEqual({ name_tail: 'missing.h', status: 'failed' });
