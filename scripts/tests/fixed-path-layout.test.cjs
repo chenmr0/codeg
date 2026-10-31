@@ -74,3 +74,15 @@ test('legacy admission stays closed throughout migration commit',async t=>{
   }}}).cleanup;
   assert(checked);assert.deepEqual(fs.readdirSync(root).sort(),['.runtime','codegraph.db']);assert.equal(value(active(root)),'old');
 });
+
+test('dangling legacy layout symlink is retained and never mistaken for absence',t=>{
+  const root=fixture(t);db(active(root));const link=path.join(root,'generations');
+  fs.symlinkSync(path.join(root,'missing-target'),link,'junction');
+  assert.throws(()=>api.migrateToFixedPath(root,{offline:true}),/Unsafe legacy directory/);
+  assert(fs.lstatSync(link).isSymbolicLink());assert.equal(value(active(root)),'old');
+});
+test('a fixed marker never authorizes newly introduced unowned legacy business data',async t=>{
+  const root=fixture(t);db(active(root));await api.migrateToFixedPath(root,{offline:true}).cleanup;const added=legacy(root,'external');
+  assert.throws(()=>api.migrateToFixedPath(root,{offline:true}),/Unowned legacy generation/);
+  assert.equal(value(added),'external');assert.equal(value(active(root)),'old');
+});
