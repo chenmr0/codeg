@@ -86,3 +86,16 @@ test('a fixed marker never authorizes newly introduced unowned legacy business d
   assert.throws(()=>api.migrateToFixedPath(root,{offline:true}),/Unowned legacy generation/);
   assert.equal(value(added),'external');assert.equal(value(active(root)),'old');
 });
+
+for(const phase of ['allocation-recorded','directory-created','owner-created'])test(`SIGKILL at migration ${phase} reclaims recorded allocation without a second business database`,async t=>{
+  const root=fixture(t),source=legacy(root),module=path.resolve(__dirname,'../../dist/sync/fixed-path-layout.js');
+  const script=`require(${JSON.stringify(module)}).migrateToFixedPath(${JSON.stringify(root)},{offline:true,hook:p=>{if(p===${JSON.stringify(phase)}){require('node:fs').writeSync(1,'kill-point');process.kill(process.pid,'SIGKILL')}}})`;
+  const killed=spawnSync(process.execPath,['--liftoff-only','-e',script],{encoding:'utf8'});assert.equal(killed.stdout,'kill-point');assert.notEqual(killed.status,0);
+  api.recoverFixedPathMigration(root);api.recoverFixedPathMigration(root);assert.equal(value(source),'old');assert.equal(fs.existsSync(active(root)),false);
+  const home=path.join(root,'.runtime','layout-migrations');assert.equal(fs.readdirSync(home).filter(n=>fs.lstatSync(path.join(home,n)).isDirectory()).length,0);
+  await api.migrateToFixedPath(root,{offline:true}).cleanup;assert.equal(value(active(root)),'old');assert.deepEqual(fs.readdirSync(root).sort(),['.runtime','codegraph.db']);
+});
+for(const artifact of ['custom.db','owner.json'])test(`migration allocation preserves unknown ${artifact}`,t=>{
+  const root=fixture(t),source=legacy(root);interrupt(root,'directory-created',true);const r=pending(root)[0];const file=path.join(root,'.runtime','layout-migrations',r.id,artifact);fs.writeFileSync(file,'custom evidence');
+  assert.throws(()=>api.recoverFixedPathMigration(root),/Unknown migration allocation/);assert.equal(fs.readFileSync(file,'utf8'),'custom evidence');assert.equal(value(source),'old');
+});

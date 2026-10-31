@@ -7,7 +7,7 @@ import { createHash, randomUUID } from 'crypto';
 import { canonicalFixedPathDataDirectory, inspectFixedPathLayout, migrateToFixedPath, recoverFixedPathMigration } from './fixed-path-layout';
 
 const UUID=/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/;
-interface Intent { version:1; id:string; root:string; writerToken:string; phase:'building'|'sealed'|'installed'|'committed'|'cleaning'; identity:string|null; outcome:'committed'|'aborted'|null; }
+interface Intent { version:1; id:string; root:string; writerToken:string; phase:'allocating'|'building'|'sealed'|'installed'|'committed'|'cleaning'; identity:string|null; outcome:'committed'|'aborted'|null; }
 export interface FixedPathInitializationOptions {
   hook?:(phase:string)=>void;
   /** Optional exceptional-path proof from the constructor/close owner. Never
@@ -32,12 +32,59 @@ function hash(file:string):string {regular(file);const h=createHash('sha256'),fd
 function noLogs(file:string):void {for(const suffix of ['-wal','-shm','-journal'])if(exists(file+suffix))throw new Error(`Unresolved initialization SQLite log: ${file+suffix}`);}
 function operation(p:ReturnType<typeof paths>,r:Intent){const dir=path.join(p.home,r.id);return{dir,candidate:path.join(dir,'candidate.db'),owner:path.join(dir,'owner.json'),next:path.join(dir,'intent.next')};}
 function read(p:ReturnType<typeof paths>):Intent|null {
-  if(!exists(p.intent))return null;regular(p.intent);if(fs.statSync(p.intent).size>8192)throw new Error('Initialization intent too large');
+  if(!exists(p.intent))return readAllocation(p);regular(p.intent);if(fs.statSync(p.intent).size>8192)throw new Error('Initialization intent too large');
   const r=JSON.parse(fs.readFileSync(p.intent,'utf8')) as Intent;
-  if(!r||r.version!==1||!UUID.test(r.id)||!UUID.test(r.writerToken)||r.root!==p.root||!['building','sealed','installed','committed','cleaning'].includes(r.phase)||![null,'committed','aborted'].includes(r.outcome)||
-     (r.identity!==null&&!/^[a-f0-9]{64}$/.test(r.identity))||(r.phase==='building'&&(r.identity!==null||r.outcome!==null))||(['sealed','installed'].includes(r.phase)&&(r.identity===null||r.outcome!==null))||(r.phase==='committed'&&(r.identity===null||r.outcome!=='committed'))||(r.phase==='cleaning'&&r.outcome===null)||
+  if(!r||r.version!==1||!UUID.test(r.id)||!UUID.test(r.writerToken)||r.root!==p.root||!['allocating','building','sealed','installed','committed','cleaning'].includes(r.phase)||![null,'committed','aborted'].includes(r.outcome)||
+     (r.identity!==null&&!/^[a-f0-9]{64}$/.test(r.identity))||(['allocating','building'].includes(r.phase)&&(r.identity!==null||r.outcome!==null))||(['sealed','installed'].includes(r.phase)&&(r.identity===null||r.outcome!==null))||(r.phase==='committed'&&(r.identity===null||r.outcome!=='committed'))||(r.phase==='cleaning'&&r.outcome===null)||
      Object.keys(r).some(k=>!['version','id','root','writerToken','phase','identity','outcome'].includes(k)))throw new Error('Invalid initialization intent');
   return r;
+}
+/** Allocation authority is committed before any per-operation filesystem entry.
+ * The pending file is only a fast-path hint; SQLite is the durable authority. */
+function allocationDb(p:ReturnType<typeof paths>):any {
+  const file=path.join(p.home,'allocation.sqlite');
+  for(const suffix of ['','-journal','-wal','-shm'])if(exists(file+suffix))regular(file+suffix);
+  const {DatabaseSync}=require('node:sqlite'),db=new DatabaseSync(file);
+  try{db.exec('PRAGMA busy_timeout=0; PRAGMA synchronous=FULL');if(db.prepare('PRAGMA journal_mode').get().journal_mode!=='delete')throw new Error('Allocation journal must use DELETE mode');db.exec('CREATE TABLE IF NOT EXISTS allocation(id INTEGER PRIMARY KEY CHECK(id=1),record TEXT NOT NULL)');return db;}
+  catch(error){db.close();throw error;}
+}
+function readAllocation(p:ReturnType<typeof paths>):Intent|null {
+  const flag=path.join(p.home,'allocation.pending');if(!exists(flag))return null;
+  regular(flag);if(fs.statSync(flag).size!==0)throw new Error('Unknown initialization allocation marker');
+  if(!exists(path.join(p.home,'allocation.sqlite')))return null;
+  const db=allocationDb(p);let value:string|undefined;
+  try{value=db.prepare('SELECT record FROM allocation WHERE id=1').get()?.record;}finally{db.close();}
+  if(!value)return null;
+  const r=JSON.parse(value) as Intent;
+  if(r.version!==1||!UUID.test(r.id)||!UUID.test(r.writerToken)||r.root!==p.root||r.phase!=='allocating'||r.identity!==null||r.outcome!==null||Object.keys(r).some(k=>!['version','id','root','writerToken','phase','identity','outcome'].includes(k)))throw new Error('Invalid initialization allocation authority');
+  return r;
+}
+function recordAllocation(p:ReturnType<typeof paths>,r:Intent):void {
+  const flag=path.join(p.home,'allocation.pending');
+  if(!exists(flag)){fs.writeFileSync(flag,'',{flag:'wx',mode:0o600});flush(flag);flushDirectory(p.home);}
+  const db=allocationDb(p);try{db.prepare('INSERT INTO allocation VALUES(1,?)').run(JSON.stringify(r));}finally{db.close();}
+}
+function clearAllocation(p:ReturnType<typeof paths>,r:Intent):void {
+  const allocation=readAllocation(p);if(allocation&&allocation.id!==r.id)throw new Error('Conflicting initialization allocation authority');
+  if(allocation){const db=allocationDb(p);try{db.exec('DELETE FROM allocation WHERE id=1');}finally{db.close();}}
+  const flag=path.join(p.home,'allocation.pending');if(exists(flag)){regular(flag);fs.unlinkSync(flag);flushDirectory(p.home);}
+}
+function abortAllocation(p:ReturnType<typeof paths>,r:Intent):void {
+  if(exists(p.active)||exists(path.join(p.root,'CURRENT'))||exists(path.join(p.runtime,'layout.json')))throw new Error('Unexpected active storage during allocation; evidence retained');
+  noLogs(p.active);const o=operation(p,r);
+  if(exists(o.dir)){
+    directory(o.dir);
+    const expectedOwner=JSON.stringify({version:1,operation:r.id});
+    const expectedIntent=JSON.stringify({...r,phase:'building'});
+    for(const name of fs.readdirSync(o.dir)){
+      if(!['owner.json','intent.next'].includes(name))throw new Error('Unknown allocation artifact retained');
+      const file=path.join(o.dir,name);regular(file);const expected=name==='owner.json'?expectedOwner:expectedIntent;
+      if(fs.statSync(file).size>Buffer.byteLength(expected)||!expected.startsWith(fs.readFileSync(file,'utf8')))throw new Error('Unknown allocation metadata retained');
+    }
+    for(const name of fs.readdirSync(o.dir))fs.unlinkSync(path.join(o.dir,name));
+    fs.rmdirSync(o.dir);flushDirectory(p.home);
+  }
+  clearAllocation(p,r);
 }
 function owned(p:ReturnType<typeof paths>,r:Intent):ReturnType<typeof operation>{
   const o=operation(p,r);directory(o.dir);regular(o.owner);
@@ -89,9 +136,9 @@ function scheduleCleanupRetry(p:ReturnType<typeof paths>):void {
     try {
       // Interval is scheduling only. Recovery must reacquire the real SQLite
       // owner on every attempt; a live/retained builder cannot be reclaimed.
-      if(!exists(p.intent)){stopCleanupRetry(p);return;}
+      if(!exists(p.intent)&&!readAllocation(p)){stopCleanupRetry(p);return;}
       recoverFixedPathInitialization(p.root);
-      if(!exists(p.intent))stopCleanupRetry(p);
+      if(!exists(p.intent)&&!readAllocation(p))stopCleanupRetry(p);
     }catch(error){recordCleanupFailure(p,error);}
   },250);timer.unref();cleanupRetries.set(p.root,timer);
 }
@@ -120,7 +167,7 @@ function finishCleanup(p:ReturnType<typeof paths>,r:Intent):void {
   try{cleanup(p,r,true);stopCleanupRetry(p);}catch(error){recordCleanupFailure(p,error);if(!cleanupRetries.has(p.root))console.warn(`[codegraph] Fixed initialization committed; cleanup deferred: ${String(error)}`);scheduleCleanupRetry(p);}
 }
 /** Existence only: damaged/symlink intents must still select this data directory. */
-export function hasFixedPathInitializationIntent(dataDir:string):boolean {const p=paths(dataDir);if(!exists(p.root))return false;checkDirectories(p);return exists(p.intent);}
+export function hasFixedPathInitializationIntent(dataDir:string):boolean {const p=paths(dataDir);if(!exists(p.root))return false;checkDirectories(p);return exists(p.intent)||readAllocation(p)!==null;}
 /** All current-version discovery/open paths must call this before legacy admission.
  * The private candidate is not the root database and is intentionally exempt. */
 export function assertNoFixedPathInitialization(dataDir:string):void {
@@ -129,6 +176,8 @@ export function assertNoFixedPathInitialization(dataDir:string):void {
   throw new Error('Fixed-path storage initialization is pending; database admission is closed');
 }
 function complete(p:ReturnType<typeof paths>,r:Intent,options:Options,onRegistrationFailure:()=>void):void {
+  if(r.phase==='allocating'){abortAllocation(p,r);return;}
+  clearAllocation(p,r);
   recoverFixedPathMigration(p.root);
   if(r.phase==='cleaning') {
     const fixed=inspectFixedPathLayout(p.root)==='fixed';
@@ -194,9 +243,10 @@ export function initializeFixedPathStorage(dataDir:string,buildClosedCandidate:(
   try{
     if(read(p)||exists(p.active)||exists(path.join(p.root,'CURRENT'))||exists(path.join(p.runtime,'layout.json')))throw new Error('Fixed storage already exists or initialization is pending');noLogs(p.active);
     if(exists(p.writer)||exists(path.join(p.root,'codegraph.lock')))throw new Error('Existing legacy writer blocks fixed initialization');
-    const r:Intent={version:1,id:randomUUID(),root:p.root,writerToken:randomUUID(),phase:'building',identity:null,outcome:null},o=operation(p,r);
-    fs.mkdirSync(o.dir);fs.writeFileSync(o.owner,JSON.stringify({version:1,operation:r.id}),{flag:'wx',mode:0o600});flush(o.owner);flushDirectory(o.dir);
-    save(p,r);options.hook?.('intent-recorded');
+    const r:Intent={version:1,id:randomUUID(),root:p.root,writerToken:randomUUID(),phase:'allocating',identity:null,outcome:null},o=operation(p,r);
+    recordAllocation(p,r);options.hook?.('allocation-recorded');
+    fs.mkdirSync(o.dir);flushDirectory(p.home);options.hook?.('directory-created');fs.writeFileSync(o.owner,JSON.stringify({version:1,operation:r.id}),{flag:'wx',mode:0o600});flush(o.owner);flushDirectory(o.dir);options.hook?.('owner-created');
+    r.phase='building';save(p,r);clearAllocation(p,r);options.hook?.('intent-recorded');
     fs.writeFileSync(p.writer,r.writerToken,{flag:'wx',mode:0o600});flush(p.writer);options.hook?.('writer-acquired');
     try {
       const returned=buildClosedCandidate(o.candidate) as unknown;
@@ -212,7 +262,7 @@ export function initializeFixedPathStorage(dataDir:string,buildClosedCandidate:(
     }
     options.hook?.('candidate-built');r.identity=seal(o.candidate,()=>{retainOwner=true;});r.phase='sealed';save(p,r);options.hook?.('sealed');
     complete(p,r,options,()=>{retainOwner=true;});return p.active;
-  }finally{if(retainOwner)retainedOwners.add(lock);else {lock.close();if(exists(p.intent))scheduleCleanupRetry(p);}}
+  }finally{if(retainOwner)retainedOwners.add(lock);else {lock.close();if(exists(p.intent)||readAllocation(p))scheduleCleanupRetry(p);}}
 }
 
 /** Guard a low-level legacy root CREATE against concurrent first fixed init.

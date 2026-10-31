@@ -12,7 +12,7 @@ import { lease, paths as protocolPaths } from './fixed-path/protocol';
 const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/;
 interface LayoutMarker { version: 1; layout: 'fixed-path-v1'; migrationId: string; }
 interface RecordState {
-  version: 1; id: string; offlineAuthorized: true; outcome: 'committed' | 'aborted' | null; phase: 'preparing' | 'installing' | 'committed' | 'aborted' | 'cleaned';
+  version: 1; id: string; offlineAuthorized: true; outcome: 'committed' | 'aborted' | null; phase: 'allocating' | 'preparing' | 'installing' | 'committed' | 'aborted' | 'cleaned';
   source: string; sourceIdentity: string; writerToken: string; generation: string | null; candidateIdentity: string | null;
 }
 interface Sqlite {
@@ -122,10 +122,10 @@ function records(p: ReturnType<typeof names>, readOnly = true): RecordState[] {
 }
 function parseRecord(p: ReturnType<typeof names>, value: RecordState): RecordState {
   if (!value || value.version !== 1 || !UUID.test(value.id) || value.offlineAuthorized !== true ||
-      !['preparing','installing','committed','aborted','cleaned'].includes(value.phase) || ![null,'committed','aborted'].includes(value.outcome) || !UUID.test(value.writerToken) ||
+      !['allocating','preparing','installing','committed','aborted','cleaned'].includes(value.phase) || ![null,'committed','aborted'].includes(value.outcome) || !UUID.test(value.writerToken) ||
       !/^[a-f0-9]{64}$/.test(value.sourceIdentity) ||
       (value.candidateIdentity !== null && !/^[a-f0-9]{64}$/.test(value.candidateIdentity))) throw new Error('Invalid migration recovery record');
-  if ((['preparing','installing'].includes(value.phase) && value.outcome !== null) ||
+  if ((['allocating','preparing','installing'].includes(value.phase) && value.outcome !== null) ||
       (value.phase === 'committed' && value.outcome !== 'committed') ||
       (value.phase === 'aborted' && value.outcome !== 'aborted') ||
       (value.phase === 'cleaned' && value.outcome === null)) throw new Error('Inconsistent migration phase/outcome');
@@ -178,6 +178,20 @@ function cleanupOperation(p: ReturnType<typeof names>, record: RecordState): voi
   }
   record.phase = 'cleaned'; save(p, record);
   fs.unlinkSync(files.owner); fs.rmdirSync(files.dir);
+}
+function abortMigrationAllocation(p: ReturnType<typeof names>, record: RecordState): void {
+  if (record.generation !== null && exists(p.active)) throw new Error('Unknown root during migration allocation; evidence preserved');
+  const files=ownedPaths(p,record);
+  if(exists(files.dir)){
+    directory(files.dir);const expected=JSON.stringify({version:1,operation:record.id});
+    for(const name of fs.readdirSync(files.dir)){
+      if(name!=='owner.json')throw new Error('Unknown migration allocation artifact retained');
+      regular(files.owner);
+      if(fs.statSync(files.owner).size>Buffer.byteLength(expected)||!expected.startsWith(fs.readFileSync(files.owner,'utf8')))throw new Error('Unknown migration allocation metadata retained');
+    }
+    if(exists(files.owner))fs.unlinkSync(files.owner);fs.rmdirSync(files.dir);syncDirectory(p.migrations);
+  }
+  record.phase='cleaned';record.outcome='aborted';save(p,record);
 }
 const deferredCleanups = new Map<string, Map<string, string>>();
 function deferCommittedCleanup(p: ReturnType<typeof names>, record: RecordState, error: unknown): void {
@@ -272,6 +286,7 @@ export function recoverFixedPathMigration(dataDir: string): void {
     for (const record of records(p, false)) {
       if ((record.outcome === 'committed' || !['cleaned','aborted'].includes(record.phase)) && current && current.migrationId !== record.id) throw new Error('Layout marker does not match migration evidence');
       if (record.outcome === 'committed' && !current) throw new Error('Committed migration lost authoritative layout marker');
+      if(record.phase==='allocating'){abortMigrationAllocation(p,record);continue;}
       const writerPath=exists(path.join(p.root,'codegraph.lock')) ? path.join(p.root,'codegraph.lock') : path.join(p.runtime,'migration-writer.lock');
       if (exists(writerPath)) {
         regular(writerPath);
@@ -350,11 +365,12 @@ export function migrateToFixedPath(dataDir: string, options: FixedPathMigrationO
     let writerToken: string | null = null;
     let operation: RecordState | undefined;
     try {
-      const record: RecordState = operation = {version:1,id:randomUUID(),offlineAuthorized:true,outcome:null,phase:'preparing',source:source.databasePath,
+      const record: RecordState = operation = {version:1,id:randomUUID(),offlineAuthorized:true,outcome:null,phase:'allocating',source:source.databasePath,
         sourceIdentity:hash(source.databasePath),writerToken:randomUUID(),generation:source.id,candidateIdentity:null};
-      const files = ownedPaths(p,record); fs.mkdirSync(files.dir);
-      fs.writeFileSync(files.owner,JSON.stringify({version:1,operation:record.id}),{flag:'wx',mode:0o600}); syncFile(files.owner); syncDirectory(files.dir);
-      save(p,record);
+      save(p,record);options.hook?.('allocation-recorded');
+      const files = ownedPaths(p,record); fs.mkdirSync(files.dir);syncDirectory(p.migrations);options.hook?.('directory-created');
+      fs.writeFileSync(files.owner,JSON.stringify({version:1,operation:record.id}),{flag:'wx',mode:0o600}); syncFile(files.owner); syncDirectory(files.dir);options.hook?.('owner-created');
+      record.phase='preparing';save(p,record);
       fs.writeFileSync(writerPath,record.writerToken,{flag:'wx',mode:0o600}); writerToken=record.writerToken; syncFile(writerPath);
       options.hook?.('preparing');
       if (source.id !== null) {
