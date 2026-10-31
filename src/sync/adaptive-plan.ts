@@ -1,3 +1,4 @@
+import { getInternalFilePath } from '../runtime-paths';
 /** Read-only planning and bounded, local empirical cost estimates for sync.
  * Estimates are heuristics, not timing guarantees or statistical confidence bounds.
  * No profile from a different machine, extraction policy or project is reused.
@@ -267,7 +268,7 @@ function validSample(value: unknown): value is AdaptiveCostSample {
 }
 export function readAdaptiveHistory(root: string): AdaptiveCostHistory {
   try {
-    const filename = path.join(getCodeGraphDir(root), HISTORY_FILE);
+    const filename = getInternalFilePath(getCodeGraphDir(root), HISTORY_FILE);
     if (fs.statSync(filename).size > 256 * 1024) return { version: HISTORY_VERSION, samples: [] };
     const history = JSON.parse(fs.readFileSync(filename, 'utf8')) as AdaptiveCostHistory;
     if (history.version !== HISTORY_VERSION || !Array.isArray(history.samples) || !history.samples.every(validSample)) {
@@ -297,7 +298,7 @@ export function recordAdaptiveSample(root: string, sample: Omit<AdaptiveCostSamp
     ...bucket.filter(previous => previous.kind === 'full').slice(-4),
     ...bucket.filter(previous => previous.kind === 'incremental').slice(-(MAX_SAMPLES - 4)),
   ]);
-  const target = path.join(getCodeGraphDir(root), HISTORY_FILE);
+  const target = getInternalFilePath(getCodeGraphDir(root), HISTORY_FILE);
   const temporary = `${target}.${process.pid}.${crypto.randomUUID()}.tmp`;
   try {
     fs.writeFileSync(temporary, JSON.stringify(history), { flag: 'wx', mode: 0o600 });

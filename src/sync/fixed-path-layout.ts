@@ -5,7 +5,9 @@ import fs from 'fs';
 import path from 'path';
 import { createHash, randomUUID } from 'crypto';
 import { resolveGeneration } from './generation-store';
-import { withLifecycleGate, collectLifecycleGenerations, removeSealedGenerations } from './generation-lifecycle';
+import { assertLegacyRootNames, holdLegacyLeasesClosed, prepareLegacyLayoutCleanup, finishLegacyLayoutCleanup, hasLegacyLayoutCleanup } from './legacy-layout-cleanup';
+import { assertLegacyRuntimeArtifactsSafe, ensureFixedPathGitProtection } from '../runtime-paths';
+import { lease, paths as protocolPaths } from './fixed-path/protocol';
 
 const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/;
 interface LayoutMarker { version: 1; layout: 'fixed-path-v1'; migrationId: string; }
@@ -187,25 +189,38 @@ function deferCommittedCleanup(p: ReturnType<typeof names>, record: RecordState,
 function finishCommittedCleanup(p: ReturnType<typeof names>, record: RecordState): boolean {
   try {
     cleanupOperation(p,record);
-    const writerPath=path.join(p.root,'codegraph.lock');
+    const writerPath=exists(path.join(p.root,'codegraph.lock')) ? path.join(p.root,'codegraph.lock') : path.join(p.runtime,'migration-writer.lock');
     if (!exists(writerPath) || fs.readFileSync(writerPath,'utf8') !== record.writerToken) deferredCleanups.get(p.root)?.delete(record.id);
     return true;
   }
   catch (error) { deferCommittedCleanup(p,record,error); return false; }
 }
-const reclamations = new Map<string, Promise<void>>();
+const cleanupRetries = new Map<string, NodeJS.Timeout>();
+function finishLegacyCleanupDiagnosed(p: ReturnType<typeof names>): void {
+  try {
+    finishLegacyLayoutCleanup(p.root);
+    const timer = cleanupRetries.get(p.root); if (timer) clearTimeout(timer);
+    cleanupRetries.delete(p.root);
+  } catch (error) {
+    const message = `Legacy layout cleanup deferred: ${String(error)}`;
+    console.warn(`[codegraph] ${message}`);
+    try { fs.appendFileSync(path.join(p.runtime, 'cleanup-errors.log'), JSON.stringify({ time: new Date().toISOString(), error: message }) + '\n'); }
+    catch (logError) { console.warn(`[codegraph] Unable to persist cleanup diagnostic: ${String(logError)}`); }
+    // A retry interval is NOT evidence of quiescence: every attempt rechecks OS
+    // leases and exact owned file identities. Unknown artifacts remain errors.
+    if (['EPERM', 'EACCES', 'EBUSY', 'ENOTEMPTY'].includes((error as NodeJS.ErrnoException).code ?? '') && !cleanupRetries.has(p.root)) {
+      const timer = setTimeout(() => {
+        cleanupRetries.delete(p.root);
+        try { mutex(p, () => finishLegacyCleanupDiagnosed(p)); } catch { /* diagnosed and rescheduled while safe */ }
+      }, 250);
+      timer.unref(); cleanupRetries.set(p.root, timer);
+    }
+    throw error;
+  }
+}
 function reclaim(p: ReturnType<typeof names>): Promise<void> {
-  if (!exists(path.join(p.root, '.generation-lifecycle.sqlite'))) return Promise.resolve();
-  const previous = reclamations.get(p.root) ?? Promise.resolve();
-  const task = previous.then(async () => {
-    try {
-      const ids = withLifecycleGate(p.root, gate => collectLifecycleGenerations(gate, null));
-      await removeSealedGenerations(p.root, ids);
-    } catch { /* Known old readers delay GC; never invalidate active root. */ }
-  });
-  reclamations.set(p.root, task);
-  void task.finally(() => { if (reclamations.get(p.root) === task) reclamations.delete(p.root); });
-  return task;
+  try { finishLegacyCleanupDiagnosed(p); return Promise.resolve(); }
+  catch (error) { return Promise.reject(error); }
 }
 /** Cheap authoritative layout selection; no CURRENT parsing after fixed commit.
  * Call recoverFixedPathMigration first if this reports pending recovery. */
@@ -220,11 +235,11 @@ export function inspectFixedPathLayout(dataDir: string): 'legacy' | 'fixed' {
 const startupReclamationScheduled = new Set<string>();
 function scheduleStartupReclamation(p: ReturnType<typeof names>): void {
   if (startupReclamationScheduled.has(p.root)) return;
-  startupReclamationScheduled.add(p.root); void reclaim(p);
+  startupReclamationScheduled.add(p.root); void reclaim(p).catch(() => { startupReclamationScheduled.delete(p.root); });
 }
 function settled(p: ReturnType<typeof names>, current: LayoutMarker | null, all: RecordState[]): boolean {
-  if (all.length === 0) return false;
-  const writerPath=path.join(p.root,'codegraph.lock');
+  if (all.length === 0 || hasLegacyLayoutCleanup(p.root)) return false;
+  const writerPath=exists(path.join(p.root,'codegraph.lock')) ? path.join(p.root,'codegraph.lock') : path.join(p.runtime,'migration-writer.lock');
   let writer: string | null=null;
   if (exists(writerPath)) { regular(writerPath); if (fs.statSync(writerPath).size === 36) writer=fs.readFileSync(writerPath,'utf8'); }
   for (const record of all) {
@@ -257,7 +272,7 @@ export function recoverFixedPathMigration(dataDir: string): void {
     for (const record of records(p, false)) {
       if ((record.outcome === 'committed' || !['cleaned','aborted'].includes(record.phase)) && current && current.migrationId !== record.id) throw new Error('Layout marker does not match migration evidence');
       if (record.outcome === 'committed' && !current) throw new Error('Committed migration lost authoritative layout marker');
-      const writerPath=path.join(p.root,'codegraph.lock');
+      const writerPath=exists(path.join(p.root,'codegraph.lock')) ? path.join(p.root,'codegraph.lock') : path.join(p.runtime,'migration-writer.lock');
       if (exists(writerPath)) {
         regular(writerPath);
         const sameOwner=fs.readFileSync(writerPath,'utf8') === record.writerToken;
@@ -288,7 +303,22 @@ export function recoverFixedPathMigration(dataDir: string): void {
       record.phase='aborted'; record.outcome='aborted'; save(p,record); cleanupOperation(p,record);
     }
   });
-  if (marker(p)) scheduleStartupReclamation(p);
+  if (marker(p)) { finishLegacyCleanupDiagnosed(p); scheduleStartupReclamation(p); }
+}
+/** Fixed participants must be offline too; take every existing OS lease domain.
+ * Never initialize metadata merely to establish absence of readers. */
+function withOfflineFixedParticipants<T>(p: ReturnType<typeof names>, action: () => T): T {
+  const protocol = protocolPaths({ project: path.dirname(p.root), dataDirectory: p.root });
+  const held: { close(): void }[] = [];
+  try {
+    for (const file of [protocol.owner, protocol.connections, protocol.writers, protocol.mutations]) {
+      if (!exists(file)) continue;
+      const lock = lease(file, true);
+      if (!lock) throw new Error('Offline migration requires all fixed-path participants to close');
+      held.push(lock);
+    }
+    return action();
+  } finally { for (const lock of held.reverse()) lock.close(); }
 }
 /** Register a new/flat standalone DB, or migrate a generation-only store.
  * A root plus CURRENT is an explicit conflict even when contents appear equal.
@@ -296,15 +326,25 @@ export function recoverFixedPathMigration(dataDir: string): void {
 export function migrateToFixedPath(dataDir: string, options: FixedPathMigrationOptions): FixedPathMigrationResult {
   if (options.offline !== true) throw new Error('Explicit offline migration acknowledgement required');
   const p = names(dataDir); deferredCleanups.delete(p.root); recoverFixedPathMigration(dataDir);
-  const result = mutex(p, () => {
-    if (marker(p)) { validate(p.active,options.validateDatabase); return; }
+  const result = withOfflineFixedParticipants(p, () => mutex(p, () => {
+    if (exists(path.join(p.root, 'codegraph.lock'))) throw new Error('Existing legacy writer lock blocks offline migration');
+    assertLegacyRootNames(p.root);
+    assertLegacyRuntimeArtifactsSafe(p.root);
+    ensureFixedPathGitProtection(p.root);
+    const legacyLeases = holdLegacyLeasesClosed(p.root);
+    try {
+    if (marker(p)) {
+      validate(p.active,options.validateDatabase);
+      const previous = records(p).find(record => record.id === marker(p)!.migrationId && record.outcome === 'committed');
+      prepareLegacyLayoutCleanup(p.root, previous?.generation ?? null); return;
+    }
     const rootPresent = exists(p.active), currentPresent = exists(path.join(p.root,'CURRENT'));
     // Resolve first: malformed manifests never become permission to fall back.
     const source = resolveGeneration(p.root);
     if (rootPresent && currentPresent) throw new Error('Fixed-path migration conflict: root database and CURRENT both exist; preserve both and explicitly resolve offline');
     if (!rootPresent && !currentPresent) throw new Error('No database to register or migrate');
     if (!rootPresent) noSidecars(p.active);
-    const writerPath=path.join(p.root,'codegraph.lock');
+    const writerPath=exists(path.join(p.root,'codegraph.lock')) ? path.join(p.root,'codegraph.lock') : path.join(p.runtime,'migration-writer.lock');
     if (exists(writerPath)) throw new Error('Existing writer lock blocks offline migration');
     validate(source.databasePath,options.validateDatabase); syncFile(source.databasePath);
     let writerToken: string | null = null;
@@ -330,6 +370,7 @@ export function migrateToFixedPath(dataDir: string, options: FixedPathMigrationO
         noSidecars(p.active); fs.renameSync(files.candidate,p.active); syncDirectory(p.root); syncDirectory(files.dir); options.hook?.('root-installed');
       }
       validate(p.active,options.validateDatabase);
+      prepareLegacyLayoutCleanup(p.root, source.id);
       fs.writeFileSync(files.stagedMarker,JSON.stringify({version:1,layout:'fixed-path-v1',migrationId:record.id}),{flag:'wx',mode:0o600}); syncFile(files.stagedMarker);
       if (exists(p.marker)) throw new Error('Layout changed during migration');
       fs.renameSync(files.stagedMarker,p.marker); syncDirectory(p.runtime); options.hook?.('layout-committed');
@@ -348,7 +389,8 @@ export function migrateToFixedPath(dataDir: string, options: FixedPathMigrationO
         }
       }
     }
-  });
+    } finally { legacyLeases.close(); }
+  }));
   void result;
   return {databasePath:p.active,layout:'fixed',cleanup:reclaim(p),cleanupWarnings:[...(deferredCleanups.get(p.root)?.values() ?? [])]};
 }

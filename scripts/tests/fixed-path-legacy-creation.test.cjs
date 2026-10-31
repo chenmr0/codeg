@@ -34,7 +34,7 @@ test('public offline migration cannot bypass a live initializer after its legacy
   const root=fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(),'cg-init-migrate-'))),dataDir=path.join(root,'.codegraph-wx'),original=fs.unlinkSync;
   let pending,intercepted=false;
   try{
-    fs.unlinkSync=function(file){const result=original.apply(this,arguments);if(!intercepted&&String(file)===path.join(dataDir,'codegraph.lock')){
+    fs.unlinkSync=function(file){const result=original.apply(this,arguments);if(!intercepted&&String(file)===path.join(dataDir,'.runtime','initialization-writer.lock')){
       intercepted=true;pending=CodeGraph.migrateStorage(root,{offline:true}).then(()=>null,error=>error);
       assert(!fs.existsSync(path.join(dataDir,'.runtime/layout.json')),'public migration must not commit behind the live initialization owner');
     }return result;};

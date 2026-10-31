@@ -20,7 +20,7 @@ function regular(file:string):void { if(!fs.lstatSync(file).isFile())throw new E
 function directory(file:string):void { if(!fs.lstatSync(file).isDirectory())throw new Error(`Unsafe initialization directory: ${file}`); }
 function paths(dataDir:string) {
   const root=canonicalFixedPathDataDirectory(dataDir),runtime=path.join(root,'.runtime'),home=path.join(runtime,'fixed-initialization');
-  return {root,runtime,home,intent:path.join(home,'intent.json'),lock:path.join(home,'owner.sqlite'),active:path.join(root,'codegraph.db'),writer:path.join(root,'codegraph.lock')};
+  return {root,runtime,home,intent:path.join(home,'intent.json'),lock:path.join(home,'owner.sqlite'),active:path.join(root,'codegraph.db'),writer:exists(path.join(root,'codegraph.lock'))?path.join(root,'codegraph.lock'):path.join(runtime,'initialization-writer.lock')};
 }
 function checkDirectories(p:ReturnType<typeof paths>,create=false):void {
   directory(p.root);
@@ -68,7 +68,33 @@ function seal(file:string,onUnclosed:()=>void):string {
   try{db.exec('PRAGMA busy_timeout=0; PRAGMA synchronous=FULL');if(db.prepare('PRAGMA quick_check').get().quick_check!=='ok')throw new Error('Initialized snapshot validation failed');if(db.prepare('PRAGMA wal_checkpoint(TRUNCATE)').get().busy!==0)throw new Error('Initialization checkpoint blocked');if(Object.values(db.prepare('PRAGMA journal_mode=DELETE').get())[0]!=='delete')throw new Error('Initialization snapshot not standalone');}finally{try{db.close();}catch(error){onUnclosed();throw error;}}
   noLogs(file);flush(file);return hash(file);
 }
-const deferred=new Set<string>();
+const cleanupRetries=new Map<string,NodeJS.Timeout>();
+function stopCleanupRetry(p:ReturnType<typeof paths>):void {
+  const timer=cleanupRetries.get(p.root);if(timer)clearInterval(timer);cleanupRetries.delete(p.root);
+  const diagnostic=path.join(p.home,'cleanup-diagnostic.json');
+  if(exists(diagnostic)){regular(diagnostic);fs.unlinkSync(diagnostic);}
+}
+function recordCleanupFailure(p:ReturnType<typeof paths>,error:unknown):void {
+  const file=path.join(p.home,'cleanup-diagnostic.json');
+  try {
+    let attempts=0;
+    if(exists(file)){regular(file);try{attempts=JSON.parse(fs.readFileSync(file,'utf8')).attempts??0;}catch{/* Diagnostics never grant recovery authority. */}}
+    fs.writeFileSync(file,JSON.stringify({root:p.root,attempts:attempts+1,lastAttemptAt:Date.now(),
+      error:String(error),code:(error as NodeJS.ErrnoException).code??null}),{mode:0o600});flush(file);
+  }catch(diagnosticError){console.warn(`[codegraph] Initialization cleanup diagnostic could not be persisted: ${String(diagnosticError)}`);}
+}
+function scheduleCleanupRetry(p:ReturnType<typeof paths>):void {
+  if(cleanupRetries.has(p.root))return;
+  const timer=setInterval(()=>{
+    try {
+      // Interval is scheduling only. Recovery must reacquire the real SQLite
+      // owner on every attempt; a live/retained builder cannot be reclaimed.
+      if(!exists(p.intent)){stopCleanupRetry(p);return;}
+      recoverFixedPathInitialization(p.root);
+      if(!exists(p.intent))stopCleanupRetry(p);
+    }catch(error){recordCleanupFailure(p,error);}
+  },250);timer.unref();cleanupRetries.set(p.root,timer);
+}
 function cleanup(p:ReturnType<typeof paths>,r:Intent,committed:boolean):void {
   const o=operation(p,r);
   // Durable cleaning state survives owner unlink/rmdir failures. Missing or
@@ -91,7 +117,7 @@ function cleanup(p:ReturnType<typeof paths>,r:Intent,committed:boolean):void {
   fs.unlinkSync(p.intent);flushDirectory(p.home);
 }
 function finishCleanup(p:ReturnType<typeof paths>,r:Intent):void {
-  try{cleanup(p,r,true);deferred.delete(p.root);}catch(error){if(!deferred.has(p.root))console.warn(`[codegraph] Fixed initialization committed; cleanup deferred: ${String(error)}`);deferred.add(p.root);}
+  try{cleanup(p,r,true);stopCleanupRetry(p);}catch(error){recordCleanupFailure(p,error);if(!cleanupRetries.has(p.root))console.warn(`[codegraph] Fixed initialization committed; cleanup deferred: ${String(error)}`);scheduleCleanupRetry(p);}
 }
 /** Existence only: damaged/symlink intents must still select this data directory. */
 export function hasFixedPathInitializationIntent(dataDir:string):boolean {const p=paths(dataDir);if(!exists(p.root))return false;checkDirectories(p);return exists(p.intent);}
@@ -144,7 +170,6 @@ function complete(p:ReturnType<typeof paths>,r:Intent,options:Options,onRegistra
 export function recoverFixedPathInitialization(dataDir:string,options:Options={}):void {
   const p=paths(dataDir);if(!exists(p.root))return;checkDirectories(p);const r=read(p);if(!r)return;
   const fixed=exists(path.join(p.runtime,'layout.json'))&&inspectFixedPathLayout(p.root)==='fixed';
-  if(fixed&&deferred.has(p.root))return;
   let lock:{close():void};
   try{lock=owner(p);}catch(error){
     const code=(error as {errcode?:number}).errcode;
@@ -168,7 +193,7 @@ export function initializeFixedPathStorage(dataDir:string,buildClosedCandidate:(
   const lock=owner(p);let retainOwner=false;
   try{
     if(read(p)||exists(p.active)||exists(path.join(p.root,'CURRENT'))||exists(path.join(p.runtime,'layout.json')))throw new Error('Fixed storage already exists or initialization is pending');noLogs(p.active);
-    if(exists(p.writer))throw new Error('Existing legacy writer blocks fixed initialization');
+    if(exists(p.writer)||exists(path.join(p.root,'codegraph.lock')))throw new Error('Existing legacy writer blocks fixed initialization');
     const r:Intent={version:1,id:randomUUID(),root:p.root,writerToken:randomUUID(),phase:'building',identity:null,outcome:null},o=operation(p,r);
     fs.mkdirSync(o.dir);fs.writeFileSync(o.owner,JSON.stringify({version:1,operation:r.id}),{flag:'wx',mode:0o600});flush(o.owner);flushDirectory(o.dir);
     save(p,r);options.hook?.('intent-recorded');
@@ -187,7 +212,7 @@ export function initializeFixedPathStorage(dataDir:string,buildClosedCandidate:(
     }
     options.hook?.('candidate-built');r.identity=seal(o.candidate,()=>{retainOwner=true;});r.phase='sealed';save(p,r);options.hook?.('sealed');
     complete(p,r,options,()=>{retainOwner=true;});return p.active;
-  }finally{if(retainOwner)retainedOwners.add(lock);else lock.close();}
+  }finally{if(retainOwner)retainedOwners.add(lock);else {lock.close();if(exists(p.intent))scheduleCleanupRetry(p);}}
 }
 
 /** Guard a low-level legacy root CREATE against concurrent first fixed init.
