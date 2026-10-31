@@ -19,6 +19,7 @@ function mark(data) {
 }
 test('internal paths preserve legacy behavior and switch only with fixed marker', t => {
   const { data } = fixture(t);
+  fs.writeFileSync(path.join(data, 'codegraph.db'), 'legacy');
   assert.equal(runtime.getInternalFilePath(data, 'daemon.pid'), path.join(data, 'daemon.pid'));
   runtime.ensureRuntimeDirectory(data);
   assert.equal(runtime.getInternalFilePath(data, 'daemon.pid'), path.join(data, 'daemon.pid'));
@@ -144,4 +145,124 @@ test('pre-marker fixed initialization diagnostics never select the data root', t
     fs.writeFileSync(path.join(data, '.runtime', 'fixed-initialization', 'intent.json'), 'pending');
     assert.equal(runtime.usesRuntimeDiagnostics(data), true);
   } finally { if (old === undefined) delete process.env.CODEGRAPH_FIXED_PATH; else process.env.CODEGRAPH_FIXED_PATH = old; }
+});
+test('fresh initialization defaults to fixed while explicit zero preserves legacy', t => {
+  const { data } = fixture(t), previous = process.env.CODEGRAPH_FIXED_PATH;
+  try {
+    delete process.env.CODEGRAPH_FIXED_PATH;
+    assert.equal(runtime.shouldInitializeFixedPath(), true);
+    assert.equal(runtime.usesRuntimeDiagnostics(data), true);
+    process.env.CODEGRAPH_FIXED_PATH = '0';
+    assert.equal(runtime.shouldInitializeFixedPath(), false);
+    assert.equal(runtime.usesRuntimeDiagnostics(data), false);
+    process.env.CODEGRAPH_FIXED_PATH = '1';
+    assert.equal(runtime.shouldInitializeFixedPath(), true);
+  } finally { if (previous === undefined) delete process.env.CODEGRAPH_FIXED_PATH; else process.env.CODEGRAPH_FIXED_PATH = previous; }
+});
+test('legacy diagnostics keep their root regardless of fresh-project default', t => {
+  const { data } = fixture(t), previous = process.env.CODEGRAPH_FIXED_PATH;
+  try {
+    delete process.env.CODEGRAPH_FIXED_PATH;
+    fs.writeFileSync(path.join(data, 'codegraph.db'), 'legacy');
+    assert.equal(runtime.usesRuntimeDiagnostics(data), false);
+    process.env.CODEGRAPH_FIXED_PATH = '1';
+    assert.equal(runtime.usesRuntimeDiagnostics(data), false);
+    fs.unlinkSync(path.join(data, 'codegraph.db'));
+    fs.writeFileSync(path.join(data, 'CURRENT'), 'legacy-generation');
+    assert.equal(runtime.usesRuntimeDiagnostics(data), false);
+  } finally { if (previous === undefined) delete process.env.CODEGRAPH_FIXED_PATH; else process.env.CODEGRAPH_FIXED_PATH = previous; }
+});
+test('allocation-stage recovery diagnostics remain runtime even after opt-out', t => {
+  const { data } = fixture(t), previous = process.env.CODEGRAPH_FIXED_PATH;
+  try {
+    process.env.CODEGRAPH_FIXED_PATH = '0';
+    fs.mkdirSync(path.join(data, '.runtime', 'fixed-initialization'), {recursive:true});
+    fs.writeFileSync(path.join(data, '.runtime', 'fixed-initialization', 'allocation.pending'), 'owned intent');
+    assert.equal(runtime.usesRuntimeDiagnostics(data), true);
+  } finally { if (previous === undefined) delete process.env.CODEGRAPH_FIXED_PATH; else process.env.CODEGRAPH_FIXED_PATH = previous; }
+});
+
+test('fresh daemon rendezvous uses runtime before initialization without an env flag', t => {
+  const { project, data } = fixture(t), previous = process.env.CODEGRAPH_FIXED_PATH;
+  try {
+    delete process.env.CODEGRAPH_FIXED_PATH;
+    const daemon = require('../../dist/mcp/daemon-paths.js');
+    assert.equal(daemon.getDaemonPidPath(project), path.join(data, '.runtime', 'daemon.pid'));
+    assert.equal(runtime.ensureInternalDirectory(data), path.join(data, '.runtime'));
+    fs.writeFileSync(path.join(data, 'codegraph.db'), 'legacy');
+    assert.equal(daemon.getDaemonPidPath(project), path.join(data, 'daemon.pid'));
+  } finally { if (previous === undefined) delete process.env.CODEGRAPH_FIXED_PATH; else process.env.CODEGRAPH_FIXED_PATH = previous; }
+});
+test('SDK internal subdirectories honor fresh-project default before marker', t => {
+  const { project, data } = fixture(t), previous = process.env.CODEGRAPH_FIXED_PATH;
+  try {
+    delete process.env.CODEGRAPH_FIXED_PATH;
+    const directory = require('../../dist/directory.js');
+    fs.rmdirSync(data); // The API historically creates a missing data root.
+    assert.equal(directory.ensureSubdirectory(project, 'logs'), path.join(data, '.runtime', 'logs'));
+    assert.deepEqual(fs.readdirSync(data), ['.runtime']);
+  } finally { if (previous === undefined) delete process.env.CODEGRAPH_FIXED_PATH; else process.env.CODEGRAPH_FIXED_PATH = previous; }
+});
+function withoutGit(action) {
+  const previousPath = process.env.PATH;
+  const gitEnv = Object.fromEntries(Object.entries(process.env).filter(([name]) => name.startsWith('GIT_')));
+  try {
+    for (const name of Object.keys(gitEnv)) delete process.env[name];
+    process.env.PATH = path.join(os.tmpdir(), 'codegraph-no-git-' + randomUUID());
+    return action();
+  } finally {
+    if (previousPath === undefined) delete process.env.PATH; else process.env.PATH = previousPath;
+    for (const name of Object.keys(process.env).filter(name => name.startsWith('GIT_'))) delete process.env[name];
+    Object.assign(process.env, gitEnv);
+  }
+}
+test('missing Git permits a proven non-repository only', t => {
+  const { project, data } = fixture(t);
+  // Some managed executors reserve an inert /tmp/.git directory. Simulate the
+  // positively absent ancestor entries rather than weakening production's
+  // conservative treatment of that repository-shaped evidence.
+  const absent = new Set();
+  for (let dir = fs.realpathSync(project);; dir = path.dirname(dir)) {
+    absent.add(path.join(dir, '.git'));
+    if (path.dirname(dir) === dir) break;
+  }
+  const realLstat = fs.lstatSync;
+  fs.lstatSync = function(file, ...args) {
+    if (absent.has(file)) throw Object.assign(new Error('no entry'), {code:'ENOENT'});
+    return realLstat.call(fs, file, ...args);
+  };
+  try { withoutGit(() => runtime.ensureFixedPathGitProtection(data)); }
+  finally { fs.lstatSync = realLstat; }
+  assert.deepEqual(fs.readdirSync(data), ['.runtime']);
+});
+test('missing Git refuses configured repository environments and ancestor checkouts', t => {
+  const { project, data } = fixture(t);
+  withoutGit(() => {
+    process.env.GIT_DIR = path.join(project, 'external-git');
+    assert.throws(() => runtime.ensureFixedPathGitProtection(data), /Cannot establish/);
+  });
+  execFileSync('git', ['init', '-q', project]);
+  withoutGit(() => assert.throws(() => runtime.ensureFixedPathGitProtection(data), /Cannot establish/));
+});
+test('missing Git recognizes linked worktree .git files and symlinked checkout ancestors', t => {
+  const { project, data } = fixture(t);
+  fs.writeFileSync(path.join(project, '.git'), 'gitdir: /missing/worktree-metadata\n');
+  withoutGit(() => assert.throws(() => runtime.ensureFixedPathGitProtection(data), /Cannot establish/));
+  if (process.platform !== 'win32') {
+    const alias = project + '-alias'; fs.symlinkSync(project, alias);
+    t.after(() => fs.unlinkSync(alias));
+    withoutGit(() => assert.throws(() => runtime.ensureFixedPathGitProtection(path.join(alias, '.codegraph-wx')), /Cannot establish/));
+  }
+});
+test('missing Git fails closed on unreadable ancestor discovery', t => {
+  if (process.platform === 'win32' || process.getuid?.() === 0) return t.skip('requires POSIX permissions and non-root user');
+  const { project, data } = fixture(t);
+  const realLstat = fs.lstatSync;
+  // Deterministic I/O fault avoids denying access to the runtime path itself.
+  fs.lstatSync = function(file, ...args) {
+    if (file === path.join(project, '.git')) throw Object.assign(new Error('permission denied'), {code:'EACCES'});
+    return realLstat.call(fs, file, ...args);
+  };
+  try { withoutGit(() => assert.throws(() => runtime.ensureFixedPathGitProtection(data), /Cannot establish/)); }
+  finally { fs.lstatSync = realLstat; }
 });

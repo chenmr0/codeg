@@ -6,7 +6,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { ensureFixedPathGitProtection, ensureInternalDirectory } from './runtime-paths';
+import { ensureFixedPathGitProtection, ensureInternalDirectory, shouldInitializeFixedPath, usesRuntimeDiagnostics } from './runtime-paths';
 import { acquireCurrentGenerationLease } from './sync/generation-store';
 import { hasFixedPathInitializationIntent } from './sync/fixed-path-initialization';
 import { isFixedPathLayout, probeFixedPath } from './sync/fixed-path/probe';
@@ -185,7 +185,7 @@ export function createDirectory(projectRoot: string): void {
   // Create main directory (if it doesn't exist)
   fs.mkdirSync(codegraphDir, { recursive: true });
 
-  if (process.env.CODEGRAPH_FIXED_PATH === '1') {
+  if (shouldInitializeFixedPath()) {
     ensureFixedPathGitProtection(codegraphDir);
     return;
   }
@@ -318,7 +318,8 @@ export function ensureSubdirectory(projectRoot: string, subdirName: string): str
   }
 
   const dataDir = getCodeGraphDir(projectRoot);
-  const fixed = isFixedPathLayout(dataDir);
+  const fixed = isFixedPathLayout(dataDir) || usesRuntimeDiagnostics(dataDir);
+  if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
   const base = ensureInternalDirectory(dataDir, fixed);
   const subdirPath = fixed && subdirName === '.runtime' ? base : path.join(base, subdirName);
 

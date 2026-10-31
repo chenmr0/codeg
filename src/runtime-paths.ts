@@ -30,17 +30,45 @@ export function hasFixedRuntimeLayout(dataDir: string): boolean {
       Object.keys(value).some(key => !['version', 'layout', 'migrationId'].includes(key))) throw new Error(`Invalid layout marker: ${marker}`);
   return true;
 }
-export function getInternalFilePath(dataDir: string, name: string, fixed = hasFixedRuntimeLayout(dataDir)): string {
+export function getInternalFilePath(dataDir: string, name: string, fixed = usesRuntimeDiagnostics(dataDir)): string {
   if (path.basename(name) !== name || name === '.' || name === '..') throw new Error('Internal filename must be a single component');
   return path.join(fixed ? getRuntimeDirectory(dataDir) : dataDir, name);
 }
-/** Failed initialization diagnostics belong to runtime even before the marker. */
+/** Fresh projects use fixed storage unless the caller explicitly opts out.
+ * This chooses initialization only; existing storage is never migrated by env. */
+export function shouldInitializeFixedPath(): boolean { return process.env.CODEGRAPH_FIXED_PATH !== '0'; }
+/** Failed initialization diagnostics belong to runtime even before the marker.
+ * Existing legacy evidence takes precedence over the new-project default. */
 export function usesRuntimeDiagnostics(dataDir: string): boolean {
-  return hasFixedRuntimeLayout(dataDir) || process.env.CODEGRAPH_FIXED_PATH === '1' ||
-    stat(path.join(getRuntimeDirectory(dataDir), 'fixed-initialization', 'intent.json')) !== null;
+  if (hasFixedRuntimeLayout(dataDir)) return true;
+  const initialization = path.join(getRuntimeDirectory(dataDir), 'fixed-initialization');
+  if (['intent.json', 'allocation.pending'].some(name => stat(path.join(initialization, name)) !== null)) return true;
+  if (['codegraph.db', 'CURRENT', 'generations', '.generation-lifecycle.sqlite', 'daemon.pid', 'codegraph.lock']
+    .some(name => stat(path.join(dataDir, name)) !== null)) return false;
+  return shouldInitializeFixedPath();
 }
-export function ensureInternalDirectory(dataDir: string, fixed = hasFixedRuntimeLayout(dataDir)): string {
+export function ensureInternalDirectory(dataDir: string, fixed = usesRuntimeDiagnostics(dataDir)): string {
   return fixed ? ensureRuntimeDirectory(dataDir) : dataDir;
+}
+
+/** Only used when Git itself is unavailable. Resolve aliases before walking so
+ * a symlink into a checkout cannot be mistaken for an unrelated directory.
+ * Any configured Git environment, repository evidence, or I/O uncertainty keeps
+ * the normal fail-closed behavior. */
+function definitelyOutsideGit(cwd: string): boolean {
+  if (Object.keys(process.env).some(name => name.startsWith('GIT_') && process.env[name] !== undefined)) return false;
+  try {
+    let directory = fs.realpathSync(cwd);
+    while (true) {
+      if (!stat(directory)?.isDirectory()) return false;
+      if (stat(path.join(directory, '.git'))) return false;
+      // Bare repositories have no .git entry; don't infer absence from that.
+      if (stat(path.join(directory, 'HEAD')) && stat(path.join(directory, 'objects'))) return false;
+      const parent = path.dirname(directory);
+      if (parent === directory) return true;
+      directory = parent;
+    }
+  } catch { return false; }
 }
 
 /** Keep the DB ignored without adding a fourth entry to the data-directory root.
@@ -59,6 +87,7 @@ export function ensureFixedPathGitProtection(dataDir: string): void {
   } catch (error) {
     const detail = (error as { stderr?: Buffer | string }).stderr?.toString() ?? '';
     if (/not a git repository/i.test(detail)) return; // No Git index to protect.
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT' && definitelyOutsideGit(cwd)) return;
     throw new Error(`Cannot establish CodeGraph Git exclusion: ${String(error)}`);
   }
   const relative = path.relative(top, path.resolve(dataDir));
