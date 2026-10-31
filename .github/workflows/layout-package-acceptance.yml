@@ -1,0 +1,72 @@
+name: Non-publishing final npm layout acceptance
+on:
+  workflow_dispatch: {}
+  workflow_call: {}
+permissions:
+  contents: read
+jobs:
+  package:
+    uses: ./.github/workflows/rust-scan-prebuilt.yml
+  seal:
+    needs: package
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: codegraph-prebuilt-npm
+          path: package
+      - name: Bind exact archive hash to final source commit
+        working-directory: package
+        run: |
+          sha256sum *.tgz > SHA256SUMS
+          printf '%s\n' "$GITHUB_SHA" > SOURCE_COMMIT
+      - uses: actions/upload-artifact@v4
+        with:
+          name: final-layout-package-seal
+          path: package/
+          if-no-files-found: error
+  acceptance:
+    needs: seal
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2022, ubuntu-22.04]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+      - uses: actions/download-artifact@v4
+        with:
+          name: final-layout-package-seal
+          path: package
+      - name: Verify sealed archive and install exact same tgz
+        shell: pwsh
+        run: |
+          $archives = @(Get-ChildItem package/*.tgz)
+          if ($archives.Count -ne 1) { throw 'Expected exactly one npm archive' }
+          $expected = ((Get-Content package/SHA256SUMS).Trim() -split '\s+')[0]
+          $actual = (Get-FileHash $archives[0].FullName -Algorithm SHA256).Hash.ToLower()
+          if ($actual -ne $expected) { throw 'Archive digest mismatch' }
+          if ((Get-Content package/SOURCE_COMMIT).Trim() -ne $env:GITHUB_SHA) { throw 'Source commit mismatch' }
+          npm install --prefix package-install --no-audit --no-fund $archives[0].FullName
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Installed native auto-mode smoke without compiler paths
+        run: node scripts/smoke-native-package.mjs --installed package-install/node_modules/@sdd/codegraph-wx --macros
+      - name: Real disk layout suites against installed package, zero skips
+        if: ${{ !cancelled() }}
+        run: node scripts/verify-installed-layout-package.mjs package-install/node_modules/@sdd/codegraph-wx artifacts/installed-layout
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: installed-layout-${{ matrix.os }}
+          include-hidden-files: true
+          path: |
+            artifacts/installed-layout/
+            package/SHA256SUMS
+            package/SOURCE_COMMIT
+          if-no-files-found: error

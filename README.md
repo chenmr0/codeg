@@ -164,6 +164,34 @@ irm https://your-host/install.ps1 | iex
 
 安装脚本自带运行时，没有 Node.js 也能跑，无需编译。
 
+#### 固定数据库路径（受控启用）
+
+固定布局目前是可选功能，不会默认启用。它要求支持 `node:sqlite` 的 Node.js；开始迁移前，请备份项目的 `.codegraph-wx`，并**关闭所有版本的 CodeGraph、MCP、daemon、watcher 和直接访问该库的 SQLite 工具**。`--offline` 是对上述条件的确认，程序无法据此证明所有旧进程均已退出。
+
+已有索引在项目目录执行：
+
+```bash
+codegraph migrate-storage --offline
+```
+
+迁移保留现有索引；若提示冲突或存在未知文件，请保留现场并处理提示，不要删除目录后重新初始化来代替迁移。新项目需显式启用固定布局后再初始化，例如：
+
+```powershell
+# Windows PowerShell；对运行 CodeGraph 的每个相关进程设置
+$env:CODEGRAPH_FIXED_PATH = '1'
+codegraph init -i
+```
+
+```bash
+# Linux/macOS
+export CODEGRAPH_FIXED_PATH=1
+codegraph init -i
+```
+
+稳定状态下 `.codegraph-wx` 根目录包含固定业务库 `codegraph.db`、SQLite 按需产生的 `codegraph.db-wal` / `codegraph.db-shm` 和内部管理目录 `.runtime/`。整个 `.codegraph-wx/` 均不应提交到 Git；建议在项目根 `.gitignore` 中添加 `/.codegraph-wx/`。不要清理或手动修改 `.runtime/` 中的协调与恢复状态。
+
+离线更新公共库时，先正常关闭所有相关工具，再用发行方提供的完整、已 checkpoint 的 `codegraph.db` 覆盖根目录同名文件，然后重启；不需要复制或编辑 `.runtime/`。数据库损坏或存在未清理的 SQLite sidecar 时，请保留现场并按错误信息处理。
+
 ### 2. 配置 AI 助手
 
 ```bash
