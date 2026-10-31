@@ -35,9 +35,9 @@
  */
 
 import * as fs from 'fs';
-import * as path from 'path';
 import { spawn, StdioOptions } from 'child_process';
 import { findNearestCodeGraphRoot, getCodeGraphDir } from '../directory';
+import { getInternalFilePath, ensureInternalDirectory } from '../runtime-paths';
 import { StdioTransport } from './transport';
 import { MCPEngine } from './engine';
 import { MCPSession } from './session';
@@ -174,7 +174,9 @@ function spawnDetachedDaemon(root: string): void {
   let logFd: number | null = null;
   let stdio: StdioOptions = 'ignore';
   try {
-    logFd = fs.openSync(path.join(getCodeGraphDir(root), 'daemon.log'), 'a');
+    const dataDir = getCodeGraphDir(root);
+    ensureInternalDirectory(dataDir);
+    logFd = fs.openSync(getInternalFilePath(dataDir, 'daemon.log'), 'a');
     stdio = ['ignore', logFd, logFd];
   } catch {
     stdio = 'ignore'; // no log file — discard daemon output rather than fail

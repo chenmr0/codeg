@@ -22,6 +22,7 @@ import * as crypto from 'crypto';
 import * as os from 'os';
 import * as path from 'path';
 import { getCodeGraphDir } from '../directory';
+import { getInternalFilePath } from '../runtime-paths';
 
 /** Soft upper bound for in-project socket paths. */
 const POSIX_SOCKET_PATH_LIMIT = 100;
@@ -45,7 +46,7 @@ export function getDaemonSocketPath(projectRoot: string): string {
   if (process.platform === 'win32') {
     return `\\\\.\\pipe\\codegraph-${projectHash(projectRoot)}`;
   }
-  const inProject = path.join(getCodeGraphDir(projectRoot), 'daemon.sock');
+  const inProject = getInternalFilePath(getCodeGraphDir(projectRoot), 'daemon.sock');
   if (inProject.length <= POSIX_SOCKET_PATH_LIMIT) return inProject;
   // Long project paths (deep monorepos, Bazel out dirs) need tmpdir fallback
   // or `bind` returns EADDRINUSE / ENAMETOOLONG. Hash keeps it project-scoped.
@@ -54,7 +55,7 @@ export function getDaemonSocketPath(projectRoot: string): string {
 
 /** Absolute path to the daemon pid lockfile for `projectRoot`. */
 export function getDaemonPidPath(projectRoot: string): string {
-  return path.join(getCodeGraphDir(projectRoot), 'daemon.pid');
+  return getInternalFilePath(getCodeGraphDir(projectRoot), 'daemon.pid');
 }
 
 /** Structured contents of the pid lockfile. */

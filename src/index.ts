@@ -6,6 +6,7 @@
  */
 
 import * as path from 'path';
+import { getInternalFilePath, ensureInternalDirectory } from './runtime-paths';
 import { existsSync, statSync, appendFileSync, renameSync, realpathSync, lstatSync, openSync, fstatSync, readSync, closeSync, constants } from 'fs';
 import {
   Node,
@@ -1286,7 +1287,8 @@ export class CodeGraph {
     const message = `[adaptive-sync] ${JSON.stringify({ ...decision, at: new Date().toISOString() })}`;
     if (options.verbose) console.error(message);
     try {
-      const log = path.join(this.dataDir, 'adaptive-sync.log');
+      ensureInternalDirectory(this.dataDir);
+      const log = getInternalFilePath(this.dataDir, 'adaptive-sync.log');
       if (existsSync(log) && statSync(log).size > 1024 * 1024) renameSync(log, log + '.1');
       appendFileSync(log, message + '\n');
     } catch { /* best effort diagnostic */ }

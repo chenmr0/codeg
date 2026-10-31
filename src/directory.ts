@@ -6,6 +6,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
+import { ensureFixedPathGitProtection, ensureInternalDirectory } from './runtime-paths';
 import { acquireCurrentGenerationLease } from './sync/generation-store';
 import { hasFixedPathInitializationIntent } from './sync/fixed-path-initialization';
 import { isFixedPathLayout, probeFixedPath } from './sync/fixed-path/probe';
@@ -184,6 +185,11 @@ export function createDirectory(projectRoot: string): void {
   // Create main directory (if it doesn't exist)
   fs.mkdirSync(codegraphDir, { recursive: true });
 
+  if (process.env.CODEGRAPH_FIXED_PATH === '1') {
+    ensureFixedPathGitProtection(codegraphDir);
+    return;
+  }
+
   // Create .gitignore inside .codegraph (if it doesn't exist)
   const gitignorePath = path.join(codegraphDir, '.gitignore');
   if (!fs.existsSync(gitignorePath)) {
@@ -311,7 +317,10 @@ export function ensureSubdirectory(projectRoot: string, subdirName: string): str
     throw new Error(`Invalid subdirectory name: ${subdirName}`);
   }
 
-  const subdirPath = path.join(getCodeGraphDir(projectRoot), subdirName);
+  const dataDir = getCodeGraphDir(projectRoot);
+  const fixed = isFixedPathLayout(dataDir);
+  const base = ensureInternalDirectory(dataDir, fixed);
+  const subdirPath = fixed && subdirName === '.runtime' ? base : path.join(base, subdirName);
 
   if (!fs.existsSync(subdirPath)) {
     fs.mkdirSync(subdirPath, { recursive: true });
@@ -345,6 +354,8 @@ export function validateDirectory(projectRoot: string): {
   // Pin before validating so normal concurrent GC cannot cause ENOENT.
   if (isFixedPathLayout(codegraphDir)) {
     probeFixedPath(codegraphDir);
+    ensureFixedPathGitProtection(codegraphDir);
+    return { valid: true, errors };
   } else if (hasCurrentManifest(codegraphDir)) {
     const lease = acquireCurrentGenerationLease(codegraphDir);
     lease.release();

@@ -28,6 +28,7 @@ import { Command } from 'commander';
 import * as path from 'path';
 import * as fs from 'fs';
 import { getCodeGraphDir, isInitialized } from '../directory';
+import { getInternalFilePath, ensureInternalDirectory, usesRuntimeDiagnostics } from '../runtime-paths';
 import { canonicalFilePath } from '../utils';
 import { removeOfflineLock } from '../cli/offline-unlock';
 import { detectWorktreeIndexMismatch, worktreeMismatchWarning } from '../sync/worktree';
@@ -507,7 +508,7 @@ function printIndexResult(clack: typeof import('@clack/prompts'), result: IndexR
 
     if (projectPath) {
       writeErrorLog(projectPath, result.errors);
-      clack.log.info('See .codegraph/errors.log for details');
+      clack.log.info(`See ${getInternalFilePath(getCodeGraphDir(projectPath), 'errors.log', usesRuntimeDiagnostics(getCodeGraphDir(projectPath)))} for details`);
     }
 
     if (result.success && result.filesIndexed > 0 && result.complete !== false) {
@@ -515,9 +516,9 @@ function printIndexResult(clack: typeof import('@clack/prompts'), result: IndexR
     }
   } else if (warningCount > 0 && projectPath) {
     writeErrorLog(projectPath, result.errors);
-    clack.log.info('See .codegraph/errors.log for warning details');
+    clack.log.info(`See ${getInternalFilePath(getCodeGraphDir(projectPath), 'errors.log', usesRuntimeDiagnostics(getCodeGraphDir(projectPath)))} for warning details`);
   } else if (projectPath) {
-    const logPath = path.join(getCodeGraphDir(projectPath), 'errors.log');
+    const logPath = getInternalFilePath(getCodeGraphDir(projectPath), 'errors.log', usesRuntimeDiagnostics(getCodeGraphDir(projectPath)));
     if (fs.existsSync(logPath)) {
       fs.unlinkSync(logPath);
     }
@@ -531,7 +532,9 @@ function writeErrorLog(projectPath: string, errors: Array<{ message: string; fil
   const cgDir = getCodeGraphDir(projectPath);
   if (!fs.existsSync(cgDir)) return;
 
-  const logPath = path.join(cgDir, 'errors.log');
+  const runtime = usesRuntimeDiagnostics(cgDir);
+  ensureInternalDirectory(cgDir, runtime);
+  const logPath = getInternalFilePath(cgDir, 'errors.log', runtime);
 
   // Group errors by file path
   const errorsByFile = new Map<string, Array<{ message: string; code?: string; severity: string }>>();
@@ -1464,7 +1467,7 @@ program
         return;
       }
 
-      const lockPath = path.join(getCodeGraphDir(projectPath), 'codegraph.lock');
+      const lockPath = getInternalFilePath(getCodeGraphDir(projectPath), 'codegraph.lock');
 
       if (!removeOfflineLock(lockPath, options.offline === true)) {
         info(`No lock file found ${getGlyphs().dash} nothing to do`);
