@@ -16,7 +16,7 @@ const layout=require(path.join(dist,'sync/fixed-path-layout'));
 const protocol=require(path.join(dist,'sync/fixed-path/protocol'));
 const output=path.resolve(process.env.CODEGRAPH_LAYOUT_EVIDENCE||path.join('artifacts','layout-disk',`${process.platform}-${Date.now()}`));
 fs.mkdirSync(output,{recursive:true});
-process.env.CODEGRAPH_ALL_LANGUAGES='1';process.env.CODEGRAPH_FIXED_PATH='1';
+process.env.CODEGRAPH_ALL_LANGUAGES='1';delete process.env.CODEGRAPH_FIXED_PATH;
 fs.writeFileSync(path.join(output,'environment.json'),JSON.stringify({platform:process.platform,arch:process.arch,node:process.version,packageRoot,package:require(path.join(packageRoot,'package.json')),scope:'Real filesystem, production SDK and subprocess restart. Does not substitute for Windows or MCP/daemon execution.',fixturePolicy:'All fixtures retained; no test cleanup removes product files.'},null,2));
 console.log('LAYOUT_DISK_EVIDENCE='+output);
 let sequence=0;
@@ -62,7 +62,7 @@ test('retained request pin: bounded failed drain; released reader and worker req
 
 for(const kind of ['generational','root','scattered-fixed'])test(`offline ${kind} migration preserves custom data, cleans legacy layout and is idempotent`,{timeout:30000},async()=>{
  const f=fixture(`migration-${kind}`);source(f);let graph;
- if(kind==='generational'){delete process.env.CODEGRAPH_FIXED_PATH;try{graph=await CodeGraph.init(f.project,{index:true});}finally{process.env.CODEGRAPH_FIXED_PATH='1';}}
+ if(kind==='generational'){process.env.CODEGRAPH_FIXED_PATH='0';try{graph=await CodeGraph.init(f.project,{index:true});}finally{delete process.env.CODEGRAPH_FIXED_PATH;}}
  else graph=await CodeGraph.init(f.project,{index:true});
  const old=graph.getDatabaseFilePath();await closeGraph(graph,f);custom(old,kind);
  if(kind==='root'){

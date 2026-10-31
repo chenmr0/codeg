@@ -1,8 +1,13 @@
 # Fixed-layout disk acceptance
 
+New projects use fixed layout by default. Both suites explicitly unset `CODEGRAPH_FIXED_PATH`; legacy fixtures use the explicit `0` compatibility mode. `fixed-layout-default.test.cjs` additionally exercises SDK `init`/`initSync`, actual CLI `init`/`sync`, and pre-existing root/generational databases without silent migration or data loss.
+
 Run after a complete `npm run build` (including asset copying), without concurrently rebuilding `dist`:
 
 ```sh
+CODEGRAPH_LAYOUT_DEFAULT_EVIDENCE="$PWD/artifacts/layout-default-linux" \
+  node --liftoff-only scripts/tests/fixed-layout-default.test.cjs
+
 CODEGRAPH_LAYOUT_EVIDENCE="$PWD/artifacts/layout-disk-linux" \
   node --liftoff-only scripts/tests/fixed-layout-disk-acceptance.test.cjs
 ```
