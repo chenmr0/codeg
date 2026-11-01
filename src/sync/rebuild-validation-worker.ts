@@ -77,13 +77,18 @@ async function execute(job: AdaptiveReadJob): Promise<unknown> {
       const legacy = owned ? { eligible: false, reason: 'already-owned' } : inspectLegacySourceProvenance(db);
       const catchup = job.fullHash && readFixedPathCatchup(db) !== null;
       if (!owned && !legacy.eligible && !catchup) return { decision: { strategy: 'incremental', reason: `unverified-legacy-or-custom-index:${legacy.reason}` } };
-      const runtimeKey = adaptiveRuntimeKey(job.root, connection.getBackend());
+      const fixed = fs.existsSync(path.join(path.dirname(job.databasePath), '.runtime', 'layout.json'));
+      // Fixed-path selection has no cost-history buckets. Hashing the installed
+      // implementation, grammars and native helpers is only useful if we build
+      // a replacement. Legacy selection still needs the key to match history.
+      // A nonempty placeholder also preserves the scoped negative gate's
+      // input contract; it is never used as a publication fingerprint.
+      const runtimeKey = fixed ? 'fixed-path-unmeasured' : adaptiveRuntimeKey(job.root, connection.getBackend());
       const queries = new QueryBuilder(db);
       const tracked = queries.getAllFiles();
       const indexedConfig = queries.getMetadata('adaptive:index-config-v1');
       const eligibility = { ...job.eligibility, ...(indexedConfig ? { configFingerprint: indexedConfig } : {}),
         upgradeRequired: job.eligibility.upgradeRequired || legacy.eligible || (owned && indexedConfig === null) };
-      const fixed = fs.existsSync(path.join(path.dirname(job.databasePath), '.runtime', 'layout.json'));
       const history = fixed ? { version: 1 as const, samples: [] } : readAdaptiveHistory(job.root);
       if (!job.fullHash && job.paths?.length && indexedConfig && !eligibility.upgradeRequired && !eligibility.configurationChanged) {
         const paths = [...new Set(job.paths)];
@@ -109,6 +114,13 @@ async function execute(job: AdaptiveReadJob): Promise<unknown> {
       const decision = !owned && !legacy.eligible
         ? { strategy: 'incremental' as const, reason: 'pending-fixed-path-catchup' }
         : chooseAdaptiveStrategy(plan, history, eligibility);
+      if (fixed && decision.strategy === 'rebuild') {
+        plan.runtimeKey = adaptiveRuntimeKey(job.root, connection.getBackend());
+      }
+      // Ordinary incremental sync must scan again after its recovery and user
+      // callbacks. Do not serialize an inventory it must not reuse. Catch-up
+      // needs the full-hash plan even when the decision is incremental.
+      if (fixed && !job.fullHash && decision.strategy === 'incremental') return { decision };
       return { plan, decision, legacy: legacy.eligible,
         configurationChanged: indexedConfig !== plan.snapshot.configFingerprint };
     } finally { reader.close(); }

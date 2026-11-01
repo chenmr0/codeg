@@ -1466,7 +1466,9 @@ export class CodeGraph {
       try {
         const rebuilt = await this.tryAdaptiveRebuild(options);
         if (rebuilt) { this.fileLock.release(); return rebuilt; }
-        if (this.db.getBackend() === 'node-sqlite' && isSourceOwned(this.db.getDb())) adaptiveBefore = this.queries.getAllFiles();
+        // recordCostSample never records fixed-path observations. Avoid a
+        // second full files-table materialization that it would discard.
+        if (!this.fixedBound && this.db.getBackend() === 'node-sqlite' && isSourceOwned(this.db.getDb())) adaptiveBefore = this.queries.getAllFiles();
       } catch (error) { this.fileLock.release(); throw error; }
       let scopeChanged: boolean;
       try {
