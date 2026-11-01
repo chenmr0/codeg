@@ -1383,6 +1383,7 @@ export class ExtractionOrchestrator {
       });
     });
     const scanMs = performance.now() - scanStarted;
+    const missingFiles = new Set<string>();
 
     // Detect frameworks once per indexAll run using the scanned file list.
     // Names are passed to each parse call so framework-specific extractors
@@ -1778,6 +1779,12 @@ export class ExtractionOrchestrator {
           }
         }));
         for (const item of batch) {
+          // Git's index still lists unstaged deletions. Only an initial stat
+          // ENOENT is absence; read errors after a successful stat stay errors.
+          if ((item.error as NodeJS.ErrnoException | null)?.code === 'ENOENT') {
+            missingFiles.add(item.filePath);
+            continue;
+          }
           // Reserve for both UTF-16 source and likely graph expansion before
           // dispatch; completion replaces this with a result-based estimate.
           yield { value: item, estimatedBytes: Math.max(32 * 1024, (item.stats?.size ?? 0) * 16) };
@@ -2123,8 +2130,16 @@ export class ExtractionOrchestrator {
     const extractionTimingSummary = formatExtractionTimings(extractionTimingTotals);
     if (extractionTimingSummary) log(`Extraction totals: ${extractionTimingSummary}`);
 
+    for (const file of missingFiles) {
+      try { fs.lstatSync(path.join(this.rootDir, file)); }
+      catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') continue;
+        throw error;
+      }
+      throw new Error(`Source changed during indexing: ${file}`);
+    }
     if (options?.reconcile && !signal?.aborted) {
-      const currentFiles = new Set(files);
+      const currentFiles = new Set(files.filter(file => !missingFiles.has(file)));
       for (const tracked of this.queries.getAllFiles()) {
         if (!currentFiles.has(tracked.path)) {
           this.queries.deleteFile(tracked.path);

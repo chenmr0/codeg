@@ -203,6 +203,7 @@ export async function createAdaptivePlan(root: string, tracked: ReadonlyArray<Fi
   }
   const old = new Map(tracked.map(file => [file.path, file]));
   const files: AdaptiveInventoryEntry[] = [];
+  const missing = new Set<string>();
   const added: string[] = [], modified: string[] = [];
   let affectedOldNodes = 0, changedBytes = 0;
   const visible = (await scanDirectoryAsync(root)).sort();
@@ -210,7 +211,16 @@ export async function createAdaptivePlan(root: string, tracked: ReadonlyArray<Fi
     const relative = visible[i]!;
     const absolute = path.resolve(root, relative);
     if (!absolute.startsWith(path.resolve(root) + path.sep)) throw new Error('Adaptive source path escapes root');
-    const before = fs.lstatSync(absolute);
+    let before: fs.Stats;
+    try { before = fs.lstatSync(absolute); }
+    catch (error) {
+      // Git enumerates index entries, including unstaged worktree deletions.
+      // Only absence at this first observation is a removal. Once observed,
+      // realpath/read/stat failures below must still abort the plan.
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+      missing.add(relative);
+      continue;
+    }
     if (!before.isFile() || before.isSymbolicLink()) throw new Error(`Unsupported adaptive source: ${relative}`);
     // A directory symlink can otherwise hide an external or alias source.
     if (fs.realpathSync(absolute) !== absolute) throw new Error(`Symlink source is not eligible: ${relative}`);
@@ -230,6 +240,16 @@ export async function createAdaptivePlan(root: string, tracked: ReadonlyArray<Fi
     }
     old.delete(relative);
     if ((i + 1) % 100 === 0) await new Promise<void>(resolve => setImmediate(resolve));
+  }
+  // A deleted candidate recreated while scanning is not a stable removal.
+  // Check unindexed candidates too; silently omitting those would lose additions.
+  for (const relative of missing) {
+    try { fs.lstatSync(path.resolve(root, relative)); }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') continue;
+      throw error;
+    }
+    throw new Error(`Source changed during adaptive planning: ${relative}`);
   }
   const removed = [...old.keys()].sort();
   for (const previous of old.values()) {
