@@ -11,7 +11,9 @@ import CodeGraph from '../src/index';
 
 vi.mock('fs', async (importOriginal) => {
   const actual = await importOriginal<typeof import('fs')>();
-  return { ...actual, realpathSync: vi.fn(actual.realpathSync) };
+  // Keep the native API available to database admission and automatic Git
+  // resolution while counting the legacy calls used by the walker below.
+  return { ...actual, realpathSync: Object.assign(vi.fn(actual.realpathSync), { native: actual.realpathSync.native }) };
 });
 
 let dir: string;

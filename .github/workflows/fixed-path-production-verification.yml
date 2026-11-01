@@ -72,12 +72,12 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           if (!(Select-String artifacts/ci-fixed-production/fixed-path-noop-planning.tap -Pattern '^# skipped 0$' -CaseSensitive -Quiet)) { throw 'Zero skipped summary required' }
           if (Select-String artifacts/ci-fixed-production/fixed-path-noop-planning.tap -Pattern '# SKIP(?: |$)' -CaseSensitive -Quiet) { throw 'Skipped tests forbidden' }
-      - name: Unchanged planner POSIX boundary checks
+      - name: Linux planner and path boundary checks
         if: ${{ always() && steps.build.outcome == 'success' && runner.os == 'Linux' }}
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force artifacts/ci-fixed-production | Out-Null
-          node --liftoff-only node_modules/vitest/vitest.mjs run __tests__/adaptive-unchanged-gate.test.ts --reporter=default --reporter=json --outputFile=artifacts/ci-fixed-production/unchanged-gate.json 2>&1 | Tee-Object artifacts/ci-fixed-production/unchanged-gate.log
+          node --liftoff-only node_modules/vitest/vitest.mjs run __tests__/adaptive-unchanged-gate.test.ts __tests__/git-paths.test.ts --reporter=default --reporter=json --outputFile=artifacts/ci-fixed-production/unchanged-gate.json 2>&1 | Tee-Object artifacts/ci-fixed-production/unchanged-gate.log
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node -e "const r=require('./artifacts/ci-fixed-production/unchanged-gate.json');if(!r.success||r.numPendingTests||r.numTodoTests||r.numFailedTests)throw Error('Unchanged gate regression incomplete'); console.log('UNCHANGED_GATE_ZERO_SKIPS='+r.numTotalTests)"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

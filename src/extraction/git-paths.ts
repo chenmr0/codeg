@@ -8,13 +8,14 @@ export type GitRealpathMode = 'legacy' | 'native' | 'verify';
 export type GitIgnoreMode = 'legacy' | 'rust' | 'verify';
 export const AUTO_RUST_GIT_CANDIDATES = 50_000;
 
-/** Experimental until target-platform path/order parity has been checked. */
+/** Native path resolution has no helper startup cost. Keep its Linux policy
+ * separate from the Rust ignore-filter threshold and preserve explicit rollback. */
 export function gitRealpathMode(candidateCount = 0, platform = process.platform): GitRealpathMode {
   const mode = process.env.CODEGRAPH_GIT_REALPATH;
   if (mode === 'native' || mode === '1') return 'native';
   if (mode === 'verify') return 'verify';
   if (mode === undefined || mode === '' || mode === 'auto') {
-    return platform === 'linux' && candidateCount >= AUTO_RUST_GIT_CANDIDATES ? 'native' : 'legacy';
+    return platform === 'linux' && candidateCount > 0 ? 'native' : 'legacy';
   }
   return 'legacy';
 }

@@ -45,15 +45,27 @@ describe('Git candidate post-processing', () => {
       vi.stubEnv('CODEGRAPH_RUST_GIT_IGNORE', setting);
       expect(gitIgnoreMode()).toBe(expected);
     });
-  it('automatically selects native Linux paths only for large Git candidate sets', () => {
+  it('selects native nonempty Linux paths independently of the Rust ignore-filter threshold', () => {
     vi.stubEnv('CODEGRAPH_RUST_GIT_IGNORE', undefined);
     vi.stubEnv('CODEGRAPH_GIT_REALPATH', undefined);
     expect(gitIgnoreMode(AUTO_RUST_GIT_CANDIDATES - 1, 'linux')).toBe('legacy');
-    expect(gitRealpathMode(AUTO_RUST_GIT_CANDIDATES - 1, 'linux')).toBe('legacy');
+    expect(gitRealpathMode(0, 'linux')).toBe('legacy');
+    expect(gitRealpathMode(1, 'linux')).toBe('native');
+    expect(gitRealpathMode(AUTO_RUST_GIT_CANDIDATES - 1, 'linux')).toBe('native');
     expect(gitIgnoreMode(AUTO_RUST_GIT_CANDIDATES, 'linux')).toBe('rust');
     expect(gitRealpathMode(AUTO_RUST_GIT_CANDIDATES, 'linux')).toBe('native');
     expect(gitIgnoreMode(100_000, 'win32')).toBe('legacy');
     expect(gitRealpathMode(100_000, 'win32')).toBe('legacy');
+    expect(gitRealpathMode(100_000, 'darwin')).toBe('legacy');
+  });
+  it.each([undefined, '', 'auto'])('uses the selected automatic path backend for a real small candidate set (%s)', setting => {
+    write('a.c');
+    vi.stubEnv('CODEGRAPH_GIT_REALPATH', setting);
+    const native = vi.spyOn(fs.realpathSync, 'native');
+    const detail = new ScanDiagnostics();
+    expect([...filterGitPaths(dir, new Set(['a.c']), ignore(), [], detail)]).toEqual(['a.c']);
+    expect(detail.gitPathMode).toBe(process.platform === 'linux' ? 'native' : 'legacy');
+    expect(native).toHaveBeenCalledTimes(process.platform === 'linux' ? 1 : 0);
   });
   it('keeps explicit rollback and force settings above the automatic threshold', () => {
     vi.stubEnv('CODEGRAPH_RUST_GIT_IGNORE', '0'); vi.stubEnv('CODEGRAPH_GIT_REALPATH', 'legacy');
@@ -123,6 +135,41 @@ describe('Git candidate post-processing', () => {
     write('target.c');
     vi.spyOn(fs.realpathSync, 'native').mockReturnValue(path.join(dir, 'target.c'));
     expect(filter('native', ['alias.not-source']).paths).toEqual(['target.c']);
+  });
+  it.runIf(process.platform === 'linux')('preserves actual Linux leaf links, link chains, dangling links, cycles and unusual names', () => {
+    write('src/Case.c'); write('src/case.c'); write('src/空 格[!].c');
+    fs.symlinkSync(path.join(dir, 'src/Case.c'), path.join(dir, 'alias.data'), 'file');
+    fs.symlinkSync(path.join(dir, 'alias.data'), path.join(dir, 'chain.data'), 'file');
+    fs.symlinkSync(path.join(dir, 'absent.c'), path.join(dir, 'dangling.c'), 'file');
+    fs.symlinkSync(path.join(dir, 'cycle-b.c'), path.join(dir, 'cycle-a.c'), 'file');
+    fs.symlinkSync(path.join(dir, 'cycle-a.c'), path.join(dir, 'cycle-b.c'), 'file');
+    const paths = ['chain.data', 'src/Case.c', 'src/case.c', 'src/空 格[!].c', 'dangling.c', 'cycle-a.c'];
+    const baseline = filter('legacy', paths);
+    expect(filter('native', paths).paths).toEqual(baseline.paths);
+    const verified = filter('verify', paths);
+    expect(verified.paths).toEqual(baseline.paths);
+    expect(verified.detail.gitPathMismatches).toBe(0);
+    expect(baseline.paths).toContain('src/Case.c');
+    expect(baseline.paths).toContain('dangling.c');
+    expect(baseline.paths).toContain('cycle-a.c');
+  });
+  it.skipIf(process.platform === 'win32' || process.getuid?.() === 0)('preserves denied paths with real EACCES in native and legacy resolution', () => {
+    write('denied/a.c');
+    const folder = path.join(dir, 'denied'), file = path.join(folder, 'a.c');
+    fs.chmodSync(folder, 0);
+    try {
+      for (const resolve of [fs.realpathSync, fs.realpathSync.native]) {
+        let error: unknown;
+        try { resolve(file); } catch (caught) { error = caught; }
+        expect(error).toMatchObject({ code: 'EACCES' });
+      }
+      for (const mode of ['legacy', 'native', 'verify']) {
+        const result = filter(mode, ['denied/a.c']);
+        expect(result.paths).toEqual(['denied/a.c']);
+        expect(result.detail.gitRealpathErrors).toBe(1);
+        expect(result.detail.gitPathMismatches).toBe(0);
+      }
+    } finally { fs.chmodSync(folder, 0o755); }
   });
   it('keeps quiet and verbose file results identical, with no quiet per-file clocks', () => {
     write('a.c');

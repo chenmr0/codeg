@@ -87,14 +87,14 @@ Schema v9 为宏证据检查保存可失效的完成标记。无节点变化时�
 
 `CODEGRAPH_GIT_REALPATH` 的自动策略：
 
-- 未设置、空或 `auto`：仅 Linux 普通 Git 且候选不少于 50000 时选择 native；其他情况保留 legacy。
+- 未设置、空或 `auto`：Linux 普通 Git 的非空候选集合选择 native；其他平台和空集合保留 legacy。原生路径解析不再共用 Rust 忽略过滤的 50000 候选门槛；Rust 忽略过滤的自动策略不变。
 - `0`、`legacy`、`off` 或未知值：强制原来的 `fs.realpathSync`。
 - `native` 或 `1`：仅普通 Git 后处理尝试 Node 自带 `fs.realpathSync.native`，异常则回退旧接口。这不是 Rust 扫描，不需要新的二进制或运行环境。
 - `verify`：旧接口是权威结果；同时调用原生接口逐路径严格比较（含大小写），任何差异计数但始终返回旧值。验证耗时包含两个接口，不是加速测速。
 
 保持 Git 收集 tracked/untracked、子模块和嵌套仓库的原流程；逻辑路径先匹配忽略规则，再按真实路径去重，最后按规范化路径筛源码扩展名。没有更改忽略配置，没有为 Git 候选臆造普通文件的父目录路径提示。缓存仍随 index/sync 清理，不缓存到下一次同步；不改数据库，无须重新 init。
 
-**原生接口不保证所有平台更快，因此只对已实测的大型 Linux 路径自动开启。** Windows open5gs 的三轮只读扫描（11044 个源码候选）中，legacy 中位数约 0.774 秒、native 约 1.382 秒，原生方案反而更慢；路径和顺序哈希一致。小仓和非 Linux 默认不变。
+**原生接口不保证所有平台更快，因此自动开启仍仅限 Linux。** Windows open5gs 的三轮只读扫描（11044 个源码候选）中，legacy 中位数约 0.774 秒、native 约 1.382 秒，原生方案反而更慢；路径和顺序哈希一致。非 Linux 默认不变。Linux 补充验证覆盖 815 个 Git 候选的当前仓库和 14254 个候选的嵌套目录夹具，两者的路径及顺序均与 legacy 完全一致，native 扫描更快；后者完整 CLI 的交错实测也有改善。详见 `docs/benchmarks/linux-native-path-validation.md`；这些本地结果不能外推为所有文件系统的加速保证，`legacy` 回退开关继续保留。
 
 建议在安装目录运行只读基准（不打开数据库、不解析业务源码、不运行 sync）：
 
