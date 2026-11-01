@@ -473,6 +473,7 @@ interface GenerationReader {
 }
 
 interface GenerationRequest {
+  portablePins?: Array<{release(): void}>;
   generations: Map<string, GenerationReader>;
   // Includes non-query facades used by readiness/staleness postprocessing.
   retained: Set<GenerationReader>;
@@ -1538,6 +1539,14 @@ export class ToolHandler {
     if (pinned) return pinned.graph;
     if (this.closing) throw new Error('CodeGraph tool handler is closing');
 
+    if (typeof base.isPortableStorage === 'function' && base.isPortableStorage()) {
+      const pin = base.acquirePortableRead();
+      (request.portablePins ??= []).push(pin);
+      const entry = { graph: pin.graph, owned: false, references: 0, retired: false };
+      request.generations.set(root, entry);
+      return pin.graph;
+    }
+
     const dataDirectory = typeof base.getDataDirectory === 'function'
       ? base.getDataDirectory() : getCodeGraphDir(root);
     // Protect the manifest target while comparing cached readers. A naked
@@ -1604,6 +1613,8 @@ export class ToolHandler {
   }
 
   private releaseGenerationRequest(request: GenerationRequest): void {
+    for (const pin of request.portablePins ?? []) pin.release();
+    request.portablePins = [];
     for (const entry of request.retained) {
       entry.references--;
       if (entry.retired && entry.references === 0) this.retireReader(entry);
@@ -2026,6 +2037,17 @@ export class ToolHandler {
       const pathCheck = this.validateOptionalPath(args.projectPath, 'projectPath');
       if (typeof pathCheck === 'object' && pathCheck !== undefined) {
         return pathCheck;
+      }
+      const portableBase = this.getProjectCodeGraph(args.projectPath as string | undefined);
+      if (typeof portableBase.isPortableStorage === 'function' && portableBase.isPortableStorage()) {
+        const request = this.generationRequest.getStore()!;
+        const root = resolvePath(portableBase.getProjectRoot());
+        if (!request.generations.has(root)) {
+          const pin = await portableBase.acquirePortableReadAsync();
+          (request.portablePins ??= []).push(pin);
+          request.generations.set(root, { graph: pin.graph, owned: false, references: 0, retired: false });
+          this.retainRequestFacade(request, portableBase);
+        }
       }
       const view = this.dataView.getStore()!;
       view.admission = catchUpAdmission;

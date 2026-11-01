@@ -1,0 +1,671 @@
+/** Local coordination for replacing one portable database. Graph facts live in
+ * codegraph.db; these files are never part of a distributed index snapshot.
+ * Only cooperating processes are fenced. External imports require all processes
+ * and SQLite maintenance threads to have exited. */
+import * as fs from "node:fs";
+import * as path from "node:path";
+import { createHash, randomUUID } from "node:crypto";
+
+interface Statement {
+  get(...args: unknown[]): any;
+  run(...args: unknown[]): unknown;
+}
+interface Sqlite {
+  exec(sql: string): void;
+  prepare(sql: string): Statement;
+  close(): void;
+}
+function open(file: string, readOnly = false): Sqlite {
+  const { DatabaseSync } = require("node:sqlite");
+  const db: Sqlite = new DatabaseSync(file, { readOnly });
+  db.exec("PRAGMA busy_timeout=0");
+  return db;
+}
+export class PortableBusyError extends Error {
+  readonly code = "PORTABLE_BUSY";
+  constructor(
+    message = "Portable database coordination is busy; retry the operation",
+  ) {
+    super(message);
+    this.name = "PortableBusyError";
+  }
+}
+export interface PortableLease {
+  release(): void;
+}
+export interface PortableCandidate {
+  id: string;
+  path: string;
+  backup: string;
+  baselineRevision: number;
+}
+export interface PortableSnapshot {
+  mode: "idle" | "draining";
+  revision: number;
+}
+interface Journal extends PortableCandidate {
+  phase: "building" | "prepared" | "replacing" | "committed";
+  oldHash?: string;
+  newHash?: string;
+}
+export interface PortablePublishOptions {
+  timeoutMs?: number;
+  signal?: AbortSignal;
+  beforeDrain?: () => void | Promise<void>;
+  hook?: (phase: string) => void;
+}
+function busy(error: unknown): boolean {
+  return /locked|busy/i.test(String(error));
+}
+function regular(file: string, optional = false): boolean {
+  try {
+    if (!fs.lstatSync(file).isFile())
+      throw new Error(`Expected a regular file: ${file}`);
+    return true;
+  } catch (error) {
+    if (optional && (error as NodeJS.ErrnoException).code === "ENOENT")
+      return false;
+    throw error;
+  }
+}
+function flushDirectory(dir: string): void {
+  if (process.platform === "win32") return; // No unsupported Windows durability claim.
+  const fd = fs.openSync(dir, "r");
+  try {
+    fs.fsyncSync(fd);
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+function flush(file: string): void {
+  const fd = fs.openSync(file, "r+");
+  try {
+    fs.fsyncSync(fd);
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+function noSidecars(file: string): void {
+  for (const suffix of ["-wal", "-shm", "-journal"]) {
+    if (regular(file + suffix, true))
+      throw new Error(
+        `SQLite sidecar must be closed/checkpointed before replacement: ${file + suffix}`,
+      );
+  }
+}
+function digest(file: string): string | null {
+  if (!regular(file, true)) return null;
+  const hash = createHash("sha256"),
+    buffer = Buffer.allocUnsafe(1024 * 1024),
+    fd = fs.openSync(file, "r");
+  try {
+    let size: number;
+    while ((size = fs.readSync(fd, buffer, 0, buffer.length, null)) > 0)
+      hash.update(buffer.subarray(0, size));
+  } finally {
+    fs.closeSync(fd);
+  }
+  return hash.digest("hex");
+}
+function validate(file: string): void {
+  regular(file);
+  const db = open(file, true);
+  try {
+    if (db.prepare("PRAGMA quick_check").get()?.quick_check !== "ok")
+      throw new Error("Database integrity check failed");
+  } finally {
+    db.close();
+  }
+}
+function seal(file: string): void {
+  regular(file);
+  const db = open(file);
+  try {
+    if (db.prepare("PRAGMA wal_checkpoint(TRUNCATE)").get()?.busy > 0)
+      throw new PortableBusyError("SQLite checkpoint is blocked");
+    db.exec("PRAGMA journal_mode=DELETE");
+    if (db.prepare("PRAGMA quick_check").get()?.quick_check !== "ok")
+      throw new Error("Candidate integrity check failed");
+  } finally {
+    db.close();
+  }
+  noSidecars(file);
+  flush(file);
+}
+const delay = (ms: number): Promise<void> =>
+  new Promise((resolve) => setTimeout(resolve, ms));
+
+export class PortableCoordinator {
+  readonly dataDirectory: string;
+  readonly active: string;
+  readonly runtime: string;
+  private readonly gate: string;
+  private readonly writer: string;
+  private readonly readers: string;
+  private writerHeld = false;
+
+  constructor(dataDirectory: string) {
+    fs.mkdirSync(dataDirectory, { recursive: true });
+    this.dataDirectory = fs.realpathSync(dataDirectory);
+    this.active = path.join(this.dataDirectory, "codegraph.db");
+    const runtimeRoot = path.join(this.dataDirectory, ".runtime");
+    for (const dir of [runtimeRoot, path.join(runtimeRoot, "portable")]) {
+      try {
+        fs.mkdirSync(dir);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      }
+      if (
+        !fs.lstatSync(dir).isDirectory() ||
+        fs.lstatSync(dir).isSymbolicLink()
+      )
+        throw new Error(`Unsafe coordination directory: ${dir}`);
+    }
+    this.runtime = path.join(runtimeRoot, "portable");
+    this.gate = path.join(this.runtime, "gate.sqlite");
+    this.writer = path.join(this.runtime, "writer.sqlite");
+    this.readers = path.join(this.runtime, "readers.sqlite");
+    this.initialize();
+  }
+  private schema(db: Sqlite, table: "state" | "lease"): boolean {
+    const foreign = db
+      .prepare(
+        "SELECT count(*) AS n FROM sqlite_master WHERE name NOT LIKE 'sqlite_%' AND name<>?",
+      )
+      .get(table);
+    if (foreign?.n !== 0)
+      throw new Error("Unknown coordination schema; evidence retained");
+    if (
+      !db
+        .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?")
+        .get(table)
+    )
+      return false;
+    const columns = db
+      .prepare(`SELECT count(*) AS n FROM pragma_table_info('${table}')`)
+      .get()?.n;
+    const expected = table === "state" ? 4 : 1;
+    const primaryKey = db
+      .prepare(
+        `SELECT count(*) AS n FROM pragma_table_info('${table}') WHERE name='id' AND upper(type)='INTEGER' AND pk=1`,
+      )
+      .get()?.n;
+    if (columns !== expected || primaryKey !== 1)
+      throw new Error("Invalid coordination schema; evidence retained");
+    // Preparing these statements verifies names before any mutation. Unknown
+    // rows are not bootstrap debris and must never be reset to an idle state.
+    db.prepare(
+      table === "state"
+        ? "SELECT id,mode,revision,journal FROM state"
+        : "SELECT id FROM lease",
+    );
+    if (
+      db
+        .prepare(`SELECT count(*) AS n FROM ${table} WHERE id<>1 OR id IS NULL`)
+        .get()?.n !== 0
+    )
+      throw new Error("Unexpected coordination rows; evidence retained");
+    return true;
+  }
+  private complete(db: Sqlite): boolean {
+    const version = db.prepare("PRAGMA user_version").get()?.user_version;
+    if (version !== 0 && version !== 1)
+      throw new Error("Unsupported coordination version; evidence retained");
+    if (!this.schema(db, "state")) {
+      if (version === 1)
+        throw new Error(
+          "Committed coordination state is missing; evidence retained",
+        );
+      return false;
+    }
+    const row = db
+      .prepare("SELECT mode,revision,journal FROM state WHERE id=1")
+      .get();
+    if (!row) {
+      if (db.prepare("PRAGMA user_version").get()?.user_version === 1)
+        throw new Error(
+          "Committed coordination singleton is missing; evidence retained",
+        );
+      return false;
+    }
+    if (
+      !["idle", "draining"].includes(row.mode) ||
+      !Number.isSafeInteger(row.revision) ||
+      row.revision < 0 ||
+      (row.journal !== null && typeof row.journal !== "string")
+    )
+      throw new Error("Invalid portable coordination state");
+    return true;
+  }
+  private initialize(): void {
+    regular(this.gate, true);
+    const gate = open(this.gate);
+    try {
+      gate.exec("PRAGMA busy_timeout=50");
+      if (
+        !this.complete(gate) ||
+        gate.prepare("PRAGMA user_version").get()?.user_version === 0
+      ) {
+        // The gate's exclusive transaction is the bootstrap owner. Its singleton
+        // is the completion marker and commits ONLY after both lease databases
+        // have committed their schemas and rows. File length is never readiness.
+        gate.exec("PRAGMA synchronous=FULL; BEGIN EXCLUSIVE");
+        if (!this.complete(gate)) {
+          for (const file of [this.writer, this.readers]) {
+            regular(file, true);
+            const db = open(file);
+            try {
+              this.schema(db, "lease");
+              db.exec(
+                "PRAGMA synchronous=FULL; PRAGMA journal_mode=DELETE; BEGIN EXCLUSIVE",
+              );
+              db.exec(
+                "CREATE TABLE IF NOT EXISTS lease(id INTEGER PRIMARY KEY); INSERT OR IGNORE INTO lease VALUES(1); COMMIT",
+              );
+            } finally {
+              db.close();
+            }
+          }
+          gate.exec(
+            "CREATE TABLE IF NOT EXISTS state(id INTEGER PRIMARY KEY CHECK(id=1), mode TEXT NOT NULL, revision INTEGER NOT NULL, journal TEXT); INSERT OR IGNORE INTO state VALUES(1,'idle',0,NULL); PRAGMA user_version=1",
+          );
+        }
+        gate.exec("PRAGMA user_version=1");
+        gate.exec("COMMIT");
+      }
+      if (!regular(this.writer, true) || !regular(this.readers, true))
+        throw new Error(
+          "Existing portable coordination is missing a lock file; evidence retained",
+        );
+      // An interrupted transition may leave a complete DELETE-mode gate. The
+      // data is already safe; retrying this conversion cannot reset any state.
+      if (gate.prepare("PRAGMA journal_mode").get()?.journal_mode !== "wal")
+        gate.exec("PRAGMA journal_mode=WAL");
+    } catch (error) {
+      if (busy(error))
+        throw new PortableBusyError("Portable coordination bootstrap is busy");
+      throw error;
+    } finally {
+      gate.close();
+    }
+  }
+  private read(): PortableSnapshot & { journal: string | null } {
+    regular(this.gate);
+    const db = open(this.gate);
+    try {
+      db.exec("PRAGMA busy_timeout=50");
+      const row = db
+        .prepare("SELECT mode,revision,journal FROM state WHERE id=1")
+        .get();
+      if (
+        !row ||
+        !["idle", "draining"].includes(row.mode) ||
+        !Number.isSafeInteger(row.revision)
+      )
+        throw new Error("Invalid portable coordination state");
+      return row;
+    } catch (error) {
+      if (busy(error))
+        throw new PortableBusyError("Portable coordination read is busy");
+      throw error;
+    } finally {
+      db.close();
+    }
+  }
+  snapshot(): PortableSnapshot {
+    const { mode, revision } = this.read();
+    return { mode, revision };
+  }
+  private save(
+    mode: "idle" | "draining",
+    revision: number,
+    journal: Journal | null,
+  ): void {
+    const db = open(this.gate);
+    try {
+      db.exec("PRAGMA busy_timeout=50; PRAGMA synchronous=FULL");
+      db.prepare("UPDATE state SET mode=?,revision=?,journal=? WHERE id=1").run(
+        mode,
+        revision,
+        journal ? JSON.stringify(journal) : null,
+      );
+    } catch (error) {
+      if (busy(error))
+        throw new PortableBusyError("Portable coordination write is busy");
+      throw error;
+    } finally {
+      db.close();
+    }
+  }
+  private lock(file: string, exclusive: boolean): PortableLease {
+    regular(file);
+    const db = open(file);
+    let released = false;
+    try {
+      db.exec(exclusive ? "BEGIN EXCLUSIVE" : "BEGIN");
+      db.prepare("SELECT id FROM lease WHERE id=1").get();
+    } catch (error) {
+      db.close();
+      if (busy(error)) throw new PortableBusyError();
+      throw error;
+    }
+    return {
+      release() {
+        if (!released) {
+          db.close();
+          released = true;
+        }
+      },
+    };
+  }
+  acquireWriter(): PortableLease {
+    if (this.writerHeld)
+      throw new PortableBusyError("Writer leases are not reentrant");
+    const lease = this.lock(this.writer, true);
+    this.writerHeld = true;
+    let released = false;
+    return {
+      release: () => {
+        if (!released) {
+          lease.release();
+          this.writerHeld = false;
+          released = true;
+        }
+      },
+    };
+  }
+  markMutation(): number {
+    if (!this.writerHeld) throw new Error("Mutation requires writer lease");
+    if (this.journal() || this.snapshot().mode !== "idle")
+      throw new Error("Recover publication before graph mutation");
+    const revision = this.snapshot().revision + 1;
+    this.save("idle", revision, null);
+    return revision;
+  }
+  acquireReader(): PortableLease {
+    // Acquiring the lease FIRST closes the check/gate race: a publisher cannot
+    // acquire its exclusive fence until we have either pinned idle or released.
+    const lease = this.lock(this.readers, false);
+    try {
+      if (this.snapshot().mode !== "idle")
+        throw new PortableBusyError("Database publication is draining readers");
+      return lease;
+    } catch (error) {
+      lease.release();
+      throw error;
+    }
+  }
+  private owned(record: Journal): void {
+    if (
+      !/^[0-9a-f-]{36}$/.test(record.id) ||
+      !Number.isSafeInteger(record.baselineRevision)
+    )
+      throw new Error("Invalid publication record");
+    const dir = path.join(this.runtime, record.id);
+    if (
+      record.path !== path.join(dir, "candidate.db") ||
+      record.backup !== path.join(dir, "old.db")
+    )
+      throw new Error("Publication path identity mismatch");
+    if (
+      fs.existsSync(dir) &&
+      (!fs.lstatSync(dir).isDirectory() || fs.lstatSync(dir).isSymbolicLink())
+    )
+      throw new Error("Unsafe publication directory");
+  }
+  private journal(): Journal | null {
+    const row = this.read();
+    if (!row.journal) return null;
+    const record = JSON.parse(row.journal) as Journal;
+    this.owned(record);
+    if (
+      !["building", "prepared", "replacing", "committed"].includes(record.phase)
+    )
+      throw new Error("Invalid publication phase");
+    return record;
+  }
+  private cleanup(record: Journal): void {
+    this.owned(record);
+    const dir = path.dirname(record.path);
+    if (fs.existsSync(dir)) {
+      const names = fs.readdirSync(dir);
+      if (names.some((name) => !["candidate.db", "old.db"].includes(name)))
+        throw new Error("Unknown candidate artifacts retained");
+      for (const file of [record.path, record.backup])
+        if (regular(file, true)) {
+          noSidecars(file);
+          fs.unlinkSync(file);
+        }
+      fs.rmdirSync(dir);
+      flushDirectory(this.runtime);
+    }
+  }
+  /** Caller must not have opened graph connections yet. Third-party imports are
+   * accepted only after obtaining both OS fences and validating their snapshot.
+   * Old candidate/backup evidence is retained, never restored over an import. */
+  recover(): void {
+    const writer = this.writerHeld ? null : this.acquireWriter();
+    let fence: PortableLease | null = null;
+    try {
+      const record = this.journal();
+      if (!record) {
+        if (this.snapshot().mode !== "idle")
+          throw new Error("Draining state has no recovery record");
+        return;
+      }
+      if (record.phase === "building" || record.phase === "prepared") {
+        validate(this.active);
+        this.save("idle", this.snapshot().revision, null);
+        // A killed builder may leave its WAL; preserve its directory rather than
+        // deleting uncheckpointed evidence. This never blocks active graph reads.
+        try {
+          this.cleanup(record);
+        } catch {
+          /* abandoned candidate retained */
+        }
+        return;
+      }
+      if (record.phase === "committed") {
+        validate(this.active);
+        this.save("idle", this.snapshot().revision, null);
+        try {
+          this.cleanup(record);
+        } catch {
+          /* retained evidence does not revoke commit */
+        }
+        return;
+      }
+      fence = this.lock(this.readers, true);
+      for (const file of [this.active, record.path, record.backup])
+        noSidecars(file);
+      const active = digest(this.active),
+        next = digest(record.path),
+        old = digest(record.backup);
+      if (!record.oldHash || !record.newHash)
+        throw new Error("Missing recovery identities");
+      if (
+        active === record.oldHash &&
+        old === null &&
+        next === record.newHash
+      ) {
+        /* no rename */
+      } else if (
+        active === null &&
+        old === record.oldHash &&
+        next === record.newHash
+      ) {
+        fs.renameSync(record.backup, this.active);
+        flushDirectory(this.dataDirectory);
+      } else if (
+        active === record.newHash &&
+        old === record.oldHash &&
+        next === null
+      ) {
+        // A fully installed validated candidate is a safe roll-forward.
+        validate(this.active);
+      } else if (
+        active !== null &&
+        active !== record.oldHash &&
+        active !== record.newHash
+      ) {
+        validate(this.active);
+        // Independent offline import wins. Keep evidence in its unique directory.
+        this.save("idle", this.snapshot().revision + 1, null);
+        return;
+      } else
+        throw new Error(
+          "Ambiguous publication state; database evidence preserved",
+        );
+      validate(this.active);
+      this.save("idle", this.snapshot().revision + 1, null);
+      try {
+        this.cleanup(record);
+      } catch {
+        /* preserve cleanup failures */
+      }
+    } finally {
+      fence?.release();
+      writer?.release();
+    }
+  }
+  beginCandidate(): PortableCandidate {
+    if (!this.writerHeld)
+      throw new Error("Candidate construction requires writer lease");
+    if (this.journal() || this.snapshot().mode !== "idle")
+      throw new Error("Recover the previous publication before construction");
+    const id = randomUUID(),
+      dir = path.join(this.runtime, id),
+      baselineRevision = this.snapshot().revision;
+    const record: Journal = {
+      id,
+      path: path.join(dir, "candidate.db"),
+      backup: path.join(dir, "old.db"),
+      baselineRevision,
+      phase: "building",
+    };
+    this.save("idle", baselineRevision, record); // Intent precedes directory creation.
+    fs.mkdirSync(dir);
+    flushDirectory(this.runtime);
+    return record;
+  }
+  abortCandidate(candidate: PortableCandidate): void {
+    if (!this.writerHeld)
+      throw new Error("Candidate cancellation requires writer lease");
+    const record = this.journal();
+    if (!record || record.id !== candidate.id) return;
+    if (!["building", "prepared"].includes(record.phase))
+      throw new Error("Publication has entered replacement; recovery required");
+    this.save("idle", this.snapshot().revision, null);
+    try {
+      this.cleanup(record);
+    } catch {
+      /* failed builders may leave recoverable SQLite logs */
+    }
+  }
+  async publish(
+    candidate: PortableCandidate,
+    options: PortablePublishOptions = {},
+  ): Promise<{ pauseMs: number; revision: number }> {
+    if (!this.writerHeld) throw new Error("Publication requires writer lease");
+    const record = this.journal();
+    if (!record || record.id !== candidate.id || record.phase !== "building")
+      throw new Error("Publication candidate does not match active intent");
+    if (this.snapshot().revision !== candidate.baselineRevision)
+      throw new Error("Database revision changed during construction");
+    const timeout = options.timeoutMs ?? 1000;
+    if (!Number.isFinite(timeout) || timeout <= 0)
+      throw new Error("Invalid publication timeout");
+    options.signal?.throwIfAborted();
+    seal(record.path);
+    // Full checkpoint/hash stays outside the admission pause. Writer lease
+    // prevents graph mutation; readers are allowed to continue using old data.
+    const old = open(this.active);
+    try {
+      if (old.prepare("PRAGMA wal_checkpoint(TRUNCATE)").get()?.busy > 0)
+        throw new PortableBusyError("Old database checkpoint is blocked");
+    } finally {
+      old.close();
+    }
+    record.oldHash = digest(this.active) ?? undefined;
+    record.newHash = digest(record.path) ?? undefined;
+    if (!record.oldHash || !record.newHash)
+      throw new Error("Publication database missing");
+    record.phase = "prepared";
+    this.save("idle", candidate.baselineRevision, record);
+    options.hook?.("prepared");
+    await options.beforeDrain?.();
+    options.signal?.throwIfAborted();
+    let fence: PortableLease | null = null,
+      committed = false;
+    const started = performance.now();
+    this.save("draining", candidate.baselineRevision, record);
+    try {
+      options.hook?.("draining");
+      while (!fence) {
+        options.signal?.throwIfAborted();
+        if (performance.now() - started >= timeout)
+          throw new PortableBusyError(
+            "Publication drain timed out; old database remains available",
+          );
+        try {
+          fence = this.lock(this.readers, true);
+        } catch (error) {
+          if (!(error instanceof PortableBusyError)) throw error;
+          await delay(5);
+        }
+      }
+      // SQLite owns sidecar removal. Never unlink WAL files to force a rename.
+      const db = open(this.active);
+      try {
+        if (db.prepare("PRAGMA wal_checkpoint(TRUNCATE)").get()?.busy > 0)
+          throw new PortableBusyError("Final SQLite checkpoint is blocked");
+      } finally {
+        db.close();
+      }
+      noSidecars(this.active);
+      noSidecars(record.path);
+      options.signal?.throwIfAborted();
+      if (performance.now() - started >= timeout)
+        throw new PortableBusyError("Publication drain budget exceeded");
+      record.phase = "replacing";
+      this.save("draining", candidate.baselineRevision, record);
+      fs.renameSync(this.active, record.backup);
+      flushDirectory(this.dataDirectory);
+      flushDirectory(path.dirname(record.path));
+      options.hook?.("old-moved");
+      fs.renameSync(record.path, this.active);
+      flushDirectory(this.dataDirectory);
+      options.hook?.("new-moved");
+      const check = open(this.active, true);
+      try {
+        check.prepare("SELECT count(*) FROM sqlite_master").get();
+      } finally {
+        check.close();
+      }
+      record.phase = "committed";
+      this.save("idle", candidate.baselineRevision + 1, record);
+      committed = true;
+      options.hook?.("committed");
+      fence.release();
+      fence = null;
+      const pauseMs = performance.now() - started;
+      try {
+        this.cleanup(record);
+        this.save("idle", candidate.baselineRevision + 1, null);
+      } catch {
+        /* recover performs conservative terminal cleanup */
+      }
+      return { pauseMs, revision: candidate.baselineRevision + 1 };
+    } catch (error) {
+      if (committed) throw error; // Commit is irreversible, including hook failure.
+      if (record.phase !== "replacing")
+        this.save("idle", candidate.baselineRevision, record);
+      fence?.release();
+      fence = null;
+      if (record.phase === "replacing") this.recover();
+      throw error;
+    } finally {
+      fence?.release();
+    }
+  }
+}

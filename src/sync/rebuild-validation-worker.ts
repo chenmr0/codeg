@@ -3,35 +3,50 @@ import { parentPort, workerData } from 'worker_threads';
 import * as path from 'path';
 import * as fs from 'fs';
 import { acquireGenerationLease, acquireCurrentGenerationLease, resolveGeneration, type GenerationLease } from './generation-store';
-import { DatabaseConnection } from '../db';
+import { DatabaseConnection, DatabaseOpenError } from '../db';
+import { PortableCoordinator, type PortableLease } from './portable/protocol';
 import { QueryBuilder } from '../db/queries';
 import { adaptiveRuntimeKey, readAdaptiveHistory, createAdaptivePlan, chooseAdaptiveStrategy,
-  validateAdaptiveSnapshot, canSkipScopedAdaptivePlan, adaptiveSampleFromFiles, recordAdaptiveSample, adaptiveConfigFingerprint, type AdaptiveEligibility, type AdaptiveSnapshot } from './adaptive-plan';
+  validateAdaptiveSnapshot, canSkipScopedAdaptivePlan, adaptiveSampleFromFiles, recordAdaptiveSample, adaptiveConfigFingerprint, type AdaptiveCostHistory, type AdaptiveEligibility, type AdaptiveSnapshot } from './adaptive-plan';
 import { validateRebuiltDatabase } from './rebuild-controller';
 import { isSourceOwned, inspectLegacySourceProvenance } from './source-ownership';
 
 export type AdaptiveReadJob =
   | { type: 'validate-initial'; root: string; databasePath: string }
   | { type: 'record-full'; root: string; databasePath: string; durationMs: number }
-  | { type: 'evaluate'; root: string; databasePath: string; eligibility: AdaptiveEligibility; paths?: string[] }
+  | { type: 'evaluate'; root: string; databasePath: string; eligibility: AdaptiveEligibility; paths?: string[]; portable?: boolean; fullHash?: boolean }
   | { type: 'validate'; root: string; databasePath: string; sourceDatabasePath: string; snapshot: AdaptiveSnapshot; runtimeKey: string };
 
 
-function openLeasedReadOnly(databasePath: string): { connection: DatabaseConnection; close(): void } {
+// Failed native close is not permission to publish over a live SQLite handle.
+const failedReaderLeases = new Set<PortableLease | GenerationLease>();
+function openLeasedReadOnly(databasePath: string, portable = false): { connection: DatabaseConnection; close(): void } {
   const directory = path.dirname(databasePath);
-  let lease: GenerationLease | undefined;
-  if (path.basename(path.dirname(directory)) === 'generations') {
+  let lease: PortableLease | GenerationLease | undefined;
+  if (path.basename(databasePath) === 'codegraph.db' &&
+      (portable || fs.existsSync(path.join(directory, '.runtime', 'portable')))) {
+    lease = new PortableCoordinator(directory).acquireReader();
+  } else if (path.basename(path.dirname(directory)) === 'generations') {
     const dataDir = path.dirname(path.dirname(directory));
     if (resolveGeneration(dataDir).databasePath === databasePath) {
-      lease = acquireCurrentGenerationLease(dataDir);
-      if (lease.databasePath !== databasePath) { lease.release(); throw new Error('Generation changed before worker read'); }
+      const current = acquireCurrentGenerationLease(dataDir);
+      if (current.databasePath !== databasePath) { current.release(); throw new Error('Generation changed before worker read'); }
+      lease = current;
     } else lease = acquireGenerationLease(dataDir, path.basename(directory));
   }
   let connection: DatabaseConnection;
   try { connection = DatabaseConnection.openReadOnly(databasePath); }
-  catch (error) { lease?.release(); throw error; }
+  catch (error) {
+    if (error instanceof DatabaseOpenError) { if (lease) failedReaderLeases.add(lease); }
+    else lease?.release();
+    throw error;
+  }
   return { connection, close: () => {
-    try { connection.close(); } finally { if (!connection.isOpen()) lease?.release(); }
+    try { connection.close(); }
+    finally {
+      if (!connection.isOpen()) lease?.release();
+      else if (lease) failedReaderLeases.add(lease);
+    }
   } };
 }
 
@@ -57,21 +72,41 @@ async function execute(job: AdaptiveReadJob): Promise<unknown> {
     } finally { reader.close(); }
   }
   if (job.type === 'evaluate') {
-    const reader = openLeasedReadOnly(job.databasePath);
+    const reader = openLeasedReadOnly(job.databasePath, job.portable);
     const connection = reader.connection;
     try {
       const db = connection.getDb();
       const owned = isSourceOwned(db);
       const legacy = owned ? { eligible: false, reason: 'already-owned' } : inspectLegacySourceProvenance(db);
-      if (!owned && !legacy.eligible) return { decision: { strategy: 'incremental', reason: `unverified-legacy-or-custom-index:${legacy.reason}` } };
+      const provenanceBlocked = !owned && !legacy.eligible ? `unverified-legacy-or-custom-index:${legacy.reason}` : undefined;
+      // Catch-up still needs a complete content inventory, even if its source
+      // lost rebuild eligibility. Computing a plan must not grant ownership.
+      if (provenanceBlocked && !job.fullHash) return { decision: { strategy: 'incremental', reason: provenanceBlocked } };
       const runtimeKey = adaptiveRuntimeKey(job.root, connection.getBackend());
       const queries = new QueryBuilder(db);
       const tracked = queries.getAllFiles();
       const indexedConfig = queries.getMetadata('adaptive:index-config-v1');
       const eligibility = { ...job.eligibility, ...(indexedConfig ? { configFingerprint: indexedConfig } : {}),
+        ...(provenanceBlocked ? { blockedReason: provenanceBlocked } : {}),
         upgradeRequired: job.eligibility.upgradeRequired || legacy.eligible || (owned && indexedConfig === null) };
-      const history = readAdaptiveHistory(job.root);
-      if (job.paths?.length && indexedConfig && !eligibility.upgradeRequired && !eligibility.configurationChanged) {
+      let history: AdaptiveCostHistory = { version: 1, samples: [] };
+      if (job.portable) {
+        // The DB is the portable authority. Do not accidentally revive an old
+        // directory's JSON history after a public database was replaced.
+        const raw = queries.getMetadata('adaptive:cost-history-v1');
+        try {
+          if (raw && raw.length <= 256 * 1024) {
+            const parsed = JSON.parse(raw) as AdaptiveCostHistory;
+            if (parsed?.version === 1 && Array.isArray(parsed.samples)) {
+              // A copied DB may carry another machine's measurements. Ignore
+              // them rather than triggering a rebuild because its host changed.
+              history = { version: 1, samples: parsed.samples.slice(-96).filter(sample =>
+                sample && typeof sample === 'object' && sample.runtimeKey === runtimeKey) };
+            }
+          }
+        } catch { /* Corrupt cost hints cannot invalidate an otherwise valid index. */ }
+      } else history = readAdaptiveHistory(job.root);
+      if (!job.fullHash && job.paths?.length && indexedConfig && !eligibility.upgradeRequired && !eligibility.configurationChanged) {
         const paths = [...new Set(job.paths)];
         const prior = new Map(tracked.map(file => [file.path, file]));
         const safe = paths.every(relative => {
@@ -88,9 +123,11 @@ async function execute(job: AdaptiveReadJob): Promise<unknown> {
           return { decision: { strategy: 'incremental', reason: 'scoped-small-change' } };
         }
       }
-      const plan = await createAdaptivePlan(job.root, tracked, { runtimeKey });
+      const plan = await createAdaptivePlan(job.root, tracked, { runtimeKey, fullHash: job.fullHash });
       const decision = chooseAdaptiveStrategy(plan, history, eligibility);
-      return { plan, decision, legacy: legacy.eligible };
+      const configurationChanged = eligibility.configurationChanged === true ||
+        (indexedConfig !== undefined && indexedConfig !== null && indexedConfig !== plan.snapshot.configFingerprint);
+      return { plan, decision, legacy: legacy.eligible, configurationChanged };
     } finally { reader.close(); }
   }
   if (adaptiveRuntimeKey(job.root, 'node-sqlite') !== job.runtimeKey) return false;

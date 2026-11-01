@@ -54,11 +54,14 @@ import {
 import { GraphTraverser, GraphQueryManager } from './graph';
 import { ContextBuilder, createContextBuilder } from './context';
 import { Mutex, canonicalFilePath } from './utils';
-import { GenerationWriterLock, resolveGeneration, createGeneration, publishGeneration, publishInitialGeneration, publishInitialGenerationSync, hasRebuildDiskSpace, acquireCurrentGenerationLease, acquireGenerationLease, cleanupGenerationCandidate, collectRetiredGenerations, type GenerationLease, type GenerationCandidate } from './sync/generation-store';
+import { GenerationWriterLock, resolveGeneration, createGeneration, publishGeneration, hasRebuildDiskSpace, acquireCurrentGenerationLease, acquireGenerationLease, cleanupGenerationCandidate, collectRetiredGenerations, type GenerationLease } from './sync/generation-store';
 import { installSourceOwnership, isSourceOwned, beginSourceWrite, finishSourceWrite } from './sync/source-ownership';
 import { adaptiveRuntimeKey, adaptiveConfigFingerprint, adaptiveSampleFromFiles,
   recordAdaptiveSample, type AdaptiveDecision, type AdaptivePlan, type AdaptiveFallbackPolicy } from './sync/adaptive-plan';
 import { runRebuildChild, runAdaptiveReadWorker } from './sync/rebuild-controller';
+import { PortableCoordinator, type PortableLease } from './sync/portable/protocol';
+import { createPortableFacade, type PortableReadPin } from './sync/portable/facade';
+import { initializeIdentity, metadata as portableMetadata, setMetadata as setPortableMetadata, CATCHUP, COST_HISTORY, recordCost } from './sync/portable/metadata';
 import { FileWatcher, WatchOptions, PendingFile, LockUnavailableError } from './sync';
 import { EXTRACTION_VERSION } from './extraction/extraction-version';
 import { recoverAppendDeltas } from './extraction/append-delta';
@@ -195,6 +198,8 @@ export interface SyncOptions extends IndexOptions {
   paths?: string[];
   /** Disable adaptive planning for this invocation; default is conservative automatic selection. */
   adaptive?: boolean;
+  /** Internal full-hash reconciliation overrides the ordinary stat shortcut. */
+  forceReindexPaths?: string[];
   /** Conservative cold-start coverage policy, not a latency guarantee. */
   adaptiveFallback?: Partial<AdaptiveFallbackPolicy>;
   /** Decision diagnostics; no stdout output is emitted for library/MCP callers. */
@@ -217,8 +222,10 @@ export class CodeGraph {
   // Exceptional native close failures must stay protected until retry/process
   // exit; GC order must not release a lease before its still-live DB handle.
   private static failedOpens = new Map<GenerationLease, DatabaseConnection>();
-  private static failedInitializations = new Set<{ db: DatabaseConnection; candidate: GenerationCandidate }>();
   private static failedCloses = new Set<CodeGraph>();
+  // Initialization has no facade to own a failed native handle. Keep both its
+  // connection and the independent writer fence alive until process exit.
+  private static failedPortableInitializations = new Map<PortableLease, DatabaseConnection>();
   private db: DatabaseConnection;
   private queries: QueryBuilder;
   private projectRoot: string;
@@ -238,6 +245,7 @@ export class CodeGraph {
   private fileLock: GenerationWriterLock;
   private readonly dataDir: string;
   private readonly shadowCandidate: boolean;
+  private portableBound = false;
   private readOnly: boolean;
   private readonly pinnedRead: boolean;
   private closed = false;
@@ -377,35 +385,35 @@ export class CodeGraph {
     try {
       CodeGraph.assertUninitialized(root, dataDir);
       if (CodeGraph.nativeInitializationAvailable()) {
-        const candidate = createGeneration(dataDir, lock);
-        let shadow: CodeGraph | undefined;
-        const started = performance.now();
+        const coordinator = new PortableCoordinator(dataDir);
+        const writer = coordinator.acquireWriter();
+        let db: DatabaseConnection | undefined;
+        let idle = false;
         try {
-          shadow = await CodeGraph.createShadow(root, candidate.databasePath);
-          if (shadow.db.getBackend() !== 'node-sqlite') throw new Error('Managed initialization requires node:sqlite');
-          const result = options.index ? await shadow.indexAll({ onProgress: options.onProgress, signal: options.signal, verbose: options.verbose }) : undefined;
-          if (result) options.onIndexResult?.(result);
-          if (result && !result.success) {
-            throw new Error(result.errors.map(error => error.message).join('; ') || 'Initial indexing failed');
+          coordinator.recover();
+          try { db = DatabaseConnection.initialize(path.join(dataDir, 'codegraph.db')); }
+          catch (error) {
+            if (error instanceof DatabaseOpenError) db = error.connection;
+            throw error;
           }
-          shadow.close();
-          await publishInitialGeneration(dataDir, candidate, { lock, signal: options.signal,
-            validate: () => runAdaptiveReadWorker<boolean>({ type: 'validate-initial', root, databasePath: candidate.databasePath }, { signal: options.signal }) });
-          instance = CodeGraph.openCurrent(root, false, false, dataDir, true);
-          if (result?.complete) {
-            try { await runAdaptiveReadWorker<boolean>({ type: 'record-full', root,
-              databasePath: candidate.databasePath, durationMs: performance.now() - started }); }
-            catch { /* A missing optional cost sample does not invalidate published storage. */ }
+          try { installSourceOwnership(db.getDb()); initializeIdentity(db.getDb()); }
+          finally {
+            try { db.close(); }
+            finally { await db.whenIdle(); idle = true; }
           }
-          return instance;
         } finally {
-          try { shadow?.close(); } finally { cleanupGenerationCandidate(dataDir, candidate); }
+          let closed = !db;
+          if (db) { try { closed = !db.isOpen() && idle; } catch { /* retain uncertain handle */ } }
+          if (closed) writer.release();
+          else if (db) CodeGraph.failedPortableInitializations.set(writer, db);
         }
-      }
+        instance = CodeGraph.openPortable(root, dataDir);
+      } else {
       // Unsupported native runtimes retain the historical flat storage format.
       // The same root lock prevents racing another initializer into a flat DB.
       const db = DatabaseConnection.initialize(path.join(dataDir, 'codegraph.db'));
       instance = new CodeGraph(db, new QueryBuilder(db.getDb()), root, false, false, false, dataDir);
+      }
     } finally { lock.release(); }
     try {
       if (options.index) {
@@ -430,26 +438,27 @@ export class CodeGraph {
         const db = DatabaseConnection.initialize(path.join(dataDir, 'codegraph.db'));
         return new CodeGraph(db, new QueryBuilder(db.getDb()), root, false, false, false, dataDir);
       }
-      const candidate = createGeneration(dataDir, lock);
+      const coordinator = new PortableCoordinator(dataDir);
+      const writer = coordinator.acquireWriter();
       let db: DatabaseConnection | undefined;
       try {
-        db = DatabaseConnection.initialize(candidate.databasePath);
-        if (db.getBackend() !== 'node-sqlite') throw new Error('Managed initialization requires node:sqlite');
-        installSourceOwnership(db.getDb());
-        const valid = db.getDb().pragma('quick_check', { simple: true }) === 'ok';
-        db.close();
-        publishInitialGenerationSync(dataDir, candidate, { lock, validate: () => valid });
-        return CodeGraph.openCurrent(root, false, false, dataDir, true);
-      } catch (error) {
-        if (!db && error instanceof DatabaseOpenError) db = error.connection;
-        throw error;
-      } finally {
-        // A failed close must keep the build lease: GC cannot remove a live DB.
-        try { db?.close(); } finally {
-          if (!db?.isOpen()) cleanupGenerationCandidate(dataDir, candidate);
-          else CodeGraph.failedInitializations.add({ db, candidate });
+        coordinator.recover();
+        try { db = DatabaseConnection.initialize(path.join(dataDir, 'codegraph.db')); }
+        catch (error) {
+          if (error instanceof DatabaseOpenError) db = error.connection;
+          throw error;
         }
+        try { installSourceOwnership(db.getDb()); initializeIdentity(db.getDb()); }
+        finally { db.close(); }
+      } finally {
+        // Schema-only initialization starts no background workers, so native
+        // handle closure is a synchronous fence and initSync remains immediate.
+        let closed = !db;
+        if (db) { try { closed = !db.isOpen(); } catch { /* retain uncertain handle */ } }
+        if (closed) writer.release();
+        else if (db) CodeGraph.failedPortableInitializations.set(writer, db);
       }
+      return CodeGraph.openPortable(root, dataDir);
     } finally { lock.release(); }
   }
 
@@ -460,8 +469,61 @@ export class CodeGraph {
    * @param options - Open options
    * @returns A CodeGraph instance
    */
+  /** Single root database; coordination files are local and never identify its contents. */
+  private static openPortable(root: string, dataDir: string, readOnly = false): CodeGraph {
+    return createPortableFacade(root, dataDir, reader => CodeGraph.openPortableRaw(root, path.join(dataDir, 'codegraph.db'), reader), readOnly);
+  }
+
+  /** @internal Caller holds a portable connection lease and, for writes, writer ownership. */
+  static openPortableRaw(root: string, file: string, readOnly: boolean): CodeGraph {
+    const db = readOnly ? DatabaseConnection.openReadOnly(file) : DatabaseConnection.open(file, { nativeOnly: true });
+    try {
+      const graph = new CodeGraph(db, new QueryBuilder(db.getDb()), path.resolve(root), true, readOnly, readOnly, path.dirname(file));
+      graph.portableBound = true;
+      // Ownership is held outside the replaceable graph object, across worker exits.
+      graph.fileLock = new class extends GenerationWriterLock {
+        override acquire(): void {}
+        override assertHeld(): void {}
+        override release(): void {}
+      }(path.dirname(file));
+      if (!readOnly) initializeIdentity(db.getDb());
+      return graph;
+    } catch (error) {
+      try { db.close(); } catch (closeError) { throw new DatabaseOpenError(db, error, closeError); }
+      throw error;
+    }
+  }
+
+  /** @internal An unpublished private candidate; no active-file connection is created. */
+  static async createPortableCandidate(root: string, file: string): Promise<CodeGraph> {
+    await initGrammars();
+    if (existsSync(file) || path.basename(file) !== 'candidate.db' || path.basename(path.dirname(path.dirname(file))) !== 'portable') {
+      throw new Error('Portable candidate must be a fresh owned runtime file');
+    }
+    const db = DatabaseConnection.initialize(file);
+    try { installSourceOwnership(db.getDb()); initializeIdentity(db.getDb()); }
+    finally { db.close(); await db.whenIdle(); }
+    return CodeGraph.openPortableRaw(root, file, false);
+  }
+
+  isPortableStorage(): boolean { return this.portableBound; }
+  acquirePortableRead(): PortableReadPin { throw new Error('Raw graph cannot acquire a project read pin'); }
+  async acquirePortableReadAsync(): Promise<PortableReadPin> { return this.acquirePortableRead(); }
+  getPortableCostHistory(): string | null { return portableMetadata(this.db.getDb(), COST_HISTORY); }
+  setPortableCostHistory(history: string): void { setPortableMetadata(this.db.getDb(), COST_HISTORY, history); }
+  recordPortableFullCost(durationMs: number): void { this.recordCostSample('full', [], durationMs); }
+  hasPortableCatchupWork(): boolean { return this.hasSynthesisRecoveryEvidence(); }
+  getPortableCatchup(): string | null { return portableMetadata(this.db.getDb(), CATCHUP); }
+  setPortableCatchup(operation: string): void { setPortableMetadata(this.db.getDb(), CATCHUP, operation); }
+  clearPortableCatchup(): void { const ownership = beginSourceWrite(this.db.getDb()); this.db.getDb().prepare('DELETE FROM project_metadata WHERE key=?').run(CATCHUP); finishSourceWrite(this.db.getDb(), ownership, true); }
+
   private static openCurrent(root: string, forceReadOnly = false, pinnedRead = false,
     dataDirectory = getCodeGraphDir(root), writer = false, acquiredLease?: GenerationLease): CodeGraph {
+    const managedPortable = existsSync(path.join(dataDirectory, '.runtime', 'portable', 'gate.sqlite'));
+    if (managedPortable && !CodeGraph.nativeInitializationAvailable()) throw new Error('Portable coordinated storage requires node:sqlite; disable forced WASM or use a supported Node version');
+    if (!acquiredLease && (existsSync(path.join(dataDirectory, '.runtime', 'portable', 'gate.sqlite')) || !existsSync(path.join(dataDirectory, 'CURRENT'))) && CodeGraph.nativeInitializationAvailable()) {
+      return CodeGraph.openPortable(root, dataDirectory, forceReadOnly);
+    }
     // Resolve + register the reader atomically against publication and GC.
     const lease = acquiredLease ?? acquireCurrentGenerationLease(dataDirectory);
     let db: DatabaseConnection | undefined;
@@ -624,6 +686,7 @@ export class CodeGraph {
     const forwarded = this.forwardedWriter;
     await this.indexMutex.withLock(async () => {});
     if (forwarded) await forwarded.whenIdle();
+    await this.db.whenIdle();
   }
 
   /** Stop an isolated build without closing a graph still leased by readers. */
@@ -950,7 +1013,7 @@ export class CodeGraph {
             this.queries.setMetadata('adaptive:index-config-v1', adaptiveConfigFingerprint(this.projectRoot, this.queries.getAllFiles()));
           }
           finishSourceWrite(this.db.getDb(), ownership, result.success === true && result.complete === true);
-          if (!this.shadowCandidate && result.success && result.complete) {
+          if ((!this.shadowCandidate || this.portableBound) && result.success && result.complete) {
             this.recordCostSample('full', [], performance.now() - startedAt);
           }
           return result;
@@ -1126,12 +1189,14 @@ export class CodeGraph {
   }
 
   private recordCostSample(kind: 'full' | 'incremental', before: FileRecord[], durationMs: number, changedFilePaths?: string[]): void {
-    if (this.shadowCandidate || this.db.getBackend() !== 'node-sqlite' || getCodeGraphDir(this.projectRoot) !== this.dataDir || !isSourceOwned(this.db.getDb())) return;
+    if ((this.shadowCandidate && !this.portableBound) || this.db.getBackend() !== 'node-sqlite' || getCodeGraphDir(this.projectRoot) !== this.dataDir || !isSourceOwned(this.db.getDb())) return;
     try {
       const after = this.queries.getAllFiles();
-      recordAdaptiveSample(this.projectRoot, adaptiveSampleFromFiles({ kind, before, after, durationMs, changedFilePaths,
+      const sample = adaptiveSampleFromFiles({ kind, before, after, durationMs, changedFilePaths,
         runtimeKey: adaptiveRuntimeKey(this.projectRoot, this.db.getBackend()),
-        configFingerprint: adaptiveConfigFingerprint(this.projectRoot, [...before, ...after]) }), true);
+        configFingerprint: adaptiveConfigFingerprint(this.projectRoot, [...before, ...after]) });
+      if (this.portableBound) recordCost(this.db.getDb(), sample);
+      else recordAdaptiveSample(this.projectRoot, sample, true);
     } catch { /* Performance hints must never invalidate a successful index. */ }
   }
 
@@ -1414,6 +1479,7 @@ export class CodeGraph {
           options.onScanFallback,
           walValve ? { hardCapBytes: walValve.hardCapBytes,
             getWalSizeBytes: () => this.db.getWalSizeBytes() } : undefined,
+          options.forceReindexPaths,
         );
         // Old unstamped edges need source re-extraction, even if their caller
         // was unchanged (or was stored before a later target replacement).

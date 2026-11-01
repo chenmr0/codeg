@@ -33,6 +33,8 @@ export type StoreReplacement = { filePath: string; remove: true } | {
   stats: { size: number; mtimeMs: number };
   result: ExtractionResult;
   diagnostics: boolean;
+  /** Verified catch-up bypasses the same-content storage shortcut. */
+  force?: boolean;
 };
 
 export interface StoreReplacementResult {

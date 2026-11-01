@@ -7,6 +7,8 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { acquireCurrentGenerationLease } from './sync/generation-store';
+import { PortableCoordinator } from './sync/portable/protocol';
+function hasPortableRuntime(directory: string): boolean { return fs.existsSync(path.join(directory, '.runtime', 'portable', 'gate.sqlite')); }
 
 /** New indexes use wx; existing indexes remain readable during the transition. */
 const DEFAULT_CODEGRAPH_DIR = '.codegraph-wx';
@@ -110,9 +112,9 @@ export function getCodeGraphDir(projectRoot: string): string {
   const configured = configuredDirName();
   const preferred = path.join(projectRoot, configured ?? DEFAULT_CODEGRAPH_DIR);
   if (configured || !legacyCompatibilityEnabled() ||
-      (fs.existsSync(path.join(preferred, 'codegraph.db')) || hasCurrentManifest(preferred))) return preferred;
+      (hasPortableRuntime(preferred) || fs.existsSync(path.join(preferred, 'codegraph.db')) || hasCurrentManifest(preferred))) return preferred;
   const legacy = path.join(projectRoot, LEGACY_CODEGRAPH_DIR);
-  return (fs.existsSync(path.join(legacy, 'codegraph.db')) || hasCurrentManifest(legacy)) ? legacy : preferred;
+  return (hasPortableRuntime(legacy) || fs.existsSync(path.join(legacy, 'codegraph.db')) || hasCurrentManifest(legacy)) ? legacy : preferred;
 }
 
 /**
@@ -123,6 +125,11 @@ export function isInitialized(projectRoot: string): boolean {
   const codegraphDir = getCodeGraphDir(projectRoot);
   if (!fs.existsSync(codegraphDir) || !fs.statSync(codegraphDir).isDirectory()) {
     return false;
+  }
+  if (hasPortableRuntime(codegraphDir)) {
+    const coordinator = new PortableCoordinator(codegraphDir);
+    if (!fs.existsSync(coordinator.active) || coordinator.snapshot().mode !== 'idle') coordinator.recover();
+    return fs.existsSync(coordinator.active);
   }
   // A published target must remain pinned through the existence check.
   // Callers opening a DB subsequently acquire their own fresh CURRENT lease;
@@ -339,7 +346,7 @@ export function validateDirectory(projectRoot: string): {
   // Published state is strict: malformed CURRENT/READY or a genuinely missing
   // target is corruption, not an uninitialized project or a legacy fallback.
   // Pin before validating so normal concurrent GC cannot cause ENOENT.
-  if (hasCurrentManifest(codegraphDir)) {
+  if (!hasPortableRuntime(codegraphDir) && hasCurrentManifest(codegraphDir)) {
     const lease = acquireCurrentGenerationLease(codegraphDir);
     lease.release();
   }

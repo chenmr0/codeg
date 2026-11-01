@@ -88,6 +88,40 @@ export class DatabaseConnection {
   private dbPath: string;
   private backend: SqliteBackend;
   private storageLease?: GenerationLease;
+  private readonly backgroundOperations = new Set<Promise<void>>();
+  private backgroundReleaseError: unknown;
+
+  /** Track before yielding to an import/worker startup, not only after a worker exists. */
+  private trackBackground<T>(operation: Promise<T>): Promise<T> {
+    const lifetime = operation.then(() => undefined, () => undefined);
+    this.backgroundOperations.add(lifetime);
+    void lifetime.then(() => {
+      this.backgroundOperations.delete(lifetime);
+      try { this.releaseClosedLease(); }
+      catch (error) { this.backgroundReleaseError = error; }
+    });
+    return operation;
+  }
+
+  /**
+   * Wait for maintenance/checkpoint threads to actually exit. Call after close()
+   * before replacing this database file or releasing an enclosing reader lease.
+   * Operation failures remain on their original promises; this is a lifetime fence.
+   */
+  async whenIdle(): Promise<void> {
+    while (this.backgroundOperations.size) {
+      await Promise.all([...this.backgroundOperations]);
+    }
+    if (this.backgroundReleaseError !== undefined) throw this.backgroundReleaseError;
+  }
+
+  private releaseClosedLease(): void {
+    if (!this.db.open && this.backgroundOperations.size === 0) {
+      this.storageLease?.release(); this.storageLease = undefined;
+      this.backgroundReleaseError = undefined;
+      DatabaseConnection.managedOrFailedConnections.delete(this);
+    }
+  }
 
   private constructor(db: SqliteDatabase, dbPath: string, backend: SqliteBackend, storageLease?: GenerationLease) {
     this.db = db;
@@ -491,7 +525,15 @@ export class DatabaseConnection {
     return this.checkpointWal('TRUNCATE', options);
   }
 
-  private async checkpointWal(
+  private checkpointWal(
+    mode: 'PASSIVE' | 'TRUNCATE',
+    options: WalCheckpointOptions = {},
+  ): Promise<WalCheckpointResult | null> {
+    if (!this.db.open) return Promise.reject(new Error('Database connection is closed'));
+    return this.trackBackground(this.checkpointWalOffThread(mode, options));
+  }
+
+  private async checkpointWalOffThread(
     mode: 'PASSIVE' | 'TRUNCATE',
     options: WalCheckpointOptions = {},
   ): Promise<WalCheckpointResult | null> {
@@ -626,7 +668,7 @@ export class DatabaseConnection {
    * watchdog's 60s window and got a COMPLETED index SIGKILLed at the finish
    * line). WAL checkpointing from a second connection is standard SQLite;
    * `PRAGMA optimize` persists its statistics in sqlite_stat tables, so the
-   * main connection benefits the same. The main thread just awaits a message,
+   * main connection benefits the same. The main thread awaits worker exit,
    * so the event loop — and the watchdog heartbeat — keep turning.
    *
    * The sql.js (WASM) backend is in-memory and can't open a second connection,
@@ -637,7 +679,12 @@ export class DatabaseConnection {
    * in-line `PRAGMA optimize` and SKIPS the checkpoint (the final close()
    * checkpoints after the CLI has already disarmed its watchdog).
    */
-  async runMaintenance(): Promise<void> {
+  runMaintenance(): Promise<void> {
+    if (!this.db.open) return Promise.resolve();
+    return this.trackBackground(this.runMaintenanceInternal());
+  }
+
+  private async runMaintenanceInternal(): Promise<void> {
     // sql.js (WASM, in-memory) and in-memory test DBs: no worker round-trip.
     if (this.backend === 'sql-js' || !this.dbPath || this.dbPath === ':memory:') {
       try { this.db.exec('PRAGMA optimize'); } catch { /* ignore */ }
@@ -683,8 +730,13 @@ export class DatabaseConnection {
         };
         try {
           const worker = new Worker(workerSource, { eval: true, workerData: { dbPath: this.dbPath, pragmas } });
-          worker.once('message', () => { void worker.terminate(); finish(); });
-          worker.once('error', () => { void worker.terminate(); finish(); });
+          const stop = (): void => {
+            // A message (or failed terminate request) is not proof that native
+            // SQLite handles have closed. Only exit may release the lifetime.
+            try { void worker.terminate().catch(() => {}); } catch { /* await exit */ }
+          };
+          worker.once('message', stop);
+          worker.once('error', stop);
           worker.once('exit', finish);
         } catch {
           finish();
@@ -704,10 +756,7 @@ export class DatabaseConnection {
     DatabaseConnection.managedOrFailedConnections.add(this);
     try { this.db.close(); }
     finally {
-      if (!this.db.open) {
-        this.storageLease?.release(); this.storageLease = undefined;
-        DatabaseConnection.managedOrFailedConnections.delete(this);
-      }
+      this.releaseClosedLease();
     }
   }
 
