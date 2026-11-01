@@ -608,11 +608,13 @@ export async function publish(op, options = {}) {
     metrics.replaceMs = now() - t; t = now();
     // Only cheap availability check in window; full integrity/index checks already completed.
     const check = new DatabaseSync(p.active, { readOnly: true });
-    try { check.prepare('SELECT count(*) FROM sqlite_master').get(); } finally { check.close(); }
+    let portableImage;
+    try { check.prepare('SELECT count(*) FROM sqlite_master').get(); portableImage=require('../portable-index').portableStamp(check); } finally { check.close(); }
     metrics.reopenMs = now() - t;
     hook?.('before-commit');
     gate(p, g => {
       record.phase='committed';put(g,record);g.prepare('DELETE FROM costs').run();
+      if(portableImage){g.exec('CREATE TABLE IF NOT EXISTS portable_binding(id INTEGER PRIMARY KEY CHECK(id=1), stamp TEXT NOT NULL)');g.prepare('INSERT OR REPLACE INTO portable_binding VALUES(1,?)').run(portableImage);}
       g.prepare("UPDATE state SET mode='idle', operation=NULL, cancel=0, revision=revision+1 WHERE id=1").run();
     },{label:'publish-committed'});
     committed=true;hook?.('committed');t=now();

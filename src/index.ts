@@ -35,6 +35,8 @@ import { markFixedPathCatchup, readFixedPathCatchup, clearFixedPathCatchup } fro
 import { withFixedPathOpen } from './sync/fixed-path/open-context';
 import { repairLegacyIncludesOffThread } from './db/legacy-include-repair';
 import { isFixedPathLayout } from './sync/fixed-path/probe';
+import { createPortableIndex, readPortableFile, PORTABLE_IMPORT_KEY } from './sync/portable-index';
+import { adoptPortableOffline, beginPortableWrite, PORTABLE_OFFLINE_MESSAGE } from './sync/portable-storage';
 import { migrateToFixedPath } from './sync/fixed-path-layout';
 import { initializeFixedPathStorage, recoverFixedPathInitialization } from './sync/fixed-path-initialization';
 import { createDatabase } from './db/sqlite-adapter';
@@ -257,6 +259,7 @@ export class CodeGraph {
   private readonly dataDir: string;
   private readonly shadowCandidate: boolean;
   private readonly fixedBound: boolean;
+  private portableOfflineRequired = false;
   private readOnly: boolean;
   private readonly pinnedRead: boolean;
   private closed = false;
@@ -458,10 +461,15 @@ export class CodeGraph {
     let builderClosed = false;
     initializeFixedPathStorage(dataDir, candidate => {
       const db = DatabaseConnection.initialize(candidate);
-      try { installSourceOwnership(db.getDb()); }
+      try {
+        installSourceOwnership(db.getDb());
+        const token = beginSourceWrite(db.getDb());
+        createPortableIndex(db.getDb());
+        if (token && !finishSourceWrite(db.getDb(), token, true)) throw new Error('Portable initialization ownership changed');
+      }
       finally { db.close(); builderClosed = !db.isOpen(); }
     }, { builderClosedOnError: () => builderClosed });
-    return CodeGraph.openFixedPathControlled(root, dataDir);
+    return CodeGraph.openFixedPathControlled(root, dataDir, false, true);
   }
 
   /** Explicit offline migration; old programs and external SQLite tools must be stopped. */
@@ -471,6 +479,7 @@ export class CodeGraph {
     recoverFixedPathInitialization(dataDir);
     const migration = migrateToFixedPath(dataDir, options);
     await migration.cleanup;
+    adoptPortableOffline({ project: root, dataDirectory: dataDir });
   }
 
   /** Initialize schema-only storage; this does not claim source-index completeness. */
@@ -522,6 +531,17 @@ export class CodeGraph {
     if (isFixedPathLayout(dataDirectory)) {
       if (acquiredLease) throw new Error('Legacy generation lease cannot authorize fixed-path open');
       return CodeGraph.openFixedPathControlled(root, dataDirectory, forceReadOnly || pinnedRead);
+    }
+    const portableFile = path.join(dataDirectory, 'codegraph.db');
+    if (!existsSync(path.join(dataDirectory, 'CURRENT')) && existsSync(portableFile) &&
+        CodeGraph.nativeInitializationAvailable() && readPortableFile(portableFile) !== null) {
+      const db = DatabaseConnection.openReadOnly(portableFile);
+      try {
+        const graph = new CodeGraph(db, new QueryBuilder(db.getDb()), root, false, true, true, dataDirectory);
+        graph.portableOfflineRequired = true;
+        console.warn(`[codegraph] ${PORTABLE_OFFLINE_MESSAGE}`);
+        return graph;
+      } catch (error) { db.close(); throw error; }
     }
     // Resolve + register the reader atomically against publication and GC.
     const lease = acquiredLease ?? acquireCurrentGenerationLease(dataDirectory);
@@ -657,6 +677,9 @@ export class CodeGraph {
     try {
       if (db.getBackend() !== 'node-sqlite') throw new Error('Fixed-path rebuild requires node:sqlite');
       installSourceOwnership(db.getDb());
+      const token = beginSourceWrite(db.getDb());
+      createPortableIndex(db.getDb());
+      if (token && !finishSourceWrite(db.getDb(), token, true)) throw new Error('Portable candidate ownership changed');
       markFixedPathCatchup(db.getDb(), owner.operation);
       return new CodeGraph(db, new QueryBuilder(db.getDb()), root, true);
     } catch (error) {
@@ -685,6 +708,8 @@ export class CodeGraph {
   hasFixedPathCatchupWork(): boolean {
     return this.hasSynthesisRecoveryEvidence();
   }
+  /** Import obligations travel with the database, never with a retired runtime record. */
+  hasPortableImportPending(): boolean { return this.queries.getMetadata(PORTABLE_IMPORT_KEY) !== null; }
 
   /** @internal The controller retains mutation admission across verification. */
   completeFixedPathCatchup(operation: string): boolean {
@@ -695,7 +720,7 @@ export class CodeGraph {
   }
 
   /** @internal Controlled v1 entry. Layout registration/recovery is the caller's prerequisite. */
-  static openFixedPathControlled(projectRoot: string, dataDirectory = getCodeGraphDir(projectRoot), readOnly = false): CodeGraph {
+  static openFixedPathControlled(projectRoot: string, dataDirectory = getCodeGraphDir(projectRoot), readOnly = false, freshPortable = false): CodeGraph {
     const requestedRoot = path.resolve(projectRoot), requestedData = path.resolve(dataDirectory);
     if (path.dirname(requestedData) !== requestedRoot) throw new Error('Fixed data directory must belong to the project root');
     if (!lstatSync(requestedData).isDirectory()) throw new Error('Fixed data directory must not be a symlink');
@@ -707,6 +732,7 @@ export class CodeGraph {
         const db = withFixedPathOpen(file, () => reader ? DatabaseConnection.openReadOnly(file) : DatabaseConnection.open(file, { nativeOnly: true }));
         try {
           if (db.getBackend() !== 'node-sqlite') throw new Error('Fixed-path coordination requires node:sqlite');
+          if (!reader) beginPortableWrite({ project: root, dataDirectory: dataDir }, db.getDb());
           // Worker connection ownership is independent of this facade/parent handle.
           db.setBackgroundLeaseFactory(backgroundLease);
           const graph = new CodeGraph(db, new QueryBuilder(db.getDb()), root, false, reader, reader, dataDir, undefined, true);
@@ -716,7 +742,7 @@ export class CodeGraph {
           try { db.close(); } catch (closeError) { throw new DatabaseOpenError(db, error, closeError); }
           throw error;
         }
-      }, readOnly);
+      }, readOnly, freshPortable);
   }
 
   /** Identifies a pinned database; consumers must not derive the logical data root from it. */
@@ -1175,6 +1201,7 @@ export class CodeGraph {
 
   private assertWritableFacade(): void {
     if (this.closed) throw new Error('CodeGraph is closed');
+    if (this.portableOfflineRequired) throw new Error(PORTABLE_OFFLINE_MESSAGE);
     if (this.pinnedRead) throw new Error('This CodeGraph facade is read-only');
   }
 

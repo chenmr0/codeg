@@ -15,6 +15,9 @@ and adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixes
 
+- Preserve copied standalone indexes with database-owned verification state; missing local coordination requires explicit offline registration before syncing, and missing sources retain the imported graph.
+- Return a failing CLI exit status for uncaught errors and rejected operations.
+
 - Linux 普通 Git 扫描对非空候选集合使用已有的原生完整路径解析，不再受 Rust 忽略过滤的 50000 候选门槛限制；保留异常回退、显式 legacy 开关及非 Linux 默认策略，减少空同步中两次枚举的路径解析成本。
 
 - 固定布局的无变化同步增加保守预检：确认文件集合、元数据及配置一致后省去完整规划快照与重复真实路径解析，仍执行独立扫描和恢复；变更、升级、补查及不确定状态继续使用完整规划。

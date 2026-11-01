@@ -10,6 +10,7 @@ import { readFileSync } from 'fs';
 import * as path from 'path';
 import type { SqliteDatabase } from '../db/sqlite-adapter';
 import { NODE_KINDS, LANGUAGES } from '../types';
+import { PORTABLE_INDEX_KEY, readPortableIndex } from './portable-index';
 
 const OWNER_KEY = 'adaptive:source-owner-v1';
 const GUARDED_TABLES = ['nodes', 'edges', 'files', 'unresolved_refs', 'schema_versions', 'project_metadata'] as const;
@@ -184,6 +185,8 @@ export function inspectLegacySourceProvenance(db: SqliteDatabase): LegacySourceP
       'index_completeness', 'index_synthesis_completed_version', 'index_synthesis_verification_started', 'index_diagnostics']);
     for (const [key, value] of metadata) {
       if (fixed.has(key)) continue;
+      if (key === PORTABLE_INDEX_KEY && readPortableIndex(db)) continue;
+      if (key === 'adaptive:index-config-v1' && hash(value)) continue;
       if (['resolution:cpp-macro-evidence-v1', 'resolution:cpp-macro-evidence-clean-v1'].includes(key) && hash(value)) continue;
       if (key === 'repair:cpp-include-targets-v1' && value === 'done') continue;
       if (key.startsWith('sync-retry:done:') && safePath(key.slice('sync-retry:done:'.length))) {

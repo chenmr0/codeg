@@ -141,10 +141,12 @@ if (process.argv.length === 2) {
 
 process.on('uncaughtException', (error) => {
   console.error('[CodeGraph] Uncaught exception:', error);
+  process.exitCode = 1;
 });
 
 process.on('unhandledRejection', (reason) => {
   console.error('[CodeGraph] Unhandled rejection:', reason);
+  process.exitCode = 1;
 });
 
 function main() {

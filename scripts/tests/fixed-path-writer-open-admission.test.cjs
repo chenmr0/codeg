@@ -6,6 +6,8 @@ const path = require('node:path');
 const { CodeGraph, DatabaseConnection } = require('../../dist');
 const { FixedPathWriterLock } = require('../../dist/sync/fixed-path/writer-lock');
 const { withFixedPathOpen } = require('../../dist/sync/fixed-path/open-context');
+// Keep worker runtime fingerprints identical under Node's test launcher.
+process.execArgv = ['--liftoff-only'];
 process.env.CODEGRAPH_FIXED_PATH = '1';
 process.env.CODEGRAPH_ALL_LANGUAGES = '1';
 

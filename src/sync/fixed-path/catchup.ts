@@ -1,5 +1,6 @@
 import type { SqliteDatabase } from '../../db/sqlite-adapter';
 import { beginSourceWrite, finishSourceWrite } from '../source-ownership';
+import { PORTABLE_IMPORT_KEY } from '../portable-index';
 
 /** Stored inside the candidate BEFORE sealing/publication. The obligation moves
  * with that database, including crash recovery and an offline database copy. */
@@ -8,7 +9,8 @@ export const FIXED_PATH_CATCHUP = 'fixed-path:source-catchup-v1';
 export function readFixedPathCatchup(db: SqliteDatabase): string | null {
   const row = db.prepare('SELECT value FROM project_metadata WHERE key = ?')
     .get(FIXED_PATH_CATCHUP) as { value: string } | undefined;
-  return row?.value ?? null;
+  const imported = db.prepare('SELECT value FROM project_metadata WHERE key = ?').get(PORTABLE_IMPORT_KEY) as { value: string } | undefined;
+  return row?.value ?? imported?.value ?? null;
 }
 
 /** Caller exclusively owns the unpublished candidate. Metadata and provenance
@@ -30,6 +32,7 @@ export function clearFixedPathCatchup(db: SqliteDatabase, operation: string): bo
     if (readFixedPathCatchup(db) !== operation) return false;
     const ownership = beginSourceWrite(db);
     db.prepare('DELETE FROM project_metadata WHERE key = ? AND value = ?').run(FIXED_PATH_CATCHUP, operation);
+    db.prepare('DELETE FROM project_metadata WHERE key = ? AND value = ?').run(PORTABLE_IMPORT_KEY, operation);
     // Failed prior syncs can lose source ownership. Finishing catch-up does not
     // grant it back, nor does the marker authorize replacement of a custom DB.
     if (ownership && !finishSourceWrite(db, ownership, true)) throw new Error('Catch-up acknowledgement ownership changed');

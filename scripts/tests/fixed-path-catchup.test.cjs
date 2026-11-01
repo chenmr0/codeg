@@ -104,14 +104,17 @@ test('offline database replacement owns its own catchup intent, not the retired 
   try {
     addFiles(dir);await assert.rejects(graph.sync({signal:cancel.signal}),/cancel|abort/i);const retiredToken=pending(graph);assert(retiredToken);
     rebuild.runFixedPathRebuild=original;
-    await graph.whenIdle();const active=graph.getDatabaseFilePath();graph.close();graph=null;
-    const clean=other.getDatabaseFilePath();other.close();other=null;
+    await graph.whenIdle();const active=graph.getDatabaseFilePath();graph.close();await graph.whenIdle();graph=null;
+    const clean=other.getDatabaseFilePath();other.close();await other.whenIdle();other=null;
     fs.copyFileSync(clean,active);source(dir);
     graph=CodeGraph.openSync(dir);assert.equal(pending(graph),null,'retired publication cannot inject pending state into an offline replacement');
-    // A new rebuild must establish its own UUID, and clear only that obligation.
-    let token;
-    rebuild.runFixedPathRebuild=async(...args)=>{const result=await original(...args);token=pending(graph);changeWithoutStat(dir);return result;};
-    const result=await graph.sync();assert.equal(result.adaptive?.strategy,'rebuild');assert(token);assert.notEqual(token,retiredToken);updated(graph);assert.equal(pending(graph),null);
+    // The imported image owns a new full-hash obligation. Its incremental
+    // reconciliation must not acknowledge the retired publication's token.
+    const pin=graph.acquireFixedPathRead();let token;
+    try {token=pin.graph.db.getDb().prepare('SELECT value FROM project_metadata WHERE key=?').get('portable:import-pending-v1')?.value;}finally{pin.release();}
+    assert(token);assert.notEqual(token,retiredToken);changeWithoutStat(dir);
+    const result=await graph.sync();assert.equal(result.complete,true);updated(graph);assert.equal(pending(graph),null);
+    assert.equal((await graph.sync()).filesModified,0);
   } finally {rebuild.runFixedPathRebuild=original;await dispose(graph,dir);await dispose(other,replacement);}
 });
 

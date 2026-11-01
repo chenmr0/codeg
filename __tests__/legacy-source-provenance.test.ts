@@ -9,6 +9,7 @@ import * as path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { DatabaseConnection } from '../src/db';
+import { createPortableIndex } from '../src/sync/portable-index';
 import { normalizeLegacySchemaSql, inspectLegacySourceProvenance, isSourceOwned, installSourceOwnership, beginSourceWrite } from '../src/sync/source-ownership';
 
 const legacyDist = process.env.CODEGRAPH_LEGACY_DIST ?? path.resolve(__dirname, '../../adaptive-perf-20261028/codeg-baseline/dist');
@@ -65,6 +66,19 @@ describe.skipIf(!fs.existsSync(path.join(legacyDist, 'index.js')))('supported of
     expect(inspectLegacySourceProvenance(db)).toEqual({ eligible: true, reason: 'supported-official-legacy-format' });
     expect(isSourceOwned(db)).toBe(false);
     expect(createHash('sha256').update(fs.readFileSync(filename)).digest('hex')).toBe(before);
+  });
+  it('retains exact legacy provenance after portable identity and validated configuration metadata', () => {
+    const { db } = fixture();
+    createPortableIndex(db);
+    db.prepare('INSERT INTO project_metadata VALUES(?,?,1)').run('adaptive:index-config-v1', 'a'.repeat(64));
+    expect(inspectLegacySourceProvenance(db).eligible).toBe(true);
+    db.prepare("UPDATE project_metadata SET value='invalid' WHERE key='adaptive:index-config-v1'").run();
+    expect(inspectLegacySourceProvenance(db).eligible).toBe(false);
+  });
+  it('never treats invalid portable metadata as legacy provenance', () => {
+    const { db } = fixture();
+    db.prepare('INSERT INTO project_metadata VALUES(?,?,1)').run('portable:index-v1', '{}');
+    expect(inspectLegacySourceProvenance(db).eligible).toBe(false);
   });
   it.each([
     ['table', "CREATE TABLE user_business_data(value TEXT)"],

@@ -29,8 +29,8 @@ export interface FixedPathFacade {
  * native handle. Watcher state belongs to the facade, not a replaceable reader.
  */
 export function createFixedPathFacade(project: FixedPathProject, prototype: object,
-  factory: ConstructorParameters<typeof FixedPathController<CodeGraph>>[1], readOnly = false): CodeGraph {
-  const controller = new FixedPathController(project, factory);
+  factory: ConstructorParameters<typeof FixedPathController<CodeGraph>>[1], readOnly = false, freshPortable = false): CodeGraph {
+  const controller = new FixedPathController(project, factory, freshPortable);
   let watcher: FileWatcher | null = null;
   const methods = new Map<string, (...args: any[]) => any>();
   let facade: CodeGraph;
@@ -103,6 +103,9 @@ export function createFixedPathFacade(project: FixedPathProject, prototype: obje
             options.signal?.throwIfAborted();
             const plan = evaluation.plan;
             if (!plan) throw new Error('Pending publication catch-up could not verify the source inventory');
+            if (graph.hasPortableImportPending() && plan.totalFiles === 0 && graph.getFileCount() > 0) {
+              throw new Error('Portable import has no source files in this project; index retained. Restore the matching sources before sync. Queries remain available.');
+            }
             if (plan.changedFiles === 0 && !evaluation.configurationChanged && !graph.isIndexStale() &&
                 !graph.hasFixedPathCatchupWork() && graph.getIndexCompleteness().status === 'complete') {
               // No new publication or controlled mutation may consume an old proof.

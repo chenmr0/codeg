@@ -6,6 +6,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
+import { readPortableFile } from './sync/portable-index';
 import { ensureFixedPathGitProtection, ensureInternalDirectory, shouldInitializeFixedPath, usesRuntimeDiagnostics } from './runtime-paths';
 import { acquireCurrentGenerationLease } from './sync/generation-store';
 import { hasFixedPathInitializationIntent } from './sync/fixed-path-initialization';
@@ -360,6 +361,15 @@ export function validateDirectory(projectRoot: string): {
   } else if (hasCurrentManifest(codegraphDir)) {
     const lease = acquireCurrentGenerationLease(codegraphDir);
     lease.release();
+  }
+
+  // A copied portable root is read-only until explicitly registered offline.
+  // Do not turn its DB-only root into the legacy ignored-directory contract.
+  let nativeAvailable = false;
+  try { nativeAvailable = !!require('node:sqlite').DatabaseSync; } catch { /* legacy runtime */ }
+  const rootDatabase = path.join(codegraphDir, 'codegraph.db');
+  if (nativeAvailable && !hasCurrentManifest(codegraphDir) && fs.existsSync(rootDatabase) && readPortableFile(rootDatabase) !== null) {
+    return { valid: true, errors };
   }
 
   // Auto-repair missing .gitignore (non-critical file)

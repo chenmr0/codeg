@@ -8,6 +8,7 @@ import { FixedPathWriterLock, BorrowedFixedPathWriterLock } from './writer-lock'
 import type { GenerationWriterLock } from '../generation-store';
 import { DatabaseConnection, DatabaseOpenError } from '../../db';
 import { Mutex } from '../../utils';
+import { ensurePortableBinding, assertPortableRegistration } from '../portable-storage';
 
 export interface ManagedGraphHandle { close(): void; }
 export interface FixedPathProject { project: string; dataDirectory: string; }
@@ -31,7 +32,7 @@ export class FixedPathController<T extends ManagedGraphHandle> {
   private pinWaiters: Array<() => void> = [];
 
   constructor(private readonly project: FixedPathProject, factory: (file: string, readOnly: boolean,
-    backgroundLease: () => { release(): void }, writeLock?: GenerationWriterLock) => T) {
+    backgroundLease: () => { release(): void }, writeLock?: GenerationWriterLock) => T, freshPortable = false) {
     const open = (readOnly: boolean) => (file: string): T => {
       try {
       if (!readOnly && !this.reservation) throw new Error('Writable open requires mutation reservation');
@@ -61,8 +62,9 @@ export class FixedPathController<T extends ManagedGraphHandle> {
         throw error;
       }
     };
+    if (!freshPortable) assertPortableRegistration(project);
     this.readers = new Participant(project, open(true));
-    try { this.writers = new Participant(project, open(false)); }
+    try { ensurePortableBinding(project, freshPortable); this.writers = new Participant(project, open(false)); }
     catch (error) { this.readers.close(); throw error; }
   }
 

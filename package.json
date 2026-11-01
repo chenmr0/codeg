@@ -43,6 +43,7 @@
     "dev": "tsc --watch",
     "cli": "npm run build && node dist/bin/codegraph.js",
     "test": "vitest run",
+    "test:portable-single-db": "node --liftoff-only --test scripts/tests/portable-single-db.test.cjs",
     "test:watch": "vitest",
     "test:eval": "vitest run __tests__/evaluation/",
     "test:dist-sync-self-heal": "npm run build && node scripts/test-dist-sync-self-heal.mjs",

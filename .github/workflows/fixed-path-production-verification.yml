@@ -46,6 +46,19 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           if (!(Select-String artifacts/ci-fixed-production/fixed-path-production.tap -Pattern '^# skipped 0$' -CaseSensitive -Quiet)) { throw 'Zero skipped summary required' }
           if (Select-String artifacts/ci-fixed-production/fixed-path-production.tap -Pattern '# SKIP(?: |$)' -CaseSensitive -Quiet) { throw 'Skipped tests forbidden' }
+      - name: portable-single-db
+        if: ${{ always() && steps.build.outcome == 'success' }}
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force artifacts/ci-fixed-production | Out-Null
+          Remove-Item Env:E2E_CASE -ErrorAction SilentlyContinue
+          Remove-Item Env:CODEGRAPH_NO_DAEMON -ErrorAction SilentlyContinue
+          Remove-Item Env:CODEGRAPH_NO_WATCH -ErrorAction SilentlyContinue
+          Remove-Item Env:CODEGRAPH_ADAPTIVE_SYNC -ErrorAction SilentlyContinue
+          node --liftoff-only --test-reporter=tap scripts/tests/portable-single-db.test.cjs 2>&1 | Tee-Object artifacts/ci-fixed-production/portable-single-db.tap
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if (!(Select-String artifacts/ci-fixed-production/portable-single-db.tap -Pattern '^# skipped 0$' -CaseSensitive -Quiet)) { throw 'Zero skipped summary required' }
+          if (Select-String artifacts/ci-fixed-production/portable-single-db.tap -Pattern '# SKIP(?: |$)' -CaseSensitive -Quiet) { throw 'Skipped tests forbidden' }
       - name: fixed-path-catchup
         if: ${{ always() && steps.build.outcome == 'success' }}
         shell: pwsh
