@@ -34,6 +34,8 @@ workers.Worker = class extends OriginalWorker {
       const planner=require(${JSON.stringify(path.resolve(__dirname, '../../dist/sync/adaptive-plan.js'))});
       const extraction=require(${JSON.stringify(path.resolve(__dirname, '../../dist/extraction/index.js'))});
       const key=planner.adaptiveRuntimeKey,scan=extraction.scanDirectoryAsync;
+      const gate=planner.createAdaptivePlanOrUnchanged;
+      if(gate)planner.createAdaptivePlanOrUnchanged=async(...args)=>{const result=await gate(...args);log({event:'unchanged-gate',hint:result===undefined});return result;};
       planner.adaptiveRuntimeKey=(...args)=>{log({event:'fingerprint'});return key(...args);};
       extraction.scanDirectoryAsync=async(...args)=>{log({event:'plan-scan',fullHash:!!workerData.job.fullHash});return scan(...args);};
       const lstat=fs.lstatSync,read=fs.readFileSync;
@@ -83,6 +85,7 @@ async function fixture(t) {
   cp.execFileSync('git',['init','-q'],{cwd:root});
   fs.writeFileSync(path.join(root,'keep.c'),'int kept_symbol(void){return 1;}\n');
   fs.writeFileSync(path.join(root,'caller.c'),'#include "keep.c"\nint caller_symbol(void){return kept_symbol();}\n');
+  for(const file of ['keep.c','caller.c'])fs.utimesSync(path.join(root,file),new Date(1700000000000),new Date(1700000000000));
   cp.execFileSync('git',['add','.'],{cwd:root});
   let graph = await CodeGraph.init(root,{index:true});
   assert.equal(graph.getBackend(),'node-sqlite');
@@ -123,6 +126,7 @@ test('unchanged default sync avoids unused fingerprints, inventory transfer and 
   assert.equal(scans,1,'ordinary sync still performs a fresh source scan');
   assert.equal(events().filter(e=>e.event==='plan-scan').length,1);
   assert.equal(events().filter(e=>e.event==='fingerprint').length,0);
+  assert(events().some(e=>e.event==='unchanged-gate'&&e.hint),'the real fixed-layout preflight avoids the full no-op inventory');
   assert(evaluations.some(e=>e.decision?.reason==='no-content-changes'&&!e.hasPlan));
   assert.deepEqual(semanticSnapshot(graph),before);assertCall(graph);
 });
@@ -173,9 +177,10 @@ test('pending full-hash catchup fixes a same-size/restored-mtime edit and keeps 
   mutateOwned(graph,db=>db.prepare("INSERT OR REPLACE INTO project_metadata(key,value,updated_at) VALUES('fixed-path:source-catchup-v1','test-catchup',?)").run(Date.now()));
   const file=path.join(root,'keep.c'),stat=fs.statSync(file);
   fs.writeFileSync(file,'int kept_symbol(void){return 9;}\n');fs.utimesSync(file,stat.atime,stat.mtime);
-  assert.equal(fs.statSync(file).size,stat.size);
+  assert.equal(fs.statSync(file).size,stat.size);assert.equal(fs.statSync(file).mtimeMs,stat.mtimeMs);
   const result=await graph.sync({adaptive:false});assert.equal(result.complete,true);assert.equal(result.filesModified,1);
   assert(evaluations.every(e=>e.fullHash&&e.hasPlan));
+  assert.equal(events().filter(e=>e.event==='unchanged-gate').length,0);
   assert.equal(read(graph,db=>db.prepare("SELECT value FROM project_metadata WHERE key='fixed-path:source-catchup-v1'").get()),undefined);
   assert.equal(read(graph,db=>db.prepare("SELECT content_hash FROM files WHERE path='keep.c'").get().content_hash),require('../../dist/extraction').hashContent(fs.readFileSync(file,'utf8')));
   assertCall(graph);
@@ -247,4 +252,15 @@ test('scoped small-change evaluation avoids the unused fingerprint and retains s
   assert.equal(events().filter(e=>e.event==='plan-scan').length,0);
   assert.equal(scans,0);
   assert.equal((await graph.sync()).filesAdded,1);assert(names(graph).includes('outside_symbol'));
+});
+
+
+test('a custom low structural threshold still rebuilds after an inconclusive unchanged gate',async t=>{
+  const {root,graph}=await fixture(t);
+  fs.appendFileSync(path.join(root,'keep.c'),'int extra_symbol(void){return 123;}\n');
+  const result=await graph.sync({adaptiveFallback:{minChangedFiles:1,minChangedFraction:.1,minWorkFraction:.1,
+    minAffectedOldNodes:1,minAffectedOldNodeFraction:.1}});
+  assert.equal(result.complete,true);assert.equal(result.adaptive?.strategy,'rebuild');
+  assert(events().some(e=>e.event==='unchanged-gate'&&!e.hint));
+  assert(names(graph).includes('extra_symbol'));assertCall(graph);
 });

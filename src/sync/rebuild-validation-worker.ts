@@ -8,7 +8,7 @@ import { acquireGenerationLease, acquireCurrentGenerationLease, resolveGeneratio
 import { DatabaseConnection } from '../db';
 import { QueryBuilder } from '../db/queries';
 import { adaptiveRuntimeKey, readAdaptiveHistory, createAdaptivePlan, chooseAdaptiveStrategy,
-  validateAdaptiveSnapshot, canSkipScopedAdaptivePlan, adaptiveSampleFromFiles, recordAdaptiveSample, adaptiveConfigFingerprint, type AdaptiveEligibility, type AdaptiveSnapshot } from './adaptive-plan';
+  validateAdaptiveSnapshot, canSkipScopedAdaptivePlan, createAdaptivePlanOrUnchanged, adaptiveSampleFromFiles, recordAdaptiveSample, adaptiveConfigFingerprint, type AdaptiveEligibility, type AdaptiveSnapshot } from './adaptive-plan';
 import { validateRebuiltDatabase } from './rebuild-controller';
 import { isSourceOwned, inspectLegacySourceProvenance } from './source-ownership';
 import { readFixedPathCatchup } from './fixed-path/catchup';
@@ -107,7 +107,12 @@ async function execute(job: AdaptiveReadJob): Promise<unknown> {
           return { decision: { strategy: 'incremental', reason: 'scoped-small-change' } };
         }
       }
-      const plan = await createAdaptivePlan(job.root, tracked, { runtimeKey, fullHash: job.fullHash });
+      const allowUnchangedGate = fixed && owned && !job.fullHash && !job.paths?.length && indexedConfig &&
+        !eligibility.upgradeRequired && !eligibility.configurationChanged && !eligibility.blockedReason;
+      const plan = allowUnchangedGate
+        ? await createAdaptivePlanOrUnchanged(job.root, tracked, { runtimeKey }, indexedConfig)
+        : await createAdaptivePlan(job.root, tracked, { runtimeKey, fullHash: job.fullHash });
+      if (!plan) return { decision: { strategy: 'incremental', reason: 'no-content-changes' } };
       // An interrupted incremental write may invalidate ownership. The durable
       // obligation still requires a full scan, but NEVER authorizes replacement
       // or re-adoption of that graph as an automatically rebuildable source.

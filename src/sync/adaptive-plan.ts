@@ -192,21 +192,100 @@ function shape(added: number, modified: number, removed: number): AdaptiveShape 
   return 'mixed';
 }
 
-/** The ordinary plan uses the same size/mtime shortcut as sync. Publication rehashes all source. */
-export async function createAdaptivePlan(root: string, tracked: ReadonlyArray<FileRecord>,
-  options: { runtimeKey: string; fullHash?: boolean; configSourcePaths?: string[] } ): Promise<AdaptivePlan> {
-  const started = performance.now();
+/** Negative-only fixed-layout preflight. This never supplies a source snapshot
+ * to sync or publication. Equal inventory and size/mtime imply zero candidates
+ * under createAdaptivePlan's own shortcut, so no fallback threshold is involved.
+ * Ordinary sync must still rescan after recovery and diagnostic callbacks.
+ * Anything inconclusive goes through the complete planner instead. */
+async function canSkipUnchangedAdaptivePlan(root: string, tracked: ReadonlyArray<FileRecord>,
+  visible: string[], indexedConfig: string): Promise<boolean> {
+  if (!tracked.length || !indexedConfig) return false;
+  const absoluteRoot = path.resolve(root);
+  if (fs.realpathSync(absoluteRoot) !== absoluteRoot) return false;
+  const prior = new Map(tracked.map(file => [file.path, file]));
+  for (const file of tracked) {
+    if (!path.resolve(root, file.path).startsWith(absoluteRoot + path.sep)) throw new Error('Tracked source path escapes root');
+  }
+  if (visible.length !== prior.size || new Set(visible).size !== prior.size) return false;
+  const observed = new Map<string, fs.Stats>();
+  const directories = new Set<string>();
+  for (let i = 0; i < visible.length; i++) {
+    const relative = visible[i]!;
+    const previous = prior.get(relative);
+    if (!previous) return false;
+    const absolute = path.resolve(root, relative);
+    if (!absolute.startsWith(absoluteRoot + path.sep)) throw new Error('Adaptive source path escapes root');
+    let stat: fs.Stats;
+    try { stat = fs.lstatSync(absolute); }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false;
+      throw error;
+    }
+    if (!stat.isFile() || stat.isSymbolicLink() || stat.size !== previous.size ||
+      Math.floor(stat.mtimeMs) !== Math.floor(previous.modifiedAt)) return false;
+    observed.set(absolute, stat);
+    for (let dir = path.dirname(absolute); dir !== absoluteRoot; dir = path.dirname(dir)) {
+      if (directories.has(dir)) break;
+      directories.add(dir);
+    }
+    if ((i + 1) % 100 === 0) await new Promise<void>(resolve => setImmediate(resolve));
+  }
+  // Validate shared ancestors once, rather than resolve every complete path.
+  // Alias-containing inventories require the original per-file proof. No path
+  // or directory identity is cached across evaluations.
+  for (const dir of directories) {
+    const stat = fs.lstatSync(dir);
+    if (!stat.isDirectory() || stat.isSymbolicLink()) return false;
+  }
+  for (const [absolute, before] of observed) {
+    const after = fs.lstatSync(absolute);
+    if (!after.isFile() || before.size !== after.size || before.mtimeMs !== after.mtimeMs ||
+      before.ctimeMs !== after.ctimeMs || before.ino !== after.ino) {
+      throw new Error(`Source changed during adaptive planning: ${path.relative(root, absolute)}`);
+    }
+  }
+  // Match the complete planner's ordering: controls are observed after source
+  // validation, including controls changed while the preflight was scanning.
+  return adaptiveConfigFingerprint(root, tracked) === indexedConfig;
+}
+
+type PlanOptions = { runtimeKey: string; fullHash?: boolean; configSourcePaths?: string[] };
+
+function validateTrackedPaths(root: string, tracked: ReadonlyArray<FileRecord>): void {
   for (const file of tracked) {
     if (!path.resolve(root, file.path).startsWith(path.resolve(root) + path.sep)) {
       throw new Error('Tracked source path escapes root');
     }
   }
+}
+
+/** Fixed-layout/no-history evaluation only. Undefined means ordinary sync, never
+ * completion or publication. An inconclusive gate shares only its enumeration
+ * with this same planning pass; execution and publication still rescan. */
+export async function createAdaptivePlanOrUnchanged(root: string, tracked: ReadonlyArray<FileRecord>,
+  options: PlanOptions, indexedConfig: string): Promise<AdaptivePlan | undefined> {
+  const started = performance.now();
+  validateTrackedPaths(root, tracked);
+  const visible = (await scanDirectoryAsync(root)).sort();
+  if (!options.fullHash && await canSkipUnchangedAdaptivePlan(root, tracked, visible, indexedConfig)) return undefined;
+  return createAdaptivePlanFromInventory(root, tracked, options, visible, started);
+}
+
+/** The ordinary plan uses the same size/mtime shortcut as sync. Publication rehashes all source. */
+export async function createAdaptivePlan(root: string, tracked: ReadonlyArray<FileRecord>,
+  options: PlanOptions): Promise<AdaptivePlan> {
+  const started = performance.now();
+  validateTrackedPaths(root, tracked);
+  return createAdaptivePlanFromInventory(root, tracked, options, (await scanDirectoryAsync(root)).sort(), started);
+}
+
+async function createAdaptivePlanFromInventory(root: string, tracked: ReadonlyArray<FileRecord>,
+  options: PlanOptions, visible: string[], started: number): Promise<AdaptivePlan> {
   const old = new Map(tracked.map(file => [file.path, file]));
   const files: AdaptiveInventoryEntry[] = [];
   const missing = new Set<string>();
   const added: string[] = [], modified: string[] = [];
   let affectedOldNodes = 0, changedBytes = 0;
-  const visible = (await scanDirectoryAsync(root)).sort();
   for (let i = 0; i < visible.length; i++) {
     const relative = visible[i]!;
     const absolute = path.resolve(root, relative);
