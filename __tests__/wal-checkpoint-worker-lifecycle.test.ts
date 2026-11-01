@@ -158,3 +158,63 @@ describe('checkpoint worker lifecycle', () => {
     });
   });
 });
+
+describe('database background lifetime fence', () => {
+  it.each(['message', 'error'])('maintenance retains its lease until exit after %s', async event => {
+    const connection = fixture();
+    const release = vi.fn();
+    (connection as any).storageLease = { release };
+    const maintenance = observe(connection.runMaintenance());
+    // Closing before dynamic import resolves must not miss a starting worker.
+    connection.close();
+    const idle = observe(connection.whenIdle());
+    await vi.advanceTimersByTimeAsync(0);
+    const worker = state.workers[0]!;
+    expect(release).not.toHaveBeenCalled();
+    worker.emit(event, event === 'error' ? new Error('maintenance failed') : 'done');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(maintenance.isSettled()).toBe(false);
+    expect(idle.isSettled()).toBe(false);
+    expect(release).not.toHaveBeenCalled();
+    worker.exit(1);
+    expect((await maintenance.result).error).toBeUndefined();
+    expect((await idle.result).error).toBeUndefined();
+    expect(release).toHaveBeenCalledOnce();
+  });
+
+  it.each(['reject', 'throw'])('maintenance waits after terminate %s', async mode => {
+    const connection = fixture();
+    const maintenance = observe(connection.runMaintenance());
+    await vi.advanceTimersByTimeAsync(0);
+    const worker = state.workers[0]!;
+    if (mode === 'throw') worker.terminate.mockImplementationOnce(() => { throw new Error('no termination'); });
+    else worker.terminate.mockRejectedValueOnce(new Error('no termination'));
+    worker.emit('message', 'done');
+    connection.close();
+    const idle = observe(connection.whenIdle());
+    await vi.advanceTimersByTimeAsync(0);
+    expect(maintenance.isSettled()).toBe(false);
+    expect(idle.isSettled()).toBe(false);
+    worker.exit();
+    await maintenance.result;
+    expect((await idle.result).error).toBeUndefined();
+  });
+
+  it('waits for a checkpoint started before close and refuses later work', async () => {
+    const connection = fixture();
+    const pending = observe(connection.checkpointWalPassive());
+    connection.close();
+    const idle = observe(connection.whenIdle());
+    await vi.advanceTimersByTimeAsync(0);
+    const worker = state.workers[0]!;
+    worker.emit('message', { row: { busy: 0, log: 0, checkpointed: 0 } });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(idle.isSettled()).toBe(false);
+    worker.exit();
+    expect((await pending.result).error).toBeUndefined();
+    expect((await idle.result).error).toBeUndefined();
+    await expect(connection.checkpointWalPassive()).rejects.toThrow('closed');
+    await connection.runMaintenance();
+    expect(state.workers).toHaveLength(1);
+  });
+});

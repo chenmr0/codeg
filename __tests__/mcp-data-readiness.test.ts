@@ -6,6 +6,9 @@ import CodeGraph from '../src/index';
 import { ToolHandler } from '../src/mcp/tools';
 import { MCPEngine } from '../src/mcp/engine';
 import { __emitWatchEventForTests } from '../src/sync/watcher';
+import { DatabaseConnection } from '../src/db';
+import { QueryBuilder } from '../src/db/queries';
+import { createDirectory, getCodeGraphDir } from '../src/directory';
 
 function deferred() {
   let resolve!: () => void;
@@ -13,7 +16,18 @@ function deferred() {
   return { promise, resolve };
 }
 
-describe('MCP data readiness during a real refresh', () => {
+/** These cases deliberately exercise the raw extraction/resolution core: their
+ * private-stage stubs belong to one long-lived core object, not to the portable
+ * facade which creates fresh admitted writers for each operation. */
+function rawCore(root: string): CodeGraph {
+  createDirectory(root);
+  const directory = getCodeGraphDir(root);
+  const db = DatabaseConnection.initialize(path.join(directory, 'codegraph.db'));
+  try { return new (CodeGraph as any)(db, new QueryBuilder(db.getDb()), root, false, false, false, directory); }
+  catch (error) { db.close(); throw error; }
+}
+
+describe('raw core MCP data readiness during a real refresh', () => {
   let folder: string;
   let cg: CodeGraph;
   let handler: ToolHandler;
@@ -68,7 +82,8 @@ describe('MCP data readiness during a real refresh', () => {
     fs.writeFileSync(path.join(folder, 'api.h'), 'int target(int value);\nint declaration_only(int value);\n');
     fs.writeFileSync(path.join(folder, 'api.c'), '#include "api.h"\nint target(int value) { return value; }\n');
     fs.writeFileSync(path.join(folder, 'caller.c'), '#include "api.h"\nint caller(void) { return target(1); }\n');
-    cg = CodeGraph.initSync(folder);
+    cg = rawCore(folder);
+    expect(cg.isPortableStorage()).toBe(false);
     expect((await cg.indexAll()).complete).toBe(true);
     handler = new ToolHandler(cg);
   });
@@ -77,7 +92,7 @@ describe('MCP data readiness during a real refresh', () => {
     await Promise.allSettled(work.splice(0));
     cg?.unwatch();
     handler?.closeAll();
-    cg?.close();
+    if (cg) { await cg.whenIdle(); cg.close(); await cg.whenIdle(); }
     vi.restoreAllMocks(); vi.unstubAllEnvs();
     if (folder) fs.rmSync(folder, { recursive: true, force: true });
   });
@@ -248,7 +263,7 @@ describe('MCP data readiness during a real refresh', () => {
   it('does not attach one project refresh warning to a different project', async () => {
     const other = path.join(folder, 'other'); fs.mkdirSync(other);
     fs.writeFileSync(path.join(other, 'other.c'), 'int separate(void) { return 1; }\n');
-    const separate = CodeGraph.initSync(other); await separate.indexAll();
+    const separate = rawCore(other); await separate.indexAll();
     // ToolHandler's lazy CommonJS opener is exercised by compiled integration
     // tests; retain the real TS graph here instead of requiring TS through CJS.
     (handler as any).projectCache.set(other, separate);
@@ -277,5 +292,66 @@ describe('MCP data readiness during a real refresh', () => {
     const result = await text('callers', { symbol: 'target' });
     expect(result).toContain('symbol results may be stale or incomplete');
     expect(result).toContain('caller'); // retain the partial graph, with a warning
+  });
+});
+
+
+describe('portable facade public MCP readiness contract', () => {
+  let folder: string;
+  let cg: CodeGraph;
+  let handler: ToolHandler;
+  beforeEach(() => {
+    vi.stubEnv('CODEGRAPH_MCP_CATCHUP_BUDGET_MS', '0');
+    folder = fs.mkdtempSync(path.join(os.tmpdir(), 'cg-portable-readiness-'));
+    fs.writeFileSync(path.join(folder, 'api.c'), 'int target(void) { return 1; }\n');
+    cg = CodeGraph.initSync(folder);
+    expect(cg.isPortableStorage()).toBe(true);
+    handler = new ToolHandler(cg);
+  });
+  afterEach(async () => {
+    cg?.unwatch(); handler?.closeAll();
+    if (cg) { await cg.whenIdle(); cg.close(); await cg.whenIdle(); }
+    vi.restoreAllMocks(); vi.unstubAllEnvs();
+    if (folder) fs.rmSync(folder, { recursive: true, force: true });
+  });
+  async function text(tool: string, args: Record<string, unknown>) {
+    const response = await handler.execute(tool, args);
+    expect(response.isError, response.content.map(item => item.text).join('\n')).toBeFalsy();
+    return response.content.map(item => item.text).join('\n');
+  }
+
+  it('exposes active-writer readiness through public indexing progress and keeps its completed proof', async () => {
+    const observations: Array<{ phase: string; state: ReturnType<CodeGraph['getIndexDataReadiness']> }> = [];
+    const result = await cg.indexAll({ onProgress(progress) {
+      observations.push({ phase: progress.phase, state: cg.getIndexDataReadiness() });
+    } });
+    expect(result.complete).toBe(true);
+    expect(observations.some(item => item.phase === 'parsing' && item.state?.symbolsReady === false)).toBe(true);
+    expect(observations.some(item => item.state?.symbolsReady === true && item.state.relationshipsReady === false)).toBe(true);
+    expect(cg.getIndexDataReadiness()).toMatchObject({ symbolsReady: true, relationshipsReady: true });
+    expect(await text('search', { query: 'target' })).not.toContain('⚠️');
+    expect(await text('status', {})).not.toContain('⚠️');
+  });
+
+  it('revokes a completed proof on a watcher event and does not restore it by stopping or restarting the watcher', async () => {
+    expect((await cg.indexAll()).complete).toBe(true);
+    await cg.watch({ inertForTests: true, debounceMs: 60_000 });
+    await cg.waitUntilWatcherReady();
+    fs.appendFileSync(path.join(folder, 'api.c'), 'int later(void) { return 2; }\n');
+    __emitWatchEventForTests(folder, 'api.c');
+    expect(cg.getIndexDataReadiness()).toMatchObject({ symbolsReady: false, relationshipsReady: false });
+    const pending = await text('search', { query: 'target' });
+    expect(pending).toContain('codegraph entries may be stale');
+    expect(pending).toContain('api.c');
+    cg.unwatch();
+    expect(cg.getIndexDataReadiness()).toMatchObject({ symbolsReady: false, relationshipsReady: false });
+    expect(await text('search', { query: 'target' })).toContain('symbol results may be stale or incomplete');
+    await cg.watch({ inertForTests: true, debounceMs: 60_000 });
+    await cg.waitUntilWatcherReady();
+    expect(cg.getIndexDataReadiness()).toMatchObject({ symbolsReady: false, relationshipsReady: false });
+    expect((await cg.sync({ adaptive: false })).complete).toBe(true);
+    expect(cg.getIndexDataReadiness()).toMatchObject({ symbolsReady: true, relationshipsReady: true });
+    expect(await text('search', { query: 'later' })).not.toContain('⚠️');
+    expect(await text('search', { query: 'later' })).toContain('later');
   });
 });

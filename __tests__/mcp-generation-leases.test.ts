@@ -8,7 +8,10 @@ import * as readline from 'readline';
 import { ToolHandler } from '../src/mcp/tools';
 import { MCPEngine } from '../src/mcp/engine';
 import { getCodeGraphDir } from '../src/directory';
-import { resolveGeneration } from '../src/sync/generation-store';
+import { resolveGeneration, GenerationWriterLock, createGeneration, publishInitialGenerationSync, cleanupGenerationCandidate } from '../src/sync/generation-store';
+import { createDirectory } from '../src/directory';
+import { DatabaseConnection } from '../src/db';
+import { installSourceOwnership } from '../src/sync/source-ownership';
 import type CodeGraph from '../src/index';
 
 function deferred() {
@@ -258,7 +261,19 @@ describe('MCP published generation with real SQLite facades', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cg-real-generation-'));
     roots.push(root);
     fs.writeFileSync(path.join(root, 'api.c'), `int ${symbol}(void) { return 1; }\nint caller(void) { return ${symbol}(); }\n`);
-    const graph = RealCodeGraph.initSync(root);
+    // This suite intentionally verifies backwards compatibility for existing
+    // CURRENT/generation stores. New portable stores are covered separately.
+    createDirectory(root);
+    const data = getCodeGraphDir(root), lock = new GenerationWriterLock(data);
+    lock.acquire();
+    try {
+      const candidate = createGeneration(data, lock);
+      const db = DatabaseConnection.initialize(candidate.databasePath);
+      installSourceOwnership(db.getDb()); db.close(); await db.whenIdle();
+      publishInitialGenerationSync(data, candidate, { lock, validate: () => true });
+      cleanupGenerationCandidate(data, candidate);
+    } finally { lock.release(); }
+    const graph = RealCodeGraph.openSync(root);
     graphs.push(graph);
     expect((await graph.indexAll()).complete).toBe(true);
     return { root, graph };
@@ -469,10 +484,11 @@ describe('MCP published generation with real SQLite facades', () => {
   }, 30000);
 
   it('reclaims idle native readers after repeated rebuilds but preserves an awaited request generation', async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cg-request-rebuild-')); roots.push(root);
-    fs.writeFileSync(path.join(root, 'api.c'), 'int generation_zero_symbol(void) { return 1; }\n');
-    // Real rebuild children are compiled entry points, as in the SDK acceptance suites.
-    const graph = await (require('../dist').CodeGraph as typeof RealCodeGraph).init(root, { index: true });
+    const fixtureResult = await fixture('generation_zero_symbol');
+    const root = fixtureResult.root;
+    fixtureResult.graph.close();
+    graphs.splice(graphs.indexOf(fixtureResult.graph), 1);
+    const graph = (require('../dist').CodeGraph as typeof RealCodeGraph).openSync(root);
     graphs.push(graph);
     const handler = new ToolHandler(graph); handlers.push(handler);
     const data = graph.getDataDirectory();

@@ -8,11 +8,15 @@ const { drainGenerationCollections } = require('../dist/sync/generation-store');
 const { getFrameworkResolver } = require('../dist/resolution/frameworks');
 const graphs: import('../src').CodeGraph[] = [];
 const roots: string[] = [];
+const pins: Array<{ release(): void }> = [];
 const plain = 'def simple():\n    return 1\n';
 const flask = "from flask import Flask\napp = Flask(__name__)\n@app.route('/')\ndef simple():\n    return 'ok'\n";
 afterEach(async () => {
   vi.restoreAllMocks();
-  for (const graph of graphs.splice(0)) graph.close();
+  for (const pin of pins.splice(0)) pin.release();
+  for (const graph of graphs.splice(0)) {
+    await graph.whenIdle(); graph.close(); await graph.whenIdle();
+  }
   await drainGenerationCollections();
   for (const root of roots.splice(0)) fs.rmSync(root, { recursive: true, force: true });
 });
@@ -22,10 +26,20 @@ async function fixture() {
   const graph = await CodeGraph.init(root, { index: true }); graphs.push(graph);
   expect(graph.getDetectedFrameworks()).toEqual([]);
   const node = graph.searchNodes('simple').find(row => row.node.name === 'simple')!.node;
-  const reader = CodeGraph.openReadOnlySync(root); graphs.push(reader);
+  const facade = CodeGraph.openReadOnlySync(root); graphs.push(facade);
+  // Keep the exact native reader alive across writes: testing a newly opened
+  // facade connection would hide regressions in same-connection cache epochs.
+  const pin = facade.acquirePortableRead(); pins.push(pin);
+  const reader = pin.graph;
   expect(reader.getDetectedFrameworks()).toEqual([]);
-  const current = fs.readFileSync(path.join(graph.getDataDirectory(), 'CURRENT'), 'utf8');
-  const unchanged = () => expect(fs.readFileSync(path.join(graph.getDataDirectory(), 'CURRENT'), 'utf8')).toBe(current);
+  const database = graph.getDatabaseFilePath();
+  const identity = fs.statSync(database);
+  const unchanged = () => {
+    expect(graph.getDatabaseFilePath()).toBe(database);
+    const current = fs.statSync(database);
+    expect([current.dev, current.ino, current.birthtimeMs]).toEqual([identity.dev, identity.ino, identity.birthtimeMs]);
+    expect(fs.existsSync(path.join(graph.getDataDirectory(), 'CURRENT'))).toBe(false);
+  };
   const index = async (source: string) => {
     fs.writeFileSync(path.join(root, 'main.py'), source);
     expect((await graph.indexAll()).success).toBe(true);
@@ -59,13 +73,13 @@ for (const first of ['node', 'file-nodes', 'search', 'direct-node', 'direct-batc
       expect(graph.getDetectedFrameworks()).toEqual(expected);
       const fresh = CodeGraph.openReadOnlySync(root);
       try { expect(reader.getDetectedFrameworks()).toEqual(fresh.getDetectedFrameworks()); }
-      finally { fresh.close(); }
+      finally { fresh.close(); await fresh.whenIdle(); }
       unchanged();
     }
   }, 30000);
 }
 
-it('observes another SDK process adding and removing Flask without changing CURRENT', async () => {
+it('observes another SDK process adding and removing Flask without replacing the database file', async () => {
   const { root, graph, reader, node, unchanged } = await fixture();
   for (const [source, expected] of [[flask, ['flask']], [plain, []]] as const) {
     const child = spawnSync(process.execPath, ['--liftoff-only', '-e', `
@@ -74,7 +88,7 @@ it('observes another SDK process adding and removing Flask without changing CURR
       (async()=>{const g=CodeGraph.openSync(process.argv[2]);try {
         fs.writeFileSync(path.join(process.argv[2],'main.py'),process.argv[3]);
         if(!(await g.indexAll()).success)throw Error('index failed');
-      }finally{g.close()}})().catch(e=>{console.error(e);process.exitCode=1});
+      }finally{await g.whenIdle();g.close();await g.whenIdle()}})().catch(e=>{console.error(e);process.exitCode=1});
     `, path.resolve(__dirname, '../dist'), root, source], { encoding: 'utf8', timeout: 20000, env: { ...process.env, CODEGRAPH_ALL_LANGUAGES: '1' } });
     expect(child.status, child.stderr).toBe(0);
     unchanged();

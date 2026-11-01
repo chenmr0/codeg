@@ -5,15 +5,30 @@ import { spawnSync, spawn } from 'child_process';
 import { once } from 'events';
 import type { CodeGraph as Graph } from '../src';
 const { CodeGraph } = require('../dist') as typeof import('../src');
-const { getCodeGraphDir } = require('../dist/directory') as typeof import('../src/directory');
-const { resolveGeneration, collectRetiredGenerations } = require('../dist/sync/generation-store') as typeof import('../src/sync/generation-store');
+const { getCodeGraphDir, createDirectory } = require('../dist/directory') as typeof import('../src/directory');
+const { resolveGeneration, collectRetiredGenerations, drainGenerationCollections, GenerationWriterLock, createGeneration, publishInitialGeneration, cleanupGenerationCandidate } = require('../dist/sync/generation-store') as typeof import('../src/sync/generation-store');
 const legacyDist = process.env.CODEGRAPH_LEGACY_DIST ?? path.resolve(__dirname, '../../adaptive-perf-20261028/codeg-baseline/dist');
 let root: string; const graphs: Graph[] = []; let argv: string[];
 beforeEach(() => { root = fs.mkdtempSync(path.join(os.tmpdir(), 'cg-repair-integration-')); argv = process.execArgv; process.execArgv = ['--liftoff-only']; });
-afterEach(() => { vi.restoreAllMocks(); for (const graph of graphs.splice(0)) graph.close(); process.execArgv = argv; fs.rmSync(root, { recursive: true, force: true }); });
-async function fresh(count = 2): Promise<Graph> {
+afterEach(async () => { vi.restoreAllMocks(); for (const graph of graphs.splice(0)) { graph.close(); await graph.whenIdle(); } await drainGenerationCollections(); process.execArgv = argv; fs.rmSync(root, { recursive: true, force: true }); });
+async function fresh(count = 2, legacyGeneration = false): Promise<Graph> {
   for (let i = 0; i < count; i++) fs.writeFileSync(path.join(root, `f${i}.c`), `int initial_${i}(void) { return ${i}; }\n`);
-  const graph = await CodeGraph.init(root, { index: true }); graphs.push(graph); return graph;
+  if (!legacyGeneration) { const graph = await CodeGraph.init(root, { index: true }); graphs.push(graph); return graph; }
+  // These compatibility tests explicitly exercise retained CURRENT/generation
+  // lifetime semantics. Fresh production projects now use a fixed portable DB.
+  createDirectory(root);
+  const dataDir = getCodeGraphDir(root), lock = new GenerationWriterLock(dataDir);
+  lock.acquire();
+  try {
+    const candidate = createGeneration(dataDir, lock);
+    try {
+      const builder = await CodeGraph.createShadow(root, candidate.databasePath);
+      try { expect((await builder.indexAll()).complete).toBe(true); }
+      finally { builder.close(); await builder.whenIdle(); }
+      await publishInitialGeneration(dataDir, candidate, { lock, validate: () => true });
+    } finally { cleanupGenerationCandidate(dataDir, candidate); }
+  } finally { lock.release(); }
+  const graph = CodeGraph.openSync(root); graphs.push(graph); return graph;
 }
 function change(count: number): void { for (let i = 0; i < count; i++) fs.writeFileSync(path.join(root, `f${i}.c`), `int replaced_${i}(void) { return ${i + 1000}; }\n`); }
 it.skipIf(!fs.existsSync(path.join(legacyDist, 'index.js')))('automatically upgrades a real untouched official legacy index without manual init', async () => {
@@ -57,8 +72,8 @@ it('configuration-only changes rebuild automatically and returning to a previous
   expect((await graph.sync()).adaptive?.reason).toBe('configuration-changed');
   expect(graph.getFiles()).toHaveLength(2);
 }, 60_000);
-it('holds a real retired SQLite generation until readers close, including a failed close retry', async () => {
-  const graph = await fresh();
+it('legacy CURRENT retains a real retired SQLite generation until readers close, including a failed close retry', async () => {
+  const graph = await fresh(2, true);
   fs.writeFileSync(path.join(root, '.gitignore'), '# configuration one\n'); await graph.sync();
   const oldLocation = resolveGeneration(getCodeGraphDir(root));
   const old = CodeGraph.openReadOnlySync(root); graphs.push(old);
@@ -81,13 +96,15 @@ it('real watcher scoped burst can trigger its own first background rebuild', asy
   try {
     expect(graph.watch({ debounceMs: 200, onSyncComplete: () => resolve(), onSyncError: reject })).toBe(true);
     change(130); await complete;
-    expect(resolveGeneration(getCodeGraphDir(root)).id).not.toBeNull();
+    expect(graph.isPortableStorage()).toBe(true);
+    expect(graph.getDatabaseFilePath()).toBe(path.join(getCodeGraphDir(root), 'codegraph.db'));
+    expect(fs.existsSync(path.join(getCodeGraphDir(root), 'CURRENT'))).toBe(false);
     expect(graph.searchNodes('replaced_129').length).toBeGreaterThan(0);
   } finally { clearTimeout(timeout); graph.unwatch(); }
 }, 60_000);
 
-it('a rejected off-thread validation cleans the failed candidate only after workers exit and keeps old queries', async () => {
-  const graph = await fresh();
+it('legacy CURRENT rejected off-thread validation cleans the failed candidate only after workers exit and keeps old queries', async () => {
+  const graph = await fresh(2, true);
   const initial = resolveGeneration(getCodeGraphDir(root));
   fs.writeFileSync(path.join(root, '.gitignore'), '# trigger configuration rebuild\n');
   const controller = require('../dist/sync/rebuild-controller') as typeof import('../src/sync/rebuild-controller');
@@ -105,12 +122,20 @@ it('a rejected off-thread validation cleans the failed candidate only after work
 }, 60_000);
 
 it('preserves an unknown custom database instead of silently replacing it for a configuration change', async () => {
-  const graph = await fresh(); const initial = resolveGeneration(getCodeGraphDir(root)); const db = (graph as any).db.getDb();
-  db.exec("CREATE TABLE business_data (value TEXT); INSERT INTO business_data VALUES ('keep-me')");
+  const original = await fresh();
+  const databasePath = original.getDatabaseFilePath();
+  original.close(); await original.whenIdle();
+  const { DatabaseSync } = require('node:sqlite');
+  const extension = new DatabaseSync(databasePath);
+  try { extension.exec("CREATE TABLE business_data (value TEXT); INSERT INTO business_data VALUES ('keep-me')"); }
+  finally { extension.close(); }
+  const graph = CodeGraph.openSync(root); graphs.push(graph);
   fs.writeFileSync(path.join(root, '.gitignore'), '# changed configuration\n');
   const reasons: string[] = []; const result = await graph.sync({ onAdaptiveDecision: decision => reasons.push(decision.reason) });
   expect(result.adaptive).toBeUndefined();
   expect(reasons.some(reason => reason.startsWith('unverified-legacy-or-custom-index:'))).toBe(true);
-  expect(db.prepare('SELECT value FROM business_data').get().value).toBe('keep-me');
-  expect(resolveGeneration(getCodeGraphDir(root)).id).toBe(initial.id);
+  expect(graph.getDatabaseFilePath()).toBe(databasePath);
+  const check = new DatabaseSync(databasePath, { readOnly: true });
+  try { expect(check.prepare('SELECT value FROM business_data').get().value).toBe('keep-me'); }
+  finally { check.close(); }
 }, 30_000);

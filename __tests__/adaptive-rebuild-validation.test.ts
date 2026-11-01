@@ -17,8 +17,8 @@ const roots: string[] = [];
 const graphs: Graph[] = [];
 function directory(): string { const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cg-acceptance-')); roots.push(root); return root; }
 function keep(graph: Graph): Graph { graphs.push(graph); return graph; }
-afterEach(() => {
-  for (const graph of graphs.splice(0)) graph.close();
+afterEach(async () => {
+  for (const graph of graphs.splice(0)) { graph.close(); await graph.whenIdle(); }
   for (const root of roots.splice(0)) fs.rmSync(root, { recursive: true, force: true });
 });
 function source(root: string, replacement = false): void {
@@ -45,6 +45,15 @@ function normalizedTables(databasePath: string): Record<string, unknown> {
   try { return Object.fromEntries(['files', 'nodes', 'edges', 'unresolved_refs'].map(table => [table, canonical(db.prepare('SELECT * FROM ' + table).all())])); }
   finally { db.close(); }
 }
+function databaseIdentity(databasePath: string): string {
+  const db = new DatabaseSync(databasePath, { readOnly: true });
+  try {
+    const identity = db.prepare("SELECT value FROM project_metadata WHERE key='portable:database-id-v1'").get()?.value;
+    expect(typeof identity).toBe('string');
+    expect(identity.length).toBeGreaterThan(0);
+    return identity;
+  } finally { db.close(); }
+}
 async function artificialRebuildHistory(root: string, graph: Graph): Promise<void> {
   const plan = await createAdaptivePlan(root, graph.getFiles(), { runtimeKey: adaptiveRuntimeKey(root, graph.getBackend()) });
   const sample: AdaptiveCostSample = {
@@ -58,7 +67,8 @@ async function artificialRebuildHistory(root: string, graph: Graph): Promise<voi
     { ...sample, kind: 'full', durationMs: 1_000 }, sample, { ...sample }, { ...sample },
   ] };
   expect(chooseAdaptiveStrategy(plan, history).strategy).toBe('rebuild');
-  fs.writeFileSync(path.join(graph.getDataDirectory(), 'adaptive-cost-history.json'), JSON.stringify(history));
+  graph.setPortableCostHistory(JSON.stringify(history));
+  await graph.whenIdle();
 }
 
 describe('adaptive rebuild final validation', () => {
@@ -71,8 +81,13 @@ describe('adaptive rebuild final validation', () => {
       const writer = keep(await CodeGraph.init(root, { index: true }));
       source(root, true); source(freshRoot, true);
       await artificialRebuildHistory(root, writer);
-      expect((await writer.sync()).complete).toBe(true);
-      expect(fs.existsSync(path.join(writer.getDataDirectory(), 'CURRENT'))).toBe(true);
+      const oldIdentity = databaseIdentity(writer.getDatabaseFilePath());
+      const result = await writer.sync();
+      expect(result.complete).toBe(true);
+      expect(result.adaptive?.strategy).toBe('rebuild');
+      expect(writer.getDatabaseFilePath()).toBe(path.join(writer.getDataDirectory(), 'codegraph.db'));
+      expect(fs.existsSync(path.join(writer.getDataDirectory(), 'CURRENT'))).toBe(false);
+      expect(databaseIdentity(writer.getDatabaseFilePath())).not.toBe(oldIdentity);
       const rebuilt = keep(CodeGraph.openReadOnlySync(root));
       const fresh = keep(await CodeGraph.init(freshRoot, { index: true }));
       expect(fresh.getIndexCompleteness().status).toBe('complete');
@@ -111,36 +126,41 @@ describe('adaptive rebuild final validation', () => {
     expect(normalizedTables(writer.getDatabaseFilePath())).toEqual(before);
   }, 60_000);
 
-  it('fails closed when a published native generation is opened through forced WASM', async () => {
+  it('fails closed when a published portable database is opened through forced WASM', async () => {
     const originalArgv = process.execArgv; const nodeOptions = process.env.NODE_OPTIONS;
     process.execArgv = ['--liftoff-only']; delete process.env.NODE_OPTIONS;
     try {
       const root = directory(); source(root);
       const writer = keep(await CodeGraph.init(root, { index: true })); source(root, true);
       await artificialRebuildHistory(root, writer);
-      expect((await writer.sync()).complete).toBe(true);
-      const manifest = fs.readFileSync(path.join(writer.getDataDirectory(), 'CURRENT'), 'utf8');
+      const result = await writer.sync();
+      expect(result.complete).toBe(true);
+      expect(result.adaptive?.strategy).toBe('rebuild');
+      const identity = databaseIdentity(writer.getDatabaseFilePath());
+      const before = normalizedTables(writer.getDatabaseFilePath());
       const script = `
         const {ensureSqlJsReady}=require('./dist/db/sqlite-adapter');
         const {CodeGraph}=require('./dist');
         (async()=>{ await ensureSqlJsReady();
           try { const g=await CodeGraph.open(process.argv[1]); g.close(); throw Error('UNEXPECTED_WRITABLE_OPEN'); }
-          catch(e) { if(!String(e).includes('connections require the node:sqlite backend')) throw e;
-            console.log('EXPECTED_NATIVE_GENERATION_REJECTION'); }
+          catch(e) { if(!/requires? (?:the )?node:sqlite/.test(String(e))) throw e;
+            console.log('EXPECTED_NATIVE_PORTABLE_REJECTION'); }
         })().catch(e=>{ console.error(e); process.exitCode=1; });`;
       const output = execFileSync(process.execPath, ['--liftoff-only', '-e', script, root], {
         cwd: path.resolve(__dirname, '..'), env: { ...process.env, CODEGRAPH_FORCE_WASM: '1', NODE_OPTIONS: '' },
         encoding: 'utf8', timeout: 30_000,
       });
-      expect(output).toContain('EXPECTED_NATIVE_GENERATION_REJECTION');
+      expect(output).toContain('EXPECTED_NATIVE_PORTABLE_REJECTION');
       // A previously opened facade must not bypass the same native-only admission
-      // when it forwards a writer from the retired flat database into CURRENT.
+      // when it creates a fresh writer connection to the fixed root database.
       const priorForce = process.env.CODEGRAPH_FORCE_WASM;
       process.env.CODEGRAPH_FORCE_WASM = '1';
-      try { await expect(writer.sync({ adaptive: false })).rejects.toThrow(/require the node:sqlite backend/); }
+      try { await expect(writer.sync({ adaptive: false })).rejects.toThrow(/requires? (?:the )?node:sqlite/); }
       finally { if (priorForce === undefined) delete process.env.CODEGRAPH_FORCE_WASM; else process.env.CODEGRAPH_FORCE_WASM = priorForce; }
       expect(fs.existsSync(path.join(writer.getDataDirectory(), 'codegraph.lock'))).toBe(false);
-      expect(fs.readFileSync(path.join(writer.getDataDirectory(), 'CURRENT'), 'utf8')).toBe(manifest);
+      expect(fs.existsSync(path.join(writer.getDataDirectory(), 'CURRENT'))).toBe(false);
+      expect(databaseIdentity(writer.getDatabaseFilePath())).toBe(identity);
+      expect(normalizedTables(writer.getDatabaseFilePath())).toEqual(before);
       expect(writer.searchNodes('target_leaf').some(row => row.node.name === 'target_leaf')).toBe(true);
     } finally {
       process.execArgv = originalArgv;
