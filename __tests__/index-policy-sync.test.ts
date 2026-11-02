@@ -5,7 +5,7 @@ import os from 'node:os';
 import CodeGraph from '../src';
 import { PortableCoordinator, type PortableLease } from '../src/sync/portable/protocol';
 import { getCodeGraphDir } from '../src/directory';
-import { SEMANTIC_CONFIG_KEY } from '../src/sync/index-policy';
+import { SEMANTIC_CONFIG_KEY, SEMANTIC_REINDEX_PENDING, requiresSemanticReindex } from '../src/sync/index-policy';
 import { EXTRACTION_VERSION } from '../src/extraction/extraction-version';
 let root: string, graph: CodeGraph, leases: PortableLease[];
 const queries = () => (graph as any).queries;
@@ -139,4 +139,62 @@ it('does not acknowledge a configuration changed in the middle of explicit index
   const retry = await graph.sync({ adaptive: false });
   expect(retry.complete).toBe(true); expect(retry.filesModified).toBe(1);
   expect(graph.hasPortableCatchupWork()).toBe(false);
+});
+
+it('never trusts missing or v1-only semantic baselines, even with an equal broad fingerprint', () => {
+  expect(requiresSemanticReindex(null, 'current', null, 'broad', false)).toBe(true);
+  expect(requiresSemanticReindex(null, 'current', 'broad', 'broad', false)).toBe(true);
+  expect(requiresSemanticReindex('current', 'current', 'broad', 'broad', false)).toBe(false);
+  expect(requiresSemanticReindex('current', 'current', 'broad', 'broad', false, true)).toBe(true);
+});
+it.each(['missing', 'poisoned', 'healthy-v1'] as const)('migrates a %s baseline exactly once and never acknowledges failed work', async (baseline) => {
+  fs.writeFileSync(path.join(root, 'a.ts'), 'export function target() { return 1; }\n');
+  fs.writeFileSync(path.join(root, 'b.ts'), 'export function target() { return 2; }\n');
+  fs.writeFileSync(path.join(root, 'use.ts'), 'import { target } from "@target"; export function caller() { return target(); }\n');
+  const config = (name: string) => fs.writeFileSync(path.join(root, 'tsconfig.json'), JSON.stringify({ compilerOptions: { baseUrl: '.', paths: { '@target': [name] } } }));
+  config('a.ts'); await graph.indexAll();
+  const oldSemantic = queries().getMetadata(SEMANTIC_CONFIG_KEY);
+  if (baseline !== 'healthy-v1') config('b.ts');
+  const { semanticConfigFingerprint } = await import('../src/sync/index-policy');
+  const { adaptiveConfigFingerprint } = await import('../src/sync/adaptive-plan');
+  queries().applyMetadataChanges({
+    [SEMANTIC_CONFIG_KEY]: null,
+    'index:semantic-config-v1': baseline === 'missing' ? null : semanticConfigFingerprint(root, queries().getAllFiles()),
+    'adaptive:index-config-v1': baseline === 'missing' ? null : adaptiveConfigFingerprint(root, queries().getAllFiles()),
+  });
+  const sync = vi.spyOn((graph as any).orchestrator, 'sync').mockRejectedValueOnce(new Error('migration interrupted'));
+  await expect(graph.sync({ adaptive: false })).rejects.toThrow('migration interrupted');
+  expect(queries().getMetadata(SEMANTIC_CONFIG_KEY)).toBeNull();
+  expect(queries().getMetadata(SEMANTIC_REINDEX_PENDING)).not.toBeNull();
+  sync.mockRestore();
+  graph.close(); await graph.whenIdle();
+  graph = CodeGraph.openPortableRaw(root, new PortableCoordinator(getCodeGraphDir(root)).active, false);
+  expect(queries().getMetadata(SEMANTIC_REINDEX_PENDING)).not.toBeNull();
+  const result = await graph.sync({ adaptive: false });
+  expect(result.complete).toBe(true); expect(result.filesModified).toBe(4);
+  const targets = graph.getCallees(graph.getNodesByName('caller')[0]!.id).filter(item => item.node.name === 'target').map(item => item.node.filePath);
+  expect(targets).toEqual([baseline === 'healthy-v1' ? 'a.ts' : 'b.ts']);
+  expect(queries().getMetadata(SEMANTIC_CONFIG_KEY)).not.toBeNull();
+  if (baseline === 'healthy-v1') expect(queries().getMetadata(SEMANTIC_CONFIG_KEY)).toBe(oldSemantic);
+  expect(queries().getMetadata(SEMANTIC_REINDEX_PENDING)).toBeNull();
+  expect((await graph.sync({ adaptive: false })).filesModified).toBe(0);
+});
+
+it('indexAll only stamps the migration baseline after a complete retry', async () => {
+  await graph.indexAll();
+  queries().applyMetadataChanges({ [SEMANTIC_CONFIG_KEY]: null });
+  const orchestrator = (graph as any).orchestrator;
+  const original = orchestrator.indexAll.bind(orchestrator);
+  const injected = vi.spyOn(orchestrator, 'indexAll').mockImplementationOnce(async (...args) => {
+    const result = await original(...args);
+    return { ...result, complete: false, filesErrored: 1 };
+  });
+  expect((await graph.indexAll()).complete).toBe(false);
+  expect(queries().getMetadata(SEMANTIC_CONFIG_KEY)).toBeNull();
+  expect(queries().getMetadata(SEMANTIC_REINDEX_PENDING)).not.toBeNull();
+  injected.mockRestore();
+  expect((await graph.indexAll()).complete).toBe(true);
+  expect(queries().getMetadata(SEMANTIC_CONFIG_KEY)).not.toBeNull();
+  expect(queries().getMetadata(SEMANTIC_REINDEX_PENDING)).toBeNull();
+  expect((await graph.sync({ adaptive: false })).filesModified).toBe(0);
 });
