@@ -1,5 +1,7 @@
 /** Publisher and builder share one process and one OS writer lease. */
 import { CodeGraph } from "../../index";
+import { statSync } from "node:fs";
+import { hasRebuildDiskSpace } from "../generation-store";
 import { PortableCoordinator, PortableBusyError, type PortableLease } from "./protocol";
 // Native lock handles must outlive main(), including asynchronous error IPC.
 const processLeases = new Set<PortableLease>();
@@ -59,6 +61,15 @@ async function main(
     const plan = evaluation.plan;
     if (!plan || evaluation.decision.strategy !== "rebuild")
       throw new Error("Source changed before rebuild admission; retry sync");
+    // Admission must be rechecked by the writer-owning publisher, not only
+    // by the parent. Unknown capacity is not permission to build a large DB.
+    const requiredBytes = Math.ceil(Math.max(
+      statSync(coordinator.active).size * 4,
+      plan.totalBytes * 16,
+      256 * 1024 * 1024,
+    ));
+    if (!hasRebuildDiskSpace(dataDir, requiredBytes))
+      throw new Error("insufficient-or-unknown-free-disk");
     candidate = coordinator.beginCandidate();
     const graph = await CodeGraph.createPortableCandidate(root, candidate.path);
     let built;

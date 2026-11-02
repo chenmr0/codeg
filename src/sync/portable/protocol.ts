@@ -424,18 +424,85 @@ export class PortableCoordinator {
       throw new Error("Invalid publication phase");
     return record;
   }
+  /** A cleanup obligation is durable before the publication journal is cleared.
+   * Separate, task-bound records let reads/new builds proceed while GC retries. */
+  private deferCleanup(record: Journal, revision: number): void {
+    this.owned(record);
+    const file = path.join(this.runtime, `${record.id}.cleanup.json`);
+    const payload = JSON.stringify({ version: 1, record });
+    if (regular(file, true)) {
+      if (fs.readFileSync(file, "utf8") !== payload)
+        throw new Error("Cleanup task identity mismatch");
+    } else {
+      const temporary = file + ".tmp";
+      if (regular(temporary, true) && fs.lstatSync(temporary).nlink !== 1)
+        throw new Error("Linked cleanup staging record retained");
+      // A crash may leave this task's partial staging file. The journal still
+      // owns the task, so rewriting only its staging record is safe.
+      fs.writeFileSync(temporary, payload);
+      flush(temporary);
+      fs.renameSync(temporary, file);
+    }
+    flushDirectory(this.runtime);
+    this.save("idle", revision, null);
+  }
+  private retryCleanup(): void {
+    if (!this.writerHeld) throw new Error("Cleanup requires writer lease");
+    const current = this.journal();
+    let names: string[];
+    try { names = fs.readdirSync(this.runtime); }
+    catch { return; } // Retry transient GC directory access on the next recovery.
+    for (const name of names) {
+      if (!/^[0-9a-f-]{36}\.cleanup\.json$/.test(name)) continue;
+      const file = path.join(this.runtime, name);
+      try {
+        regular(file);
+        const task = JSON.parse(fs.readFileSync(file, "utf8"));
+        const record = task.record as Journal;
+        if (task.version !== 1 || name !== `${record.id}.cleanup.json`)
+          throw new Error("Invalid cleanup task identity");
+        this.owned(record);
+        // Crash between recording the obligation and clearing the journal:
+        // never reclaim a task which still owns publication state.
+        if (current?.id === record.id) continue;
+        this.cleanup(record);
+        fs.unlinkSync(file);
+        flushDirectory(this.runtime);
+      } catch {
+        // Busy SQLite, unknown artifacts and failures retain the obligation.
+        // They do not revoke a commit or prevent querying the active database.
+      }
+    }
+  }
   private cleanup(record: Journal): void {
     this.owned(record);
     const dir = path.dirname(record.path);
     if (fs.existsSync(dir)) {
       const names = fs.readdirSync(dir);
-      if (names.some((name) => !["candidate.db", "old.db"].includes(name)))
+      const allowed = new Set(["candidate.db", "old.db"].flatMap(name =>
+        [name, name + "-wal", name + "-shm", name + "-journal"]));
+      if (names.some(name => !allowed.has(name)))
         throw new Error("Unknown candidate artifacts retained");
-      for (const file of [record.path, record.backup])
+      // Validate every artifact before SQLite can follow a sidecar. Refuse
+      // symlinks/hardlinks; no GC task may mutate an imported or active DB.
+      for (const name of names) {
+        const file = path.join(dir, name);
+        regular(file);
+        if (fs.lstatSync(file).nlink !== 1)
+          throw new Error("Linked candidate artifact retained");
+      }
+      for (const file of [record.path, record.backup]) {
         if (regular(file, true)) {
+          // Only SQLite removes its WAL/SHM/hot journal, after checkpoint and
+          // exclusive journal-mode transition. Never unlink sidecars ourselves.
+          if (["-wal", "-shm", "-journal"].some(suffix => fs.existsSync(file + suffix)))
+            seal(file);
           noSidecars(file);
           fs.unlinkSync(file);
+        } else {
+          noSidecars(file); // Orphan sidecars cannot be safely interpreted.
         }
+      }
       fs.rmdirSync(dir);
       flushDirectory(this.runtime);
     }
@@ -451,28 +518,13 @@ export class PortableCoordinator {
       if (!record) {
         if (this.snapshot().mode !== "idle")
           throw new Error("Draining state has no recovery record");
+        this.retryCleanup();
         return;
       }
-      if (record.phase === "building" || record.phase === "prepared") {
+      if (["building", "prepared", "committed"].includes(record.phase)) {
         validate(this.active);
-        this.save("idle", this.snapshot().revision, null);
-        // A killed builder may leave its WAL; preserve its directory rather than
-        // deleting uncheckpointed evidence. This never blocks active graph reads.
-        try {
-          this.cleanup(record);
-        } catch {
-          /* abandoned candidate retained */
-        }
-        return;
-      }
-      if (record.phase === "committed") {
-        validate(this.active);
-        this.save("idle", this.snapshot().revision, null);
-        try {
-          this.cleanup(record);
-        } catch {
-          /* retained evidence does not revoke commit */
-        }
+        this.deferCleanup(record, this.snapshot().revision);
+        this.retryCleanup();
         return;
       }
       fence = this.lock(this.readers, true);
@@ -517,12 +569,10 @@ export class PortableCoordinator {
           "Ambiguous publication state; database evidence preserved",
         );
       validate(this.active);
-      this.save("idle", this.snapshot().revision + 1, null);
-      try {
-        this.cleanup(record);
-      } catch {
-        /* preserve cleanup failures */
-      }
+      this.deferCleanup(record, this.snapshot().revision + 1);
+      fence.release();
+      fence = null;
+      this.retryCleanup();
     } finally {
       fence?.release();
       writer?.release();
@@ -555,12 +605,9 @@ export class PortableCoordinator {
     if (!record || record.id !== candidate.id) return;
     if (!["building", "prepared"].includes(record.phase))
       throw new Error("Publication has entered replacement; recovery required");
-    this.save("idle", this.snapshot().revision, null);
-    try {
-      this.cleanup(record);
-    } catch {
-      /* failed builders may leave recoverable SQLite logs */
-    }
+    this.deferCleanup(record, this.snapshot().revision);
+    // A failed native builder may still own handles in this process. Reclaim
+    // only on the next recovery, after its lifetime writer lease is released.
   }
   async publish(
     candidate: PortableCandidate,
@@ -650,8 +697,8 @@ export class PortableCoordinator {
       fence = null;
       const pauseMs = performance.now() - started;
       try {
-        this.cleanup(record);
-        this.save("idle", candidate.baselineRevision + 1, null);
+        this.deferCleanup(record, candidate.baselineRevision + 1);
+        this.retryCleanup();
       } catch {
         /* recover performs conservative terminal cleanup */
       }
