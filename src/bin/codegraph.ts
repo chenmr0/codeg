@@ -1446,15 +1446,28 @@ program
   .description('Remove a stale lock only after all writers and rebuild children are stopped')
   .option('--offline', 'Confirm all CodeGraph writers and rebuild children for this index are stopped')
   .action(async (pathArg: string | undefined, options: { offline?: boolean }) => {
-    const projectPath = resolveProjectPath(pathArg);
-
+    const exactPath = path.resolve(pathArg || process.cwd());
     try {
-      if (!isQueryProject(projectPath)) {
+      // An interrupted first init has a lock but no active database. Search
+      // nearest-first for either a lock or an initialized project, so a child
+      // cannot accidentally unlock a different initialized ancestor.
+      let projectPath = exactPath;
+      let current = exactPath;
+      while (true) {
+        const lock = path.join(getCodeGraphDir(current), 'codegraph.lock');
+        if (fs.existsSync(lock) || isQueryProject(current)) {
+          projectPath = current;
+          break;
+        }
+        const parent = path.dirname(current);
+        if (parent === current) break;
+        current = parent;
+      }
+      const lockPath = path.join(getCodeGraphDir(projectPath), 'codegraph.lock');
+      if (!fs.existsSync(lockPath) && !isQueryProject(projectPath)) {
         error(`CodeGraph not initialized in ${projectPath}`);
         return;
       }
-
-      const lockPath = path.join(getCodeGraphDir(projectPath), 'codegraph.lock');
 
       if (!removeOfflineLock(lockPath, options.offline === true)) {
         info(`No lock file found ${getGlyphs().dash} nothing to do`);

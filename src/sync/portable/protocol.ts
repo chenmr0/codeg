@@ -117,14 +117,14 @@ function validate(file: string): void {
     db.close();
   }
 }
-function seal(file: string): void {
+function seal(file: string, check = true): void {
   regular(file);
   const db = open(file);
   try {
     if (db.prepare("PRAGMA wal_checkpoint(TRUNCATE)").get()?.busy > 0)
       throw new PortableBusyError("SQLite checkpoint is blocked");
     db.exec("PRAGMA journal_mode=DELETE");
-    if (db.prepare("PRAGMA quick_check").get()?.quick_check !== "ok")
+    if (check && db.prepare("PRAGMA quick_check").get()?.quick_check !== "ok")
       throw new Error("Candidate integrity check failed");
   } finally {
     db.close();
@@ -143,6 +143,9 @@ export class PortableCoordinator {
   private readonly writer: string;
   private readonly readers: string;
   private writerHeld = false;
+  private initialStage?: { directory: string; file: string; revision: number; valid: boolean };
+  private freshActiveRevision?: number;
+  private initialCandidates = new WeakSet<PortableCandidate>();
 
   constructor(dataDirectory: string) {
     fs.mkdirSync(dataDirectory, { recursive: true });
@@ -369,12 +372,19 @@ export class PortableCoordinator {
         if (!released) {
           lease.release();
           this.writerHeld = false;
+          this.revokeInitialEligibility();
           released = true;
         }
       },
     };
   }
+  private revokeInitialEligibility(): void {
+    if (this.initialStage) this.initialStage.valid = false;
+    this.freshActiveRevision = undefined;
+    this.initialCandidates = new WeakSet<PortableCandidate>();
+  }
   markMutation(): number {
+    this.revokeInitialEligibility();
     if (!this.writerHeld) throw new Error("Mutation requires writer lease");
     if (this.journal() || this.snapshot().mode !== "idle")
       throw new Error("Recover publication before graph mutation");
@@ -511,6 +521,7 @@ export class PortableCoordinator {
    * accepted only after obtaining both OS fences and validating their snapshot.
    * Old candidate/backup evidence is retained, never restored over an import. */
   recover(): void {
+    this.revokeInitialEligibility();
     const writer = this.writerHeld ? null : this.acquireWriter();
     let fence: PortableLease | null = null;
     try {
@@ -579,6 +590,7 @@ export class PortableCoordinator {
     }
   }
   beginCandidate(): PortableCandidate {
+    this.revokeInitialEligibility();
     if (!this.writerHeld)
       throw new Error("Candidate construction requires writer lease");
     if (this.journal() || this.snapshot().mode !== "idle")
@@ -598,6 +610,95 @@ export class PortableCoordinator {
     flushDirectory(this.runtime);
     return record;
   }
+  /** Reserve a private baseline path. Nothing appears at the active path until
+   * schema initialization has closed and the baseline has been sealed. */
+  reserveInitialActive(): string {
+    this.revokeInitialEligibility();
+    if (!this.writerHeld || this.initialStage || this.journal() || this.snapshot().mode !== "idle")
+      throw new Error("Initial creation requires a fresh idle writer");
+    for (const suffix of ["", "-wal", "-shm", "-journal"])
+      if (regular(this.active + suffix, true))
+        throw new Error("Initial creation cannot replace an existing database or sidecar");
+    const directory = path.join(this.runtime, `initial-${randomUUID()}`);
+    fs.mkdirSync(directory);
+    const file = path.join(directory, "baseline.db");
+    this.initialStage = { directory, file, revision: this.snapshot().revision, valid: true };
+    return file;
+  }
+  private assertInitialDirectory(directory: string): void {
+    const stat = fs.lstatSync(directory);
+    if (!stat.isDirectory() || stat.isSymbolicLink())
+      throw new Error("Unsafe initial staging directory");
+  }
+  /** Caller has closed and drained the private baseline connection. The same
+   * root/writer locks and offline-import contract used by ordinary publication
+   * protect this rename. Crash debris remains private and is never adopted. */
+  installInitialActive(): void {
+    const stage = this.initialStage;
+    if (!this.writerHeld || !stage || !stage.valid || this.journal() || this.snapshot().mode !== "idle" ||
+        this.snapshot().revision !== stage.revision)
+      throw new Error("Initial baseline reservation is no longer valid");
+    this.assertInitialDirectory(stage.directory);
+    regular(stage.file);
+    if (fs.lstatSync(stage.file).nlink !== 1)
+      throw new Error("Linked initial baseline retained");
+    seal(stage.file, false);
+    // Preserve the normal active-database WAL default before it becomes
+    // visible. Switching DELETE to WAL later would block on an admitted read
+    // transaction, even though the baseline itself was safely sealed.
+    const db = open(stage.file);
+    try { db.exec("PRAGMA journal_mode=WAL"); }
+    finally { db.close(); }
+    noSidecars(stage.file);
+    flush(stage.file);
+    for (const suffix of ["", "-wal", "-shm", "-journal"])
+      if (regular(this.active + suffix, true))
+        throw new Error("Initial creation cannot replace an existing database or sidecar");
+    fs.renameSync(stage.file, this.active);
+    flushDirectory(this.dataDirectory);
+    flushDirectory(stage.directory);
+    fs.rmdirSync(stage.directory);
+    this.initialStage = undefined;
+    flushDirectory(this.runtime);
+    this.freshActiveRevision = stage.revision;
+  }
+  /** Discard only this process's closed, private staging file. If SQLite
+   * sidecars or unknown artifacts remain, retain them for offline inspection. */
+  discardInitialStage(): void {
+    const stage = this.initialStage;
+    if (!stage) return;
+    this.assertInitialDirectory(stage.directory);
+    const names = fs.readdirSync(stage.directory);
+    if (names.some(name => name !== "baseline.db")) return;
+    if (regular(stage.file, true)) {
+      if (fs.lstatSync(stage.file).nlink !== 1) return;
+      fs.unlinkSync(stage.file);
+    }
+    fs.rmdirSync(stage.directory);
+    this.initialStage = undefined;
+  }
+  /** Only a baseline created by this writer at an unchanged revision confers
+   * one use of the initial-publication shortcut. Any other operation revokes it. */
+  beginInitialCandidate(): PortableCandidate {
+    if (!this.writerHeld || this.freshActiveRevision === undefined ||
+        this.snapshot().revision !== this.freshActiveRevision)
+      throw new Error("Initial candidate requires a newly created active database");
+    this.freshActiveRevision = undefined;
+    const candidate = this.beginCandidate();
+    this.initialCandidates.add(candidate);
+    return candidate;
+  }
+  async publishInitialCandidate(
+    candidate: PortableCandidate,
+    options: PortablePublishOptions = {},
+  ): Promise<{ pauseMs: number; revision: number }> {
+    if (!this.initialCandidates.delete(candidate))
+      throw new Error("Initial candidate capability is missing or already used");
+    // Fresh init historically did not run a full quick_check. Keep all SQLite
+    // sealing, fsync, identity, fencing and recovery steps; only the redundant
+    // pre-publication full scan is omitted for this in-process private build.
+    return this.publishCandidate(candidate, options, false);
+  }
   abortCandidate(candidate: PortableCandidate): void {
     if (!this.writerHeld)
       throw new Error("Candidate cancellation requires writer lease");
@@ -613,6 +714,14 @@ export class PortableCoordinator {
     candidate: PortableCandidate,
     options: PortablePublishOptions = {},
   ): Promise<{ pauseMs: number; revision: number }> {
+    this.revokeInitialEligibility();
+    return this.publishCandidate(candidate, options, true);
+  }
+  private async publishCandidate(
+    candidate: PortableCandidate,
+    options: PortablePublishOptions,
+    check: boolean,
+  ): Promise<{ pauseMs: number; revision: number }> {
     if (!this.writerHeld) throw new Error("Publication requires writer lease");
     const record = this.journal();
     if (!record || record.id !== candidate.id || record.phase !== "building")
@@ -623,7 +732,7 @@ export class PortableCoordinator {
     if (!Number.isFinite(timeout) || timeout <= 0)
       throw new Error("Invalid publication timeout");
     options.signal?.throwIfAborted();
-    seal(record.path);
+    seal(record.path, check);
     // Full checkpoint/hash stays outside the admission pause. Writer lease
     // prevents graph mutation; readers are allowed to continue using old data.
     const old = open(this.active);

@@ -228,6 +228,7 @@ export class CodeGraph {
   // Initialization has no facade to own a failed native handle. Keep both its
   // connection and the independent writer fence alive until process exit.
   private static failedPortableInitializations = new Map<PortableLease, DatabaseConnection>();
+  private static failedPortableBuilds = new Map<PortableLease, CodeGraph | DatabaseConnection>();
   private db: DatabaseConnection;
   private queries: QueryBuilder;
   private projectRoot: string;
@@ -248,6 +249,8 @@ export class CodeGraph {
   private readonly dataDir: string;
   private readonly shadowCandidate: boolean;
   private portableBound = false;
+  // Only an unpublished, newly created database may use disposable fast-init.
+  private disposableCandidate = false;
   private readOnly: boolean;
   private readonly pinnedRead: boolean;
   private closed = false;
@@ -384,6 +387,11 @@ export class CodeGraph {
     const lock = new GenerationWriterLock(dataDir);
     lock.acquire();
     let instance: CodeGraph | undefined;
+    let indexed = false;
+    let initialResult: IndexResult | undefined;
+    let failedInitialResult: IndexResult | undefined;
+    let initializationFailed = false;
+    let initializationError: unknown;
     try {
       CodeGraph.assertUninitialized(root, dataDir);
       if (CodeGraph.nativeInitializationAvailable()) {
@@ -391,9 +399,14 @@ export class CodeGraph {
         const writer = coordinator.acquireWriter();
         let db: DatabaseConnection | undefined;
         let idle = false;
+        let candidateConnection: DatabaseConnection | undefined;
+        let candidateGraph: CodeGraph | undefined;
+        let candidateIdle = true;
+        let candidate: ReturnType<PortableCoordinator['beginCandidate']> | undefined;
         try {
           coordinator.recover();
-          try { db = DatabaseConnection.initialize(path.join(dataDir, 'codegraph.db')); }
+          const initialPath = coordinator.reserveInitialActive();
+          try { db = DatabaseConnection.initialize(initialPath); }
           catch (error) {
             if (error instanceof DatabaseOpenError) db = error.connection;
             throw error;
@@ -403,11 +416,51 @@ export class CodeGraph {
             try { db.close(); }
             finally { await db.whenIdle(); idle = true; }
           }
+          coordinator.installInitialActive();
+          if (options.index) {
+            // The active schema is a durable baseline. Build separately, so a
+            // reader admitted during init can never observe MEMORY/OFF writes.
+            candidate = coordinator.beginInitialCandidate();
+            let result: IndexResult | undefined;
+            try {
+              const graph = candidateGraph = await CodeGraph.createPortableCandidate(root, candidate.path);
+              candidateConnection = graph.db;
+              candidateIdle = false;
+              result = await graph.indexAll({ onProgress: options.onProgress, signal: options.signal, verbose: options.verbose });
+              if (!result.success) {
+                failedInitialResult = result;
+                throw new Error(result.errors.map(error => error.message).join('; ') || 'Initial indexing failed');
+              }
+            } catch (error) {
+              if (!candidateGraph && error instanceof DatabaseOpenError) {
+                candidateConnection = error.connection;
+                candidateIdle = false;
+              }
+              throw error;
+            } finally {
+              if (candidateGraph) {
+                try { candidateGraph.close(); }
+                finally { await candidateGraph.whenIdle(); candidateIdle = true; }
+              }
+            }
+            // Publish only after all candidate handles/workers are gone. The
+            // existing coordinator drains readers without closing active pins.
+            await coordinator.publishInitialCandidate(candidate, { timeoutMs: 30_000, signal: options.signal });
+            indexed = true;
+            initialResult = result;
+          }
         } finally {
           let closed = !db;
           if (db) { try { closed = !db.isOpen() && idle; } catch { /* retain uncertain handle */ } }
-          if (closed) writer.release();
-          else if (db) CodeGraph.failedPortableInitializations.set(writer, db);
+          let candidateClosed = !candidateConnection;
+          if (candidateConnection) { try { candidateClosed = !candidateConnection.isOpen() && candidateIdle; } catch { /* retain uncertain handle */ } }
+          if (closed && candidateClosed) {
+            try {
+              coordinator.discardInitialStage();
+              if (candidate && !indexed) coordinator.recover();
+            } finally { writer.release(); }
+          } else if (!closed) CodeGraph.failedPortableInitializations.set(writer, db!);
+          else CodeGraph.failedPortableBuilds.set(writer, candidateGraph ?? candidateConnection!);
         }
         instance = CodeGraph.openPortable(root, dataDir);
       } else {
@@ -416,9 +469,19 @@ export class CodeGraph {
       const db = DatabaseConnection.initialize(path.join(dataDir, 'codegraph.db'));
       instance = new CodeGraph(db, new QueryBuilder(db.getDb()), root, false, false, false, dataDir);
       }
+    } catch (error) {
+      initializationFailed = true;
+      initializationError = error;
     } finally { lock.release(); }
+    if (initializationFailed) {
+      if (failedInitialResult) options.onIndexResult?.(failedInitialResult);
+      throw initializationError;
+    }
     try {
-      if (options.index) {
+      // Match the public callback contract: publication and writer release
+      // precede a success notification, so its queries/writes see the new root.
+      if (indexed) options.onIndexResult?.(initialResult!);
+      if (options.index && !indexed) {
         const result = await instance!.indexAll({ onProgress: options.onProgress, signal: options.signal, verbose: options.verbose });
         options.onIndexResult?.(result);
         if (!result.success) throw new Error(result.errors.map(error => error.message).join('; ') || 'Initial indexing failed');
@@ -445,20 +508,24 @@ export class CodeGraph {
       let db: DatabaseConnection | undefined;
       try {
         coordinator.recover();
-        try { db = DatabaseConnection.initialize(path.join(dataDir, 'codegraph.db')); }
+        const initialPath = coordinator.reserveInitialActive();
+        try { db = DatabaseConnection.initialize(initialPath); }
         catch (error) {
           if (error instanceof DatabaseOpenError) db = error.connection;
           throw error;
         }
         try { installSourceOwnership(db.getDb()); initializeIdentity(db.getDb()); }
         finally { db.close(); }
+        coordinator.installInitialActive();
       } finally {
         // Schema-only initialization starts no background workers, so native
         // handle closure is a synchronous fence and initSync remains immediate.
         let closed = !db;
         if (db) { try { closed = !db.isOpen(); } catch { /* retain uncertain handle */ } }
-        if (closed) writer.release();
-        else if (db) CodeGraph.failedPortableInitializations.set(writer, db);
+        if (closed) {
+          try { coordinator.discardInitialStage(); }
+          finally { writer.release(); }
+        } else if (db) CodeGraph.failedPortableInitializations.set(writer, db);
       }
       return CodeGraph.openPortable(root, dataDir);
     } finally { lock.release(); }
@@ -503,9 +570,19 @@ export class CodeGraph {
       throw new Error('Portable candidate must be a fresh owned runtime file');
     }
     const db = DatabaseConnection.initialize(file);
-    try { installSourceOwnership(db.getDb()); initializeIdentity(db.getDb()); }
-    finally { db.close(); await db.whenIdle(); }
-    return CodeGraph.openPortableRaw(root, file, false);
+    let drained = false;
+    try {
+      try { installSourceOwnership(db.getDb()); initializeIdentity(db.getDb()); }
+      finally { try { db.close(); } finally { await db.whenIdle(); drained = true; } }
+    } catch (error) {
+      // The writer owner must retain the fence if closure or background drain
+      // is uncertain, even when the database constructor itself succeeded.
+      if (drained && !db.isOpen()) throw error;
+      throw new DatabaseOpenError(db, error, error);
+    }
+    const graph = CodeGraph.openPortableRaw(root, file, false);
+    graph.disposableCandidate = true;
+    return graph;
   }
 
   isPortableStorage(): boolean { return this.portableBound; }
@@ -778,17 +855,38 @@ export class CodeGraph {
         // A completely fresh node:sqlite database is disposable until this
         // run finishes, so avoid rollback-journal fsync during construction.
         // Existing databases and the sql.js fallback retain durable defaults.
-        let fastInit =
+        const canFastInit =
           freshDb &&
-          this.shadowCandidate &&
+          ((this.shadowCandidate && !this.portableBound) || this.disposableCandidate) &&
           this.db.getBackend() === 'node-sqlite' &&
+          // Do not enter a mode we cannot safely restore. Filesystems that
+          // cannot enable WAL keep their pre-existing durable configuration.
+          this.db.getJournalMode() === 'wal' &&
           process.env.CODEGRAPH_NO_FAST_INIT !== '1';
-        if (fastInit) {
+        let fastInit = false;
+        const restoreCandidateDurability = () => {
+          const sql = this.db.getDb();
+          sql.pragma('synchronous = NORMAL');
+          if (Number(sql.pragma('synchronous', { simple: true })) !== 1)
+            throw new Error('Could not restore candidate synchronous mode');
+          sql.pragma('journal_mode = WAL');
+          if (String(sql.pragma('journal_mode', { simple: true })).toLowerCase() !== 'wal')
+            throw new Error('Could not restore candidate WAL mode');
+        };
+        if (canFastInit) {
           try {
-            this.db.getDb().pragma('journal_mode = MEMORY');
-            this.db.getDb().pragma('synchronous = OFF');
+            const sql = this.db.getDb();
+            sql.pragma('journal_mode = MEMORY');
+            if (String(sql.pragma('journal_mode', { simple: true })).toLowerCase() !== 'memory')
+              throw new Error('Could not enable candidate MEMORY mode');
+            sql.pragma('synchronous = OFF');
+            if (Number(sql.pragma('synchronous', { simple: true })) !== 0)
+              throw new Error('Could not disable candidate synchronous mode');
+            fastInit = true;
           } catch {
-            fastInit = false;
+            // MEMORY may have succeeded even if a later step failed. Never
+            // continue or publish unless durable defaults were restored.
+            restoreCandidateDurability();
           }
         }
 
@@ -1055,14 +1153,7 @@ export class CodeGraph {
             if (deferWal) {
               try { this.db.setWalAutocheckpoint(priorAutocheckpoint); } catch { /* best-effort */ }
             }
-            if (fastInit) {
-              try {
-                this.db.getDb().pragma('synchronous = NORMAL');
-                this.db.getDb().pragma('journal_mode = WAL');
-              } catch {
-                // connection may be closing after a failed index
-              }
-            }
+            if (fastInit) restoreCandidateDurability();
           }
         }
       } finally {
@@ -1218,7 +1309,7 @@ export class CodeGraph {
   }
 
   private recordCostSample(kind: 'full' | 'incremental', before: FileRecord[], durationMs: number, changedFilePaths?: string[]): void {
-    if ((this.shadowCandidate && !this.portableBound) || this.db.getBackend() !== 'node-sqlite' || getCodeGraphDir(this.projectRoot) !== this.dataDir || !isSourceOwned(this.db.getDb())) return;
+    if ((this.shadowCandidate && !this.portableBound) || this.db.getBackend() !== 'node-sqlite' || (!this.disposableCandidate && getCodeGraphDir(this.projectRoot) !== this.dataDir) || !isSourceOwned(this.db.getDb())) return;
     try {
       const after = this.queries.getAllFiles();
       const sample = adaptiveSampleFromFiles({ kind, before, after, durationMs, changedFilePaths,
