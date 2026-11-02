@@ -47,18 +47,10 @@ describe('CodeGraph Foundation', () => {
       cg.close();
     });
 
-    it('should create .gitignore in .CodeGraph directory', () => {
+    it('should leave Git exclusion rules to the user', () => {
       const cg = CodeGraph.initSync(tempDir);
-
-      const gitignorePath = path.join(getCodeGraphDir(tempDir), '.gitignore');
-      expect(fs.existsSync(gitignorePath)).toBe(true);
-
-      const content = fs.readFileSync(gitignorePath, 'utf-8');
-      // Ignore everything in .codegraph/ except this file itself, so transient
-      // files (db, daemon.pid, sockets, logs) never show up in git. (#492, #484)
-      expect(content).toContain('*');
-      expect(content).toContain('!.gitignore');
-
+      expect(fs.existsSync(path.join(getCodeGraphDir(tempDir), '.gitignore'))).toBe(false);
+      expect(fs.existsSync(path.join(tempDir, '.gitignore'))).toBe(false);
       cg.close();
     });
 

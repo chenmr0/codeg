@@ -124,7 +124,7 @@ describe('adaptive sync production entry points', () => {
       expect(databaseIdentity()).toBe(identity);
       await graph.whenIdle();
       const lease = new PortableCoordinator(getCodeGraphDir(root)).acquireWriter(); lease.release();
-      const log = fs.readFileSync(path.join(getCodeGraphDir(root), 'adaptive-sync.log'), 'utf8');
+      const log = fs.readFileSync(path.join(getCodeGraphDir(root), '.runtime', 'adaptive-sync.log'), 'utf8');
       expect(log).toContain('incremental');
       expect(log).not.toContain('scoped-watcher-sync');
     } finally { if (timer) clearTimeout(timer); graph.unwatch(); }

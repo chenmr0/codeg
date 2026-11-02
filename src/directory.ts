@@ -187,18 +187,7 @@ export function createDirectory(projectRoot: string): void {
   // Create main directory (if it doesn't exist)
   fs.mkdirSync(codegraphDir, { recursive: true });
 
-  // Create .gitignore inside .codegraph (if it doesn't exist)
-  const gitignorePath = path.join(codegraphDir, '.gitignore');
-  if (!fs.existsSync(gitignorePath)) {
-    const gitignoreContent = `# CodeGraph data files — local to each machine, not for committing.
-# Ignore everything in .codegraph/ except this file itself, so transient
-# files (the database, daemon.pid, sockets, logs) never show up in git.
-*
-!.gitignore
-`;
-
-    fs.writeFileSync(gitignorePath, gitignoreContent, 'utf-8');
-  }
+  // Git ignore rules belong to the user; never create or alter .gitignore.
 }
 
 /**
@@ -351,17 +340,7 @@ export function validateDirectory(projectRoot: string): {
     lease.release();
   }
 
-  // Auto-repair missing .gitignore (non-critical file)
-  const gitignorePath = path.join(codegraphDir, '.gitignore');
-  if (!fs.existsSync(gitignorePath)) {
-    try {
-      const gitignoreContent = `# CodeGraph data files — local to each machine, not for committing.\n# Ignore everything in .codegraph/ except this file itself, so transient\n# files (the database, daemon.pid, sockets, logs) never show up in git.\n*\n!.gitignore\n`;
-      fs.writeFileSync(gitignorePath, gitignoreContent, 'utf-8');
-    } catch {
-      // Non-fatal: warn but don't block
-      errors.push('.gitignore missing in .codegraph directory and could not be created');
-    }
-  }
+  // Missing .gitignore is valid: Git exclusions are managed by the user.
 
   return {
     valid: errors.length === 0,

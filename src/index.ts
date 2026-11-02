@@ -6,7 +6,8 @@
  */
 
 import * as path from 'path';
-import { existsSync, statSync, appendFileSync, renameSync, realpathSync, lstatSync, openSync, fstatSync, readSync, closeSync, constants } from 'fs';
+import { appendAdaptiveLog } from './sync/adaptive-log';
+import { existsSync, statSync, realpathSync, lstatSync, openSync, fstatSync, readSync, closeSync, constants } from 'fs';
 import {
   Node,
   Edge,
@@ -1233,11 +1234,7 @@ export class CodeGraph {
     try { options.onAdaptiveDecision?.(decision); } catch { /* Diagnostic callbacks cannot change publication outcome. */ }
     const message = `[adaptive-sync] ${JSON.stringify({ ...decision, at: new Date().toISOString() })}`;
     if (options.verbose) console.error(message);
-    try {
-      const log = path.join(this.dataDir, 'adaptive-sync.log');
-      if (existsSync(log) && statSync(log).size > 1024 * 1024) renameSync(log, log + '.1');
-      appendFileSync(log, message + '\n');
-    } catch { /* best effort diagnostic */ }
+    appendAdaptiveLog(this.dataDir, message);
   }
 
   private async tryAdaptiveRebuild(options: SyncOptions): Promise<SyncResult | null> {

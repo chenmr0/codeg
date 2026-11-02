@@ -1,6 +1,6 @@
 /** Stable project facade; native connections belong to admitted operations, not projects. */
 import * as path from "node:path";
-import { existsSync, statSync, renameSync, appendFileSync } from "node:fs";
+import { appendAdaptiveLog } from "../adaptive-log";
 import { randomUUID } from "node:crypto";
 import type { CodeGraph, SyncOptions, IndexDataReadiness } from "../../index";
 import { DatabaseOpenError } from "../../db";
@@ -485,14 +485,7 @@ class PortableFacade {
           }
           const message = `[adaptive-sync] ${JSON.stringify({ ...evaluation.decision, at: new Date().toISOString() })}`;
           if (options.verbose) console.error(message);
-          try {
-            const log = path.join(this.dataDir, "adaptive-sync.log");
-            if (existsSync(log) && statSync(log).size > 1024 * 1024)
-              renameSync(log, log + ".1");
-            appendFileSync(log, message + "\n");
-          } catch {
-            /* best effort diagnostics */
-          }
+          appendAdaptiveLog(this.dataDir, message);
           if (evaluation.decision.strategy === "rebuild") {
             try {
               published = await runPortableRebuild(
@@ -503,7 +496,7 @@ class PortableFacade {
             } catch (error) {
               const failure = `[adaptive-sync] ${JSON.stringify({ strategy: "rebuild", reason: "rebuild-failed", error: error instanceof Error ? error.stack ?? error.message : String(error), at: new Date().toISOString() })}`;
               if (options.verbose) console.error(failure);
-              try { appendFileSync(path.join(this.dataDir, "adaptive-sync.log"), failure + "\n"); } catch { /* diagnostics must not replace original error */ }
+              appendAdaptiveLog(this.dataDir, failure);
               abort.signal.throwIfAborted();
               // Only fall back after child exit AND successful fenced recovery.
               // If publication committed, the next loop must honor its DB marker.
