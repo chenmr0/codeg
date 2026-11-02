@@ -1,0 +1,10 @@
+{
+  "readOnly": true,
+  "query": "ObDtlBasicChannel ObDtlFlowControl ObPxTransmitOp DTL_BLOCKING_TIME",
+  "ms": 16613.376268,
+  "chars": 25241,
+  "containsMetric": true,
+  "rawSHA": "7c13c8bcb81c85967c60f5969c6cf8f0797a1fb043daa2947250e7d96ac6abf3",
+  "normalizedWorktreeWarningSHA": "83a7bb24d7d2fe77df3d8670aef371c650a57d535efba591044c0e7ad8a64919",
+  "sameExceptWorktreeWarning": true
+}

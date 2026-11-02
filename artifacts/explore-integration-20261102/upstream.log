@@ -1,0 +1,13 @@
+[33mThe CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.[39m
+
+ RUN  v2.1.9 /workspace/scratch/25a5ec0f2727/explore-improvements
+
+ ✓ __tests__/upstream-v162/explore-unindexed-names.test.ts (8 tests) 1427ms
+   ✓ #2462 — explore says which named symbols are not in the index > names the missing symbols above the unrelated matches, success-shaped 319ms
+   ✓ #2462 — explore says which named symbols are not in the index > goes away once the folder is re-included and synced 535ms
+
+ Test Files  1 passed (1)
+      Tests  8 passed (8)
+   Start at  23:29:55
+   Duration  5.02s (transform 2.56s, setup 0ms, collect 3.36s, tests 1.43s, environment 0ms, prepare 61ms)
+

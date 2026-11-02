@@ -1,0 +1,32 @@
+[33mThe CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.[39m
+
+ RUN  v2.1.9 /workspace/scratch/25a5ec0f2727/explore-improvements
+
+ ✓ __tests__/explore-cpp-signature-evidence.test.ts (15 tests) 956ms
+   ✓ Explore change-surface admission with stored C++ relation contracts > rescues source-verified signature type files while leaving stored body references intact 550ms
+   ✓ Signature evidence from actual native C++ extraction > recovers an explicitly global signature dependency from real body references without rescuing a same-name type 358ms
+ ✓ __tests__/explore-cpp-target-identity.test.ts (13 tests) 5051ms
+   ✓ Explore C/C++ logical target identity > uses proven pairs without merging overloads or removing declarations 485ms
+   ✓ Explore C/C++ logical target identity > keeps all identities when the query explicitly requests the declaration file 332ms
+   ✓ Explore C/C++ logical target identity > checks all definitions, including alternatives outside the gathered nodes 338ms
+   ✓ Explore C/C++ logical target identity > does not equate cv/ref overloads from parameter identity alone 332ms
+   ✓ Explore C/C++ logical target identity > uses C bridges but leaves unrelated languages unchanged 429ms
+   ✓ Explore C/C++ logical target identity > requires a trusted bridge and does not infer pairing from a shared name 464ms
+   ✓ Explore C/C++ logical target identity > uses a topology-only view without mutating original nodes or source coordinates 382ms
+   ✓ Explore consumes C++ identity through ranking and explicit targets > keeps an oversize caller focused on its real call to a paired declaration 633ms
+   ✓ Explore consumes C++ identity through ranking and explicit targets > tiers the implementation and covers qualified overloads while retaining graph evidence 367ms
+   ✓ Explore consumes C++ identity through ranking and explicit targets > honors explicit header intent worker.hpp 332ms
+   ✓ Explore consumes C++ identity through ranking and explicit targets > honors explicit header intent worker.hpp:4 339ms
+   ✓ Explore consumes C++ identity through ranking and explicit targets > honors explicit header intent worker.hpp:4-5 322ms
+ ✓ __tests__/explore-budget-selection-p3.test.ts (16 tests) 33ms
+ ✓ __tests__/upstream-native-integration.test.ts (4 tests) 2225ms
+   ✓ official Explore hosted on the native graph > retains C++ declarations, definitions, macros and defines edges without rewriting the graph 755ms
+   ✓ official Explore hosted on the native graph > provides segment recall on a read-only legacy index without changing persistent schema or bytes 376ms
+   ✓ official Explore hosted on the native graph > refreshes the TEMP vocabulary after native index changes 726ms
+   ✓ official Explore hosted on the native graph > routes natural-language queries and keeps session emission metadata off the wire 367ms
+
+ Test Files  4 passed (4)
+      Tests  48 passed (48)
+   Start at  23:29:30
+   Duration  12.27s (transform 2.02s, setup 0ms, collect 3.22s, tests 8.26s, environment 1ms, prepare 238ms)
+
