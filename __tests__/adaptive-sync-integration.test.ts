@@ -98,7 +98,7 @@ async function prepareRebuild(writer = graph, functionName = 'replacement_symbol
     runtimeKey: adaptiveRuntimeKey(root, writer.getBackend()),
   });
   const sample: AdaptiveCostSample = {
-    kind: 'incremental', runtimeKey: plan.runtimeKey, configFingerprint: plan.snapshot.configFingerprint,
+    kind: 'incremental', runtimeKey: plan.runtimeKey, configFingerprint: plan.snapshot.configFingerprint, semanticConfigFingerprint: plan.snapshot.semanticConfigFingerprint,
     totalFiles: plan.totalFiles, totalBytes: plan.totalBytes, totalNodes: plan.totalNodes,
     durationMs: 100_000, changedFiles: plan.changedFiles, affectedOldNodes: plan.affectedOldNodes,
     changedBytes: plan.changedBytes, addedFiles: plan.added.length, modifiedFiles: plan.modified.length,
@@ -132,7 +132,7 @@ describe('adaptive sync real child lifecycle', () => {
   it('rescans normally after the negative-gate diagnostic callback changes source and ignores', async () => {
     const baseline = await createAdaptivePlan(root, graph.getFiles(), { runtimeKey: adaptiveRuntimeKey(root, graph.getBackend()) });
     const sample: AdaptiveCostSample = { kind: 'incremental', runtimeKey: baseline.runtimeKey,
-      configFingerprint: baseline.snapshot.configFingerprint, totalFiles: baseline.totalFiles,
+      configFingerprint: baseline.snapshot.configFingerprint, semanticConfigFingerprint: baseline.snapshot.semanticConfigFingerprint, totalFiles: baseline.totalFiles,
       totalBytes: baseline.totalBytes, totalNodes: baseline.totalNodes, durationMs: 100_000,
       changedFiles: 100, affectedOldNodes: 100, changedBytes: 1000,
       addedFiles: 0, modifiedFiles: 100, removedFiles: 0, shape: 'modified-only', recordedAt: Date.now() };

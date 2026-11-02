@@ -6,6 +6,8 @@ import { Worker } from 'node:worker_threads';
 const { DatabaseConnection } = require('../dist/db');
 const { QueryBuilder } = require('../dist/db/queries');
 const { ExtractionOrchestrator } = require('../dist/extraction');
+const { SEMANTIC_CONFIG_KEY, semanticConfigFingerprint } = require('../dist/sync/index-policy');
+const { EXTRACTION_VERSION } = require('../dist/extraction/extraction-version');
 const { adaptiveConfigFingerprint, adaptiveRuntimeKey } = require('../dist/sync/adaptive-plan');
 const { installSourceOwnership, beginSourceWrite, finishSourceWrite } = require('../dist/sync/source-ownership');
 const roots: string[] = [];
@@ -27,6 +29,8 @@ async function fixture() {
   const orchestrator = new ExtractionOrchestrator(root, queries);
   await orchestrator.indexFile('sample.ts');
   queries.setMetadata('adaptive:index-config-v1', adaptiveConfigFingerprint(root, queries.getAllFiles()));
+  queries.setMetadata(SEMANTIC_CONFIG_KEY, semanticConfigFingerprint(root, queries.getAllFiles()));
+  queries.setMetadata('indexed_with_extraction_version', String(EXTRACTION_VERSION));
   expect(finishSourceWrite(connection.getDb(), write, true)).toBe(true);
   return { root, file, dbPath, connection, queries, orchestrator };
 }
@@ -82,6 +86,7 @@ describe('portable catch-up primitives', () => {
     const common = {
       runtimeKey: adaptiveRuntimeKey(f.root, 'node-sqlite'),
       configFingerprint: adaptiveConfigFingerprint(f.root, files),
+      semanticConfigFingerprint: semanticConfigFingerprint(f.root, files),
       totalFiles: 1, totalBytes: files[0].size, totalNodes: files[0].nodeCount,
       changedFiles: 1, affectedOldNodes: files[0].nodeCount, changedBytes: files[0].size,
       addedFiles: 0, modifiedFiles: 1, removedFiles: 0, shape: 'modified-only', recordedAt: Date.now(),

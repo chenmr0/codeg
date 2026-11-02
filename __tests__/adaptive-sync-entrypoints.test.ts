@@ -46,7 +46,7 @@ async function prepareSyntheticRebuild(): Promise<void> {
   fs.writeFileSync(path.join(root, 'main.cpp'), 'int entry_rebuilt_symbol() { return 222; }\n');
   const plan = await createAdaptivePlan(root, graph.getFiles(), { runtimeKey: adaptiveRuntimeKey(root, graph.getBackend()) });
   const sample: AdaptiveCostSample = { kind: 'incremental', runtimeKey: plan.runtimeKey,
-    configFingerprint: plan.snapshot.configFingerprint, totalFiles: plan.totalFiles, totalBytes: plan.totalBytes,
+    configFingerprint: plan.snapshot.configFingerprint, semanticConfigFingerprint: plan.snapshot.semanticConfigFingerprint, totalFiles: plan.totalFiles, totalBytes: plan.totalBytes,
     totalNodes: plan.totalNodes, durationMs: 100_000, changedFiles: plan.changedFiles,
     affectedOldNodes: plan.affectedOldNodes, changedBytes: plan.changedBytes,
     addedFiles: plan.added.length, modifiedFiles: plan.modified.length, removedFiles: plan.removed.length,

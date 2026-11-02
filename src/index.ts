@@ -63,6 +63,7 @@ import { PortableCoordinator, type PortableLease } from './sync/portable/protoco
 import { createPortableFacade, type PortableReadPin } from './sync/portable/facade';
 import { initializeIdentity, metadata as portableMetadata, setMetadata as setPortableMetadata, CATCHUP, COST_HISTORY, recordCost } from './sync/portable/metadata';
 import { FileWatcher, WatchOptions, PendingFile, LockUnavailableError } from './sync';
+import { SEMANTIC_CONFIG_KEY, SEMANTIC_REINDEX_PENDING, semanticConfigFingerprint, requiresSemanticReindex } from './sync/index-policy';
 import { EXTRACTION_VERSION } from './extraction/extraction-version';
 import { recoverAppendDeltas } from './extraction/append-delta';
 import { getLanguageScopeKey, withLanguageScope } from './extraction/language-scope';
@@ -740,8 +741,19 @@ export class CodeGraph {
         // Persist intent before any full-index write: a crash must not make old
         // build stamps eligible for legacy compatibility again.
         this.beginFullSynthesisVerification();
-        const scopeChanged = this.needsLanguageScopeRebuild();
+        const scopeChanged = this.needsLanguageScopeReconciliation();
         const extractionChanged = this.isIndexStale();
+        const policyFiles = this.queries.getAllFiles();
+        const semanticBefore = semanticConfigFingerprint(this.projectRoot, policyFiles);
+        const semanticChanged = requiresSemanticReindex(this.queries.getMetadata(SEMANTIC_CONFIG_KEY),
+          semanticBefore, this.queries.getMetadata('adaptive:index-config-v1'),
+          adaptiveConfigFingerprint(this.projectRoot, policyFiles), extractionChanged,
+          this.queries.getMetadata(SEMANTIC_REINDEX_PENDING) !== null);
+        if (semanticChanged) {
+          this.queries.setMetadata(SEMANTIC_REINDEX_PENDING, semanticBefore);
+          this.orchestrator.resetLanguageScopeCaches();
+          this.resolver.resetProjectConfiguration();
+        }
         await this.queries.invalidateCppMacroCalls();
         if (scopeChanged) {
           // Persist before changing graph data. An interrupted transition must
@@ -824,7 +836,7 @@ export class CodeGraph {
                     useWorker: this.db.getBackend() === 'node-sqlite',
                   }
                 : null,
-              { force: scopeChanged || extractionChanged, reconcile: scopeChanged || extractionChanged },
+              { force: scopeChanged || extractionChanged || semanticChanged, reconcile: scopeChanged || extractionChanged || semanticChanged },
             );
           } finally {
             try {
@@ -853,7 +865,7 @@ export class CodeGraph {
           }
 
           await this.queries.invalidateCppMacroCalls();
-          const needsResolution = result.filesIndexed > 0 || scopeChanged ||
+          const needsResolution = result.filesIndexed > 0 || scopeChanged || semanticChanged ||
             this.queries.getUnresolvedReferencesCount() > 0 || this.needsSynthesisRetry() ||
             this.queries.getMetadata(SYNTHESIS_COMPLETED_VERSION) !== SYNTHESIS_VERSION;
 
@@ -947,6 +959,11 @@ export class CodeGraph {
           if (!needsResolution) {
             result.errors.push(...this.getIndexCompleteness().diagnostics);
           }
+          if (semanticConfigFingerprint(this.projectRoot, policyFiles) !== semanticBefore) {
+            this.queries.setMetadata(SEMANTIC_REINDEX_PENDING, semanticBefore);
+            result.errors.push({ severity: 'error', code: 'index_configuration_changed',
+              message: 'Semantic configuration changed during indexing; retry to reconcile the new policy.' });
+          }
           const hasIncompleteGlobalError = result.errors.some(
             (diagnostic) => diagnostic.severity === 'error' && !diagnostic.filePath &&
               !isSynthesisDiagnostic(diagnostic)
@@ -983,7 +1000,7 @@ export class CodeGraph {
               indexed_language_scope: getLanguageScopeKey(),
               language_scope_pending: null,
             };
-            if (scopeChanged || extractionChanged) {
+            if (scopeChanged || extractionChanged || semanticChanged) {
               // These proofs describe the previous extraction policy. A full
               // rebuild has resolved every retained file, so retire its retry
               // journal and conservatively rebuild proofs on the next edit.
@@ -1011,6 +1028,10 @@ export class CodeGraph {
 
           if (ownership !== null && result.success === true && result.complete === true) {
             this.queries.setMetadata('adaptive:index-config-v1', adaptiveConfigFingerprint(this.projectRoot, this.queries.getAllFiles()));
+            this.queries.applyMetadataChanges({
+              [SEMANTIC_CONFIG_KEY]: semanticConfigFingerprint(this.projectRoot, this.queries.getAllFiles()),
+              [SEMANTIC_REINDEX_PENDING]: null,
+            });
           }
           finishSourceWrite(this.db.getDb(), ownership, result.success === true && result.complete === true);
           if ((!this.shadowCandidate || this.portableBound) && result.success && result.complete) {
@@ -1072,7 +1093,7 @@ export class CodeGraph {
   }
 
   private async indexFilesLocked(filePaths: string[]): Promise<IndexResult> {
-        if (this.needsLanguageScopeRebuild()) return this.indexAllLocked({}, true);
+        if (this.needsLanguageScopeReconciliation()) return this.indexAllLocked({}, true);
         const ownership = this.db.getBackend() === 'node-sqlite' ? beginSourceWrite(this.db.getDb()) : null;
         const result = await this.orchestrator.indexFiles(filePaths);
         if (result.success && this.queries.getMetadata('indexed_language_scope') !== getLanguageScopeKey()) {
@@ -1194,6 +1215,7 @@ export class CodeGraph {
       const after = this.queries.getAllFiles();
       const sample = adaptiveSampleFromFiles({ kind, before, after, durationMs, changedFilePaths,
         runtimeKey: adaptiveRuntimeKey(this.projectRoot, this.db.getBackend()),
+        semanticConfigFingerprint: semanticConfigFingerprint(this.projectRoot, after),
         configFingerprint: adaptiveConfigFingerprint(this.projectRoot, [...before, ...after]) });
       if (this.portableBound) recordCost(this.db.getDb(), sample);
       else recordAdaptiveSample(this.projectRoot, sample, true);
@@ -1242,7 +1264,7 @@ export class CodeGraph {
         initiallyOwned = isSourceOwned(this.db.getDb());
         const evaluation = await runAdaptiveReadWorker<{ plan?: AdaptivePlan; decision: AdaptiveDecision }>({
           type: 'evaluate', root: this.projectRoot, databasePath: this.db.getPath(), paths: options.paths,
-          eligibility: { configurationChanged: this.needsLanguageScopeRebuild(), upgradeRequired: this.isIndexStale(), fallback: options.adaptiveFallback },
+          eligibility: { configurationChanged: this.needsLanguageScopeReconciliation(), upgradeRequired: this.isIndexStale(), fallback: options.adaptiveFallback },
         }, { signal: abort.signal });
         plan = evaluation.plan; decision = evaluation.decision;
       }
@@ -1303,7 +1325,7 @@ export class CodeGraph {
     }
   }
 
-  private needsLanguageScopeRebuild(): boolean {
+  private needsLanguageScopeReconciliation(): boolean {
     // Pre-policy indexes contain all languages. Preserve their old behavior
     // under the escape hatch, but reconcile them once under the new default.
     const indexed = this.queries.getMetadata('indexed_language_scope') ??
@@ -1311,36 +1333,6 @@ export class CodeGraph {
     return !!this.queries.getMetadata('language_scope_pending') || indexed !== getLanguageScopeKey();
   }
 
-  private async rebuildLanguageScopeForSync(options: SyncOptions): Promise<SyncResult> {
-    const before = new Set(this.queries.getAllFiles().map(file => file.path));
-    if (options.verbose) console.log(`[sync] Language scope changed to ${getLanguageScopeKey()}; rebuilding the index`);
-    const index = await this.indexAllLocked(options, true);
-    const after = this.queries.getAllFiles();
-    const afterPaths = new Set(after.map(file => file.path));
-    const failed = new Set(index.errors.filter(error => error.filePath &&
-      (error.severity === 'error' || isDeclarationMacroRecoverySkipped(error))).map(error => error.filePath!));
-    const result: SyncResult = {
-      complete: index.complete,
-      filesChecked: new Set([...before, ...afterPaths]).size,
-      filesAdded: after.filter(file => !before.has(file.path)).length,
-      filesModified: after.filter(file => before.has(file.path) && !failed.has(file.path)).length,
-      filesRemoved: [...before].filter(file => !afterPaths.has(file)).length,
-      filesErrored: index.filesErrored,
-      nodesUpdated: after.reduce((count, file) => count + file.nodeCount, 0),
-      durationMs: index.durationMs,
-      errors: index.errors,
-      failedFilePaths: [...failed],
-      changedFilePaths: after.filter(file => !failed.has(file.path)).map(file => file.path),
-    };
-    const synthesisOnlyIncomplete = index.filesErrored === 0 &&
-      index.errors.some(isSynthesisDiagnostic) && !index.errors.some(diagnostic =>
-        !isSynthesisDiagnostic(diagnostic) &&
-        (diagnostic.severity === 'error' || isDeclarationMacroRecoverySkipped(diagnostic)));
-    if (!index.success || (!index.complete && !synthesisOnlyIncomplete)) {
-      throw new SyncIncompleteError(result);
-    }
-    return result;
-  }
 
   /**
    * Sync with current file state (incremental update)
@@ -1354,6 +1346,7 @@ export class CodeGraph {
 
   private async syncInternal(options: SyncOptions, inheritedLock = false): Promise<SyncResult> {
     if (this.closed) throw new Error('CodeGraph is closed');
+    options.signal?.throwIfAborted();
     const syncStartedAt = performance.now();
     let acquiredWriteLock = false;
     const result = await withLanguageScope(() => this.indexMutex.withLock(() => this.trackDataReadiness(async () => {
@@ -1377,21 +1370,33 @@ export class CodeGraph {
         if (rebuilt) { this.fileLock.release(); return rebuilt; }
         if (this.db.getBackend() === 'node-sqlite' && isSourceOwned(this.db.getDb())) adaptiveBefore = this.queries.getAllFiles();
       } catch (error) { this.fileLock.release(); throw error; }
-      let scopeChanged: boolean;
-      try {
-        scopeChanged = this.needsLanguageScopeRebuild();
-      } catch (error) {
-        this.fileLock.release();
-        throw error;
+      const policyFiles = this.queries.getAllFiles();
+      const scopeChanged = this.needsLanguageScopeReconciliation();
+      const extractionChanged = this.isIndexStale();
+      const configBefore = adaptiveConfigFingerprint(this.projectRoot, policyFiles);
+      const semanticBefore = semanticConfigFingerprint(this.projectRoot, policyFiles);
+      const configChanged = this.queries.getMetadata('adaptive:index-config-v1') !== configBefore;
+      const reextract = requiresSemanticReindex(this.queries.getMetadata(SEMANTIC_CONFIG_KEY), semanticBefore,
+        this.queries.getMetadata('adaptive:index-config-v1'), configBefore, extractionChanged,
+        this.queries.getMetadata(SEMANTIC_REINDEX_PENDING) !== null);
+      const ownership = this.db.getBackend() === 'node-sqlite' ? beginSourceWrite(this.db.getDb()) : null;
+      // Configuration invalidation describes required work, not the storage strategy.
+      // Inventory controls reconcile additions/removals; semantic inputs and extractor
+      // upgrades replace unchanged files through the ordinary incremental writer.
+      if (scopeChanged || configChanged || reextract) {
+        options = { ...options, paths: undefined,
+          forceReindexPaths: reextract ? [...new Set([
+            ...(options.forceReindexPaths ?? []), ...policyFiles.map(file => file.path),
+          ])] : options.forceReindexPaths };
+        this.orchestrator.resetLanguageScopeCaches();
+        this.resolver.resetProjectConfiguration();
       }
       if (scopeChanged) {
-        try {
-          return await this.rebuildLanguageScopeForSync(options);
-        } finally {
-          this.fileLock.release();
-        }
+        // A failed transition must be retried even if the user switches back.
+        this.queries.setMetadata('language_scope_pending', getLanguageScopeKey());
       }
-      const ownership = this.db.getBackend() === 'node-sqlite' ? beginSourceWrite(this.db.getDb()) : null;
+      if (reextract) this.queries.setMetadata(SEMANTIC_REINDEX_PENDING, semanticBefore);
+      if (scopeChanged || reextract) this.beginSynthesis();
       // Sync updates the same FTS and secondary-index pages as a full index.
       // On a large existing database, SQLite's default 1000-page automatic
       // checkpoint cadence can therefore repeatedly rewrite hot pages even
@@ -1469,6 +1474,7 @@ export class CodeGraph {
           console.log(`[sync] preflight-detail macroEvidenceMs=${Math.round(macroEvidenceMs)}ms ` +
             `totalMs=${Math.round(performance.now() - preflightStarted)}ms`);
         }
+        options.signal?.throwIfAborted();
         const result = await this.orchestrator.sync(
           options.onProgress,
           options.paths,
@@ -1784,7 +1790,7 @@ export class CodeGraph {
         // a no-change sync. A healthy sync pays for only this COUNT query.
         const orphanCount = this.queries.getUnresolvedReferencesCount();
         const retrySynthesis = this.needsSynthesisRetry();
-        const fullResolution = orphanCount > 0 || retrySynthesis;
+        const fullResolution = orphanCount > 0 || retrySynthesis || scopeChanged || reextract;
         let scopedSynthesisStarted = false;
         if (fullResolution) {
           options.onProgress?.({
@@ -1884,6 +1890,27 @@ export class CodeGraph {
         // but must not make a completed legacy incremental sync report failure.
         // Failed extraction has thrown above; failed synthesis retains its marker.
         if (!this.needsSynthesisRetry()) retryState.complete();
+        options.signal?.throwIfAborted();
+        // Do not acknowledge a moving configuration: old policy metadata remains
+        // durable retry evidence, including on an interrupted extractor upgrade.
+        if (adaptiveConfigFingerprint(this.projectRoot, policyFiles) !== configBefore ||
+            semanticConfigFingerprint(this.projectRoot, policyFiles) !== semanticBefore) {
+          this.beginSynthesis();
+          throw new Error('Index configuration changed during sync; retry to reconcile the new policy');
+        }
+        if ((scopeChanged || reextract) && synthesisDiagnostics.length === 0 && !this.needsSynthesisRetry()) {
+          // Older indexAll records cancellation as an untyped global 'Aborted'
+          // diagnostic. A successful complete inventory reconciliation plus full
+          // synthesis has now retried that work; preserve all unrelated failures.
+          const diagnostics = this.getIndexCompleteness().diagnostics.filter(diagnostic =>
+            !(scopeChanged && diagnostic.code === undefined && !diagnostic.filePath && diagnostic.message === 'Aborted') &&
+            !(reextract && diagnostic.code === 'index_configuration_changed'));
+          this.queries.setMetadata('index_diagnostics', JSON.stringify(diagnostics));
+        }
+        if ((scopeChanged || reextract) && synthesisDiagnostics.length === 0 && !this.needsSynthesisRetry() &&
+            this.getIndexCompleteness().diagnostics.length === 0) {
+          this.queries.setMetadata('index_completeness', 'complete');
+        }
         const completeness = this.getIndexCompleteness();
         if (completeness.status === 'incomplete') {
           result.complete = false;
@@ -1894,12 +1921,21 @@ export class CodeGraph {
             }
           }
         }
-        if (this.queries.getMetadata('indexed_language_scope') !== getLanguageScopeKey()) {
-          this.queries.setMetadata('indexed_language_scope', getLanguageScopeKey());
+        if (result.complete === true) {
+          this.queries.applyMetadataChanges({
+            indexed_language_scope: getLanguageScopeKey(),
+            language_scope_pending: null,
+            indexed_with_version: CodeGraphPackageVersion,
+            indexed_with_extraction_version: String(EXTRACTION_VERSION),
+            [SEMANTIC_CONFIG_KEY]: semanticBefore,
+            [SEMANTIC_REINDEX_PENDING]: null,
+            'adaptive:index-config-v1': adaptiveConfigFingerprint(this.projectRoot, this.queries.getAllFiles()),
+          });
         }
         tailMark('finalizeMs');
         finishSourceWrite(this.db.getDb(), ownership, result.complete === true);
-        if (result.complete === true && (result.filesAdded + result.filesModified + result.filesRemoved) > 0) {
+        // Content-only observations must not learn the cost of policy-driven same-hash re-extraction.
+        if (result.complete === true && !reextract && (result.filesAdded + result.filesModified + result.filesRemoved) > 0) {
           this.recordCostSample('incremental', adaptiveBefore, performance.now() - syncStartedAt, result.changedFilePaths);
         }
         return result;
@@ -2465,7 +2501,7 @@ export class CodeGraph {
 
   /** Existing pending/failed work is never a legacy compatibility exemption. */
   private hasSynthesisRecoveryEvidence(): boolean {
-    return [SYNTHESIS_PENDING, 'index_conformance_pending', 'language_scope_pending',
+    return [SYNTHESIS_PENDING, SEMANTIC_REINDEX_PENDING, 'index_conformance_pending', 'language_scope_pending',
       SYNC_FAILURE_BASELINE].some(key => this.queries.getMetadata(key) !== null) ||
       ['sync-retry:pending:', REWIRE_RECOVERY_PREFIX, 'sync-append-delta:pending:', 'resolution-deferred:']
         .some(prefix => this.queries.getMetadataByPrefix(prefix).length > 0) ||

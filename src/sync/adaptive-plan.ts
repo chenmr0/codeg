@@ -14,6 +14,7 @@ import { rustScanBinaryPath, automaticRustScanStatus } from '../extraction/rust-
 import { rustMacroBinaryPath, automaticRustMacroStatus } from '../extraction/rust-macros';
 import { getCodeGraphDir } from '../directory';
 import type { FileRecord } from '../types';
+import { semanticConfigFingerprint } from './index-policy';
 
 const HISTORY_VERSION = 1;
 const MAX_SAMPLES = 24; // Per runtime/configuration bucket.
@@ -27,6 +28,8 @@ export interface AdaptiveInventoryEntry {
 export interface AdaptiveSnapshot {
   files: AdaptiveInventoryEntry[];
   configFingerprint: string;
+  /** Separate from the legacy cost bucket to avoid cold upgrades invalidating every source. */
+  semanticConfigFingerprint?: string;
   contentFingerprint: string;
   /** Retain former source ancestors when checking removals. */
   configSourcePaths: string[];
@@ -42,6 +45,7 @@ export interface AdaptivePlan {
 export interface AdaptiveCostSample {
   kind: 'full' | 'incremental';
   runtimeKey: string; configFingerprint: string;
+  semanticConfigFingerprint?: string;
   totalFiles: number; totalBytes: number; totalNodes: number;
   durationMs: number;
   changedFiles: number; affectedOldNodes: number; changedBytes: number;
@@ -189,6 +193,29 @@ function shape(added: number, modified: number, removed: number): AdaptiveShape 
   return 'mixed';
 }
 
+/** Count policy-required extraction even when source hashes are unchanged.
+ * Preserve the source snapshot: policy work does not pretend that file contents
+ * changed, and publication still validates their actual bytes and controls. */
+export function includeAdaptiveReindexWork(plan: AdaptivePlan, tracked: ReadonlyArray<FileRecord>,
+  paths: ReadonlyArray<string>): AdaptivePlan {
+  const old = new Map(tracked.map(file => [file.path, file]));
+  const visible = new Map(plan.snapshot.files.map(file => [file.path, file]));
+  const modified = new Set(plan.modified);
+  const excluded = new Set([...plan.added, ...plan.removed]);
+  let affectedOldNodes = plan.affectedOldNodes, changedBytes = plan.changedBytes;
+  for (const relative of paths) {
+    const prior = old.get(relative), current = visible.get(relative);
+    if (!prior || !current || excluded.has(relative) || modified.has(relative)) continue;
+    modified.add(relative);
+    affectedOldNodes += prior.nodeCount;
+    changedBytes += current.size;
+  }
+  const updated = [...modified].sort();
+  return { ...plan, modified: updated,
+    changedFiles: plan.added.length + updated.length + plan.removed.length,
+    affectedOldNodes, changedBytes, shape: shape(plan.added.length, updated.length, plan.removed.length) };
+}
+
 /** The ordinary plan uses the same size/mtime shortcut as sync. Publication rehashes all source. */
 export async function createAdaptivePlan(root: string, tracked: ReadonlyArray<FileRecord>,
   options: { runtimeKey: string; fullHash?: boolean; configSourcePaths?: string[] } ): Promise<AdaptivePlan> {
@@ -239,6 +266,7 @@ export async function createAdaptivePlan(root: string, tracked: ReadonlyArray<Fi
   const configSourcePaths = [...new Set([...tracked.map(file => file.path), ...files.map(file => file.path), ...(options.configSourcePaths ?? [])])].sort();
   const configFingerprint = adaptiveConfigFingerprint(root, configSourcePaths.map(path => ({ path })));
   const snapshot = { files, configFingerprint, configSourcePaths,
+    semanticConfigFingerprint: semanticConfigFingerprint(root, configSourcePaths.map(path => ({ path }))),
     contentFingerprint: digest([configFingerprint, files.map(file => [file.path, file.contentHash])]) };
   return { snapshot, added, modified, removed, changedFiles: added.length + modified.length + removed.length,
     affectedOldNodes, changedBytes, totalFiles: files.length, totalBytes: files.reduce((n, file) => n + file.size, 0),
@@ -251,7 +279,9 @@ export async function validateAdaptiveSnapshot(root: string, snapshot: AdaptiveS
   const tracked: FileRecord[] = snapshot.files.map(file => ({ path: file.path, contentHash: file.contentHash,
     size: file.size, modifiedAt: file.mtimeMs, indexedAt: 0, nodeCount: 0, language: 'unknown' }));
   const after = await createAdaptivePlan(root, tracked, { runtimeKey: '', fullHash: true, configSourcePaths: snapshot.configSourcePaths });
-  return after.snapshot.contentFingerprint === snapshot.contentFingerprint;
+  return after.snapshot.contentFingerprint === snapshot.contentFingerprint &&
+    (snapshot.semanticConfigFingerprint === undefined ||
+      after.snapshot.semanticConfigFingerprint === snapshot.semanticConfigFingerprint);
 }
 
 const finite = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value) && value >= 0;
@@ -259,7 +289,8 @@ function validSample(value: unknown): value is AdaptiveCostSample {
   if (!value || typeof value !== 'object') return false;
   const sample = value as AdaptiveCostSample;
   return ['full', 'incremental'].includes(sample.kind) && typeof sample.runtimeKey === 'string' &&
-    typeof sample.configFingerprint === 'string' && ['modified-only', 'added-only', 'removed-only', 'mixed'].includes(sample.shape) &&
+    typeof sample.configFingerprint === 'string' &&
+    (sample.semanticConfigFingerprint === undefined || typeof sample.semanticConfigFingerprint === 'string') && ['modified-only', 'added-only', 'removed-only', 'mixed'].includes(sample.shape) &&
     [sample.totalFiles, sample.totalBytes, sample.totalNodes, sample.durationMs, sample.changedFiles,
       sample.affectedOldNodes, sample.changedBytes, sample.addedFiles, sample.modifiedFiles, sample.removedFiles, sample.recordedAt].every(finite) && sample.durationMs > 0;
 }
@@ -389,22 +420,16 @@ export function chooseAdaptiveStrategy(plan: AdaptivePlan, history: AdaptiveCost
   if (eligibility.blockedReason) return incremental(eligibility.blockedReason);
   const rebuild = (reason: string): AdaptiveDecision => ({ strategy: 'rebuild', reason });
   if (!plan.totalFiles || !plan.totalBytes) return incremental('empty-target');
-  const valid = history.samples.filter(validSample);
-  const matchingRuntime = valid.filter(sample => sample.runtimeKey === plan.runtimeKey);
-  const currentFull = matchingRuntime.some(sample => sample.kind === 'full' && sample.configFingerprint === plan.snapshot.configFingerprint);
-  const configurationChanged = eligibility.configurationChanged ||
-    (eligibility.configFingerprint !== undefined && eligibility.configFingerprint !== plan.snapshot.configFingerprint) ||
-    (!currentFull && matchingRuntime.some(sample => sample.kind === 'full' && sample.configFingerprint !== plan.snapshot.configFingerprint));
-  // Policy/version changes are meaningful even when source hashes are equal.
-  // The caller must persist the published policy identity to make this one-shot.
-  if (eligibility.upgradeRequired) return rebuild('index-upgrade-required');
-  if (configurationChanged) return rebuild('configuration-changed');
+  // Policy/version differences determine required work upstream, not the storage
+  // strategy. The plan must include unchanged files requiring re-extraction.
+  // Foreign runtime/configuration observations are simply unusable calibration:
+  // without applicable history the same structural fallback applies.
   if (plan.changedFiles === 0) return incremental('no-content-changes');
-  if (!matchingRuntime.length && valid.some(sample => sample.kind === 'full')) return rebuild('runtime-baseline-changed');
   const fallback = (): AdaptiveDecision | undefined => hasStructuralRebuildWork(plan, eligibility.fallback)
     ? rebuild('structural-large-change') : undefined;
   const samples = history.samples.filter(sample => validSample(sample) && sample.runtimeKey === plan.runtimeKey &&
-    sample.configFingerprint === plan.snapshot.configFingerprint);
+    sample.configFingerprint === plan.snapshot.configFingerprint &&
+    (plan.snapshot.semanticConfigFingerprint === undefined || sample.semanticConfigFingerprint === plan.snapshot.semanticConfigFingerprint));
   const within = (value: number, reference: number): boolean => reference > 0 && value >= reference * 0.8 && value <= reference * 1.2;
   const full = samples.filter(sample => sample.kind === 'full' && within(plan.totalBytes, sample.totalBytes) && within(plan.totalFiles, sample.totalFiles));
   // A branch switch can mix adds/removes/modifications. Only compare with
@@ -443,6 +468,7 @@ export function chooseAdaptiveStrategy(plan: AdaptivePlan, history: AdaptiveCost
 /** Build an observation from ordinary operations without an extra source scan. */
 export function adaptiveSampleFromFiles(input: {
   kind: 'full' | 'incremental'; runtimeKey: string; configFingerprint: string;
+  semanticConfigFingerprint?: string;
   before: ReadonlyArray<FileRecord>; after: ReadonlyArray<FileRecord>;
   /** Accepted for callers' convenience; reindexed unchanged importers are NOT primary work units. */
   changedFilePaths?: ReadonlyArray<string>; durationMs: number;
@@ -459,6 +485,7 @@ export function adaptiveSampleFromFiles(input: {
   }
   for (const file of input.before) if (!after.has(file.path)) { removed++; affectedOldNodes += file.nodeCount; }
   return { kind: input.kind, runtimeKey: input.runtimeKey, configFingerprint: input.configFingerprint,
+    ...(input.semanticConfigFingerprint === undefined ? {} : { semanticConfigFingerprint: input.semanticConfigFingerprint }),
     totalFiles: input.after.length, totalBytes: input.after.reduce((n, file) => n + file.size, 0),
     totalNodes: input.before.reduce((n, file) => n + file.nodeCount, 0), durationMs: input.durationMs,
     changedFiles: added + modified + removed, affectedOldNodes, changedBytes,

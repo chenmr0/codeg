@@ -57,7 +57,7 @@ function databaseIdentity(databasePath: string): string {
 async function artificialRebuildHistory(root: string, graph: Graph): Promise<void> {
   const plan = await createAdaptivePlan(root, graph.getFiles(), { runtimeKey: adaptiveRuntimeKey(root, graph.getBackend()) });
   const sample: AdaptiveCostSample = {
-    kind: 'incremental', runtimeKey: plan.runtimeKey, configFingerprint: plan.snapshot.configFingerprint,
+    kind: 'incremental', runtimeKey: plan.runtimeKey, configFingerprint: plan.snapshot.configFingerprint, semanticConfigFingerprint: plan.snapshot.semanticConfigFingerprint,
     totalFiles: plan.totalFiles, totalBytes: plan.totalBytes, totalNodes: plan.totalNodes,
     durationMs: 100_000, changedFiles: plan.changedFiles, affectedOldNodes: plan.affectedOldNodes,
     changedBytes: plan.changedBytes, addedFiles: plan.added.length, modifiedFiles: plan.modified.length,

@@ -40,7 +40,6 @@ const asyncWrites = new Set([
   "resolveReferencesBatched",
 ]);
 const asyncReads = new Set(["getCode", "findRelevantContext", "buildContext"]);
-class CatchupRebuildRequired extends Error {}
 const facades = new Set<PortableFacade>();
 const pause = (ms: number) =>
   new Promise<void>((resolve) => setTimeout(resolve, ms));
@@ -389,12 +388,9 @@ class PortableFacade {
               throw new Error(
                 "Pending source reconciliation could not inspect the complete source inventory",
               );
-            if (evaluation.configurationChanged || graph.isIndexStale())
-              throw new CatchupRebuildRequired(
-                "Configuration changed during publication; rebuilding without dropping pending reconciliation",
-              );
             if (
               evaluation.plan.changedFiles === 0 &&
+              !evaluation.configurationChanged && !graph.isIndexStale() &&
               graph.getIndexCompleteness().status === "complete" &&
               !graph.hasPortableCatchupWork()
             ) {
@@ -426,31 +422,21 @@ class PortableFacade {
           }
         }, abort.signal);
       while (true) {
-        let forceRebuild = false;
         if (this.read((graph) => graph.getPortableCatchup())) {
-          try {
-            const reconciled = await catchup();
-            if (reconciled)
-              return {
-                ...reconciled,
-                adaptive:
-                  published?.adaptive ??
-                  (fallbackReason
-                    ? { strategy: "incremental", reason: fallbackReason }
-                    : reconciled.adaptive),
-                durationMs: performance.now() - started,
-              };
-          } catch (error) {
-            if (!(error instanceof CatchupRebuildRequired)) throw error;
-            forceRebuild = true;
-          }
+          const reconciled = await catchup();
+          if (reconciled)
+            return {
+              ...reconciled,
+              adaptive:
+                published?.adaptive ??
+                (fallbackReason
+                  ? { strategy: "incremental", reason: fallbackReason }
+                  : reconciled.adaptive),
+              durationMs: performance.now() - started,
+            };
         }
-        if (
-          forceRebuild ||
-          (!fallbackReason &&
-            options.adaptive !== false &&
-            process.env.CODEGRAPH_ADAPTIVE_SYNC !== "0")
-        ) {
+        if (!fallbackReason && options.adaptive !== false &&
+            process.env.CODEGRAPH_ADAPTIVE_SYNC !== "0") {
           const evaluation = await this.readAsync((graph) =>
             runAdaptiveReadWorker<{
               plan?: AdaptivePlan;
@@ -464,7 +450,6 @@ class PortableFacade {
                 paths: options.paths,
                 eligibility: {
                   upgradeRequired: graph.isIndexStale(),
-                  configurationChanged: forceRebuild,
                   fallback: options.adaptiveFallback,
                 },
               } as any,
@@ -503,7 +488,6 @@ class PortableFacade {
                   graph.setPortableCatchup(randomUUID());
               }, abort.signal);
               fallbackReason = `rebuild-fallback: ${error instanceof Error ? error.message : String(error)}`;
-              if (forceRebuild) throw error;
             }
             // Cached idle readers observe the revision before any further query.
             this.retireIdle();

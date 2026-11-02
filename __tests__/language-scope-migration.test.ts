@@ -3,12 +3,15 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import CodeGraph, { SyncIncompleteError } from '../src/index';
+import { PortableCoordinator, type PortableLease } from '../src/sync/portable/protocol';
+import { getCodeGraphDir } from '../src/directory';
 import type { QueryBuilder } from '../src/db/queries';
 import { DECLARATION_MACRO_RECOVERY_SKIPPED_CODE } from '../src/extraction/diagnostics';
 
 describe('language scope migration', () => {
   let directory: string;
   let cg: CodeGraph;
+  let leases: PortableLease[];
 
   const queries = (): QueryBuilder => (cg as any).queries;
   const files = () => queries().getAllFiles().map(file => file.path).sort();
@@ -21,7 +24,7 @@ describe('language scope migration', () => {
     };
   };
 
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.stubEnv('CODEGRAPH_ALL_LANGUAGES', undefined);
     directory = fs.mkdtempSync(path.join(os.tmpdir(), 'cg-language-scope-'));
     fs.writeFileSync(path.join(directory, 'api.h'), 'int calculate(int value);\n');
@@ -30,12 +33,17 @@ describe('language scope migration', () => {
     fs.writeFileSync(path.join(directory, 'script.lua'), 'function work() return 42 end\n');
     fs.writeFileSync(path.join(directory, 'widget.ts'), 'export function extra() { return 7; }\nexport function caller() { return extra(); }\n');
     cg = CodeGraph.initSync(directory);
+    cg.close(); await cg.whenIdle();
+    const coordinator = new PortableCoordinator(getCodeGraphDir(directory));
+    leases = [coordinator.acquireWriter(), coordinator.acquireReader()];
+    cg = CodeGraph.openPortableRaw(directory, coordinator.active, false);
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
     vi.unstubAllEnvs();
-    cg?.destroy();
+    cg?.close();
+    for (const lease of leases ?? []) lease.release();
     fs.rmSync(directory, { recursive: true, force: true });
   });
 
@@ -82,7 +90,7 @@ describe('language scope migration', () => {
     vi.stubEnv('CODEGRAPH_ALL_LANGUAGES', undefined);
     await cg.sync({ paths: ['api.c'] });
     expect(files()).toEqual(['api.c', 'api.h', 'script.lua']);
-    expect(fullIndex).toHaveBeenCalledOnce();
+    expect(fullIndex).not.toHaveBeenCalled();
     expect(queries().getMetadata('indexed_language_scope')).toBe('default-v1');
   });
 
@@ -100,8 +108,9 @@ describe('language scope migration', () => {
 
     vi.stubEnv('CODEGRAPH_ALL_LANGUAGES', undefined);
     const fullIndex = vi.spyOn((cg as any).orchestrator, 'indexAll');
-    await cg.sync({ paths: ['api.c'] });
-    expect(fullIndex).toHaveBeenCalledOnce();
+    const recovered = await cg.sync({ paths: ['api.c'] });
+    expect(recovered.complete, JSON.stringify(cg.getIndexCompleteness())).toBe(true);
+    expect(fullIndex).not.toHaveBeenCalled();
     expect(queries().getMetadata('language_scope_pending')).toBeNull();
     expect(graph()).toEqual(original);
   });
@@ -110,14 +119,14 @@ describe('language scope migration', () => {
     await cg.indexAll({ onProgress: () => { process.env.CODEGRAPH_ALL_LANGUAGES = '1'; } });
     expect(files()).not.toContain('widget.ts');
     expect(queries().getMetadata('indexed_language_scope')).toBe('default-v1');
-    const fullIndex = vi.spyOn((cg as any).orchestrator, 'indexAll').mockRejectedValueOnce(new Error('store failed'));
+    const incremental = vi.spyOn((cg as any).orchestrator, 'sync').mockRejectedValueOnce(new Error('store failed'));
     await expect(cg.sync({ paths: ['api.c'] })).rejects.toThrow('store failed');
     expect(queries().getMetadata('language_scope_pending')).toBe('all');
     expect(queries().getMetadata('index_completeness')).toBe('incomplete');
-    fullIndex.mockRestore();
+    incremental.mockRestore();
     const controller = new AbortController();
     controller.abort();
-    await expect(cg.sync({ signal: controller.signal })).rejects.toBeInstanceOf(SyncIncompleteError);
+    await expect(cg.sync({ signal: controller.signal })).rejects.toThrow(/abort/i);
     await cg.sync();
     expect(files()).toContain('widget.ts');
     expect(queries().getMetadata('language_scope_pending')).toBeNull();
@@ -154,8 +163,8 @@ describe('language scope migration', () => {
     await cg.indexAll();
     vi.stubEnv('CODEGRAPH_ALL_LANGUAGES', undefined);
     const orchestrator = (cg as any).orchestrator;
-    const original = orchestrator.indexAll.bind(orchestrator);
-    const fullIndex = vi.spyOn(orchestrator, 'indexAll').mockImplementationOnce(async (...args) => {
+    const original = orchestrator.sync.bind(orchestrator);
+    const incremental = vi.spyOn(orchestrator, 'sync').mockImplementationOnce(async (...args) => {
       const result = await original(...args);
       const diagnostic = {
         code: DECLARATION_MACRO_RECOVERY_SKIPPED_CODE,
@@ -165,14 +174,16 @@ describe('language scope migration', () => {
       };
       queries().upsertFile({ ...queries().getFileByPath('api.c')!, errors: [diagnostic] });
       result.errors.push(diagnostic);
+      result.complete = false;
+      result.failedFilePaths = ['api.c'];
       return result;
     });
     await expect(cg.sync()).rejects.toBeInstanceOf(SyncIncompleteError);
-    expect(queries().getMetadata('indexed_language_scope')).toBe('default-v1');
-    expect(queries().getMetadata('language_scope_pending')).toBeNull();
-    fullIndex.mockClear();
+    expect(queries().getMetadata('indexed_language_scope')).toBe('all');
+    expect(queries().getMetadata('language_scope_pending')).toBe('default-v1');
+    incremental.mockClear();
     const retried = await cg.sync();
-    expect(fullIndex).not.toHaveBeenCalled();
+    expect(incremental).toHaveBeenCalledOnce();
     expect(retried.filesModified).toBe(1);
     expect(queries().getFileByPath('api.c')!.errors ?? []).toEqual([]);
   });

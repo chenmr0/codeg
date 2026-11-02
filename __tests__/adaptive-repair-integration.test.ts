@@ -46,9 +46,10 @@ it.skipIf(!fs.existsSync(path.join(legacyDist, 'index.js')))('automatically upgr
     const [ready] = await once(legacyReader, 'message'); expect(ready.ready).toBe(true);
     const graph = CodeGraph.openSync(root); graphs.push(graph);
     const result = await graph.sync();
-    expect(result.adaptive?.strategy).toBe('rebuild'); expect(result.adaptive?.reason).toBe('index-upgrade-required');
+    expect(result.adaptive?.strategy).not.toBe('rebuild');
+    expect(graph.isIndexStale()).toBe(false);
     expect(graph.searchNodes('legacy_symbol').length).toBeGreaterThan(0);
-    expect(resolveGeneration(getCodeGraphDir(root)).id).not.toBeNull();
+    expect(graph.getDatabaseFilePath()).toBe(path.join(getCodeGraphDir(root), 'codegraph.db'));
     await collectRetiredGenerations(getCodeGraphDir(root));
     const answer = once(legacyReader, 'message'); legacyReader.send('query');
     const [read] = await answer; expect(read.count).toBeGreaterThan(0);
@@ -63,21 +64,25 @@ it('first large scoped change uses automatic rebuilding with no incremental obse
   expect(result.adaptive?.strategy).toBe('rebuild'); expect(result.adaptive?.reason).toBe('structural-large-change');
   expect(graph.searchNodes('replaced_129').length).toBeGreaterThan(0);
 }, 60_000);
-it('configuration-only changes rebuild automatically and returning to a previous configuration also rebuilds', async () => {
+it('ignore configuration changes reconcile membership incrementally in both directions', async () => {
   const graph = await fresh();
   fs.writeFileSync(path.join(root, '.gitignore'), 'f1.c\n');
-  expect((await graph.sync()).adaptive?.reason).toBe('configuration-changed');
+  const decisions: string[] = [];
+  expect((await graph.sync({ onAdaptiveDecision: decision => decisions.push(decision.strategy) })).complete).toBe(true);
+  expect(decisions).not.toContain('rebuild');
   expect(graph.getFiles().map(file => file.path)).toEqual(['f0.c']);
   fs.unlinkSync(path.join(root, '.gitignore'));
-  expect((await graph.sync()).adaptive?.reason).toBe('configuration-changed');
+  decisions.length = 0;
+  expect((await graph.sync({ onAdaptiveDecision: decision => decisions.push(decision.strategy) })).complete).toBe(true);
+  expect(decisions).not.toContain('rebuild');
   expect(graph.getFiles()).toHaveLength(2);
 }, 60_000);
 it('legacy CURRENT retains a real retired SQLite generation until readers close, including a failed close retry', async () => {
-  const graph = await fresh(2, true);
-  fs.writeFileSync(path.join(root, '.gitignore'), '# configuration one\n'); await graph.sync();
+  const graph = await fresh(130, true);
   const oldLocation = resolveGeneration(getCodeGraphDir(root));
   const old = CodeGraph.openReadOnlySync(root); graphs.push(old);
-  fs.writeFileSync(path.join(root, '.gitignore'), '# configuration two\n'); await graph.sync();
+  change(130);
+  expect((await graph.sync()).adaptive?.reason).toBe('structural-large-change');
   graph.close();
   await collectRetiredGenerations(getCodeGraphDir(root)); expect(fs.existsSync(oldLocation.databasePath)).toBe(true);
   const db = (old as any).db;
@@ -104,9 +109,9 @@ it('real watcher scoped burst can trigger its own first background rebuild', asy
 }, 60_000);
 
 it('legacy CURRENT rejected off-thread validation cleans the failed candidate only after workers exit and keeps old queries', async () => {
-  const graph = await fresh(2, true);
+  const graph = await fresh(130, true);
   const initial = resolveGeneration(getCodeGraphDir(root));
-  fs.writeFileSync(path.join(root, '.gitignore'), '# trigger configuration rebuild\n');
+  change(130);
   const controller = require('../dist/sync/rebuild-controller') as typeof import('../src/sync/rebuild-controller');
   const run = controller.runAdaptiveReadWorker;
   vi.spyOn(controller, 'runAdaptiveReadWorker').mockImplementation(async (job, options) => {

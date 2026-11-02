@@ -7,7 +7,7 @@ import { hashContent } from '../src/extraction';
 import { getCodeGraphDir } from '../src/directory';
 import type { FileRecord } from '../src/types';
 import { adaptiveConfigFingerprint, adaptiveRuntimeKey, adaptiveSampleFromFiles, chooseAdaptiveStrategy,
-  createAdaptivePlan, adaptiveChangeGate, canSkipScopedAdaptivePlan, hasAdaptiveCalibration, hasStructuralRebuildWork, readAdaptiveHistory, recordAdaptiveSample,
+  createAdaptivePlan, includeAdaptiveReindexWork, adaptiveChangeGate, canSkipScopedAdaptivePlan, hasAdaptiveCalibration, hasStructuralRebuildWork, readAdaptiveHistory, recordAdaptiveSample,
   validateAdaptiveSnapshot, type AdaptivePlan, type AdaptiveCostHistory, type AdaptiveCostSample } from '../src/sync/adaptive-plan';
 
 const roots: string[] = [];
@@ -50,6 +50,14 @@ describe('adaptive cost decision', () => {
     const h = history();
     expect(chooseAdaptiveStrategy(modify(plan(), h), h).strategy).toBe('incremental');
   });
+  it('does not reuse content-only or foreign semantic cost observations', () => {
+    const p = { ...plan(), snapshot: { ...plan().snapshot, semanticConfigFingerprint: 'semantic-new' } };
+    expect(chooseAdaptiveStrategy(p, history()).reason).toBe('insufficient-local-calibration');
+    const matching = { ...history(), samples: history().samples.map(sample => ({ ...sample, semanticConfigFingerprint: 'semantic-new' })) };
+    expect(chooseAdaptiveStrategy(p, matching).reason).toBe('local-cost-estimate-favors-rebuild');
+    const foreign = { ...matching, samples: matching.samples.map(sample => ({ ...sample, semanticConfigFingerprint: 'semantic-old' })) };
+    expect(chooseAdaptiveStrategy(p, foreign).reason).toBe('insufficient-local-calibration');
+  });
   it('admits calibrated mixed branch switches but rejects a different composition', () => {
     const p = { ...plan(), shape: 'mixed' as const, added: Array(12).fill('a'), modified: Array(96).fill('m'), removed: Array(12).fill('r') };
     const h = history();
@@ -63,9 +71,9 @@ describe('adaptive cost decision', () => {
     h.samples = h.samples.map(value => value.kind === 'full' ? value : { ...value, shape: 'added-only' as const, affectedOldNodes: 0, addedFiles: value.changedFiles, modifiedFiles: 0, removedFiles: 0, changedBytes: value.changedFiles * 100 });
     expect(chooseAdaptiveStrategy(p, h).strategy).toBe('rebuild');
   });
-  it('honors explicit eligibility blockers and config mismatches', () => {
+  it('honors explicit eligibility blockers without a config-only rebuild', () => {
     expect(chooseAdaptiveStrategy(plan(), history(), { blockedReason: 'recovery-pending' }).reason).toBe('recovery-pending');
-    expect(chooseAdaptiveStrategy(plan(), history(), { configFingerprint: 'other' }).reason).toBe('configuration-changed');
+    expect(chooseAdaptiveStrategy(plan(), history(), { configFingerprint: 'other' }).reason).toBe('local-cost-estimate-favors-rebuild');
   });
   it('needs both a complete full baseline and several incremental observations', () => {
     expect(hasAdaptiveCalibration(history(), 'runtime')).toBe(true);
@@ -92,6 +100,25 @@ describe('read-only source plan', () => {
     expect(await validateAdaptiveSnapshot(dir, result.snapshot)).toBe(true);
     fs.appendFileSync(path.join(dir, 'a.cpp'), 'int later;');
     expect(await validateAdaptiveSnapshot(dir, result.snapshot)).toBe(false);
+  });
+  it('counts required same-content re-extraction without double-counting source deltas', async () => {
+    const dir = root();
+    for (const file of ['same.cpp', 'edited.cpp', 'removed.cpp']) fs.writeFileSync(path.join(dir, file), 'int before;');
+    const tracked = ['same.cpp', 'edited.cpp', 'removed.cpp'].map(file => record(dir, file));
+    fs.writeFileSync(path.join(dir, 'edited.cpp'), 'int after_changed;');
+    fs.writeFileSync(path.join(dir, 'added.cpp'), 'int added;');
+    fs.unlinkSync(path.join(dir, 'removed.cpp'));
+    const original = await createAdaptivePlan(dir, tracked, { runtimeKey: 'runtime', fullHash: true });
+    const expanded = includeAdaptiveReindexWork(original, tracked,
+      ['same.cpp', 'same.cpp', 'edited.cpp', 'removed.cpp', 'added.cpp', 'absent.cpp']);
+    expect(original.modified).toEqual(['edited.cpp']);
+    expect(expanded.modified).toEqual(['edited.cpp', 'same.cpp']);
+    expect(expanded.changedFiles).toBe(4);
+    expect(expanded.affectedOldNodes).toBe(30);
+    expect(expanded.changedBytes).toBe(original.changedBytes + tracked[0]!.size);
+    expect(expanded.snapshot).toBe(original.snapshot);
+    expect(expanded.shape).toBe('mixed');
+    expect(includeAdaptiveReindexWork(expanded, tracked, ['same.cpp'])).toEqual(expanded);
   });
   it('rejects out-of-root tracked paths', async () => {
     const dir = root(); fs.writeFileSync(path.join(dir, 'a.cpp'), 'int a;');
@@ -122,6 +149,14 @@ describe('read-only source plan', () => {
     expect(adaptiveConfigFingerprint(dir, [{ path: 'a.cpp' }, { path: 'new-sub/b.cpp' }])).toBe(before);
     fs.writeFileSync(path.join(dir, 'new-sub', '.gitignore'), '*.h');
     expect(adaptiveConfigFingerprint(dir, [{ path: 'a.cpp' }, { path: 'new-sub/b.cpp' }])).not.toBe(before);
+  });
+  it('fences semantic controls that the legacy configuration fingerprint omits', async () => {
+    const dir = root(); fs.writeFileSync(path.join(dir, 'a.cpp'), 'int a;');
+    fs.mkdirSync(path.join(dir, 'build'));
+    const before = await createAdaptivePlan(dir, [record(dir, 'a.cpp')], { runtimeKey: 'runtime' });
+    fs.writeFileSync(path.join(dir, 'build', 'compile_commands.json'), '[]');
+    expect(adaptiveConfigFingerprint(dir, [{ path: 'a.cpp' }])).toBe(before.snapshot.configFingerprint);
+    expect(await validateAdaptiveSnapshot(dir, before.snapshot)).toBe(false);
   });
   it('detects root and nested configuration changes', () => {
     const dir = root(); fs.mkdirSync(path.join(dir, 'sub'));
@@ -268,7 +303,7 @@ describe('fallback-aware enumerating stat gate', () => {
     // to the strict policy. The ordinary scanner still sees the new source.
     const strict = await createAdaptivePlan(dir, tracked, { runtimeKey: 'runtime' });
     expect(strict.added).toEqual(['new.cpp']);
-    const compatible = { ...history(), samples: history().samples.map(s => ({ ...s, configFingerprint: strict.snapshot.configFingerprint })) };
+    const compatible = { ...history(), samples: history().samples.map(s => ({ ...s, configFingerprint: strict.snapshot.configFingerprint, semanticConfigFingerprint: strict.snapshot.semanticConfigFingerprint })) };
     expect(chooseAdaptiveStrategy(strict, compatible).strategy).toBe('incremental');
   });
   it.each(['added-only', 'removed-only', 'mixed'] as const)('enumerates when %s also has three samples', async shape => {
@@ -341,13 +376,18 @@ describe('automatic calibration recovery and structural fallback', () => {
     expect(hasStructuralRebuildWork(changed(600))).toBe(false);
     for (const value of [0, -1, 1.1, NaN]) expect(() => hasStructuralRebuildWork(changed(900), { minChangedFraction: value })).toThrow('Invalid');
   });
-  it('rebuilds changed policy/upgrade even with equal content, never a merely cold no-op', () => {
-    expect(chooseAdaptiveStrategy(changed(0), empty).strategy).toBe('incremental');
-    expect(chooseAdaptiveStrategy(changed(0), empty, { configurationChanged: true }).reason).toBe('configuration-changed');
-    expect(chooseAdaptiveStrategy(changed(0), empty, { upgradeRequired: true }).reason).toBe('index-upgrade-required');
-    expect(chooseAdaptiveStrategy(changed(0), history(), { configFingerprint: 'old' }).strategy).toBe('rebuild');
-    expect(chooseAdaptiveStrategy({ ...changed(0), snapshot: { ...plan().snapshot, configFingerprint: 'new' } }, history()).strategy).toBe('rebuild');
-    expect(chooseAdaptiveStrategy({ ...changed(1), runtimeKey: 'new' }, history()).reason).toBe('runtime-baseline-changed');
+  it('does not turn config, extraction or host changes alone into a rebuild', () => {
+    for (const eligibility of [{}, { configurationChanged: true }, { upgradeRequired: true }, { configFingerprint: 'old' }]) {
+      expect(chooseAdaptiveStrategy(changed(0), empty, eligibility).reason).toBe('no-content-changes');
+      expect(chooseAdaptiveStrategy(changed(1), empty, eligibility).strategy).toBe('incremental');
+      expect(chooseAdaptiveStrategy(changed(900), empty, eligibility).reason).toBe('structural-large-change');
+    }
+    const newConfig = (count: number) => ({ ...changed(count), snapshot: { ...plan().snapshot, configFingerprint: 'new' } });
+    expect(chooseAdaptiveStrategy(newConfig(0), history()).strategy).toBe('incremental');
+    expect(chooseAdaptiveStrategy(newConfig(1), history()).reason).toBe('insufficient-local-calibration');
+    expect(chooseAdaptiveStrategy(newConfig(900), history()).reason).toBe('structural-large-change');
+    expect(chooseAdaptiveStrategy({ ...changed(1), runtimeKey: 'new' }, history()).reason).toBe('insufficient-local-calibration');
+    expect(chooseAdaptiveStrategy({ ...changed(900), runtimeKey: 'new' }, history()).reason).toBe('structural-large-change');
     expect(chooseAdaptiveStrategy({ ...changed(0), runtimeKey: 'new' }, history()).strategy).toBe('incremental');
   });
   it('preserves every explicit safety blocker ahead of fallback or policy upgrade', () => {
@@ -364,7 +404,7 @@ describe('automatic calibration recovery and structural fallback', () => {
     expect(saved.samples.filter(s => s.configFingerprint === 'new')).toHaveLength(20);
     expect(chooseAdaptiveStrategy(plan(), saved).strategy).toBe('rebuild');
     const next = { ...plan(), snapshot: { ...plan().snapshot, configFingerprint: 'new' } };
-    expect(chooseAdaptiveStrategy(next, saved).reason).toBe('configuration-changed');
+    expect(chooseAdaptiveStrategy(next, saved).reason).toBe('insufficient-local-calibration');
     recordAdaptiveSample(dir, sample({ kind: 'full', configFingerprint: 'new', durationMs: 20000 }), true);
     expect(chooseAdaptiveStrategy(next, readAdaptiveHistory(dir)).reason).toBe('local-cost-estimate-favors-rebuild');
     // Touch original bucket, then introduce enough other buckets to evict new.

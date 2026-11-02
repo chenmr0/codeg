@@ -25,7 +25,7 @@ import {
   crossesKnownFamily,
   isValidInstantiationTarget,
 } from './name-matcher';
-import { resolveViaImport, resolveJvmImport, extractImportMappings, extractReExports, loadCppIncludeDirs, isPhpIncludePathRef } from './import-resolver';
+import { resolveViaImport, resolveJvmImport, extractImportMappings, extractReExports, loadCppIncludeDirs, clearImportMappingCache, isPhpIncludePathRef } from './import-resolver';
 import { detectFrameworks, isFrameworkEnabled } from './frameworks';
 import { getLanguageScopeKey, isLanguageEnabled } from '../extraction/language-scope';
 import {
@@ -418,6 +418,15 @@ export class ReferenceResolver {
   /**
    * Clear internal caches
    */
+  /** Refresh project configuration even when source bytes have not changed. */
+  resetProjectConfiguration(): void {
+    this.projectAliases = undefined;
+    this.goModule = undefined;
+    this.workspacePackages = undefined;
+    clearImportMappingCache();
+    this.initialize();
+  }
+
   clearCaches(): void {
     this.nodeCache.clear();
     this.fileCache.clear();

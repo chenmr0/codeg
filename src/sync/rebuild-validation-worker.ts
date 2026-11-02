@@ -6,10 +6,12 @@ import { acquireGenerationLease, acquireCurrentGenerationLease, resolveGeneratio
 import { DatabaseConnection, DatabaseOpenError } from '../db';
 import { PortableCoordinator, type PortableLease } from './portable/protocol';
 import { QueryBuilder } from '../db/queries';
-import { adaptiveRuntimeKey, readAdaptiveHistory, createAdaptivePlan, chooseAdaptiveStrategy,
+import { adaptiveRuntimeKey, readAdaptiveHistory, createAdaptivePlan, chooseAdaptiveStrategy, includeAdaptiveReindexWork,
   validateAdaptiveSnapshot, canSkipScopedAdaptivePlan, adaptiveSampleFromFiles, recordAdaptiveSample, adaptiveConfigFingerprint, type AdaptiveCostHistory, type AdaptiveEligibility, type AdaptiveSnapshot } from './adaptive-plan';
 import { validateRebuiltDatabase } from './rebuild-controller';
 import { isSourceOwned, inspectLegacySourceProvenance } from './source-ownership';
+import { EXTRACTION_VERSION } from '../extraction/extraction-version';
+import { SEMANTIC_CONFIG_KEY, SEMANTIC_REINDEX_PENDING, semanticConfigFingerprint, requiresSemanticReindex } from './index-policy';
 
 export type AdaptiveReadJob =
   | { type: 'validate-initial'; root: string; databasePath: string }
@@ -67,7 +69,8 @@ async function execute(job: AdaptiveReadJob): Promise<unknown> {
       const after = new QueryBuilder(connection.getDb()).getAllFiles();
       recordAdaptiveSample(job.root, adaptiveSampleFromFiles({ kind: 'full', before: [], after,
         durationMs: job.durationMs, runtimeKey: adaptiveRuntimeKey(job.root, 'node-sqlite'),
-        configFingerprint: adaptiveConfigFingerprint(job.root, after) }), true);
+        configFingerprint: adaptiveConfigFingerprint(job.root, after),
+        semanticConfigFingerprint: semanticConfigFingerprint(job.root, after) }), true);
       return true;
     } finally { reader.close(); }
   }
@@ -86,9 +89,14 @@ async function execute(job: AdaptiveReadJob): Promise<unknown> {
       const queries = new QueryBuilder(db);
       const tracked = queries.getAllFiles();
       const indexedConfig = queries.getMetadata('adaptive:index-config-v1');
+      const indexedSemantic = queries.getMetadata(SEMANTIC_CONFIG_KEY);
+      const semanticPending = queries.getMetadata(SEMANTIC_REINDEX_PENDING) !== null;
+      const indexedVersion = queries.getMetadata('indexed_with_extraction_version');
+      const upgradeRequired = job.eligibility.upgradeRequired === true ||
+        (queries.getLastIndexedAt() !== null && (indexedVersion === null || !Number.isFinite(Number(indexedVersion)) || Number(indexedVersion) < EXTRACTION_VERSION));
       const eligibility = { ...job.eligibility, ...(indexedConfig ? { configFingerprint: indexedConfig } : {}),
         ...(provenanceBlocked ? { blockedReason: provenanceBlocked } : {}),
-        upgradeRequired: job.eligibility.upgradeRequired || legacy.eligible || (owned && indexedConfig === null) };
+        upgradeRequired };
       let history: AdaptiveCostHistory = { version: 1, samples: [] };
       if (job.portable) {
         // The DB is the portable authority. Do not accidentally revive an old
@@ -116,14 +124,24 @@ async function execute(job: AdaptiveReadJob): Promise<unknown> {
           catch (error) { return (error as NodeJS.ErrnoException).code === 'ENOENT' && prior.has(relative); }
         });
         const currentConfig = adaptiveConfigFingerprint(job.root, [...tracked, ...paths.map(path => ({ path }))]);
-        if (safe && currentConfig === indexedConfig && canSkipScopedAdaptivePlan({ pathsCount: paths.length,
+        const currentSemantic = semanticConfigFingerprint(job.root, [...tracked, ...paths.map(path => ({ path }))]);
+        if (safe && currentConfig === indexedConfig &&
+          !requiresSemanticReindex(indexedSemantic, currentSemantic, indexedConfig, currentConfig, upgradeRequired, semanticPending) && canSkipScopedAdaptivePlan({ pathsCount: paths.length,
           affectedOldNodes: paths.reduce((total, relative) => total + (prior.get(relative)?.nodeCount ?? 0), 0),
           totalOldNodes: tracked.reduce((total, file) => total + file.nodeCount, 0),
         }, history, runtimeKey, currentConfig, eligibility)) {
           return { decision: { strategy: 'incremental', reason: 'scoped-small-change' } };
         }
       }
-      const plan = await createAdaptivePlan(job.root, tracked, { runtimeKey, fullHash: job.fullHash });
+      let plan = await createAdaptivePlan(job.root, tracked, { runtimeKey, fullHash: job.fullHash });
+      const semantic = plan.snapshot.semanticConfigFingerprint!;
+      if (requiresSemanticReindex(indexedSemantic, semantic, indexedConfig,
+        plan.snapshot.configFingerprint, upgradeRequired, semanticPending)) {
+        plan = includeAdaptiveReindexWork(plan, tracked, tracked.map(file => file.path));
+        // Re-extraction is a different workload from historical content-only sync.
+        // In particular, legacy broad fingerprints omit some semantic controls.
+        history = { version: 1, samples: [] };
+      }
       const decision = chooseAdaptiveStrategy(plan, history, eligibility);
       const configurationChanged = eligibility.configurationChanged === true ||
         (indexedConfig !== undefined && indexedConfig !== null && indexedConfig !== plan.snapshot.configFingerprint);
