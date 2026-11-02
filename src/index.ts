@@ -518,7 +518,7 @@ export class CodeGraph {
   hasPortableCompletionProof(): boolean {
     const coverage = this.getIndexCompleteness();
     return coverage.status === 'complete' && coverage.diagnostics.length === 0 &&
-      !this.isIndexStale() && !this.needsLanguageScopeRebuild() &&
+      !this.isIndexStale() && !this.needsLanguageScopeReconciliation() &&
       !this.getPortableCatchup() && !this.hasPortableCatchupWork();
   }
   getPortableCatchup(): string | null { return portableMetadata(this.db.getDb(), CATCHUP); }
@@ -1033,7 +1033,7 @@ export class CodeGraph {
             );
           } catch { /* the returned diagnostics remain authoritative */ }
 
-          if (ownership !== null && result.success === true && result.complete === true) {
+          if (result.success === true && result.complete === true) {
             this.queries.setMetadata('adaptive:index-config-v1', adaptiveConfigFingerprint(this.projectRoot, this.queries.getAllFiles()));
             this.queries.applyMetadataChanges({
               [SEMANTIC_CONFIG_KEY]: semanticConfigFingerprint(this.projectRoot, this.queries.getAllFiles()),

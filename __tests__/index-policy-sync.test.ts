@@ -72,7 +72,7 @@ it('a build-directory compilation database is a semantic input even when CMake i
   expect((await graph.sync({ adaptive: false })).filesModified).toBe(1);
   expect(queries().getMetadata(SEMANTIC_CONFIG_KEY)).not.toBe(before);
 });
-it('retries semantic work after partial B writes even if configuration is restored to A', async () => {
+it.each(['sync', 'indexAll'] as const)('retries semantic work via %s after partial B writes even if configuration is restored to A', async (operation) => {
   fs.writeFileSync(path.join(root, 'a.ts'), 'export function target() { return 1; }\n');
   fs.writeFileSync(path.join(root, 'b.ts'), 'export function target() { return 2; }\n');
   fs.writeFileSync(path.join(root, 'use.ts'), 'import { target } from "@target"; export function caller() { return target(); }\n');
@@ -87,8 +87,10 @@ it('retries semantic work after partial B writes even if configuration is restor
   config('b.ts');
   await expect(graph.sync({ adaptive: false })).rejects.toThrow('interrupted after committing B references');
   injected.mockRestore(); config('a.ts');
-  const result = await graph.sync({ adaptive: false });
-  expect(result.complete).toBe(true); expect(result.filesModified).toBe(4);
+  const result = operation === 'sync' ? await graph.sync({ adaptive: false }) : await graph.indexAll();
+  expect(result.complete).toBe(true);
+  if ('filesModified' in result) expect(result.filesModified).toBe(4);
+  else expect(result.filesIndexed).toBe(4);
   const callees = graph.getCallees(graph.getNodesByName('caller')[0]!.id).filter(item => item.node.name === 'target').map(item => item.node.filePath);
   expect(callees).toContain('a.ts'); expect(callees).not.toContain('b.ts');
   expect(graph.hasPortableCatchupWork()).toBe(false);
