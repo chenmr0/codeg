@@ -1,8 +1,9 @@
 import { maskCStyleCommentsAndLiterals } from './grammars';
 
 interface Range { start: number; end: number; insideType?: boolean }
-interface State { stack: Array<boolean | 'type' | 'macro-type'>; parens: number; brackets: number; header: number }
+interface State { stack: Array<boolean | 'type' | 'macro-type'>; namespaces: string[]; namespaceOpenings: Array<number | undefined>; parens: number; brackets: number; header: number }
 interface Conditional { entry: State; branches: State[]; hasElse: boolean }
+export interface CCppNamespaceBodyRange { start: number; end: number; name: string }
 
 /** Source evidence independent of tree-sitter's error-recovered parent chain.
  * Branches are scanned separately: two alternative opening braces must not
@@ -18,16 +19,23 @@ export class CCppSourceScope {
   private readonly macroTypeHeaders: Range[] = [];
   private readonly macroTypeRanges: Range[] = [];
   private readonly macroTypeNames = new Set<string>();
+  private readonly namespacePoints: Array<{ offset: number; name: string }> = [{ offset: 0, name: '' }];
+  private readonly namespaceBodies = new Map<number, CCppNamespaceBodyRange>();
+  private readonly ambiguousNamespaceBodies = new Set<number>();
 
   constructor(source: string, resolveMacroTypeHeader?: (header: string, offset: number) => string | undefined) {
     const code = maskCStyleCommentsAndLiterals(source);
-    let state: State = { stack: [], parens: 0, brackets: 0, header: 0 };
+    let state: State = { stack: [], namespaces: [], namespaceOpenings: [], parens: 0, brackets: 0, header: 0 };
     const conditions: Conditional[] = [];
-    const copy = (s: State): State => ({ ...s, stack: [...s.stack] });
+    const copy = (s: State): State => ({ ...s, stack: [...s.stack], namespaces: [...s.namespaces], namespaceOpenings: [...s.namespaceOpenings] });
     let activeStart: number | null = null;
     let activeInsideType = false;
     let macroStart: number | null = null;
     const transition = (offset: number): void => {
+      const namespace = state.namespaces.filter(Boolean).join('::');
+      if (namespace !== this.namespacePoints.at(-1)!.name) {
+        this.namespacePoints.push({ offset, name: namespace });
+      }
       const macroActive = state.stack.includes('macro-type');
       if (macroActive && macroStart === null) macroStart = offset;
       if (!macroActive && macroStart !== null) {
@@ -68,10 +76,34 @@ export class CCppSourceScope {
             if (!conditional.hasElse) branches.push(conditional.entry);
             state = copy(branches[0]!);
             for (const branch of branches.slice(1)) {
+              // Equal namespace names in alternative branches do not prove
+              // the same source-written opening brace. A close in only one
+              // branch is likewise not an unconditional container boundary.
+              for (let depth = 0; depth < Math.max(state.stack.length, branch.stack.length); depth++) {
+                const left = state.namespaceOpenings[depth], right = branch.namespaceOpenings[depth];
+                if (left !== right) {
+                  if (left !== undefined) this.ambiguousNamespaceBodies.add(left);
+                  if (right !== undefined) this.ambiguousNamespaceBodies.add(right);
+                  state.namespaceOpenings[depth] = undefined;
+                }
+              }
               let common = 0;
               while (common < state.stack.length && common < branch.stack.length
-                && state.stack[common] === branch.stack[common]) common++;
+                && state.stack[common] === branch.stack[common]
+                && state.namespaces[common] === branch.namespaces[common]) common++;
+              if (common < Math.max(state.stack.length, branch.stack.length)
+                || state.parens !== branch.parens || state.brackets !== branch.brackets) {
+                // A later '}' could close different scopes in different
+                // branches, even when the mismatched frame is a function or
+                // class rather than a namespace. Do not repair an enclosing
+                // namespace from that ambiguous join.
+                for (const opening of [...state.namespaceOpenings, ...branch.namespaceOpenings]) {
+                  if (opening !== undefined) this.ambiguousNamespaceBodies.add(opening);
+                }
+              }
               state.stack.length = common;
+              state.namespaces.length = common;
+              state.namespaceOpenings.length = common;
               if (state.parens !== branch.parens) state.parens = conditional.entry.parens;
               if (state.brackets !== branch.brackets) state.brackets = conditional.entry.brackets;
             }
@@ -113,10 +145,23 @@ export class CCppSourceScope {
         const lambda = /(?:^|[=({,:])\s*\[[^\]]*\]\s*(?:\([^)]*\))?\s*(?:mutable\s*)?(?:noexcept\s*)?(?:->[^;{}]+)?$/.test(bare);
         state.stack.push(container && !/\bnamespace\b/.test(bare) ? (macroType ? 'macro-type' : 'type')
           : !container && (state.stack.includes(true) || lambda || callable));
+        const namespaceHeader = /^(?:(?:inline|export)\s+)*namespace(?:\s+([A-Za-z_]\w*(?:\s*::\s*(?:inline\s+)?[A-Za-z_]\w*)*))?\s*$/.exec(bare);
+        const namespace = namespaceHeader?.[1];
+        state.namespaces.push(namespace?.replace(/\binline\s+|\s+/g, '') ?? '');
+        // Only source-written namespace headers are evidence for a range.
+        // Unresolved/generated macro containers retain the AST boundary.
+        state.namespaceOpenings.push(namespaceHeader && !macroType ? i : undefined);
         state.header = i + 1;
         transition(i + 1);
       } else if (char === '}' && state.parens === 0 && state.brackets === 0) {
+        const opening = state.namespaceOpenings.pop();
+        if (opening !== undefined) {
+          const prior = this.namespaceBodies.get(opening);
+          if (prior && prior.end !== i + 1) this.ambiguousNamespaceBodies.add(opening);
+          else this.namespaceBodies.set(opening, { start: opening, end: i + 1, name: state.namespaces.at(-1) ?? '' });
+        }
         state.stack.pop();
+        state.namespaces.pop();
         state.header = i + 1;
         transition(i);
       } else if (char === ';' && state.parens === 0 && state.brackets === 0) {
@@ -128,12 +173,37 @@ export class CCppSourceScope {
     // completed ranges may suppress symbols or blank an auxiliary body.
     this.unclosedStandaloneBody = state.stack.length === 1 && state.stack[0] === true;
     this.balanced = state.stack.length === 0 && state.parens === 0 && state.brackets === 0;
+    for (const opening of state.namespaceOpenings) {
+      if (opening !== undefined) this.ambiguousNamespaceBodies.add(opening);
+    }
+    for (const conditional of conditions) {
+      for (const opening of conditional.entry.namespaceOpenings) {
+        if (opening !== undefined) this.ambiguousNamespaceBodies.add(opening);
+      }
+    }
   }
 
   isExecutable(offset: number): boolean { return this.contains(this.executable, offset); }
   isDirective(offset: number): boolean { return this.contains(this.directives, offset); }
   hasUnclosedStandaloneBody(): boolean { return this.unclosedStandaloneBody; }
   isBalanced(): boolean { return this.balanced; }
+  /** Source-written namespaces survive a parser's premature namespace close.
+   * Conditional branches retain only their common, unambiguous scope. */
+  namespaceAt(offset: number): string {
+    let low = 0, high = this.namespacePoints.length;
+    while (low + 1 < high) {
+      const mid = (low + high) >>> 1;
+      if (this.namespacePoints[mid]!.offset <= offset) low = mid;
+      else high = mid;
+    }
+    return this.namespacePoints[low]!.name;
+  }
+  /** Exclusive end offset of a source-written namespace body, only when all
+   * scanned conditional paths agree on the matching closing brace. Does not
+   * infer missing braces or use a parser's error-recovered parent chain. */
+  namespaceBodyAt(opening: number): Readonly<CCppNamespaceBodyRange> | undefined {
+    return this.ambiguousNamespaceBodies.has(opening) ? undefined : this.namespaceBodies.get(opening);
+  }
   isMacroTypeBody(offset: number): boolean { return this.macroTypeBodies.has(offset); }
   isMacroTypeDeclaration(start: number, end: number, name: string, callable: boolean): boolean {
     if (this.isExecutable(start) || this.isDirective(start)) return false;

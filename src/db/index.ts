@@ -200,7 +200,10 @@ export class DatabaseConnection {
     const connection = new DatabaseConnection(db, dbPath, backend, lease);
     try {
       db.pragma('busy_timeout = 5000');
-      db.pragma('query_only = ON');
+      // The native readOnly open flag is the main-database write fence.
+      // query_only would also forbid connection-local TEMP vocabulary used
+      // by Explore, even though it cannot modify the published index.
+      db.pragma('temp_store = MEMORY');
       if (getCurrentVersion(db) !== CURRENT_SCHEMA_VERSION) {
         throw new Error('Read-only generation requires the current schema version');
       }

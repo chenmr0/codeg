@@ -1,3 +1,4 @@
+import { ExploreSessionState, type ExploreEmission } from '../upstream-explore/mcp/explore-session-state';
 /**
  * MCP per-connection session — speaks the JSON-RPC protocol (initialize,
  * tools/list, tools/call) over a single {@link JsonRpcTransport}. It owns
@@ -80,6 +81,10 @@ export interface MCPSessionOptions {
  * (direct mode) or per socket connection (daemon mode).
  */
 export class MCPSession {
+  private readonly exploreSession = new ExploreSessionState();
+
+  /** Per-client Explore state; never shared across daemon connections. */
+  getExploreSessionState(): ExploreSessionState { return this.exploreSession; }
   private clientSupportsRoots = false;
   private rootsAttempted = false;
   private resolvePromise: Promise<void> | null = null;
@@ -236,13 +241,21 @@ export class MCPSession {
     this.activeToolCalls.set(request.id, controller);
     try {
       await this.retryInitIfNeeded();
+      const emissions: ExploreEmission[] = [];
       const result = await this.engine.getToolHandler().execute(toolName, toolArgs, {
         signal: controller.signal,
+        exploreSession: this.exploreSession,
+        onExploreEmission: emission => emissions.push(emission),
       });
       if (controller.signal.aborted) {
         this.transport.sendError(request.id, -32800, 'Request cancelled');
       } else {
         this.transport.sendResult(request.id, result);
+        // A cancelled or failed send must never suppress source the client did
+        // not receive. There is no await between dispatch and this commit.
+        for (const emission of emissions) {
+          try { this.exploreSession.record(emission); } catch { /* bookkeeping only */ }
+        }
       }
     } finally {
       if (this.activeToolCalls.get(request.id) === controller) {

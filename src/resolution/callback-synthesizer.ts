@@ -34,6 +34,9 @@ import {
   cppParameterKeysMatch,
 } from './cpp-signature';
 import { getHeapStatistics } from 'node:v8';
+import { getParser, initGrammars, loadGrammarsForLanguages } from '../extraction/grammars';
+import type { Node as SyntaxNode } from 'web-tree-sitter';
+import { resolveViaImport } from './import-resolver';
 
 const REGISTRAR_NAME = /^(on[A-Z]\w*|subscribe|addListener|addEventListener|register|watch|listen|addCallback)$/;
 const DISPATCHER_NAME = /(emit|trigger|notify|dispatch|fire|publish|flush)/i;
@@ -690,7 +693,8 @@ function* cppDeclDefEdges(
 
     for (const def of defs) {
       for (const decl of decls) {
-        if (def.filePath === decl.filePath) continue; // cross-file only
+        // C++ headers may contain both the in-class prototype and an out-of-
+        // line definition. They need the same overload-safe bridge as .cpp files.
         if (!cppCallableOwnersMatch(def, decl)) continue;
         const defParams = cppParameterKey(def);
         const declParams = cppParameterKey(decl);
@@ -2079,6 +2083,167 @@ function svelteKitLoadEdges(ctx: ResolutionContext): Edge[] {
 }
 
 /**
+ * Redux-thunk dispatch chain. `export const X = createAsyncThunk(prefix, async (a, api) => {...})`
+ * (or a wrapper like trezor's `createThunk(...)`) passes the async body as an ARGUMENT, so
+ * tree-sitter never extracts it as a function node: `X` is a `constant` whose body's calls are
+ * ORPHANED. The `dispatch(nextThunk(...))` calls that drive a thunk chain forward therefore produce
+ * no edges, so `callees(X)` is empty and a flow `dispatch(X(...)) → X → nextThunk` dead-ends at the
+ * constant (validated on trezor-suite: the signXxxThunk constants had ZERO outgoing edges). Bridge
+ * it: body-scan each thunk constant for `dispatch(Y(...))` and link `X → Y`, so the dispatch chain
+ * connects. High-precision — the `dispatch(` keyword plus `Y` must resolve to a function/constant/
+ * method node; capped; gated on thunk constants existing so it never runs on non-RTK repos.
+ * Cross-file by design (a suite thunk dispatches a wallet-core thunk). Provenance `heuristic`,
+ * `synthesizedBy:'redux-thunk'`; `registeredAt` is the dispatch site.
+ */
+
+const THUNK_DECL_RE = /create(?:Async)?Thunk/;
+const THUNK_FANOUT_CAP = 24;
+const THUNK_LANGUAGES = new Set(['typescript', 'tsx', 'javascript', 'jsx']);
+const THUNK_FUNCTIONS = new Set(['arrow_function', 'function_expression', 'function']);
+const THUNK_CONTAINERS = new Set(['function', 'method', 'class', 'component', 'constant']);
+
+/** Imported names and module-scope definitions are evidence; global name
+ * collisions are not. A same-file binding takes precedence over remote thunks. */
+function thunkDispatchTarget(
+  name: string, node: Node, line: number, ctx: ResolutionContext, queries: QueryBuilder,
+): Node | null {
+  const eligible = (n: Node) => THUNK_LANGUAGES.has(n.language)
+    && (n.kind === 'constant' || n.kind === 'function' || n.kind === 'method');
+  const inFile = ctx.getNodesInFile(node.filePath);
+  const local = inFile.filter(n => n.name === name && eligible(n) && !inFile.some(parent =>
+    parent.id !== n.id && THUNK_CONTAINERS.has(parent.kind)
+      && parent.startLine <= n.startLine && parent.endLine >= n.endLine
+      && (parent.startLine < n.startLine || parent.endLine > n.endLine
+        || parent.startColumn < n.startColumn)));
+  if (local.length) return local.length === 1 ? local[0]! : null;
+  const imports = ctx.getImportMappings(node.filePath, node.language).filter(i => i.localName === name);
+  if (imports.length !== 1) return null;
+  const resolved = resolveViaImport({
+    fromNodeId: node.id, referenceName: name, referenceKind: 'calls',
+    filePath: node.filePath, language: node.language, line, column: 0,
+  }, ctx);
+  const target = resolved && queries.getNodeById(resolved.targetNodeId);
+  return target && eligible(target) ? target : null;
+}
+
+function patternNames(pattern: SyntaxNode | null): string[] {
+  if (!pattern) return [];
+  if (pattern.type === 'identifier' || pattern.type === 'shorthand_property_identifier_pattern') return [pattern.text];
+  if (pattern.type === 'type_annotation') return [];
+  if (pattern.type === 'pair_pattern') return patternNames(pattern.childForFieldName('value'));
+  if (pattern.type === 'assignment_pattern') return patternNames(pattern.childForFieldName('left'));
+  if (pattern.type === 'required_parameter' || pattern.type === 'optional_parameter')
+    return patternNames(pattern.childForFieldName('pattern') ?? pattern.childForFieldName('name'));
+  return pattern.namedChildren.flatMap(patternNames);
+}
+
+/** AST evidence avoids interpreting string/regex/template text as dispatch.
+ * The factory/payload shape and its second API parameter establish the binding.
+ * Payload-local rebindings are conservative: do not guess their runtime value. */
+function thunkDispatchSites(src: string, node: Node): Array<{ name: string; row: number }> {
+  const parser = getParser(node.language);
+  if (!parser || src.length > 512_000) return [];
+  const deadline = performance.now() + 200;
+  const tree = parser.parse(src, null, { progressCallback: () => performance.now() > deadline });
+  if (!tree) return [];
+  try {
+    const declarations: SyntaxNode[] = [];
+    const stack = [tree.rootNode];
+    while (stack.length) {
+      const syntax = stack.pop()!;
+      if (syntax.type === 'variable_declarator' && syntax.childForFieldName('name')?.text === node.name) declarations.push(syntax);
+      stack.push(...syntax.namedChildren);
+    }
+    const declaration = declarations.sort((a, b) => a.startIndex - b.startIndex)
+      .find(d => d.childForFieldName('value')?.type === 'call_expression');
+    const factory = declaration?.childForFieldName('value');
+    const factoryName = factory?.childForFieldName('function')?.text;
+    if (!factoryName || !/^(?:\w+\.)*create(?:Async)?Thunk$/.test(factoryName)) return [];
+    const args = factory!.childForFieldName('arguments')?.namedChildren ?? [];
+    const payload = args.find(n => THUNK_FUNCTIONS.has(n.type));
+    if (!payload) return [];
+    const parameters = payload.childForFieldName('parameters')?.namedChildren ?? [];
+    const apiParam = parameters[1];
+    const api = apiParam?.childForFieldName('pattern') ?? apiParam;
+    const directDispatch = new Set<string>();
+    let apiName: string | undefined;
+    if (api?.type === 'identifier') apiName = api.text;
+    if (api?.type === 'object_pattern') {
+      for (const p of api.namedChildren) {
+        if (p.type === 'shorthand_property_identifier_pattern' && p.text === 'dispatch') directDispatch.add('dispatch');
+        if (p.type === 'pair_pattern' && p.childForFieldName('key')?.text === 'dispatch')
+          for (const name of patternNames(p.childForFieldName('value'))) directDispatch.add(name);
+      }
+    }
+    const body = payload.childForFieldName('body');
+    if (!body || (!apiName && !directDispatch.size)) return [];
+    const bindings = new Set(parameters.flatMap(patternNames));
+    const rebindings = new Set<string>();
+    const calls: SyntaxNode[] = [];
+    const pending = [body];
+    while (pending.length) {
+      const n = pending.pop()!;
+      if (n.type === 'call_expression') calls.push(n);
+      if (n.type === 'variable_declarator' || n.type === 'function_declaration' || n.type === 'class_declaration') {
+        for (const name of patternNames(n.childForFieldName('name'))) rebindings.add(name);
+      }
+      if (n.type === 'assignment_expression' || n.type === 'augmented_assignment_expression') {
+        const left = n.childForFieldName('left');
+        if (left?.type === 'member_expression') {
+          if (left.childForFieldName('property')?.text === 'dispatch')
+            for (const name of patternNames(left.childForFieldName('object'))) rebindings.add(name);
+        } else for (const name of patternNames(left)) rebindings.add(name);
+      }
+      if (THUNK_FUNCTIONS.has(n.type) || n.type === 'function_declaration') {
+        for (const name of patternNames(n.childForFieldName('parameters'))) rebindings.add(name);
+      }
+      pending.push(...n.namedChildren);
+    }
+    const out: Array<{ name: string; row: number }> = [];
+    for (const call of calls.sort((a, b) => a.startIndex - b.startIndex)) {
+      const fn = call.childForFieldName('function');
+      const direct = fn?.type === 'identifier' && directDispatch.has(fn.text) && !rebindings.has(fn.text);
+      const member = fn?.type === 'member_expression' && apiName
+        && fn.childForFieldName('object')?.text === apiName
+        && fn.childForFieldName('property')?.text === 'dispatch' && !rebindings.has(apiName);
+      if (!direct && !member) continue;
+      const first = call.childForFieldName('arguments')?.namedChildren[0];
+      const target = first?.type === 'call_expression' ? first.childForFieldName('function') : first;
+      if (target?.type !== 'identifier' || target.text === node.name
+        || bindings.has(target.text) || rebindings.has(target.text)) continue;
+      out.push({ name: target.text, row: call.startPosition.row });
+    }
+    return out;
+  } finally { tree.delete(); }
+}
+
+// Generator adaptation preserves the native chunked staging/memory admission.
+function* reduxThunkEdges(queries: QueryBuilder, ctx: ResolutionContext): IterableIterator<Edge> {
+  const seen = new Set<string>();
+  for (const node of queries.iterateNodesByKind('constant')) {
+    if (!THUNK_LANGUAGES.has(node.language) || !node.signature || !THUNK_DECL_RE.test(node.signature)) continue;
+    const content = ctx.readFile(node.filePath);
+    const src = content && sliceLines(content, node.startLine, node.endLine);
+    if (!src) continue;
+    let added = 0;
+    for (const site of thunkDispatchSites(src, node)) {
+      if (added >= THUNK_FANOUT_CAP) break;
+      const line = node.startLine + site.row;
+      const target = thunkDispatchTarget(site.name, node, line, ctx, queries);
+      if (!target || target.id === node.id) continue;
+      const key = node.id + '>' + target.id;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      yield {
+        source: node.id, target: target.id, kind: 'calls', line, provenance: 'heuristic',
+        metadata: { synthesizedBy: 'redux-thunk', via: site.name, registeredAt: node.filePath + ':' + line },
+      };
+      added++;
+    }
+  }
+}
+
+/**
  * Rebuild the C/C++ heuristic edges invalidated by re-extracting a bounded set
  * of files during sync. `deleteFile()` already cascades every old edge touching
  * a replaced node; this pass only has to recreate relationships whose current
@@ -2266,7 +2431,7 @@ export async function synthesizeCallbackEdges(
       'interface-impl', 'go-grpc-stub-impl', 'jsx-render', 'vue-handler',
       'rn-event-channel', 'expo-cross-platform', 'rn-cross-platform',
       'fabric-native-impl', 'mybatis-java-xml', 'gin-middleware-chain',
-      'pascal-form', 'sveltekit-load',
+      'pascal-form', 'sveltekit-load', 'redux-thunk',
     ]);
   }
 
@@ -2299,8 +2464,10 @@ export async function synthesizeCallbackEdges(
   interface SynthPass {
     name: string;
     enabled: boolean;
+    prepare?: () => Promise<void>;
     run: () => Iterable<Edge>;
   }
+  let thunkLanguages: Node['language'][] = [];
   const passes: SynthPass[] = [
     { name: 'fieldEdges', enabled: true, run: () => fieldChannelEdges(queries, ctx) },
     {
@@ -2313,6 +2480,25 @@ export async function synthesizeCallbackEdges(
     // Java/Litho-style source can satisfy the setState/render predicates too.
     { name: 'renderEdges', enabled: true, run: () => reactRenderEdges(queries, ctx) },
     { name: 'jsxEdges', enabled: has(...JSX_PARENT_LANGUAGES), run: () => reactJsxChildEdges(ctx) },
+    {
+      name: 'thunkEdges',
+      enabled: has(...JS_FAMILY),
+      // Worker-only extraction and a fresh-process rewire need not have loaded
+      // grammars on this thread. Prepare before asking for source AST evidence.
+      prepare: async () => {
+        const needed = new Set<Node['language']>();
+        for (const node of queries.iterateNodesByKind('constant')) {
+          if (THUNK_LANGUAGES.has(node.language) && node.signature && THUNK_DECL_RE.test(node.signature))
+            needed.add(node.language);
+        }
+        thunkLanguages = [...needed];
+        if (thunkLanguages.length) {
+          await initGrammars();
+          await loadGrammarsForLanguages(thunkLanguages);
+        }
+      },
+      run: () => thunkLanguages.length ? reduxThunkEdges(queries, ctx) : [],
+    },
     { name: 'vueEdges', enabled: has('vue'), run: () => vueTemplateEdges(ctx) },
     { name: 'svelteKitEdges', enabled: has('svelte'), run: () => svelteKitLoadEdges(ctx) },
     // The form convention is unavailable in the default scope. In all mode
@@ -2355,6 +2541,7 @@ export async function synthesizeCallbackEdges(
       if (!pass.enabled) continue;
       const startedAt = Date.now();
       try {
+        await pass.prepare?.();
         totalAdded += await persistSynthEdges(queries, pass.run(), true);
       } catch (error) {
         // Keep the base index usable, but never report a complete index when a

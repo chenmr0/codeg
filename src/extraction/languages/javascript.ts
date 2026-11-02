@@ -1,10 +1,12 @@
 import { getNodeText, getChildByField } from '../tree-sitter-helpers';
 import type { LanguageExtractor } from '../tree-sitter-types';
+import { classifyTsClassMember } from './typescript';
 
 export const javascriptExtractor: LanguageExtractor = {
   functionTypes: ['function_declaration', 'arrow_function', 'function_expression'],
   classTypes: ['class_declaration'],
   methodTypes: ['method_definition', 'field_definition'],
+  classifyMethodNode: classifyTsClassMember,
   interfaceTypes: [],
   structTypes: [],
   enumTypes: [],
@@ -13,6 +15,13 @@ export const javascriptExtractor: LanguageExtractor = {
   callTypes: ['call_expression'],
   variableTypes: ['lexical_declaration', 'variable_declaration'],
   nameField: 'name',
+  resolveName: (node, source) => {
+    if (node.type === 'field_definition') {
+      const property = getChildByField(node, 'property');
+      if (property) return getNodeText(property, source);
+    }
+    return undefined;
+  },
   bodyField: 'body',
   resolveBody: (node, bodyField) => {
     // field_definition (arrow function class fields) nest the body inside

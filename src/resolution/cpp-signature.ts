@@ -173,7 +173,7 @@ export function cppCallableOwnersMatch(
   const ownerParts = (qualifiedName: string): string[] => {
     const parts = qualifiedName.replace(/\./g, '::').split('::').filter(Boolean);
     parts.pop();
-    return parts.map((part) => part.toLowerCase());
+    return parts;
   };
   const leftOwner = ownerParts(left.qualifiedName);
   const rightOwner = ownerParts(right.qualifiedName);

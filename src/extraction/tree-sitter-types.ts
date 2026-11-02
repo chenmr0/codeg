@@ -116,6 +116,9 @@ export interface LanguageExtractor {
   classTypes: string[];
   /** Node types that represent methods */
   methodTypes: string[];
+  /** Optional classification for grammars that use methodTypes for data members.
+   * Absent hooks retain the existing method path. */
+  classifyMethodNode?: (node: SyntaxNode) => 'method' | 'property' | 'skip';
   /** Node types that represent interfaces/protocols/traits */
   interfaceTypes: string[];
   /** Node types that represent structs */

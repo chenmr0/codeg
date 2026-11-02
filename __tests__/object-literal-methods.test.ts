@@ -53,7 +53,9 @@ describe('object-literal method extraction', () => {
 
     // Each action's body was walked: fetchUser references its sibling `reset`,
     // so an in-store calls edge will resolve once the pipeline runs.
-    const fetchUser = result.nodes.find((n) => n.name === 'fetchUser')!;
+    // Interface signatures now exist too; this assertion concerns the action body.
+    expect(result.nodes.some((n) => n.name === 'fetchUser' && n.kind === 'method')).toBe(true);
+    const fetchUser = result.nodes.find((n) => n.name === 'fetchUser' && n.kind === 'function')!;
     const fetchUserRefs = result.unresolvedReferences.filter((r) => r.fromNodeId === fetchUser.id);
     expect(fetchUserRefs.map((r) => r.referenceName)).toContain('reset');
 

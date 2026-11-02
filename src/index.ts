@@ -229,6 +229,11 @@ export class CodeGraph {
   // connection and the independent writer fence alive until process exit.
   private static failedPortableInitializations = new Map<PortableLease, DatabaseConnection>();
   private db: DatabaseConnection;
+  /** @internal Query boundary for upstream Explore; the caller never closes this handle. */
+  getExploreQueryConnection(): import('./db/sqlite-adapter').SqliteDatabase {
+    return this.db.getDb();
+  }
+
   private queries: QueryBuilder;
   private projectRoot: string;
   private orchestrator: ExtractionOrchestrator;

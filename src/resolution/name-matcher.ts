@@ -8,6 +8,9 @@ import { Node } from '../types';
 import { UnresolvedRef, ResolvedRef, ResolutionContext } from './types';
 import { canonicalFilePath } from '../utils';
 import { splitNameWords } from './text-cache';
+import { stripCommentsForRegex } from './strip-comments';
+import { resolveImportPath } from './import-resolver';
+import * as path from 'node:path';
 import { hasSimpleCppLocalReceiver } from './cpp-local-receiver';
 import { cppDeclaratorRegex as buildDeclaratorRegex, lastDeclarationBefore } from './cpp-receiver-index';
 
@@ -902,6 +905,158 @@ function inferJavaFieldReceiverType(
   return lastPart;
 }
 
+
+
+/** Go strings, runes and raw struct tags cannot supply type declarations.
+ * Preserve newlines so source positions remain comparable with indexed ranges. */
+function goTypeEvidenceCode(source: string): string {
+  const code = stripCommentsForRegex(source, 'go');
+  const out = code.split('');
+  for (let i = 0; i < code.length; i++) {
+    const quote = code[i];
+    if (quote !== '"' && quote !== "'" && quote !== String.fromCharCode(96)) continue;
+    const start = i++;
+    for (; i < code.length; i++) {
+      if (quote !== String.fromCharCode(96) && code[i] === '\\') { i++; continue; }
+      if (code[i] === quote) break;
+    }
+    for (let j = start; j <= i && j < out.length; j++) {
+      if (out[j] !== '\n' && out[j] !== '\r') out[j] = ' ';
+    }
+  }
+  return out.join('');
+}
+
+/** The Go subset of upstream v1.6.2's source-based local receiver inference.
+ * Keep the bounded enclosing-function scan and the three upstream declaration
+ * shapes; leave every existing C/C++ receiver path untouched. */
+function inferGoLocalReceiverType(receiver: string, ref: UnresolvedRef, context: ResolutionContext): string | null {
+  if (!/^[A-Za-z_]\w*$/.test(receiver)) return null;
+  const scope = context.getNodesInFile(ref.filePath)
+    .filter(n => n.language === 'go' && (n.kind === 'function' || n.kind === 'method')
+      && n.startLine <= ref.line && n.endLine >= ref.line)
+    .sort((a, b) => b.startLine - a.startLine)[0];
+  if (!scope) return null;
+  const lines = context.getFileLines?.(ref.filePath) ?? context.readFile(ref.filePath)?.split(/\r?\n/);
+  if (!lines) return null;
+  const source = goTypeEvidenceCode(lines.slice(scope.startLine - 1, ref.line).join('\n'));
+  const r = receiver.replace(/[.*+?^$()|[\]\\]/g, '\\$&');
+  const patterns = [
+    new RegExp('\\b' + r + '\\b\\s*:=\\s*&?([A-Za-z_][\\w.]*)\\s*{'),
+    new RegExp('\\bvar\\s+' + r + '\\s+\\*?([A-Za-z_][\\w.]*)'),
+    new RegExp('\\b' + r + '[ \\t]+\\*?([A-Za-z_][\\w.]*)'),
+  ];
+  const bounded = source.split('\n');
+  const evidence = new Set<string>();
+  const binding = new RegExp('\\b' + r + '\\b\\s*(?::=|=(?!=))', 'g');
+  for (const line of bounded) {
+    if (line.length > 10_000) continue;
+    const known = patterns.flatMap(pattern => [...line.matchAll(new RegExp(pattern.source, 'g'))]);
+    for (const match of known) if (match[1]) evidence.add(match[1]);
+    // Inspect every binding on the line: an inner block can be written on the
+    // same line as its enclosing function, and unknown assignments are opaque.
+    for (const match of line.matchAll(binding)) {
+      if (!known.some(k => k.index! <= match.index! && k.index! + k[0].length >= match.index! + match[0].length)) return null;
+    }
+  }
+  return evidence.size === 1 ? [...evidence][0]! : null;
+}
+
+
+/** Go type names are package-scoped. Preserve the imported package instead of
+ * dropping its qualifier and selecting a same-named type in another package. */
+function goDeclaredType(raw: string, file: string, context: ResolutionContext): { name: string; directory: string } | null {
+  const parts = raw.split('.');
+  const name = parts.at(-1)!;
+  if (parts.length === 1) return { name, directory: path.posix.dirname(file.replace(/\\/g, '/')) };
+  if (parts.length !== 2) return null;
+  const mod = context.getGoModule?.();
+  const imp = context.getImportMappings(file, 'go').find(i => i.localName === parts[0]);
+  if (!mod || !imp || !(imp.source === mod.modulePath || imp.source.startsWith(mod.modulePath + '/'))) return null;
+  const suffix = imp.source.slice(mod.modulePath.length).replace(/^\//, '');
+  const directory = path.relative(context.getProjectRoot(), path.resolve(mod.rootDir, suffix)).replace(/\\/g, '/') || '.';
+  return { name, directory };
+}
+
+/** Go builtin/primitive field types that can never carry a project method. */
+const GO_BUILTIN_FIELD_TYPES = new Set([
+  'string', 'bool', 'byte', 'rune', 'error', 'any',
+  'int', 'int8', 'int16', 'int32', 'int64',
+  'uint', 'uint8', 'uint16', 'uint32', 'uint64', 'uintptr',
+  'float32', 'float64', 'complex64', 'complex128',
+  'chan', 'map', 'func', 'struct', 'interface',
+]);
+
+/**
+ * Resolve a Go 2-hop field-chain call `base.field.Method(...)` (#1276):
+ * `target.conn.Exec("insert")` where `func (target *Target) Write()` and
+ * `type Target struct { conn *sql.DB }`. Two inference hops, both read from
+ * source the same way #1108 does:
+ *   1. `base`'s type from the enclosing scope (method receiver, typed
+ *      parameter, or local declaration) via inferLocalReceiverType;
+ *   2. `field`'s declared type from the struct's own declaration lines.
+ * The method is then resolved AND VALIDATED on the field's type. A field
+ * whose type has no project node (`sql.DB`, any external dependency) yields
+ * null — the caller treats this branch as exclusive for chained Go
+ * receivers, so the ref stays unresolved instead of name-guessing.
+ */
+function matchGoFieldChainCall(
+  receiverChain: string,
+  methodName: string,
+  ref: UnresolvedRef,
+  context: ResolutionContext
+): ResolvedRef | null {
+  const segs = receiverChain.split('.');
+  if (segs.length !== 2 || !segs[0] || !segs[1]) return null;
+  const [base, field] = segs;
+
+  const baseType = inferGoLocalReceiverType(base!, ref, context);
+  if (!baseType) return null;
+
+  const fieldEsc = field!.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const fieldTypeRe = new RegExp(`\\b${fieldEsc}\\s+\\*?\\[?\\]?([A-Za-z_][\\w.]*)`);
+
+  const baseDeclaration = goDeclaredType(baseType, ref.filePath, context);
+  if (!baseDeclaration) return null;
+  const structs = context.getNodesByName(baseDeclaration.name).filter(
+    n => (n.kind === 'struct' || n.kind === 'class') && n.language === 'go'
+      && path.posix.dirname(n.filePath.replace(/\\/g, '/')) === baseDeclaration.directory
+  );
+  // Duplicate declarations (for example alternative build tags) need evidence;
+  // neither file order nor a same-name fallback can choose safely.
+  if (structs.length !== 1) return null;
+  for (const s of structs) {
+    const source = context.readFile(s.filePath);
+    if (!source) continue;
+    // Only the struct's own declaration lines — a same-named identifier
+    // elsewhere in the file can't donate a type. Matched LINE BY LINE with
+    // comments stripped: chi's `Mux` has a doc comment reading "the tree
+    // router" right above `tree *node`, and a whole-block match captured
+    // `router` from the prose instead of `node` from the field.
+    const declarationSource = source.split('\n').slice(Math.max(0, s.startLine - 1), s.endLine).join('\n');
+    const declLines = goTypeEvidenceCode(declarationSource).split('\n');
+    for (const rawLine of declLines) {
+      const line = rawLine.replace(/\/\/.*$/, '').replace(/\/\*.*?\*\//g, '');
+      const m = line.match(fieldTypeRe);
+      if (!m || !m[1]) continue;
+      const rawType = m[1];
+      const declaration = goDeclaredType(rawType, s.filePath, context);
+      if (!declaration || GO_BUILTIN_FIELD_TYPES.has(declaration.name)) continue;
+      const want = declaration.name + '::' + methodName;
+      const methods = context.getNodesByName(methodName).filter(n =>
+        n.language === 'go' && n.kind === 'method'
+        && (n.qualifiedName === want || n.qualifiedName.endsWith('::' + want))
+        && path.posix.dirname(n.filePath.replace(/\\/g, '/')) === declaration.directory);
+      if (methods.length === 1) {
+        return { original: ref, targetNodeId: methods[0]!.id, confidence: 0.85, resolvedBy: 'instance-method' };
+      }
+      // Known field/package but absent or ambiguous target: keep it unresolved.
+      return null;
+    }
+  }
+  return null;
+}
+
 /**
  * Try to resolve by method name on a class/object
  */
@@ -1278,6 +1433,190 @@ export function matchFuzzy(
   return null;
 }
 
+
+const TS_JS_FIELD_LANGUAGES = new Set(['typescript', 'tsx', 'javascript', 'jsx']);
+
+/** Strings cannot prove a field declaration. Keep offsets/newlines for indexed ranges. */
+function tsFieldEvidenceCode(source: string): string {
+  const text = stripCommentsForRegex(source, 'typescript');
+  const out = text.split('');
+  for (let i = 0; i < text.length; i++) {
+    const quote = text[i];
+    if (quote !== "'" && quote !== '"' && quote !== String.fromCharCode(96)) continue;
+    const start = i++;
+    while (i < text.length) {
+      if (text[i] === '\\') { i += 2; continue; }
+      if (text[i++] === quote) break;
+    }
+    for (let j = start; j < i && j < out.length; j++) {
+      if (out[j] !== '\n' && out[j] !== '\r') out[j] = ' ';
+    }
+    i--;
+  }
+  return out.join('');
+}
+
+function tsIndexedSource(node: Node, lines: readonly string[]): string {
+  const selected = lines.slice(node.startLine - 1, node.endLine);
+  if (!selected.length) return '';
+  const last = selected.length - 1;
+  selected[last] = selected[last]!.slice(0, node.endColumn);
+  selected[0] = selected[0]!.slice(node.startColumn);
+  return selected.join('\n');
+}
+
+/** Top-level separators only: generic arguments and defaults may contain commas. */
+function tsFieldParameters(parameters: string): string[] {
+  const parts: string[] = [];
+  let start = 0, depth = 0;
+  for (let i = 0; i < parameters.length; i++) {
+    const c = parameters[i]!;
+    if ('([{<'.includes(c)) depth++;
+    else if (')]}'.includes(c) || (c === '>' && parameters[i - 1] !== '=')) depth--;
+    else if (c === ',' && depth === 0) { parts.push(parameters.slice(start, i)); start = i + 1; }
+  }
+  parts.push(parameters.slice(start));
+  return parts;
+}
+
+/** A union, array, function type or value-level expression does not name one receiver type. */
+function tsSingleFieldType(raw: string): string | null {
+  const value = raw.trim().replace(/^readonly\s+/, '');
+  const match = /^([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*)(?:\s*<[\s\S]*>)?$/.exec(value);
+  if (!match || /^(?:any|unknown|never|void|string|number|boolean|object|null|undefined|bigint|symbol|this)$/.test(match[1]!)) return null;
+  return match[1]!;
+}
+
+/** Read only actual class property nodes or constructor parameter properties;
+ * a same-named local object/member inside a method is not this.field's type.
+ * This is the declaration-evidence boundary behind upstream #1496. */
+function tsThisFieldType(cls: Node, field: string, context: ResolutionContext): string | null {
+  const source = context.readFile(cls.filePath);
+  if (!source) return null;
+  const lines = tsFieldEvidenceCode(source).split('\n');
+  const prefix = cls.qualifiedName + '::';
+  const members = context.getNodesInFile(cls.filePath).filter(n =>
+    n.qualifiedName.startsWith(prefix) && n.qualifiedName.slice(prefix.length).indexOf('::') === -1);
+  const properties = members.filter(n => n.kind === 'property' && n.name === field);
+  const constructors = members.filter(n => n.kind === 'method' && n.name === 'constructor');
+  const declared: Array<string | null> = [];
+  for (const property of properties) {
+    const signature = property.signature?.trim();
+    if (signature && signature.endsWith(' ' + field)) {
+      declared.push(tsSingleFieldType(signature.slice(0, -field.length).trim()));
+    }
+  }
+  const constructorBodies: string[] = [];
+  for (const constructor of constructors) {
+    const code = tsIndexedSource(constructor, lines);
+    const opening = /\bconstructor\s*\(/.exec(code);
+    if (!opening) continue;
+    const start = opening.index + opening[0].length;
+    let depth = 1, end = start;
+    for (; end < code.length && depth > 0; end++) {
+      if (code[end] === '(') depth++;
+      else if (code[end] === ')') depth--;
+    }
+    if (depth !== 0) continue;
+    for (const parameter of tsFieldParameters(code.slice(start, end - 1))) {
+      const match = /^\s*(?:(?:public|private|protected|readonly|override)\s+)+([A-Za-z_$][\w$]*)[?!]?\s*:\s*([\s\S]+)$/.exec(parameter);
+      if (match?.[1] === field) declared.push(tsSingleFieldType(match[2]!.split('=')[0]!));
+    }
+    constructorBodies.push(code.slice(end));
+  }
+  if (declared.length) {
+    const types = new Set(declared);
+    return !types.has(null) && types.size === 1 ? [...types][0]! : null;
+  }
+
+  // JS/unannotated TS: require an explicit new initializer, not a guessed
+  // factory return type. Conflicting or opaque assignments stay unresolved.
+  const escaped = field.replace(/[.*+?^$()|[\]{}\\]/g, '\\$&');
+  const initialized: Array<string | null> = [];
+  const initializerType = (text: string): string | null => {
+    const match = /^\s*new\s+([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*)(?:\s*<[^;=]*>)?\s*\(/.exec(text);
+    return match?.[1] ?? null;
+  };
+  for (const property of properties) {
+    const code = tsIndexedSource(property, lines);
+    const match = new RegExp('^(?:(?:public|private|protected|readonly|static|declare|override)\\s+)*' + escaped + '\\s*[?!]?\\s*=\\s*([\\s\\S]*)$').exec(code.trim());
+    if (match) initialized.push(initializerType(match[1]!));
+  }
+  for (const body of constructorBodies) {
+    const pattern = new RegExp('\\bthis\\s*\\.\\s*' + escaped + '\\s*=\\s*', 'g');
+    for (const match of body.matchAll(pattern)) initialized.push(initializerType(body.slice(match.index! + match[0].length)));
+  }
+  const types = new Set(initialized);
+  return !types.has(null) && types.size === 1 ? [...types][0]! : null;
+}
+
+function matchTsThisFieldCall(
+  field: string,
+  method: string,
+  ref: UnresolvedRef,
+  context: ResolutionContext,
+): ResolvedRef | null {
+  const caller = context.getNodesInFile(ref.filePath).find(n => n.id === ref.fromNodeId);
+  if (!caller) return null;
+  const sep = caller.qualifiedName.lastIndexOf('::');
+  if (sep <= 0) return null;
+  const ownerName = caller.qualifiedName.slice(0, sep);
+  const owners = context.getNodesInFile(ref.filePath).filter(n =>
+    (n.kind === 'class' || n.kind === 'component') && n.qualifiedName === ownerName &&
+    sameLanguageFamily(n.language, ref.language) && n.startLine <= ref.line && n.endLine >= ref.line);
+  if (owners.length !== 1) return null;
+  const type = tsThisFieldType(owners[0]!, field, context);
+  if (!type) return null;
+
+  // Validate each target against its declared owner. Ambiguous types/methods
+  // cannot fall back to the nearby wrapper or another same-named method.
+  const visit = (typeName: string, sourceFile: string, depth: number, seen: Set<string>): Node | null => {
+    if (depth > 4 || seen.has(typeName)) return null;
+    seen.add(typeName);
+    const parts = typeName.split('.');
+    const leaf = parts.at(-1)!;
+    const bindings = context.getImportMappings(sourceFile, ref.language).filter(i => i.localName === parts[0]);
+    if (bindings.length > 1) return null;
+    const binding = bindings[0];
+    const bindingPath = binding
+      ? binding.resolvedPath ?? resolveImportPath(binding.source, sourceFile, ref.language, context)
+      : null;
+    if (binding && !bindingPath) return null; // an external/unknown module is not a local namesake
+    const targetName = binding && parts.length === 1 && !binding.isDefault ? binding.exportedName : leaf;
+    let types = binding?.isDefault && parts.length === 1
+      ? context.getNodesInFile(bindingPath!).filter(n => n.isExported)
+      : context.getNodesByName(targetName);
+    types = types.filter(n =>
+      (n.kind === 'class' || n.kind === 'interface' || n.kind === 'component') &&
+      sameLanguageFamily(n.language, ref.language));
+    if (binding) {
+      if (parts.length > 1 && !binding.isNamespace) return null;
+      types = types.filter(n => n.filePath === bindingPath);
+    } else if (parts.length > 1) {
+      const qualified = parts.join('::');
+      types = types.filter(n => n.filePath === sourceFile &&
+        (n.qualifiedName === qualified || n.qualifiedName.endsWith('::' + qualified)));
+    } else {
+      // Without an import binding, only a declaration in this file proves
+      // the receiver type; a project-wide namesake may be another module.
+      types = types.filter(n => n.filePath === sourceFile);
+    }
+    if (types.length !== 1) return null;
+    const owner = types[0]!;
+    const matches = context.getNodesByName(method).filter(n =>
+      n.kind === 'method' && n.filePath === owner.filePath &&
+      n.qualifiedName === owner.qualifiedName + '::' + method &&
+      sameLanguageFamily(n.language, ref.language));
+    if (matches.length) return matches.length === 1 ? matches[0]! : null;
+    const inherited = (context.getSupertypes?.(leaf, owner.language) ?? [])
+      .map(base => visit(base, owner.filePath, depth + 1, new Set(seen))).filter((n): n is Node => !!n);
+    const unique = new Map(inherited.map(n => [n.id, n]));
+    return unique.size === 1 ? [...unique.values()][0]! : null;
+  };
+  const target = visit(type, ref.filePath, 0, new Set());
+  return target ? { original: ref, targetNodeId: target.id, confidence: 0.85, resolvedBy: 'instance-method' } : null;
+}
+
 /**
  * Match all strategies in order of confidence
  */
@@ -1304,6 +1643,21 @@ export function matchReference(
     result = matchByExactName(ref, context);
     if (result) return result;
     return matchFuzzy(ref, context);
+  }
+
+  // Explicit TS/JS field receivers are authoritative, like the Go field
+  // chain below. Unknown/external/ambiguous fields must remain unresolved.
+  if (TS_JS_FIELD_LANGUAGES.has(ref.language) && ref.referenceKind === 'calls') {
+    const fieldCall = /^this\.(#?[A-Za-z_$][\w$]*)\.([A-Za-z_$][\w$]*)$/.exec(ref.referenceName);
+    if (fieldCall) return matchTsThisFieldCall(fieldCall[1]!, fieldCall[2]!, ref, context);
+  }
+
+  // Go field chains are authoritative receiver evidence. If the field type
+  // is unknown/external, do not let a later fuzzy/name-only strategy fabricate
+  // an edge to an unrelated same-named local method (upstream #1276).
+  if (ref.language === 'go' && ref.referenceKind === 'calls') {
+    const chain = /^([A-Za-z_]\w*\.[A-Za-z_]\w*)\.([A-Za-z_]\w*)$/.exec(ref.referenceName);
+    if (chain) return matchGoFieldChainCall(chain[1]!, chain[2]!, ref, context);
   }
 
   // 0. File path match (e.g., "snippets/drawer-menu.liquid" → file node)

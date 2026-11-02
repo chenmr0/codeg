@@ -9,11 +9,19 @@ and adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### New Features
+
+- Explore 对齐社区的自然语言与中英混合查询、命名符号调用链、动态边界说明、超大函数选区和未索引名称提示，并保留 C++ 声明定义及签名证据增强。
+
+
 ### Breaking Changes
 
 - 默认索引 C/C++、Objective-C/Objective-C++、Python 和 Lua，可通过 `CODEGRAPH_ALL_LANGUAGES=1` 恢复全部语言支持；切换范围后的首次索引或同步会重建图谱，之后继续增量更新。
 
 ### Fixes
+
+- Explore 可在后台同步与数据库发布期间使用固定的只读视图，跨请求刷新查询缓存，同时支持仅拷贝数据库后的临时检索词表构建。
+
 
 - 大量旧文件索引清理采用有界小批次事务，减少重复提交和 WAL 增长；批次按文件数、节点/关系/引用工作量及存储文本预算准入，重文件和接近 WAL 上限时回退单文件。保留提交后停写检查与原子恢复记录，不提高默认 512 MiB 写入边界上限。
 
