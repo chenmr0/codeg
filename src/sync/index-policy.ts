@@ -4,11 +4,11 @@ import * as path from 'path';
 import * as crypto from 'crypto';
 import { loadWorkspacePackages } from '../resolution/workspace-packages';
 
-// v1 could acknowledge an unverified legacy graph without re-extraction. A new
-// key deliberately invalidates every v1 baseline once, including already-poisoned
-// databases that are indistinguishable from healthy ones. Only complete indexing
-// or synchronization may stamp v2; the existing pending key survives interruptions.
-export const SEMANTIC_CONFIG_KEY = 'index:semantic-config-v2';
+// The published 1765271 release has neither a semantic nor a broad fingerprint.
+// Establish this baseline only after a complete refresh. Keep the existing key:
+// later development commits were never released, so healthy v1 indexes do not
+// need an unconditional v2 migration for their development-only predecessor bug.
+export const SEMANTIC_CONFIG_KEY = 'index:semantic-config-v1';
 export const SEMANTIC_REINDEX_PENDING = 'index:semantic-reindex-pending-v1';
 
 /** Inputs consumed by extraction/resolution, not inventory-only controls such as ignores/CMake. */
@@ -45,7 +45,7 @@ export function requiresSemanticReindex(indexedSemantic: string | null, currentS
   _indexedConfig: string | null, _currentConfig: string, upgradeRequired: boolean, pending = false): boolean {
   if (upgradeRequired || pending) return true;
   if (indexedSemantic !== null) return indexedSemantic !== currentSemantic;
-  // Neither a missing legacy baseline nor an equal broad/v1 fingerprint proves
+  // Neither a missing semantic baseline nor an equal broad fingerprint proves
   // that stored references were resolved with the current semantic configuration.
   // Re-extract once; the cost planner remains free to choose incremental/rebuild.
   return true;
