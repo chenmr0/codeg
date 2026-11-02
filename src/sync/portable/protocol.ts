@@ -47,6 +47,7 @@ interface Journal extends PortableCandidate {
   phase: "building" | "prepared" | "replacing" | "committed";
   oldHash?: string;
   newHash?: string;
+  importValidationHash?: string;
 }
 export interface PortablePublishOptions {
   timeoutMs?: number;
@@ -124,8 +125,33 @@ function seal(file: string, check = true): void {
     if (db.prepare("PRAGMA wal_checkpoint(TRUNCATE)").get()?.busy > 0)
       throw new PortableBusyError("SQLite checkpoint is blocked");
     db.exec("PRAGMA journal_mode=DELETE");
-    if (check && db.prepare("PRAGMA quick_check").get()?.quick_check !== "ok")
-      throw new Error("Candidate integrity check failed");
+    if (check) {
+      if (db.prepare("PRAGMA quick_check").get()?.quick_check !== "ok")
+        throw new Error("Candidate integrity check failed");
+    } else {
+      // Retain the lightweight schema-open check formerly done after rename,
+      // but perform it while the database is private and still in DELETE mode.
+      db.prepare("SELECT count(*) FROM sqlite_master").get();
+    }
+  } finally {
+    db.close();
+  }
+  noSidecars(file);
+  flush(file);
+}
+/** A sealed private database has no live connections or sidecars. Persist WAL
+ * in its header before hashing/renaming, rather than making an admitted reader
+ * compete with a later DELETE->WAL transition. Filesystems that cannot support
+ * WAL may retain the usable DELETE mode; never assume the pragma succeeded. */
+function prepareSealedForPublication(file: string): void {
+  const db = open(file);
+  try {
+    // An unchanged DELETE result is a supported fallback. An exception cannot
+    // prove WAL is unavailable rather than busy or an I/O failure: propagate.
+    db.exec("PRAGMA journal_mode=WAL");
+    const mode = String(db.prepare("PRAGMA journal_mode").get()?.journal_mode).toLowerCase();
+    if (mode !== "wal" && mode !== "delete")
+      throw new Error(`Unexpected sealed database journal mode: ${mode}`);
   } finally {
     db.close();
   }
@@ -282,8 +308,14 @@ export class PortableCoordinator {
         );
       // An interrupted transition may leave a complete DELETE-mode gate. The
       // data is already safe; retrying this conversion cannot reset any state.
-      if (gate.prepare("PRAGMA journal_mode").get()?.journal_mode !== "wal")
+      if (gate.prepare("PRAGMA journal_mode").get()?.journal_mode !== "wal") {
+        // As with data files, accept an unchanged DELETE result but never
+        // classify a SQLite exception as evidence that WAL is unsupported.
         gate.exec("PRAGMA journal_mode=WAL");
+      }
+      const gateMode = gate.prepare("PRAGMA journal_mode").get()?.journal_mode;
+      if (gateMode !== "wal" && gateMode !== "delete")
+        throw new Error(`Unexpected portable coordination journal mode: ${gateMode}`);
     } catch (error) {
       if (busy(error))
         throw new PortableBusyError("Portable coordination bootstrap is busy");
@@ -539,8 +571,42 @@ export class PortableCoordinator {
         return;
       }
       fence = this.lock(this.readers, true);
-      for (const file of [this.active, record.path, record.backup])
+      if (!record.oldHash || !record.newHash)
+        throw new Error("Missing recovery identities");
+      for (const file of [this.active, record.path, record.backup]) {
+        const sidecars = ["-wal", "-shm", "-journal"].filter(suffix =>
+          regular(file + suffix, true));
+        if (!sidecars.length) continue;
+        // A read-only verification of a WAL database can leave an empty WAL
+        // and SHM behind on exit/crash. Only this proven non-writing case may
+        // be normalized. A nonempty WAL (including an imported transaction),
+        // hot journal, unknown identity, or linked artifact stays untouched.
+        const identity = digest(file);
+        const validatingImport = file === this.active && identity !== null &&
+          identity === record.importValidationHash;
+        if ((identity !== record.oldHash && identity !== record.newHash && !validatingImport) ||
+            sidecars.includes("-journal") || !sidecars.includes("-wal") ||
+            fs.statSync(file + "-wal").size !== 0)
+          throw new Error("Unproven SQLite sidecars retained during recovery");
+        for (const artifact of [file, ...sidecars.map(suffix => file + suffix)]) {
+          regular(artifact);
+          if (fs.lstatSync(artifact).nlink !== 1)
+            throw new Error("Linked SQLite recovery artifact retained");
+        }
+        // SQLite, not unlink(), owns cleanup. Preserve WAL mode and the exact
+        // main-file identity. On Windows sharing violations or another crash,
+        // the durable replacing record remains available for a later retry.
+        const db = open(file);
+        try {
+          if (db.prepare("PRAGMA wal_checkpoint(TRUNCATE)").get()?.busy > 0)
+            throw new PortableBusyError("Recovery checkpoint is blocked");
+        } finally {
+          db.close();
+        }
         noSidecars(file);
+        if (digest(file) !== identity)
+          throw new Error("Database identity changed during sidecar recovery");
+      }
       const active = digest(this.active),
         next = digest(record.path),
         old = digest(record.backup);
@@ -564,13 +630,20 @@ export class PortableCoordinator {
         old === record.oldHash &&
         next === null
       ) {
-        // A fully installed validated candidate is a safe roll-forward.
-        validate(this.active);
+        // A fully installed candidate already validated before hashing is a
+        // safe roll-forward. Do not reopen WAL read-only before committing:
+        // that would recreate sidecars and another crash-recovery obligation.
       } else if (
         active !== null &&
         active !== record.oldHash &&
         active !== record.newHash
       ) {
+        // Record this sidecar-free import before SQLite validation can create
+        // empty WAL/SHM. A crash during validation may then retry only for this
+        // exact main-file identity; a different import must establish its own
+        // intent, and unproven/nonempty sidecars remain untouched.
+        record.importValidationHash = active;
+        this.save("draining", this.snapshot().revision, record);
         validate(this.active);
         // Independent offline import wins. Keep evidence in its unique directory.
         this.save("idle", this.snapshot().revision + 1, null);
@@ -579,7 +652,6 @@ export class PortableCoordinator {
         throw new Error(
           "Ambiguous publication state; database evidence preserved",
         );
-      validate(this.active);
       this.deferCleanup(record, this.snapshot().revision + 1);
       fence.release();
       fence = null;
@@ -646,11 +718,7 @@ export class PortableCoordinator {
     // Preserve the normal active-database WAL default before it becomes
     // visible. Switching DELETE to WAL later would block on an admitted read
     // transaction, even though the baseline itself was safely sealed.
-    const db = open(stage.file);
-    try { db.exec("PRAGMA journal_mode=WAL"); }
-    finally { db.close(); }
-    noSidecars(stage.file);
-    flush(stage.file);
+    prepareSealedForPublication(stage.file);
     for (const suffix of ["", "-wal", "-shm", "-journal"])
       if (regular(this.active + suffix, true))
         throw new Error("Initial creation cannot replace an existing database or sidecar");
@@ -733,6 +801,7 @@ export class PortableCoordinator {
       throw new Error("Invalid publication timeout");
     options.signal?.throwIfAborted();
     seal(record.path, check);
+    prepareSealedForPublication(record.path);
     // Full checkpoint/hash stays outside the admission pause. Writer lease
     // prevents graph mutation; readers are allowed to continue using old data.
     const old = open(this.active);
@@ -792,12 +861,9 @@ export class PortableCoordinator {
       fs.renameSync(record.path, this.active);
       flushDirectory(this.dataDirectory);
       options.hook?.("new-moved");
-      const check = open(this.active, true);
-      try {
-        check.prepare("SELECT count(*) FROM sqlite_master").get();
-      } finally {
-        check.close();
-      }
+      // The sealed candidate was validated before hashing and renamed under
+      // both fences. Avoid reopening WAL read-only here: SQLite can create
+      // sidecars even for a SELECT, stranding replacing recovery after a crash.
       record.phase = "committed";
       this.save("idle", candidate.baselineRevision + 1, record);
       committed = true;
