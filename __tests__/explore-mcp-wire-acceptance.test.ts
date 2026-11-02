@@ -118,3 +118,22 @@ it.each(['explore', 'explore,node'])('makes the rendered follow-up executable ov
     expect(nodeSuggestion).toBeNull();
   }
 }, 90000);
+
+it('serves an explicitly named C++ enum value and field over the real MCP entry', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cg-explore-data-wire-')); roots.push(root);
+  fs.writeFileSync(path.join(root, 'metric.h'), 'enum Metrics { DTL_BLOCKING_TIME = 73191 };\nstruct ChannelOptions { int retry_count; };\n');
+  fs.writeFileSync(path.join(root, 'entry.cpp'), 'int channelEntry() { return 821; }\n');
+  const graph = CodeGraph.initSync(root);
+  try { await graph.indexAll(); } finally { graph.close(); await graph.whenIdle(); }
+  const rpc = client(root); await rpc.initialize();
+  const result = await rpc.request('tools/call', { name: 'explore', arguments: {
+    query: 'channelEntry DTL_BLOCKING_TIME ChannelOptions::retry_count', maxFiles: 4,
+  } });
+  expect(result.isError, JSON.stringify(result)).not.toBe(true);
+  const text = result.content.map((item: any) => item.text ?? '').join('\n');
+  expect(text).toContain('DTL_BLOCKING_TIME = 73191');
+  expect(text).toContain('int retry_count;');
+  expect(text).not.toContain('Not in the index');
+  expect(JSON.stringify(result)).not.toMatch(/_cgExploreEmission|_cgAnswerFiles|_cgExploreSession/);
+  expect(text.length).toBeLessThanOrEqual(25000);
+}, 30000);

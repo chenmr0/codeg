@@ -1774,6 +1774,16 @@ export function isIdentifierShapedToken(token: string): boolean {
     || /[A-Za-z_$][\w$]*(?:\.|::)[A-Za-z_$]/.test(token);
 }
 
+/** Bounded exact data anchors, not an expansion of ordinary prose or fuzzy search. */
+export function namedDataAnchors(token: string, nodes: readonly Node[]): Node[] {
+  if (!isIdentifierShapedToken(token) && !/^[A-Z][A-Z0-9]{2,}$/.test(token)) return [];
+  const matches = nodes.filter(n => (n.kind === 'enum_member' || n.kind === 'field')
+    && matchesSymbol(n, token));
+  // Never pick an arbitrary member of an ambiguous family. Qualifying the name
+  // narrows it before this cap, and the ordinary retrieval path is unchanged.
+  return matches.length <= 3 ? matches : [];
+}
+
 export function notInIndexNote(names: readonly string[], withResults: boolean): string {
   const one = names.length === 1;
   const list = names.map((n) => `\`${n}\``).join(', ');
@@ -1781,9 +1791,8 @@ export function notInIndexNote(names: readonly string[], withResults: boolean): 
     ? `, so the code below matches the query's other words, not ${one ? 'it' : 'them'}.`
     : '.';
   return `> **Not in the index:** ${list}. No indexed symbol, file, signature or comment uses ${one ? 'this name' : 'these names'}${effect}`
-    + ` If ${one ? 'it is' : 'they are'} defined in this project, the file${one ? '' : 's'} defining ${one ? 'it' : 'them'} ${one ? 'is' : 'are'} not indexed:`
-    + ` \`codegraph status\` shows what is. If ${one ? 'it lives' : 'they live'} in a folder skipped by default, like \`build/\` or \`dist/\`,`
-    + ' the user can include that folder by adding a re-include such as `!/build/` to `.gitignore`.';
+    + ' A missing metadata match does not prove the name is absent from source: the file may be unindexed, a macro or syntax may not have been extracted, or the index may be stale or incomplete.'
+    + ' Check `codegraph status` and the source before changing ignore rules.';
 }
 
 function isLowValue(p: string): boolean {
@@ -2177,6 +2186,7 @@ export class ToolHandler {
       if (target && !subgraph.nodes.has(target.id)) subgraph.nodes.set(target.id, target);
     }
     const namedSeedIds = new Set<string>();
+    const namedDataAnchorIds = new Set<string>();
     // The subset of named seeds that earns the named-FIRST sort tier. We still
     // SEED every ≤3-def name (so RWR / flow ranking is unchanged), but only the
     // most-substantive def is tiered — a bare name's unrelated namesakes (Go's
@@ -2283,6 +2293,12 @@ export class ToolHandler {
             }
           }
         }
+        // Native C/C++ can recover X-macro enum values and fields that the
+        // initial top-k context missed. Admit only explicitly spelled, exact,
+        // unambiguous data names; never turn a common word or a large family
+        // of same-named members into a flood of named-first files.
+        const dataAnchors = namedDataAnchors(t, raw.filter(n => !isTestPath(n.filePath)));
+        const dataIds = new Set(dataAnchors.map(n => n.id));
         let cands = raw
           .filter((n) => SEEDABLE.has(n.kind) && !isTestPath(n.filePath))
           .sort((a, b) => (bodyLines(b) > 1 ? 1 : 0) - (bodyLines(a) > 1 ? 1 : 0) || bodyLines(b) - bodyLines(a));
@@ -2296,7 +2312,7 @@ export class ToolHandler {
         // token at a hump boundary or as a prefix.
         // Exact-empty + camel-shaped only (bare words keep the NL-stopword
         // guard below), shortest-first, capped so a hot infix can't flood.
-        if (cands.length === 0 && !isQual && /[a-z][A-Z]/.test(t)) {
+        if (cands.length === 0 && dataAnchors.length === 0 && !isQual && /[a-z][A-Z]/.test(t)) {
           const lcToken = t.toLowerCase();
           cands = cg
             .getNodesByNameSubstring(t, {
@@ -2353,6 +2369,10 @@ export class ToolHandler {
           picks = ctx.length > 0 ? ctx.slice(0, 4) : cands.slice(0, 1);
           tierPicks = picks; // corroborated overloads (or the single fallback) all earn it
         }
+        // Data definitions have no caller-centrality contest with callables.
+        // Keep their tiny exact-name allowance independent of overload ranking.
+        picks = [...picks, ...dataAnchors];
+        tierPicks = [...tierPicks, ...dataAnchors];
         for (const n of picks) {
           if (!subgraph.nodes.has(n.id)) subgraph.nodes.set(n.id, n);
           // Mark as a named seed EVEN IF the FTS gather already had it — being
@@ -2361,11 +2381,12 @@ export class ToolHandler {
           // named-file sort below. (Previously only NEW injections were marked,
           // so a named symbol FTS already gathered never sorted to the top.)
           namedSeedIds.add(n.id);
+          if (dataIds.has(n.id)) namedDataAnchorIds.add(n.id);
           // A QUALIFIED name that resolved to a handful of defs is the agent
           // choosing one overload out of a family — `SQLCompiler.as_sql`, not
           // the 109 other `as_sql`s. The bare name keeps the family rules; the
           // qualified one is an exact target (see `exactNodeIds`).
-          if (isQual && cands.length <= 3 && CALLABLE.has(n.kind)) exactNodeIds.add(n.id);
+          if ((isQual && cands.length <= 3 && CALLABLE.has(n.kind)) || dataIds.has(n.id)) exactNodeIds.add(n.id);
         }
         // An interface's `method_signature` seeds (so RWR and the flow ranking
         // still see it, and a query that names it still reaches its file) but
@@ -2538,7 +2559,10 @@ export class ToolHandler {
         // Still in group.nodes for header/source association, but the paired
         // definition already owns this logical callable's relevance weight.
       } else if (namedSeedIds.has(node.id)) {
-        group.score += 50 * relevanceWeight(node, true);
+        // An exact, bounded data anchor is direct definition evidence even
+        // when the value has no recovered use edges. Kind/isolation weighting
+        // otherwise drops it at the score floor before named-first can help.
+        group.score += namedDataAnchorIds.has(node.id) ? 50 : 50 * relevanceWeight(node, true);
       } else if (entryNodeIds.has(node.id)) {
         group.score += 10 * relevanceWeight(node, true);
       } else if (connectedToEntry.has(node.id)) {

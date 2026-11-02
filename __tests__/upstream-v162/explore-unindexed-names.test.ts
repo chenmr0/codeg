@@ -144,8 +144,9 @@ describe('#2462 — explore says which named symbols are not in the index', () =
     // Above the source, where it is read first.
     expect(text.indexOf('**Not in the index:**')).toBeLessThan(text.indexOf('**`src/Agent/Program.cs`**'));
     // Where to look, never "Read"; including a skipped folder is the user's call.
-    expect(text).toContain('`codegraph status` shows what is.');
-    expect(text).toContain('the user can include that folder by adding a re-include such as `!/build/` to `.gitignore`.');
+    expect(text).toContain('Check `codegraph status` and the source');
+    expect(text).toContain('a macro or syntax may not have been extracted');
+    expect(text).not.toContain('defining them are not indexed');
     expect(text).not.toMatch(/\bRead (?:the|these|those|it)\b/);
   });
 
