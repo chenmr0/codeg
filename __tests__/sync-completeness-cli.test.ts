@@ -4,6 +4,8 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import CodeGraph from '../src/index';
+const { DatabaseSync } = require('node:sqlite');
+import { getCodeGraphDir } from '../src/directory';
 
 const BIN = path.resolve(__dirname, '../dist/bin/codegraph.js');
 const directories: string[] = [];
@@ -28,9 +30,15 @@ const status = (dir: string) => {
   const line = output.split('\n').find(value => value.startsWith('{'))!;
   return JSON.parse(line).index;
 };
-const edges = (cg: CodeGraph) => (cg as any).db.getDb().prepare(`
+// Portable facades deliberately do not expose a raw connection. Test-only SQL
+// opens the fixed database only after all graph owners have been closed.
+const withDatabase = <T>(directory: string, action: (db: DatabaseSync) => T): T => {
+  const db = new DatabaseSync(path.join(getCodeGraphDir(directory), 'codegraph.db'));
+  try { return action(db); } finally { db.close(); }
+};
+const edges = (directory: string) => withDatabase(directory, db => db.prepare(`
   SELECT source,target,kind,line,col,metadata,provenance FROM edges
-  ORDER BY source,target,kind,line,col,metadata,provenance`).all();
+  ORDER BY source,target,kind,line,col,metadata,provenance`).all());
 
 afterEach(() => { for (const dir of directories.splice(0)) fs.rmSync(dir, { recursive: true, force: true }); });
 
@@ -47,12 +55,12 @@ describe('built CLI sync completeness with actual parse workers', () => {
     expect(status(directory).completeness).toBe('complete');
 
     const before = await CodeGraph.open(directory);
-    try {
-      const caller = before.getNodesByName('caller')[0]!;
-      (before as any).db.getDb().prepare(`INSERT INTO unresolved_refs
-        (from_node_id,reference_name,reference_kind,line,col,file_path,language,status,name_tail)
-        VALUES (?, 'missing', 'calls', 99, 0, 'caller.c', 'c', 'pending', 'missing')`).run(caller.id);
-    } finally { before.close(); }
+    let callerId: string;
+    try { callerId = before.getNodesByName('caller')[0]!.id; }
+    finally { before.close(); await before.whenIdle(); }
+    withDatabase(directory, db => db.prepare(`INSERT INTO unresolved_refs
+      (from_node_id,reference_name,reference_kind,line,col,file_path,language,status,name_tail)
+      VALUES (?, 'missing', 'calls', 99, 0, 'caller.c', 'c', 'pending', 'missing')`).run(callerId));
     files['api.c'] += '\n/* current source revision */\n';
     fs.writeFileSync(path.join(directory, 'api.c'), files['api.c']);
 
@@ -72,13 +80,10 @@ describe('built CLI sync completeness with actual parse workers', () => {
     const freshDirectory = createDirectory();
     for (const [file, content] of Object.entries(files)) fs.writeFileSync(path.join(freshDirectory, file), content);
     run(freshDirectory, ['init']);
-    const current = await CodeGraph.open(directory);
-    const fresh = await CodeGraph.open(freshDirectory);
-    try {
-      expect(edges(current)).toEqual(edges(fresh));
-      const queries = (current as any).queries;
-      expect(queries.getMetadata('index_synthesis_pending')).toBeNull();
-      expect(queries.getMetadataByPrefix('sync-retry:pending:')).toHaveLength(0);
-    } finally { current.close(); fresh.close(); }
+    expect(edges(directory)).toEqual(edges(freshDirectory));
+    withDatabase(directory, db => {
+      expect(db.prepare("SELECT value FROM project_metadata WHERE key='index_synthesis_pending'").get()).toBeUndefined();
+      expect(db.prepare("SELECT key FROM project_metadata WHERE key LIKE 'sync-retry:pending:%'").all()).toHaveLength(0);
+    });
   }, 60000);
 });

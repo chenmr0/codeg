@@ -43,6 +43,7 @@ import {
 } from '../extraction/diagnostics';
 import { buildNodeView } from '../cli/node-view';
 import { formatQueryLocation } from '../cli/query-output';
+import { openQueryGraph, isQueryProject } from '../cli/query-graph';
 import {
   formatDefinitionLocation,
   formatRelationshipSites,
@@ -140,13 +141,15 @@ if (process.argv.length === 2) {
 
 process.on('uncaughtException', (error) => {
   console.error('[CodeGraph] Uncaught exception:', error);
+  process.exitCode = 1;
 });
 
 process.on('unhandledRejection', (reason) => {
   console.error('[CodeGraph] Unhandled rejection:', reason);
+  process.exitCode = 1;
 });
 
-function main() {
+async function main(): Promise<void> {
 
 const program = new Command();
 
@@ -202,7 +205,7 @@ function resolveProjectPath(pathArg?: string): string {
   const absolutePath = path.resolve(pathArg || process.cwd());
 
   // If exact path is initialized (has codegraph.db), use it
-  if (isInitialized(absolutePath)) {
+  if (isQueryProject(absolutePath)) {
     return absolutePath;
   }
 
@@ -216,7 +219,7 @@ function resolveProjectPath(pathArg?: string): string {
     if (parent === current) break;
     current = parent;
 
-    if (isInitialized(current)) {
+    if (isQueryProject(current)) {
       return current;
     }
   }
@@ -910,7 +913,7 @@ program
     const worktreeMismatch = detectWorktreeIndexMismatch(startPath, projectPath);
 
     try {
-      if (!isInitialized(projectPath)) {
+      if (!isQueryProject(projectPath)) {
         if (options.json) {
           console.log(JSON.stringify({
             initialized: false,
@@ -929,7 +932,7 @@ program
       }
 
       const { default: CodeGraph } = await loadCodeGraph();
-      const cg = await CodeGraph.open(projectPath);
+      const cg = await openQueryGraph(CodeGraph, projectPath);
       const stats = cg.getStats();
       const changes = cg.getChangedFiles();
       const backend = cg.getBackend();
@@ -1100,13 +1103,13 @@ program
     const projectPath = resolveProjectPath(options.path);
 
     try {
-      if (!isInitialized(projectPath)) {
+      if (!isQueryProject(projectPath)) {
         error(`CodeGraph not initialized in ${projectPath}`);
         process.exit(1);
       }
 
       const { default: CodeGraph } = await loadCodeGraph();
-      const cg = await CodeGraph.open(projectPath);
+      const cg = await openQueryGraph(CodeGraph, projectPath);
 
       const limit = parseInt(options.limit || '10', 10);
       const pathHint = options.pathHint?.trim() || undefined;
@@ -1196,13 +1199,13 @@ program
     const projectPath = resolveProjectPath(options.path);
 
     try {
-      if (!isInitialized(projectPath)) {
+      if (!isQueryProject(projectPath)) {
         error(`CodeGraph not initialized in ${projectPath}`);
         process.exit(1);
       }
 
       const { default: CodeGraph } = await loadCodeGraph();
-      const cg = await CodeGraph.open(projectPath);
+      const cg = await openQueryGraph(CodeGraph, projectPath);
       let files = cg.getFiles();
 
       if (files.length === 0) {
@@ -1446,7 +1449,7 @@ program
     const projectPath = resolveProjectPath(pathArg);
 
     try {
-      if (!isInitialized(projectPath)) {
+      if (!isQueryProject(projectPath)) {
         error(`CodeGraph not initialized in ${projectPath}`);
         return;
       }
@@ -1482,13 +1485,13 @@ program
     const projectPath = resolveProjectPath(options.path);
 
     try {
-      if (!isInitialized(projectPath)) {
+      if (!isQueryProject(projectPath)) {
         error(`CodeGraph not initialized in ${projectPath}`);
         process.exit(1);
       }
 
       const { default: CodeGraph } = await loadCodeGraph();
-      const cg = await CodeGraph.open(projectPath);
+      const cg = await openQueryGraph(CodeGraph, projectPath);
       const limit = parseInt(options.limit || '20', 10);
 
       // exact: the argument IS a precise symbol name. The non-exact path goes
@@ -1556,13 +1559,13 @@ program
     const projectPath = resolveProjectPath(options.path);
 
     try {
-      if (!isInitialized(projectPath)) {
+      if (!isQueryProject(projectPath)) {
         error(`CodeGraph not initialized in ${projectPath}`);
         process.exit(1);
       }
 
       const { default: CodeGraph } = await loadCodeGraph();
-      const cg = await CodeGraph.open(projectPath);
+      const cg = await openQueryGraph(CodeGraph, projectPath);
       const limit = parseInt(options.limit || '20', 10);
 
       // exact: see callers — the argument IS a precise symbol name.
@@ -1626,13 +1629,13 @@ program
     const projectPath = resolveProjectPath(options.path);
 
     try {
-      if (!isInitialized(projectPath)) {
+      if (!isQueryProject(projectPath)) {
         error(`CodeGraph not initialized in ${projectPath}`);
         process.exit(1);
       }
 
       const { default: CodeGraph } = await loadCodeGraph();
-      const cg = await CodeGraph.open(projectPath);
+      const cg = await openQueryGraph(CodeGraph, projectPath);
       const depth = Math.min(Math.max(parseInt(options.depth || '2', 10), 1), 10);
 
       // exact: see callers — the argument IS a precise symbol name.
@@ -1752,14 +1755,14 @@ program
     const projectPath = resolveProjectPath(options.path);
 
     try {
-      if (!isInitialized(projectPath)) {
+      if (!isQueryProject(projectPath)) {
         error(`CodeGraph not initialized in ${projectPath}`);
         info('Run "codegraph init" first');
         process.exit(1);
       }
 
       const { default: CodeGraph } = await loadCodeGraph();
-      const cg = await CodeGraph.open(projectPath);
+      const cg = await openQueryGraph(CodeGraph, projectPath);
 
       const view = await buildNodeView(cg, {
         symbol: symbolArg,
@@ -1808,7 +1811,7 @@ program
     const projectPath = resolveProjectPath(options.path);
 
     try {
-      if (!isInitialized(projectPath)) {
+      if (!isQueryProject(projectPath)) {
         error(`CodeGraph not initialized in ${projectPath}`);
         process.exit(1);
       }
@@ -1835,7 +1838,7 @@ program
       }
 
       const { default: CodeGraph } = await loadCodeGraph();
-      const cg = await CodeGraph.open(projectPath);
+      const cg = await openQueryGraph(CodeGraph, projectPath);
       const maxDepth = parseInt(options.depth || '5', 10);
 
       // Common test file patterns
@@ -2066,6 +2069,6 @@ program
   });
 
 // Parse and run
-program.parse();
+await program.parseAsync();
 
 } // end main()
