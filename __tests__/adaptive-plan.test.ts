@@ -353,27 +353,37 @@ describe('automatic calibration recovery and structural fallback', () => {
   });
   it('admits first uncalibrated huge change but leaves no-op and small work incremental', () => {
     expect(chooseAdaptiveStrategy(changed(900), empty).reason).toBe('structural-large-change');
-    for (const count of [0, 1, 120, 799]) expect(chooseAdaptiveStrategy(changed(count), empty).strategy).toBe('incremental');
-    expect(chooseAdaptiveStrategy(changed(800), empty).strategy).toBe('rebuild');
+    for (const count of [0, 1, 120, 249]) expect(chooseAdaptiveStrategy(changed(count), empty).strategy).toBe('incremental');
+    expect(chooseAdaptiveStrategy(changed(250), empty).strategy).toBe('rebuild');
     expect(chooseAdaptiveStrategy(changed(127, 127), empty).strategy).toBe('incremental');
     expect(chooseAdaptiveStrategy(changed(128, 128), empty).strategy).toBe('rebuild');
   });
   it('requires broad files AND work, with independent byte/node routes', () => {
-    expect(hasStructuralRebuildWork({ ...changed(800), affectedOldNodes: 7999, changedBytes: 79999 })).toBe(false);
-    expect(hasStructuralRebuildWork({ ...changed(800), affectedOldNodes: 8000, changedBytes: 1 })).toBe(true);
-    expect(hasStructuralRebuildWork({ ...changed(800), affectedOldNodes: 0, changedBytes: 80000 })).toBe(true);
+    expect(hasStructuralRebuildWork({ ...changed(250), affectedOldNodes: 2499, changedBytes: 24999 })).toBe(false);
+    expect(hasStructuralRebuildWork({ ...changed(250), affectedOldNodes: 2500, changedBytes: 1 })).toBe(true);
+    expect(hasStructuralRebuildWork({ ...changed(250), affectedOldNodes: 0, changedBytes: 25000 })).toBe(true);
     expect(hasStructuralRebuildWork({ ...changed(1), affectedOldNodes: 9999, changedBytes: 100000 })).toBe(false);
+  });
+  it('requires all file-route conditions at the exact 25 percent boundary', () => {
+    const boundary = { ...changed(128, 512), affectedOldNodes: 0, changedBytes: 12800 };
+    expect(hasStructuralRebuildWork(boundary)).toBe(true);
+    expect(hasStructuralRebuildWork({ ...boundary, changedFiles: 127 })).toBe(false);
+    expect(hasStructuralRebuildWork({ ...boundary, totalFiles: 513 })).toBe(false);
+    expect(hasStructuralRebuildWork({ ...boundary, changedBytes: 12799 })).toBe(false);
+    expect(hasStructuralRebuildWork({ ...boundary, changedBytes: 0, affectedOldNodes: 1280 })).toBe(true);
+    expect(hasStructuralRebuildWork({ ...boundary, changedBytes: 0, affectedOldNodes: 1279 })).toBe(false);
   });
   it('uses old population for removals and target bytes for pure additions', () => {
     const removed = { ...changed(800), modified: [], removed: Array(800).fill('r'), totalFiles: 200, totalBytes: 20000, changedBytes: 0, shape: 'removed-only' as const };
     expect(hasStructuralRebuildWork(removed)).toBe(true);
-    expect(hasStructuralRebuildWork({ ...removed, affectedOldNodes: 7999 })).toBe(false);
+    expect(hasStructuralRebuildWork({ ...removed, affectedOldNodes: 2499 })).toBe(false);
     const added = { ...changed(800), modified: [], added: Array(800).fill('a'), affectedOldNodes: 0, shape: 'added-only' as const };
     expect(chooseAdaptiveStrategy(added, empty).strategy).toBe('rebuild');
   });
   it('allows explicit policy boundaries without making a performance guarantee', () => {
     expect(hasStructuralRebuildWork(changed(600), { minChangedFraction: 0.6, minWorkFraction: 0.6 })).toBe(true);
-    expect(hasStructuralRebuildWork(changed(600))).toBe(false);
+    expect(hasStructuralRebuildWork(changed(600), { minChangedFraction: 0.61, minWorkFraction: 0.6 })).toBe(false);
+    expect(hasStructuralRebuildWork(changed(600))).toBe(true);
     for (const value of [0, -1, 1.1, NaN]) expect(() => hasStructuralRebuildWork(changed(900), { minChangedFraction: value })).toThrow('Invalid');
   });
   it('does not turn config, extraction or host changes alone into a rebuild', () => {
@@ -421,10 +431,10 @@ describe('automatic calibration recovery and structural fallback', () => {
 
 describe('high-impact structural fallback and negative gate', () => {
   it('admits a few high-impact files independently of file percentage, with exact absolute/relative boundaries', () => {
-    const p = { ...plan(), modified: ['heavy.cpp'], changedFiles: 1, changedBytes: 1, totalNodes: 20000, affectedOldNodes: 10000 };
+    const p = { ...plan(), modified: ['heavy.cpp'], changedFiles: 1, changedBytes: 1, totalNodes: 40000, affectedOldNodes: 10000 };
     expect(chooseAdaptiveStrategy(p, { version: 1, samples: [] }).reason).toBe('structural-large-change');
     expect(hasStructuralRebuildWork({ ...p, affectedOldNodes: 9999 })).toBe(false);
-    expect(hasStructuralRebuildWork({ ...p, totalNodes: 20001 })).toBe(false);
+    expect(hasStructuralRebuildWork({ ...p, totalNodes: 40001 })).toBe(false);
     expect(hasStructuralRebuildWork({ ...p, changedFiles: 0 })).toBe(false);
   });
   it('cannot hide first large additions or a high-node single edit behind a calibrated count gate', async () => {
@@ -451,7 +461,7 @@ describe('high-impact structural fallback and negative gate', () => {
     expect(chooseAdaptiveStrategy(p, h).reason).toBe('local-cost-estimate-favors-rebuild');
     expect(chooseAdaptiveStrategy(p, { version: 1, samples: [] }).reason).toBe('structural-large-change');
     for (const fraction of [0.5, 0.6, 0.8]) {
-      expect(hasStructuralRebuildWork(p, { minAffectedOldNodeFraction: fraction })).toBe(fraction === 0.5);
+      expect(hasStructuralRebuildWork(p, { minChangedFraction: 0.8, minWorkFraction: 0.8, minAffectedOldNodeFraction: fraction })).toBe(fraction === 0.5);
     }
     for (const count of [0, 1]) expect(chooseAdaptiveStrategy({ ...p, modified: count ? ['one.cpp'] : [], changedFiles: count, affectedOldNodes: count * 100, changedBytes: count * 1000 }, { version: 1, samples: [] }).strategy).toBe('incremental');
   });
