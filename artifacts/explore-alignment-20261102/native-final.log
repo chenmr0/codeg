@@ -1,0 +1,1408 @@
+npm warn Unknown env config "http-proxy". This will stop working in the next major version of npm.
+[33mThe CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.[39m
+
+ RUN  v2.1.9 /workspace/scratch/25a5ec0f2727/explore-alignment
+
+ ✓ __tests__/explore-vocabulary-build.test.ts (26 tests) 1900ms
+   ✓ atomic request-time vocabulary > preserves the first/second/external-commit lifecycle through the real MCP handler 840ms
+ ✓ __tests__/cpp-namespace-range.test.ts (21 tests) 117ms
+ ✓ __tests__/explore-cpp-signature-evidence.test.ts (15 tests) 865ms
+   ✓ Explore change-surface admission with stored C++ relation contracts > rescues source-verified signature type files while leaving stored body references intact 510ms
+   ✓ Signature evidence from actual native C++ extraction > recovers an explicitly global signature dependency from real body references without rescuing a same-name type 307ms
+ ✓ __tests__/explore-query-cache.test.ts (12 tests) 3963ms
+   ✓ Explore query caches with request-local source verification > reuses the full-graph aggregation across calls on the same MCP handler 567ms
+   ✓ Explore query caches with request-local source verification > recomputes graph aggregation after same-connection and external commits 330ms
+   ✓ Explore query caches with request-local source verification > does not reuse transaction-local aggregation after rollback 307ms
+   ✓ Explore query caches with request-local source verification > refreshes statements on schema change and never transfers node caches to another connection 546ms
+   ✓ Explore query caches with request-local source verification > keeps independent projects isolated even when their symbol IDs and database stamps coincide 536ms
+ ✓ __tests__/explore-explicit-targets.test.ts (26 tests) 1228ms
+ ❯ __tests__/explore-output-budget.test.ts (17 tests | 1 failed) 822ms
+   × codegraph_explore output respects the adaptive budget > still includes the Relationships section — it is the cheapest structural signal 31ms
+     → expected false to be true // Object.is equality
+ ✓ __tests__/explore-cpp-target-identity.test.ts (13 tests) 4145ms
+   ✓ Explore C/C++ logical target identity > uses proven pairs without merging overloads or removing declarations 423ms
+   ✓ Explore C/C++ logical target identity > requires a trusted bridge and does not infer pairing from a shared name 342ms
+   ✓ Explore consumes C++ identity through ranking and explicit targets > keeps an oversize caller focused on its real call to a paired declaration 477ms
+   ✓ Explore consumes C++ identity through ranking and explicit targets > tiers the implementation and covers qualified overloads while retaining graph evidence 315ms
+   ✓ Explore consumes C++ identity through ranking and explicit targets > honors explicit header intent worker.hpp:4 310ms
+ ✓ __tests__/go-rtk-evidence-boundaries.test.ts (10 tests) 3518ms
+   ✓ native Go/RTK evidence boundaries > keeps Go package aliases, ignores multiline comments, and confines inference to the calling scope 400ms
+   ✓ native Go/RTK evidence boundaries > requires real AST dispatch calls, not strings, regex, comments or template text 329ms
+   ✓ native Go/RTK evidence boundaries > keeps local/imported bindings and does not guess a remote same-named thunk 332ms
+   ✓ native Go/RTK evidence boundaries > does not infer thunk edges into or out of C++ even in a mixed-language project 305ms
+   ✓ native Go/RTK evidence boundaries > withdraws removed dispatch edges on sync while retaining C++ declaration-definition relations 732ms
+ ❯ __tests__/explore-selection-p1.test.ts (19 tests | 3 failed) 1259ms
+   ✓ P1 on real C++ declarations and out-of-line definitions > preserves type-member priority when the owner was reached through a literal hit 433ms
+   × P1 on real C++ declarations and out-of-line definitions > does not prune source-proven member definitions with low random-walk mass 11ms
+     → computeGraphRelevance does not exist
+   × P1 on real C++ declarations and out-of-line definitions > delivers complete mechanism bodies for ArchiveJob 176ms
+     → expected '**Exploration: ArchiveJob**\n\nFound …' not to contain '349; // spare_349'
+   × P1 on real C++ declarations and out-of-line definitions > delivers complete mechanism bodies for ArchiveJob run stage flush 53ms
+     → expected '**Flow (call path among the symbols y…' not to contain '349; // spare_349'
+ ✓ __tests__/explore-budget-selection-p3.test.ts (16 tests) 26ms
+ ❯ __tests__/explore-retrieval-p0.test.ts (14 tests | 1 failed) 3403ms
+   ✓ exact exploration and semantic traversal on real indexed source > maps unresolved C++ identifiers through ripgrep into a whole indexed function 394ms
+   ✓ exact exploration and semantic traversal on real indexed source > batches literal misses and maps TypeScript as well as C++ bodies 393ms
+   ✓ exact exploration and semantic traversal on real indexed source > never turns fragments of an absent identifier into Thread/score roots 350ms
+   ✓ exact exploration and semantic traversal on real indexed source > counts independent literal identifiers, not repeated occurrences, as file evidence 382ms
+   × exact exploration and semantic traversal on real indexed source > does not promise complete source just because a flow exists 176ms
+     → expected '**Dynamic-dispatch links among your s…' not to match /Full source for these|Complete source…/
+   ✓ exact exploration and semantic traversal on real indexed source > does not map current text hits onto stale indexed function spans 374ms
+   ✓ exact exploration and semantic traversal on real indexed source > reports incomplete fallback scans instead of claiming absence 365ms
+   ✓ semantic ownership ambiguity > retains ambiguous imports and distinguishes const overloads 312ms
+ ❯ __tests__/explore-focus-p3.test.ts (10 tests | 1 failed) 745ms
+   × real C++ declaration/definition call-site provenance > delivers late calls from a named free-function body even when the query has no renderable Flow 187ms
+     → expected '**Exploration: smallProbe largeProbe*…' to contain '267\t  const checked = verifyProbe(st…'
+ ✓ __tests__/explore-target-selection.test.ts (17 tests) 14ms
+ ✓ __tests__/explore-dominant-aggregation.test.ts (12 tests) 250ms
+ ✓ __tests__/explore-p0.test.ts (10 tests) 155ms
+ ✓ __tests__/explore-entry-gaps.test.ts (14 tests) 12ms
+ ✓ __tests__/native-ts-field-receiver.test.ts (10 tests) 2538ms
+   ✓ TS/JS this.field calls use declared receiver evidence > resolves fields and constructor parameter properties onto their type, never the wrapper 436ms
+   ✓ TS/JS this.field calls use declared receiver evidence > resolves explicit JS new initializers in a field or constructor, including private fields 398ms
+ ✓ __tests__/explore-allocation-p3.test.ts (14 tests) 44ms
+ ✓ __tests__/explore-mcp-wire-acceptance.test.ts (3 tests) 2887ms
+   ✓ serves Explore schema and natural-language source over real MCP, without cross-session suppression 1395ms
+   ✓ makes the rendered follow-up executable over MCP (explore), without rewriting source 749ms
+   ✓ makes the rendered follow-up executable over MCP (explore,node), without rewriting source 742ms
+ ✓ __tests__/native-ts-members-docstrings.test.ts (7 tests) 150ms
+ ❯ __tests__/explore-targets-integration.test.ts (12 tests | 12 failed) 889ms
+   × explicit targets and freshness through the actual explore tool > delivers a qualified out-of-line C++ definition 282ms
+     → Target cannot be null or undefined.
+   × explicit targets and freshness through the actual explore tool > does not let a pinned declaration displace its exact implementation at maxFiles=1 12ms
+     → expected '**Exploration: worker.h:3**\n\nFound …' to contain '#### worker.cpp'
+   × explicit targets and freshness through the actual explore tool > delivers an explicit multiline range as that range 36ms
+     → expected '1\texport function neighbor() {\n2\t …' not to contain 'outside_requested_range'
+   × explicit targets and freshness through the actual explore tool > retains indexed source without callable nodes for a path and a range 7ms
+     → expected '' to contain 'comments_only_second'
+   × explicit targets and freshness through the actual explore tool > does not expand a pure line-range request through cross-file calls 6ms
+     → Target cannot be null or undefined.
+   × explicit targets and freshness through the actual explore tool > reports ambiguous basenames rather than choosing a sibling 6ms
+     → expected '**Exploration: peer.ts:1**\n\nFound 1…' to match /ambiguous|unresolved/i
+   × explicit targets and freshness through the actual explore tool > does not reuse verified bytes across queries after a same-size edit 33ms
+     → expected '**Exploration: harbor::LedgerWriter::…' to contain 'Source omitted: worker.cpp'
+   × explicit targets and freshness through the actual explore tool > never slices a shifted body at old indexed line numbers 6ms
+     → expected '**Exploration: worker.cpp:3-6**\n\nFo…' to match /cannot be mapped safely|Source omitted/
+   × explicit targets and freshness through the actual explore tool > reports a missing explicit source instead of silently succeeding with a body 15ms
+     → expected '**Exploration: harbor::LedgerWriter::…' to contain 'source file is missing'
+   × explicit targets and freshness through the actual explore tool > reports an out-of-bounds range without fabricating source lines 5ms
+     → expected '**Exploration: ranges.ts:400-405**\n\…' to contain 'exceeds'
+   × explicit targets and freshness through the actual explore tool > does not widen invalid range ranges.ts:0 into the whole file 5ms
+     → expected '**Exploration: ranges.ts:0**\n\nFound…' to match /Invalid line target/i
+   × explicit targets and freshness through the actual explore tool > does not widen invalid range ranges.ts:-2 into the whole file 9ms
+     → expected '**Exploration: ranges.ts:-2**\n\nFoun…' to match /Invalid line target/i
+ ✓ __tests__/explore-production-acceptance.test.ts (5 tests) 3140ms
+   ✓ Explore production entry acceptance > lists the actual short-name schema and accepts a Chinese flow question 659ms
+   ✓ Explore production entry acceptance > keeps sessions isolated and re-serves changed source to an existing session 788ms
+   ✓ Explore production entry acceptance > refreshes a warmed handler after sync by an independently opened writer 779ms
+   ✓ Explore production entry acceptance > refreshes a warmed handler across real fixed-path candidate publication 593ms
+   ✓ Explore production entry acceptance > keeps an oversized named function visible without exceeding the response ceiling 320ms
+ ✓ __tests__/explore-windows-p3.test.ts (10 tests) 33ms
+ ✓ __tests__/explore-seed-evidence-p1.test.ts (7 tests) 2339ms
+   ✓ seed intent on real C++ and TypeScript indexes > keeps literal recovery distinct from explicitly named implementation roots 526ms
+   ✓ seed intent on real C++ and TypeScript indexes > reclaims exhausted roots for late C++ members after renaming: CedarFlow 542ms
+   ✓ seed intent on real C++ and TypeScript indexes > reclaims exhausted roots for late C++ members after renaming: AzurePump 504ms
+ ✓ __tests__/explore-upstream-20261102-graph.test.ts (8 tests) 15ms
+ ✓ __tests__/explore-cancellation-session.test.ts (3 tests) 1680ms
+   ✓ does not remember a cancelled response, and the retry still delivers its source 897ms
+   ✓ does not remember a failed send, but commits a subsequent successful send exactly once 448ms
+   ✓ keeps SDK successful-call bookkeeping, but never records an aborted SDK call 334ms
+ ✓ __tests__/explore-upstream-20261102-db.test.ts (4 tests) 645ms
+ ✓ __tests__/explore-source-snapshot.test.ts (11 tests) 509ms
+ ✓ __tests__/upstream-native-integration.test.ts (4 tests) 1989ms
+   ✓ official Explore hosted on the native graph > retains C++ declarations, definitions, macros and defines edges without rewriting the graph 614ms
+   ✓ official Explore hosted on the native graph > provides segment recall on a read-only legacy index without changing persistent schema or bytes 348ms
+   ✓ official Explore hosted on the native graph > refreshes the TEMP vocabulary after native index changes 653ms
+   ✓ official Explore hosted on the native graph > routes natural-language queries and keeps session emission metadata off the wire 373ms
+ ✓ __tests__/go-field-chain-receiver.test.ts (2 tests) 767ms
+   ✓ Go field-chain receiver calls (#1276) > external receiver types produce no edge; in-project field chains resolve correctly 466ms
+ ❯ __tests__/explore-input-contract.test.ts (19 tests | 2 failed) 784ms
+   × explore input and evidence contract > retains basic input validation:     8ms
+     → expected undefined to be true // Object.is equality
+   × explore input and evidence contract > never claims whole files were read or imposes a call quota, including large tiers 12ms
+     → expected '**Exploration: calculate receive**\n\…' to contain 'Only shown source ranges'
+ ✓ __tests__/explore-admission-p1.test.ts (5 tests) 6ms
+ ✓ __tests__/native-explore-index-upgrade.test.ts (1 test) 1039ms
+   ✓ rebuilds legacy JS/TS docs, members and dispatch edges without changing source bytes 1038ms
+ ❯ __tests__/explore-blast-radius.test.ts (2 tests | 1 failed) 988ms
+   × codegraph_explore — blast radius > lists dependents (locations only) and covering tests for an entry symbol 659ms
+     → expected '**Exploration: target**\n\nFound 4 sy…' to contain '### Blast radius'
+   ✓ codegraph_explore — blast radius > omits symbols that have no dependents from the blast radius 328ms
+ ✓ __tests__/explore-upstream-blast-views.test.ts (2 tests) 4ms
+ ✓ __tests__/explore-config-snapshot.test.ts (1 test) 469ms
+   ✓ reads optional ranking config once per exploration, not per ranked candidate 468ms
+
+⎯⎯⎯⎯⎯⎯ Failed Tests 21 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  __tests__/explore-blast-radius.test.ts > codegraph_explore — blast radius > lists dependents (locations only) and covering tests for an entry symbol
+AssertionError: expected '**Exploration: target**\n\nFound 4 sy…' to contain '### Blast radius'
+
+- Expected
++ Received
+
+- ### Blast radius
++ **Exploration: target**
++
++ Found 4 symbols across 2 files.
++
++ **Blast radius — what depends on these (update/verify before editing)**
++
++ - `target` (src/feature.ts:1) — 3 callers in `src/feature.ts`; tests: `src/feature.test.ts`
++
++ **Source Code**
++
++ > The code below is the **verbatim, current on-disk source** of these files — re-read from disk on this call and line-numbered, byte-for-byte identical to what the Read tool returns. It is NOT a summary, outline, or stale cache. Treat each block as a Read you have already performed: do not Read a file shown here.
++
++ **`src/feature.ts`** — target(function), caller(function)
++
++ ```typescript
++ 1	export function target() { return 1; }
++ 2	export function caller() { return target(); }
++ ```
++
++ **`src/feature.test.ts`** — checkTarget(function), feature.test.ts(file)
++
++ ```typescript
++ 1	import { target } from './feature';
++ 2	export function checkTarget() { return target(); }
++ ```
++
+
+ ❯ __tests__/explore-blast-radius.test.ts:63:18
+     61|     const text = res.content[0].text;
+     62| 
+     63|     expect(text).toContain('### Blast radius');
+       |                  ^
+     64|     expect(text).toContain('`target`');
+     65|     expect(text).toMatch(/caller/); // a caller count is reported
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/21]⎯
+
+ FAIL  __tests__/explore-focus-p3.test.ts > real C++ declaration/definition call-site provenance > delivers late calls from a named free-function body even when the query has no renderable Flow
+AssertionError: expected '**Exploration: smallProbe largeProbe*…' to contain '267\t  const checked = verifyProbe(st…'
+
+- Expected
++ Received
+
+- 267	  const checked = verifyProbe(state);
++ **Exploration: smallProbe largeProbe**
++
++ Found 5 symbols across 2 files.
++
++ **Blast radius — what depends on these (update/verify before editing)**
++
++ - `storeProbe` (probe-targets.ts:2) — 2 callers in `probe-entry.ts`; no tests found within 3 caller hops
++ - `verifyProbe` (probe-targets.ts:1) — 2 callers in `probe-entry.ts`; no tests found within 3 caller hops
++
++ **Source Code**
++
++ > The code below is the **verbatim, current on-disk source** of these files — re-read from disk on this call and line-numbered, byte-for-byte identical to what the Read tool returns. It is NOT a summary, outline, or stale cache. Treat each block as a Read you have already performed: do not Read a file shown here.
++
++ **`probe-entry.ts`** — imports(imports), largeProbe(function), smallProbe(function), storeProbe(calls), storeProbe(imports), +2 more
++
++ ```typescript
++ 1	import { verifyProbe, storeProbe } from './probe-targets';
++ 2	
++ 3	export function smallProbe(value: number) { return value & 1; }
++ 4	
++ 5	export function largeProbe(value: number) {
++ 6	  let state = value;
++ 7	  state = (state + 0) >>> 0; // deterministic arithmetic deterministic arithmetic deterministic arithmetic 
++ 8	  state = (state + 1) >>> 0; // deterministic arithmetic deterministic arithmetic deterministic arithmetic 
++ 9	  state = (state + 2) >>> 0; // deterministic arithmetic deterministic arithmetic deterministic arithmetic 
++ 10	  state = (state + 3) >>> 0; // deterministic arithmetic deterministic arithmetic deterministic arithmetic 
++ 11	  state = (state + 4) >>> 0; // deterministic arithmetic deterministic arithmetic deterministic arithmetic 
++ 12	  state = (state + 5) >>> 0; // deterministic arithmetic deterministic arithmetic deterministic arithmetic 
++ 13	  state = (state + 6) >>> 0; // deterministic arithmetic deterministic arithmetic deterministic arithmetic 
++ 14	  state = (state + 7) >>> 0; // deterministic arithmetic deterministic arithmetic deterministic arithmetic 
++ 15	  state = (state + 8) >>> 0; // deterministic arithmetic deterministic arithmetic deterministic arithmetic 
++ 16	  state = (state + 9) >>> 0; // deterministic arithmetic deterministic arithmetic deterministic arithmetic 
++ 17	  state = (state + 10) >>> 0; // deterministic arithmetic deterministic arithmetic deterministic arithmetic 
++ 18	  state = (state + 11) >>> 0; // deterministic arithmetic deterministic arithmetic deterministic arithmetic 
++ 19	  state = (state + 12) >>> 0; // deterministic arithmetic deterministic arithmetic deterministic arithmetic 
++ 20	  state = (state + 13) >>> 0; // deterministic arithmetic deterministic arithmetic deterministic arithmetic 
++ 21	  state = (state + 14) >>> 0; // deterministic arithmetic deterministic arithmetic deterministic arithmetic 
++ 22	  state = (state + 15) >>> 0; // deterministic arithmetic deterministic arithmetic deterministic arithmetic 
++ 23	  state = (state + 16) >>> 0; // deterministic arithmetic deterministic arithmetic deterministic arithmetic 
++ 24	  state = (state + 17) >>> 0; // deterministic arithmetic deterministic arithmetic deterministic arithmetic 
++ 25	  state = (state + 18) >>> 0; // deterministic arithmetic deterministic arithmetic deterministic arithmetic 
++ 26	  state = (state + 19) >>> 0; // deterministic arithmetic deterministic arithmetic deterministic arithmetic 
++ 27	  state = (state + 20) >>> 0; // deterministic arithmetic deterministic arithmetic deterministic arithmetic 
++ 28	  state = (state + 21) >>> 0; // deterministic arithmetic deterministic arithmetic deterministic arithmetic 
++ 29	  state = (state + 22) >>> 0; // deterministic arithmetic deterministic arithmetic deterministic arithmetic 
++ 30	  state = (state + 23) >>> 0; // deterministic arithmetic deterministic arithmetic deterministic arithmetic 
++ 31	  state = (state + 24) >>> 0; // deterministic arithmetic deterministic arithmetic deterministic arithmetic 
++ 32	  state = (state + 25) >>> 0; // deterministic arithmetic deterministic arithmetic deterministic arithmetic 
++ 33	  state = (state + 26) >>> 0; // deterministic arithmetic deterministic arithmetic deterministic arithmetic 
++ 34	  state = (state + 27) >>> 0; // deterministic arithmetic deterministic arithmetic deterministic arithmetic 
++ 35	  state = (state + 28) >>> 0; // deterministic arithmetic deterministic arithmetic deterministic arithmetic 
++ 36	  state = (state + 29) >>> 0; // deterministic arithmetic deterministic arithmetic deterministic arithmetic 
++ 37	  state = (state + 30) >>> 0; // deterministic arithmetic deterministic arithmetic deterministic arithmetic 
++ 38	  state = (state + 31) >>> 0; // deterministic arithmetic deterministic arithmetic deterministic arithmetic 
++ 39	  state = (state + 32) >>> 0; // deterministic arithmetic deterministic arithmetic deterministic arithmetic 
++ 40	  state = (state + 33) >>> 0; // deterministic arithmetic deterministic arithmetic deterministic arithmetic 
++ 41	  state = (state + 34) >>> 0; // deterministic arithmetic deterministic arithmetic deterministic arithmetic 
++ 42	  state = (state + 35) >>> 0; // deterministic arithmetic deterministic arithmetic deterministic arithmetic 
++ 43	  state = (state + 36) >>> 0; // deterministic arithmetic deterministic arithmetic deterministic arithmetic 
++ 44	  state = (state + 37) >>> 0; // deterministic arithmetic deterministic arithmetic deterministic arithmetic 
++ 45	  state = (state + 38) >>> 0; // deterministic arithmetic deterministic arithmetic deterministic arithmetic 
++ 46	  state = (state + 39) >>> 0; // deterministic arithmetic deterministic arithmetic deterministic arithmetic 
++ 47	  state = (state + 40) >>> 0; // deterministic arithmetic deterministic arithmetic deterministic arithmetic 
++ 48	  state = (state + 41) >>> 0; // deterministic arithmetic deterministic arithmetic deterministic arithmetic 
++ 49	  state = (state + 42) >>> 0; // deterministic arithmetic deterministic arithmetic deterministic arithmetic 
++ 50	  state = (state + 43) >>> 0; // deterministic arithmetic deterministic arithmetic deterministic arithmetic 
++ 51	  state = (state + 44) >>> 0; // deterministic arithmetic deterministic arithmetic deterministic arithmetic 
++ 52	  state = (state + 45) >>> 0; // deterministic arithmetic deterministic arithmetic deterministic arithmetic 
++ 53	  state = (state + 46) >>> 0; // deterministic arithmetic deterministic arithmetic deterministic arithmetic 
++ 54	  state = (state + 47) >>> 0; // deterministic arithmetic deterministic arithmetic deterministic arithmetic 
++ 55	  state = (state + 48) >>> 0; // deterministic arithmetic deterministic arithmetic deterministic arithmetic 
++ 56	  state = (state + 49) >>> 0; // deterministic arithmetic deterministic arithmetic deterministic arithmetic 
++ 57	  state = (state + 50) >>> 0; // deterministic arithmetic deterministic arithmetic deterministic arithmetic 
++ 58	  state = (state + 51) >>> 0; // deterministic arithmetic deterministic arithmetic deterministic arithmetic 
++ 59	  state = (state + 52) >>> 0; // deterministic arithmetic deterministic arithmetic deterministic arithmetic 
++ 60	  state = (state + 53) >>> 0; // deterministic arithmetic deterministic arithmetic deterministic arithmetic 
++ 61	  state = (state + 54) >>> 0; // deterministic arithmetic deterministic arithmetic deterministic arithmetic 
++ 62	  state = (state + 55) >>> 0; // deterministic arithmetic deterministic arithmetic deterministic arithmetic 
++ 63	  state = (state + 56) >>> 0; // deterministic arithmetic deterministic arithmetic deterministic arithmetic 
++ 64	  state = (state + 57) >>> 0; // deterministic arithmetic deterministic arithmetic deterministic arithmetic 
++ 65	  state = (state + 58) >>> 0; // deterministic arithmetic deterministic arithmetic deterministic arithmetic 
++ 66	  state = (state + 59) >>> 0; // deterministic arithmetic deterministic arithmetic deterministic arithmetic 
++ 67	  state = (state + 60) >>> 0; // deterministic arithmetic deterministic arithmetic deterministic arithmetic 
++ 68	  state = (state + 61) >>> 0; // deterministic arithmetic deterministic arithmetic deterministic arithmetic 
++ 69	  state = (state + 62) >>> 0; // deterministic arithmetic deterministic arithmetic deterministic arithmetic 
++ 70	  state = (state + 63) >>> 0; // deterministic arithmetic deterministic arithmetic deterministic arithmetic 
++ 71	  state = (state + 64) >>> 0; // deterministic arithmetic deterministic arithmetic deterministic arithmetic 
++ 72	  state = (state + 65) >>> 0; // deterministic arithmetic deterministic arithmetic deterministic arithmetic 
++ 73	  state = (state + 66) >>> 0; // deterministic arithmetic deterministic arithmetic deterministic arithmetic 
++ 74	  state = (state + 67) >>> 0; // deterministic arithmetic deterministic arithmetic deterministic arithmetic 
++ 75	  state = (state + 68) >>> 0; // deterministic arithmetic deterministic arithmetic deterministic arithmetic 
++ 76	  state = (state + 69) >>> 0; // deterministic arithmetic deterministic arithmetic deterministic arithmetic 
++ 77	  state = (state + 70) >>> 0; // deterministic arithmetic deterministic arithmetic deterministic arithmetic 
++ 78	  state = (state + 71) >>> 0; // deterministic arithmetic deterministic arithmetic deterministic arithmetic 
++ 79	  state = (state + 72) >>> 0; // deterministic arithmetic deterministic arithmetic deterministic arithmetic 
++ 80	  state = (state + 73) >>> 0; // deterministic arithmetic deterministic arithmetic deterministic arithmetic 
++ 81	  state = (state + 74) >>> 0; // deterministic arithmetic deterministic arithmetic deterministic arithmetic 
++ 82	  state = (state + 75) >>> 0; // deterministic arithmetic deterministic arithmetic deterministic arithmetic 
++ 83	  state = (state + 76) >>> 0; // deterministic arithmetic deterministic arithmetic deterministic arithmetic 
++ 84	  state = (state + 77) >>> 0; // deterministic arithmetic deterministic arithmetic deterministic arithmetic 
++ 85	  state = (state + 78) >>> 0; // deterministic arithmetic deterministic arithmetic deterministic arithmetic 
++ 86	  state = (state + 79) >>> 0; // deterministic arithmetic deterministic arithmetic deterministic arithmetic 
++ 87	  state = (state + 80) >>> 0; // deterministic arithmetic deterministic arithmetic deterministic arithmetic 
++ 88	  state = (state + 81) >>> 0; // deterministic arithmetic deterministic arithmetic deterministic arithmetic 
++ 89	  state = (state + 82) >>> 0; // deterministic arithmetic deterministic arithmetic deterministic arithmetic 
++ 90	  state = (state + 83) >>> 0; // deterministic arithmetic deterministic arithmetic deterministic arithmetic 
++ 91	  state = (state + 84) >>> 0; // deterministic arithmetic deterministic arithmetic deterministic arithmetic 
++ 92	  state = (state + 85) >>> 0; // deterministic arithmetic deterministic arithmetic deterministic arithmetic 
++ 93	  state = (state + 86) >>> 0; // deterministic arithmetic deterministic arithmetic deterministic arithmetic 
++ 94	  state = (state + 87) >>> 0; // deterministic arithmetic deterministic arithmetic deterministic arithmetic 
++ 95	  state = (state + 88) >>> 0; // deterministic arithmetic deterministic arithmetic deterministic arithmetic 
++ 96	  state = (state + 89) >>> 0; // deterministic arithmetic deterministic arithmetic deterministic arithmetic 
++ 97	  state = (state + 90) >>> 0; // deterministic arithmetic deterministic arithmetic deterministic arithmetic 
++ 98	  state = (state + 91) >>> 0; // deterministic arithmetic deterministic arithmetic deterministic arithmetic 
++ 99	  state = (state + 92) >>> 0; // deterministic arithmetic deterministic arithmetic deterministic arithmetic 
++ 100	  state = (state + 93) >>> 0; // deterministic arithmetic deterministic arithmetic deterministic arithmetic 
++ 101	  state = (state + 94) >>> 0; // deterministic arithmetic deterministic arithmetic deterministic arithmetic 
++ 102	  state = (state + 95) >>> 0; // deterministic arithmetic deterministic arithmetic deterministic arithmetic 
++ 103	  state = (state + 96) >>> 0; // deterministic arithmetic deterministic arithmetic deterministic arithmetic 
++ 104	  state = (state + 97) >>> 0; // deterministic arithmetic deterministic arithmetic deterministic arithmetic 
++ 105	  state = (state + 98) >>> 0; // deterministic arithmetic deterministic arithmetic deterministic arithmetic 
++ 106	  state = (state + 99) >>> 0; // deterministic arithmetic deterministic arithmetic deterministic arithmetic 
++ 107	  state = (state + 100) >>> 0; // deterministic arithmetic deterministic arithmetic deterministic arithmetic 
++ 108	  state = (state + 101) >>> 0; // deterministic arithmetic deterministic arithmetic deterministic arithmetic 
++ 109	  state = (state + 102) >>> 0; // deterministic arithmetic deterministic arithmetic deterministic arithmetic 
++ 110	  state = (state + 103) >>> 0; // deterministic arithmetic deterministic arithmetic deterministic arithmetic 
++ 111	  state = (state + 104) >>> 0; // deterministic arithmetic deterministic arithmetic deterministic arithmetic 
++ 112	  state = (state + 105) >>> 0; // deterministic arithmetic deterministic arithmetic deterministic arithmetic 
++ 113	  state = (state + 106) >>> 0; // deterministic arithmetic deterministic arithmetic deterministic arithmetic 
++ 114	  state = (state + 107) >>> 0; // deterministic arithmetic deterministic arithmetic deterministic arithmetic 
++ 115	  state = (state + 108) >>> 0; // deterministic arithmetic deterministic arithmetic deterministic arithmetic 
++ 116	  state = (state + 109) >>> 0; // deterministic arithmetic deterministic arithmetic deterministic arithmetic 
++ 117	  state = (state + 110) >>> 0; // deterministic arithmetic deterministic arithmetic deterministic arithmetic 
++ 118	  state = (state + 111) >>> 0; // deterministic arithmetic deterministic arithmetic deterministic arithmetic 
++ 119	  state = (state + 112) >>> 0; // deterministic arithmetic deterministic arithmetic deterministic arithmetic 
++ 120	  state = (state + 113) >>> 0; // deterministic arithmetic deterministic arithmetic deterministic arithmetic 
++ 121	  state = (state + 114) >>> 0; // deterministic arithmetic deterministic arithmetic deterministic arithmetic 
++ 122	  state = (state + 115) >>> 0; // deterministic arithmetic deterministic arithmetic deterministic arithmetic 
++ 123	  state = (state + 116) >>> 0; // deterministic arithmetic deterministic arithmetic deterministic arithmetic 
++ 124	  state = (state + 117) >>> 0; // deterministic arithmetic deterministic arithmetic deterministic arithmetic 
++ … lines 125-269 of `largeProbe` elided — explore `probe-entry.ts:125-269` returns them
++ ```
++
++ **`probe-targets.ts`** — storeProbe(function), verifyProbe(function)
++
++ ```typescript
++ 1	export function verifyProbe(value: number) { return Math.max(value, 0); }
++ 2	export function storeProbe(value: number) { return value; }
++ ```
++
++
++ > Some file sections were trimmed for size. Elided symbols are named inside gap markers as `name (file:line)` and preferred in the file header — run another `explore` (or `node`) with those exact names for their source.
+
+ ❯ __tests__/explore-focus-p3.test.ts:141:18
+    139|     expect(text).not.toContain('## Flow');
+    140|     expect(text).toContain('3\texport function smallProbe');
+    141|     expect(text).toContain(`${lateLines[0]}\t  const checked = verifyP…
+       |                  ^
+    142|     expect(text).toContain(`${lateLines[1]}\t  return storeProbe(check…
+    143|     expect(text).toContain('Omitted body: probe-entry.ts:5-');
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/21]⎯
+
+ FAIL  __tests__/explore-input-contract.test.ts > explore input and evidence contract > retains basic input validation:    
+AssertionError: expected undefined to be true // Object.is equality
+
+- Expected: 
+true
+
++ Received: 
+undefined
+
+ ❯ __tests__/explore-input-contract.test.ts:44:28
+     42|     const spy = vi.spyOn(cg, 'findRelevantContext');
+     43|     const result = await handler.execute('explore', { query });
+     44|     expect(result.isError).toBe(true);
+       |                            ^
+     45|     expect(spy).not.toHaveBeenCalled();
+     46|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/21]⎯
+
+ FAIL  __tests__/explore-input-contract.test.ts > explore input and evidence contract > never claims whole files were read or imposes a call quota, including large tiers
+AssertionError: expected '**Exploration: calculate receive**\n\…' to contain 'Only shown source ranges'
+
+- Expected
++ Received
+
+- Only shown source ranges
++ **Exploration: calculate receive**
++
++ Found 4 symbols across 2 files.
++
++ **Blast radius — what depends on these (update/verify before editing)**
++
++ - `calculate` (engine.cpp:2) — 1 caller in `engine.cpp`; no tests found within 3 caller hops
++
++ **Source Code**
++
++ > The code below is the **verbatim, current on-disk source** of these files — re-read from disk on this call and line-numbered, byte-for-byte identical to what the Read tool returns. It is NOT a summary, outline, or stale cache. Treat each block as a Read you have already performed: do not Read a file shown here.
++
++ **`engine.cpp`** — calculate(function), demo(namespace), apply(function)
++
++ ```cpp
++ 1	namespace demo {
++ 2	int calculate(int value) {
++ 3	  return value + 11;
++ 4	}
++ 5	int apply(int value) {
++ 6	  return calculate(value);
++ 7	}
++ 8	}
++ ```
++
++ **`client.ts`** — receive(function)
++
++ ```typescript
++ 1	export function receive(value: number) {
++ 2	  return value * 7;
++ 3	}
++ ```
++
+
+ ❯ __tests__/explore-input-contract.test.ts:58:18
+     56|     const result = await handler.execute('explore', { query: 'calculat…
+     57|     const text = result.content?.[0]?.text ?? '';
+     58|     expect(text).toContain('Only shown source ranges');
+       |                  ^
+     59|     expect(text).not.toMatch(/Explore budget:|remaining calls|Synthesi…
+     60|     expect(text).toContain('return value + 11;');
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/21]⎯
+
+ FAIL  __tests__/explore-output-budget.test.ts > codegraph_explore output respects the adaptive budget > still includes the Relationships section — it is the cheapest structural signal
+AssertionError: expected false to be true // Object.is equality
+
+- Expected
++ Received
+
+- true
++ false
+
+ ❯ __tests__/explore-output-budget.test.ts:217:53
+    215|     const hasRelationships = text.includes('### Relationships');
+    216|     const sourceFollowsHeader = text.indexOf('### Source Code') > 0;
+    217|     expect(hasRelationships || sourceFollowsHeader).toBe(true);
+       |                                                     ^
+    218|   });
+    219| 
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/21]⎯
+
+ FAIL  __tests__/explore-retrieval-p0.test.ts > exact exploration and semantic traversal on real indexed source > does not promise complete source just because a flow exists
+AssertionError: expected '**Dynamic-dispatch links among your s…' not to match /Full source for these|Complete source…/
+
+- Expected: 
+/Full source for these|Complete source for|already Read|Explore budget:/
+
++ Received: 
+"**Dynamic-dispatch links among your symbols**
+(synthesized — the indirect hops grep/Read would reconstruct; the `@file:line` is the wiring site)
+
+- WorkerUnit.save → WorkerUnit.save   [dynamic: cpp decl def @worker.h:6]
+- WorkerUnit.run → WorkerUnit.run   [dynamic: cpp decl def @worker.h:5]
+- WorkerUnit.run → WorkerUnit.run   [dynamic: cpp decl def @worker.h:10]
+
+> Full source for these symbols is below — the call flow among them, followed by their bodies.
+**Exploration: alpha::detail::WorkerUnit run save**
+
+Found 11 symbols across 2 files.
+
+**Source Code**
+
+> The code below is the **verbatim, current on-disk source** of these files — re-read from disk on this call and line-numbered, byte-for-byte identical to what the Read tool returns. It is NOT a summary, outline, or stale cache. Treat each block as a Read you have already performed: do not Read a file shown here.
+
+**`worker.cpp`** — run(method), beta(namespace), save(method)
+
+```cpp
+1	#include \"worker.h\"
+2	using namespace alpha::detail;
+3	int WorkerUnit::run(int value) { return save() + value; }
+4	int WorkerUnit::run(double value) { return 22; }
+5	int WorkerUnit::save() { return 91; }
+6	namespace beta { int WorkerUnit::run(int value) { return 73; } }
+7	int WorkerUnit::unrelated() { return 999; }
+```
+
+**`worker.h`** — WorkerUnit(class), run(method), beta(namespace)
+
+```cpp
+1	namespace alpha { namespace detail {
+2	class WorkerUnit {
+3	public:
+4	  int run(int value);
+5	  int run(double value);
+6	  int save();
+7	  int unrelated();
+8	};
+9	} }
+10	namespace beta { class WorkerUnit { public: int run(int value); }; }
+```
+"
+
+ ❯ __tests__/explore-retrieval-p0.test.ts:142:22
+    140|     const r = await new ToolHandler(cg).execute('explore', { query: 'a…
+    141|     const text = r.content[0]!.text;
+    142|     expect(text).not.toMatch(/Full source for these|Complete source fo…
+       |                      ^
+    143|     expect(text).toContain('return 91;');
+    144|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/21]⎯
+
+ FAIL  __tests__/explore-selection-p1.test.ts > P1 on real C++ declarations and out-of-line definitions > does not prune source-proven member definitions with low random-walk mass
+Error: computeGraphRelevance does not exist
+ ❯ __tests__/explore-selection-p1.test.ts:155:8
+    153|     const weights = new Map(['job.h', 'base.h', 'job.cpp', 'client.cpp…
+    154|       cg.getNodesInFile(f).map(n => [n.id, f.endsWith('.cpp') ? 0 : 1]…
+    155|     vi.spyOn(handler as any, 'computeGraphRelevance').mockReturnValue(…
+       |        ^
+    156|     const result = await handler.execute('explore', { query: 'ArchiveJ…
+    157|     const text = result.content.filter(c => c.type === 'text').map(c =…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/21]⎯
+
+ FAIL  __tests__/explore-selection-p1.test.ts > P1 on real C++ declarations and out-of-line definitions > delivers complete mechanism bodies for ArchiveJob
+AssertionError: expected '**Exploration: ArchiveJob**\n\nFound …' not to contain '349; // spare_349'
+
+- Expected
++ Received
+
+- 349; // spare_349
++ **Exploration: ArchiveJob**
++
++ Found 14 symbols across 4 files.
++
++ **Blast radius — what depends on these (update/verify before editing)**
++
++ - `run` (job.cpp:3) — 1 caller in `client.cpp`; no tests found within 3 caller hops
++ - `stage` (job.cpp:27) — 1 caller in `job.cpp`; no tests found within 3 caller hops
++
++ **Source Code**
++
++ > The code below is the **verbatim, current on-disk source** of these files — re-read from disk on this call and line-numbered, byte-for-byte identical to what the Read tool returns. It is NOT a summary, outline, or stale cache. Treat each block as a Read you have already performed: do not Read a file shown here.
++
++ **`job.cpp`** — flush(calls), flush(defines), flush(method), run(defines), run(method), +5 more
++
++ ```cpp
++ 1	#include "job.h"
++ 2	using namespace sample;
++ 3	int ArchiveJob::run() {
++ 4	  int value = config->archive_batch_limit;
++ 5	  value += 0; // run_0
++ 6	  value += 1; // run_1
++ 7	  value += 2; // run_2
++ 8	  value += 3; // run_3
++ 9	  value += 4; // run_4
++ 10	  value += 5; // run_5
++ 11	  value += 6; // run_6
++ 12	  value += 7; // run_7
++ 13	  value += 8; // run_8
++ 14	  value += 9; // run_9
++ 15	  value += 10; // run_10
++ 16	  value += 11; // run_11
++ 17	  value += 12; // run_12
++ 18	  value += 13; // run_13
++ 19	  value += 14; // run_14
++ 20	  value += 15; // run_15
++ 21	  value += 16; // run_16
++ 22	  value += 17; // run_17
++ 23	  value += 18; // run_18
++ 24	  value += 19; // run_19
++ 25	  return stage();
++ 26	}
++ 27	int ArchiveJob::stage() {
++ 28	  int value = 0;
++ 29	  value += 0; // stage_0
++ 30	  value += 1; // stage_1
++ 31	  value += 2; // stage_2
++ 32	  value += 3; // stage_3
++ 33	  value += 4; // stage_4
++ 34	  value += 5; // stage_5
++ 35	  value += 6; // stage_6
++ 36	  value += 7; // stage_7
++ 37	  value += 8; // stage_8
++ 38	  value += 9; // stage_9
++ 39	  value += 10; // stage_10
++ 40	  value += 11; // stage_11
++ 41	  value += 12; // stage_12
++ 42	  value += 13; // stage_13
++ 43	  value += 14; // stage_14
++ 44	  value += 15; // stage_15
++ 45	  value += 16; // stage_16
++ 46	  value += 17; // stage_17
++ 47	  value += 18; // stage_18
++ 48	  value += 19; // stage_19
++ 49	  value += 20; // stage_20
++ 50	  value += 21; // stage_21
++ 51	  value += 22; // stage_22
++ 52	  value += 23; // stage_23
++ 53	  value += 24; // stage_24
++ 54	  value += 25; // stage_25
++ 55	  value += 26; // stage_26
++ 56	  value += 27; // stage_27
++ 57	  value += 28; // stage_28
++ 58	  value += 29; // stage_29
++ 59	  value += 30; // stage_30
++ 60	  value += 31; // stage_31
++ 61	  value += 32; // stage_32
++ 62	  value += 33; // stage_33
++ 63	  value += 34; // stage_34
++ 64	  value += 35; // stage_35
++ 65	  value += 36; // stage_36
++ 66	  value += 37; // stage_37
++ 67	  value += 38; // stage_38
++ 68	  value += 39; // stage_39
++ 69	  value += 40; // stage_40
++ 70	  value += 41; // stage_41
++ 71	  value += 42; // stage_42
++ 72	  value += 43; // stage_43
++ 73	  value += 44; // stage_44
++ 74	  value += 45; // stage_45
++ 75	  value += 46; // stage_46
++ 76	  value += 47; // stage_47
++ 77	  value += 48; // stage_48
++ 78	  value += 49; // stage_49
++ 79	  value += 50; // stage_50
++ 80	  value += 51; // stage_51
++ 81	  value += 52; // stage_52
++ 82	  value += 53; // stage_53
++ 83	  value += 54; // stage_54
++ 84	  value += 55; // stage_55
++ 85	  value += 56; // stage_56
++ 86	  value += 57; // stage_57
++ 87	  value += 58; // stage_58
++ 88	  value += 59; // stage_59
++ 89	  value += 60; // stage_60
++ 90	  value += 61; // stage_61
++ 91	  value += 62; // stage_62
++ 92	  value += 63; // stage_63
++ 93	  value += 64; // stage_64
++ 94	  value += 65; // stage_65
++ 95	  value += 66; // stage_66
++ 96	  value += 67; // stage_67
++ 97	  value += 68; // stage_68
++ 98	  value += 69; // stage_69
++ 99	  return flush();
++ 100	}
++ 101	int ArchiveJob::spare() {
++ 102	  int value = 0;
++ 103	  value += 0; // spare_0
++ 104	  value += 1; // spare_1
++
++ ... (gap) ...
++
++ 452	  value += 349; // spare_349
++ 453	  return -1;
++ 454	}
++ 455	int ArchiveJob::flush() {
++ 456	  int value = 0;
++ 457	  value += 0; // flush_0
++ 458	  value += 1; // flush_1
++ 459	  value += 2; // flush_2
++ 460	  value += 3; // flush_3
++ 461	  value += 4; // flush_4
++ 462	  value += 5; // flush_5
++ 463	  value += 6; // flush_6
++ 464	  value += 7; // flush_7
++ 465	  value += 8; // flush_8
++ 466	  value += 9; // flush_9
++ 467	  value += 10; // flush_10
++ 468	  value += 11; // flush_11
++ 469	  value += 12; // flush_12
++ 470	  value += 13; // flush_13
++ 471	  value += 14; // flush_14
++ 472	  value += 15; // flush_15
++ 473	  value += 16; // flush_16
++ 474	  value += 17; // flush_17
++ 475	  value += 18; // flush_18
++ 476	  value += 19; // flush_19
++ 477	  value += 20; // flush_20
++ 478	  value += 21; // flush_21
++ 479	  value += 22; // flush_22
++ 480	  value += 23; // flush_23
++ 481	  value += 24; // flush_24
++ 482	  value += 25; // flush_25
++ 483	  value += 26; // flush_26
++ 484	  value += 27; // flush_27
++ 485	  value += 28; // flush_28
++ 486	  value += 29; // flush_29
++ 487	  value += 30; // flush_30
++ 488	  value += 31; // flush_31
++ 489	  value += 32; // flush_32
++ 490	  value += 33; // flush_33
++ 491	  value += 34; // flush_34
++ 492	  value += 35; // flush_35
++ 493	  value += 36; // flush_36
++ 494	  value += 37; // flush_37
++ 495	  value += 38; // flush_38
++ 496	  value += 39; // flush_39
++ 497	  value += 40; // flush_40
++ 498	  value += 41; // flush_41
++ 499	  value += 42; // flush_42
++ 500	  value += 43; // flush_43
++ 501	  value += 44; // flush_44
++ 502	  value += 45; // flush_45
++ 503	  value += 46; // flush_46
++ 504	  value += 47; // flush_47
++ 505	  value += 48; // flush_48
++ 506	  value += 49; // flush_49
++ 507	  value += 50; // flush_50
++ 508	  value += 51; // flush_51
++ 509	  value += 52; // flush_52
++ 510	  value += 53; // flush_53
++ 511	  value += 54; // flush_54
++ 512	  value += 55; // flush_55
++ 513	  value += 56; // flush_56
++ 514	  value += 57; // flush_57
++ 515	  value += 58; // flush_58
++ 516	  value += 59; // flush_59
++ 517	  value += 60; // flush_60
++ 518	  value += 61; // flush_61
++ 519	  value += 62; // flush_62
++ 520	  value += 63; // flush_63
++ 521	  value += 64; // flush_64
++ 522	  value += 65; // flush_65
++ 523	  value += 66; // flush_66
++ 524	  value += 67; // flush_67
++ 525	  value += 68; // flush_68
++ 526	  value += 69; // flush_69
++ 527	  value += 70; // flush_70
++ 528	  value += 71; // flush_71
++ 529	  value += 72; // flush_72
++ 530	  value += 73; // flush_73
++ 531	  value += 74; // flush_74
++ 532	  value += 75; // flush_75
++ 533	  value += 76; // flush_76
++ 534	  value += 77; // flush_77
++ 535	  value += 78; // flush_78
++ 536	  value += 79; // flush_79
++ 537	  return value + 913;
++ 538	}
++ 539	
++ ```
++
++ **`base.h`** — ArchiveBase(class), run(method), sample(namespace)
++
++ ```cpp
++ 1	namespace sample { class ArchiveBase { public: virtual int run() = 0; }; }
++ ```
++
++ **`job.h`** — ArchiveJob(class), stage(method), spare(method), run(method), flush(method), +1 more
++
++ ```cpp
++ 1	#include "base.h"
++ 2	namespace sample { class ArchiveJob : public ArchiveBase { public: virtual int run() override; int stage(); int flush(); int spare(); }; }
++ ```
++
++ **`client.cpp`** — drive(function)
++
++ ```cpp
++ 1	#include "job.h"
++ 2	int drive(sample::ArchiveJob &job) { return job.run() + 141; }
++ ```
++
++
++ > Some file sections were trimmed for size. Elided symbols are named inside gap markers as `name (file:line)` and preferred in the file header — run another `explore` (or `node`) with those exact names for their source.
+
+ ❯ __tests__/explore-selection-p1.test.ts:172:24
+    170|       }
+    171|       expect(text.length).toBeLessThanOrEqual(13000);
+    172|       expect(text).not.toContain('349; // spare_349');
+       |                        ^
+    173|     });
+    174|   }
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/21]⎯
+
+ FAIL  __tests__/explore-selection-p1.test.ts > P1 on real C++ declarations and out-of-line definitions > delivers complete mechanism bodies for ArchiveJob run stage flush
+AssertionError: expected '**Flow (call path among the symbols y…' not to contain '349; // spare_349'
+
+- Expected
++ Received
+
+- 349; // spare_349
++ **Flow (call path among the symbols you queried)**
++
++ 1. run (job.cpp:3)
++    ↓ calls
++ 2. stage (job.cpp:27)
++    ↓ calls
++ 3. flush (job.cpp:455)
++
++ **Dynamic-dispatch links among your symbols**
++ (synthesized — the indirect hops grep/Read would reconstruct; the `@file:line` is the wiring site)
++
++ - ArchiveBase.run → ArchiveJob.run   [dynamic: cpp override @job.h:2]
++ - ArchiveJob.run → ArchiveJob.run   [dynamic: cpp decl def @job.h:2]
++ - ArchiveJob.stage → ArchiveJob.stage   [dynamic: cpp decl def @job.h:2]
++ - ArchiveJob.flush → ArchiveJob.flush   [dynamic: cpp decl def @job.h:2]
++
++ > Full source for these symbols is below — the call flow among them, followed by their bodies.
++ **Exploration: ArchiveJob run stage flush**
++
++ Found 13 symbols across 3 files.
++
++ **Blast radius — what depends on these (update/verify before editing)**
++
++ - `run` (job.cpp:3) — 1 caller in `client.cpp`; no tests found within 3 caller hops
++ - `run` (job.h:2) — 1 caller in `base.h`; no tests found within 3 caller hops
++
++ **Source Code**
++
++ > The code below is the **verbatim, current on-disk source** of these files — re-read from disk on this call and line-numbered, byte-for-byte identical to what the Read tool returns. It is NOT a summary, outline, or stale cache. Treat each block as a Read you have already performed: do not Read a file shown here.
++
++ **`job.cpp`** — flush(calls), flush(defines), flush(method), run(defines), run(method), +5 more
++
++ ```cpp
++ 1	#include "job.h"
++ 2	using namespace sample;
++ 3	int ArchiveJob::run() {
++ 4	  int value = config->archive_batch_limit;
++ 5	  value += 0; // run_0
++ 6	  value += 1; // run_1
++ 7	  value += 2; // run_2
++ 8	  value += 3; // run_3
++ 9	  value += 4; // run_4
++ 10	  value += 5; // run_5
++ 11	  value += 6; // run_6
++ 12	  value += 7; // run_7
++ 13	  value += 8; // run_8
++ 14	  value += 9; // run_9
++ 15	  value += 10; // run_10
++ 16	  value += 11; // run_11
++ 17	  value += 12; // run_12
++ 18	  value += 13; // run_13
++ 19	  value += 14; // run_14
++ 20	  value += 15; // run_15
++ 21	  value += 16; // run_16
++ 22	  value += 17; // run_17
++ 23	  value += 18; // run_18
++ 24	  value += 19; // run_19
++ 25	  return stage();
++ 26	}
++ 27	int ArchiveJob::stage() {
++ 28	  int value = 0;
++ 29	  value += 0; // stage_0
++ 30	  value += 1; // stage_1
++ 31	  value += 2; // stage_2
++ 32	  value += 3; // stage_3
++ 33	  value += 4; // stage_4
++ 34	  value += 5; // stage_5
++ 35	  value += 6; // stage_6
++ 36	  value += 7; // stage_7
++ 37	  value += 8; // stage_8
++ 38	  value += 9; // stage_9
++ 39	  value += 10; // stage_10
++ 40	  value += 11; // stage_11
++ 41	  value += 12; // stage_12
++ 42	  value += 13; // stage_13
++ 43	  value += 14; // stage_14
++ 44	  value += 15; // stage_15
++ 45	  value += 16; // stage_16
++ 46	  value += 17; // stage_17
++ 47	  value += 18; // stage_18
++ 48	  value += 19; // stage_19
++ 49	  value += 20; // stage_20
++ 50	  value += 21; // stage_21
++ 51	  value += 22; // stage_22
++ 52	  value += 23; // stage_23
++ 53	  value += 24; // stage_24
++ 54	  value += 25; // stage_25
++ 55	  value += 26; // stage_26
++ 56	  value += 27; // stage_27
++ 57	  value += 28; // stage_28
++ 58	  value += 29; // stage_29
++ 59	  value += 30; // stage_30
++ 60	  value += 31; // stage_31
++ 61	  value += 32; // stage_32
++ 62	  value += 33; // stage_33
++ 63	  value += 34; // stage_34
++ 64	  value += 35; // stage_35
++ 65	  value += 36; // stage_36
++ 66	  value += 37; // stage_37
++ 67	  value += 38; // stage_38
++ 68	  value += 39; // stage_39
++ 69	  value += 40; // stage_40
++ 70	  value += 41; // stage_41
++ 71	  value += 42; // stage_42
++ 72	  value += 43; // stage_43
++ 73	  value += 44; // stage_44
++ 74	  value += 45; // stage_45
++ 75	  value += 46; // stage_46
++ 76	  value += 47; // stage_47
++ 77	  value += 48; // stage_48
++ 78	  value += 49; // stage_49
++ 79	  value += 50; // stage_50
++ 80	  value += 51; // stage_51
++ 81	  value += 52; // stage_52
++ 82	  value += 53; // stage_53
++ 83	  value += 54; // stage_54
++ 84	  value += 55; // stage_55
++ 85	  value += 56; // stage_56
++ 86	  value += 57; // stage_57
++ 87	  value += 58; // stage_58
++ 88	  value += 59; // stage_59
++ 89	  value += 60; // stage_60
++ 90	  value += 61; // stage_61
++ 91	  value += 62; // stage_62
++ 92	  value += 63; // stage_63
++ 93	  value += 64; // stage_64
++ 94	  value += 65; // stage_65
++ 95	  value += 66; // stage_66
++ 96	  value += 67; // stage_67
++ 97	  value += 68; // stage_68
++ 98	  value += 69; // stage_69
++ 99	  return flush();
++ 100	}
++ 101	int ArchiveJob::spare() {
++ 102	  int value = 0;
++ 103	  value += 0; // spare_0
++ 104	  value += 1; // spare_1
++
++ ... (gap) ...
++
++ 452	  value += 349; // spare_349
++ 453	  return -1;
++ 454	}
++ 455	int ArchiveJob::flush() {
++ 456	  int value = 0;
++ 457	  value += 0; // flush_0
++ 458	  value += 1; // flush_1
++ 459	  value += 2; // flush_2
++ 460	  value += 3; // flush_3
++ 461	  value += 4; // flush_4
++ 462	  value += 5; // flush_5
++ 463	  value += 6; // flush_6
++ 464	  value += 7; // flush_7
++ 465	  value += 8; // flush_8
++ 466	  value += 9; // flush_9
++ 467	  value += 10; // flush_10
++ 468	  value += 11; // flush_11
++ 469	  value += 12; // flush_12
++ 470	  value += 13; // flush_13
++ 471	  value += 14; // flush_14
++ 472	  value += 15; // flush_15
++ 473	  value += 16; // flush_16
++ 474	  value += 17; // flush_17
++ 475	  value += 18; // flush_18
++ 476	  value += 19; // flush_19
++ 477	  value += 20; // flush_20
++ 478	  value += 21; // flush_21
++ 479	  value += 22; // flush_22
++ 480	  value += 23; // flush_23
++ 481	  value += 24; // flush_24
++ 482	  value += 25; // flush_25
++ 483	  value += 26; // flush_26
++ 484	  value += 27; // flush_27
++ 485	  value += 28; // flush_28
++ 486	  value += 29; // flush_29
++ 487	  value += 30; // flush_30
++ 488	  value += 31; // flush_31
++ 489	  value += 32; // flush_32
++ 490	  value += 33; // flush_33
++ 491	  value += 34; // flush_34
++ 492	  value += 35; // flush_35
++ 493	  value += 36; // flush_36
++ 494	  value += 37; // flush_37
++ 495	  value += 38; // flush_38
++ 496	  value += 39; // flush_39
++ 497	  value += 40; // flush_40
++ 498	  value += 41; // flush_41
++ 499	  value += 42; // flush_42
++ 500	  value += 43; // flush_43
++ 501	  value += 44; // flush_44
++ 502	  value += 45; // flush_45
++ 503	  value += 46; // flush_46
++ 504	  value += 47; // flush_47
++ 505	  value += 48; // flush_48
++ 506	  value += 49; // flush_49
++ 507	  value += 50; // flush_50
++ 508	  value += 51; // flush_51
++ 509	  value += 52; // flush_52
++ 510	  value += 53; // flush_53
++ 511	  value += 54; // flush_54
++ 512	  value += 55; // flush_55
++ 513	  value += 56; // flush_56
++ 514	  value += 57; // flush_57
++ 515	  value += 58; // flush_58
++ 516	  value += 59; // flush_59
++ 517	  value += 60; // flush_60
++ 518	  value += 61; // flush_61
++ 519	  value += 62; // flush_62
++ 520	  value += 63; // flush_63
++ 521	  value += 64; // flush_64
++ 522	  value += 65; // flush_65
++ 523	  value += 66; // flush_66
++ 524	  value += 67; // flush_67
++ 525	  value += 68; // flush_68
++ 526	  value += 69; // flush_69
++ 527	  value += 70; // flush_70
++ 528	  value += 71; // flush_71
++ 529	  value += 72; // flush_72
++ 530	  value += 73; // flush_73
++ 531	  value += 74; // flush_74
++ 532	  value += 75; // flush_75
++ 533	  value += 76; // flush_76
++ 534	  value += 77; // flush_77
++ 535	  value += 78; // flush_78
++ 536	  value += 79; // flush_79
++ 537	  return value + 913;
++ 538	}
++ 539	
++ ```
++
++ **`job.h`** — ArchiveJob(class), run(method), stage(method), flush(method), spare(method), +1 more
++
++ ```cpp
++ 1	#include "base.h"
++ 2	namespace sample { class ArchiveJob : public ArchiveBase { public: virtual int run() override; int stage(); int flush(); int spare(); }; }
++ ```
++
++ **`base.h`** — run(method), ArchiveBase(class), sample(namespace)
++
++ ```cpp
++ 1	namespace sample { class ArchiveBase { public: virtual int run() = 0; }; }
++ ```
++
++
++ > Some file sections were trimmed for size. Elided symbols are named inside gap markers as `name (file:line)` and preferred in the file header — run another `explore` (or `node`) with those exact names for their source.
+
+ ❯ __tests__/explore-selection-p1.test.ts:172:24
+    170|       }
+    171|       expect(text.length).toBeLessThanOrEqual(13000);
+    172|       expect(text).not.toContain('349; // spare_349');
+       |                        ^
+    173|     });
+    174|   }
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[9/21]⎯
+
+ FAIL  __tests__/explore-targets-integration.test.ts > explicit targets and freshness through the actual explore tool > delivers a qualified out-of-line C++ definition
+AssertionError: Target cannot be null or undefined.
+ ❯ __tests__/explore-targets-integration.test.ts:47:36
+     45|     expect(body(text)).toContain('verified_implementation = 813');
+     46|     expect(body(text)).toContain('return verified_implementation');
+     47|     expect(text.match(/^#### /gm)).toHaveLength(1);
+       |                                    ^
+     48|   });
+     49|   it('does not let a pinned declaration displace its exact implementat…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[10/21]⎯
+
+ FAIL  __tests__/explore-targets-integration.test.ts > explicit targets and freshness through the actual explore tool > does not let a pinned declaration displace its exact implementation at maxFiles=1
+AssertionError: expected '**Exploration: worker.h:3**\n\nFound …' to contain '#### worker.cpp'
+
+- Expected
++ Received
+
+- #### worker.cpp
++ **Exploration: worker.h:3**
++
++ Found 3 symbols across 1 file. 1 file pinned from the query.
++
++ **Source Code**
++
++ > The code below is the **verbatim, current on-disk source** of these files — re-read from disk on this call and line-numbered, byte-for-byte identical to what the Read tool returns. It is NOT a summary, outline, or stale cache. Treat each block as a Read you have already performed: do not Read a file shown here.
++
++ **`worker.h`** — harbor(namespace), LedgerWriter(class), commit(method)
++
++ ```cpp
++ 1	namespace harbor {
++ 2	class LedgerWriter { public:
++ 3	  int commit();
++ 4	};
++ 5	}
++ ```
++
+
+ ❯ __tests__/explore-targets-integration.test.ts:51:18
+     49|   it('does not let a pinned declaration displace its exact implementat…
+     50|     const text = await ask('worker.h:3');
+     51|     expect(text).toContain('#### worker.cpp');
+       |                  ^
+     52|     expect(body(text)).toContain('return verified_implementation');
+     53|     expect(text.match(/^#### /gm)).toHaveLength(1);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[11/21]⎯
+
+ FAIL  __tests__/explore-targets-integration.test.ts > explicit targets and freshness through the actual explore tool > delivers an explicit multiline range as that range
+AssertionError: expected '1\texport function neighbor() {\n2\t …' not to contain 'outside_requested_range'
+
+- Expected
++ Received
+
+- outside_requested_range
++ 1	export function neighbor() {
++ 2	  return "outside_requested_range";
++ 3	}
++ 4	// range_first
++ 5	// range_middle
++ 6	// range_last
++ 7	export function useful() {
++ 8	  return 42;
++ 9	}
+
+ ❯ __tests__/explore-targets-integration.test.ts:59:28
+     57|     expect(body(text)).toContain('4\t// range_first');
+     58|     expect(body(text)).toContain('6\t// range_last');
+     59|     expect(body(text)).not.toContain('outside_requested_range');
+       |                            ^
+     60|   });
+     61|   it('retains indexed source without callable nodes for a path and a r…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[12/21]⎯
+
+ FAIL  __tests__/explore-targets-integration.test.ts > explicit targets and freshness through the actual explore tool > retains indexed source without callable nodes for a path and a range
+AssertionError: expected '' to contain 'comments_only_second'
+
+- Expected
++ Received
+
+- comments_only_second
+
+ ❯ __tests__/explore-targets-integration.test.ts:63:46
+     61|   it('retains indexed source without callable nodes for a path and a r…
+     62|     expect(cg.getFile('notes.cpp')).toBeTruthy();
+     63|     expect(body(await ask('notes.cpp:1-2'))).toContain('comments_only_…
+       |                                              ^
+     64|     expect(body(await ask('notes.cpp'))).toContain('comments_only_firs…
+     65|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[13/21]⎯
+
+ FAIL  __tests__/explore-targets-integration.test.ts > explicit targets and freshness through the actual explore tool > does not expand a pure line-range request through cross-file calls
+AssertionError: Target cannot be null or undefined.
+ ❯ __tests__/explore-targets-integration.test.ts:70:36
+     68|     expect(body(text)).toContain('3\t  return leftPeer();');
+     69|     expect(text).not.toContain('#### left/peer.ts');
+     70|     expect(text.match(/^#### /gm)).toHaveLength(1);
+       |                                    ^
+     71|   });
+     72|   it('reports ambiguous basenames rather than choosing a sibling', asy…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[14/21]⎯
+
+ FAIL  __tests__/explore-targets-integration.test.ts > explicit targets and freshness through the actual explore tool > reports ambiguous basenames rather than choosing a sibling
+AssertionError: expected '**Exploration: peer.ts:1**\n\nFound 1…' to match /ambiguous|unresolved/i
+
+- Expected: 
+/ambiguous|unresolved/i
+
++ Received: 
+"**Exploration: peer.ts:1**
+
+Found 1 symbol across 1 file. 1 file pinned from the query.
+
+**Source Code**
+
+> The code below is the **verbatim, current on-disk source** of these files — re-read from disk on this call and line-numbered, byte-for-byte identical to what the Read tool returns. It is NOT a summary, outline, or stale cache. Treat each block as a Read you have already performed: do not Read a file shown here.
+
+**`left/peer.ts`** — leftPeer(function)
+
+```typescript
+1	export function leftPeer() { return 1; }
+```
+"
+
+ ❯ __tests__/explore-targets-integration.test.ts:74:18
+     72|   it('reports ambiguous basenames rather than choosing a sibling', asy…
+     73|     const text = await ask('peer.ts:1');
+     74|     expect(text).toMatch(/ambiguous|unresolved/i);
+       |                  ^
+     75|     expect(body(text)).not.toContain('leftPeer');
+     76|     expect(body(text)).not.toContain('rightPeer');
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[15/21]⎯
+
+ FAIL  __tests__/explore-targets-integration.test.ts > explicit targets and freshness through the actual explore tool > does not reuse verified bytes across queries after a same-size edit
+AssertionError: expected '**Exploration: harbor::LedgerWriter::…' to contain 'Source omitted: worker.cpp'
+
+- Expected
++ Received
+
+- Source omitted: worker.cpp
++ **Exploration: harbor::LedgerWriter::commit**
++
++ Found 2 symbols across 1 file.
++
++ **Source Code**
++
++ > The code below is the **verbatim, current on-disk source** of these files — re-read from disk on this call and line-numbered, byte-for-byte identical to what the Read tool returns. It is NOT a summary, outline, or stale cache. Treat each block as a Read you have already performed: do not Read a file shown here.
++
++ **`worker.cpp`** — commit(method), harbor(namespace)
++
++ ```cpp
++ 1	#include "worker.h"
++ 2	namespace harbor {
++ 3	int LedgerWriter::commit() {
++ 4	  const int verified_implementation = 927;
++ 5	  return verified_implementation;
++ 6	}
++ 7	}
++ ```
++
++ **Not shown above — explore these names for their source**
++
++ - worker.h: LedgerWriter:2, commit:3, harbor:1
+
+ ❯ __tests__/explore-targets-integration.test.ts:86:20
+     84|       fs.utimesSync(file, stamp.atime, stamp.mtime);
+     85|       const text = await ask('harbor::LedgerWriter::commit');
+     86|       expect(text).toContain('Source omitted: worker.cpp');
+       |                    ^
+     87|       expect(text).toContain('changed since indexing');
+     88|       expect(body(text)).not.toContain('813');
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[16/21]⎯
+
+ FAIL  __tests__/explore-targets-integration.test.ts > explicit targets and freshness through the actual explore tool > never slices a shifted body at old indexed line numbers
+AssertionError: expected '**Exploration: worker.cpp:3-6**\n\nFo…' to match /cannot be mapped safely|Source omitted/
+
+- Expected: 
+/cannot be mapped safely|Source omitted/
+
++ Received: 
+"**Exploration: worker.cpp:3-6**
+
+Found 2 symbols across 1 file. 1 file pinned from the query.
+
+**Source Code**
+
+> The code below is the **verbatim, current on-disk source** of these files — re-read from disk on this call and line-numbered, byte-for-byte identical to what the Read tool returns. It is NOT a summary, outline, or stale cache. Treat each block as a Read you have already performed: do not Read a file shown here.
+
+**`worker.cpp`** — harbor(namespace), commit(method) · ⚠ changed since last index sync — source below is current; the symbol list may be outdated
+
+```cpp
+1	int unrelated_shifted_body() { return 999; }
+2	
+3	#include \"worker.h\"
+4	namespace harbor {
+5	int LedgerWriter::commit() {
+6	  const int verified_implementation = 813;
+7	  return verified_implementation;
+8	}
+9	}
+```
+
+
+> ⚠ Changed on disk after the last index sync: worker.cpp. Line numbers referencing this file elsewhere in this response (flow steps, blast radius, symbol lists) may be shifted until that project's next sync re-indexes it."
+
+ ❯ __tests__/explore-targets-integration.test.ts:99:20
+     97|       fs.writeFileSync(file, 'int unrelated_shifted_body() { return 99…
+     98|       const text = await ask('worker.cpp:3-6');
+     99|       expect(text).toMatch(/cannot be mapped safely|Source omitted/);
+       |                    ^
+    100|       expect(body(text)).not.toContain('unrelated_shifted_body');
+    101|       expect(body(text)).not.toContain('verified_implementation');
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[17/21]⎯
+
+ FAIL  __tests__/explore-targets-integration.test.ts > explicit targets and freshness through the actual explore tool > reports a missing explicit source instead of silently succeeding with a body
+AssertionError: expected '**Exploration: harbor::LedgerWriter::…' to contain 'source file is missing'
+
+- Expected
++ Received
+
+- source file is missing
++ **Exploration: harbor::LedgerWriter::commit**
++
++ Found 5 symbols across 2 files.
++
++ **Source Code**
++
++ > The code below is the **verbatim, current on-disk source** of these files — re-read from disk on this call and line-numbered, byte-for-byte identical to what the Read tool returns. It is NOT a summary, outline, or stale cache. Treat each block as a Read you have already performed: do not Read a file shown here.
++
++ **Not shown above — explore these names for their source**
++
++ - worker.cpp: commit:3, harbor:2
++ - worker.h: LedgerWriter:2, commit:3, harbor:1
+
+ ❯ __tests__/explore-targets-integration.test.ts:109:20
+    107|       fs.unlinkSync(file);
+    108|       const text = await ask('harbor::LedgerWriter::commit');
+    109|       expect(text).toContain('source file is missing');
+       |                    ^
+    110|       expect(body(text)).not.toContain('verified_implementation');
+    111|     } finally { fs.writeFileSync(file, implementation); }
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[18/21]⎯
+
+ FAIL  __tests__/explore-targets-integration.test.ts > explicit targets and freshness through the actual explore tool > reports an out-of-bounds range without fabricating source lines
+AssertionError: expected '**Exploration: ranges.ts:400-405**\n\…' to contain 'exceeds'
+
+- Expected
++ Received
+
+- exceeds
++ **Exploration: ranges.ts:400-405**
++
++ Found 2 symbols across 1 file. 1 file pinned from the query.
++
++ **Source Code**
++
++ > The code below is the **verbatim, current on-disk source** of these files — re-read from disk on this call and line-numbered, byte-for-byte identical to what the Read tool returns. It is NOT a summary, outline, or stale cache. Treat each block as a Read you have already performed: do not Read a file shown here.
++
++ **`ranges.ts`** — neighbor(function), useful(function)
++
++ ```typescript
++ 1	export function neighbor() {
++ 2	  return "outside_requested_range";
++ 3	}
++ 4	// range_first
++ 5	// range_middle
++ 6	// range_last
++ 7	export function useful() {
++ 8	  return 42;
++ 9	}
++ ```
++
+
+ ❯ __tests__/explore-targets-integration.test.ts:115:18
+    113|   it('reports an out-of-bounds range without fabricating source lines'…
+    114|     const text = await ask('ranges.ts:400-405');
+    115|     expect(text).toContain('exceeds');
+       |                  ^
+    116|     expect(body(text)).not.toMatch(/^40[0-5]\t/m);
+    117|     expect(body(text)).toBe('');
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[19/21]⎯
+
+ FAIL  __tests__/explore-targets-integration.test.ts > explicit targets and freshness through the actual explore tool > does not widen invalid range ranges.ts:0 into the whole file
+AssertionError: expected '**Exploration: ranges.ts:0**\n\nFound…' to match /Invalid line target/i
+
+- Expected: 
+/Invalid line target/i
+
++ Received: 
+"**Exploration: ranges.ts:0**
+
+Found 2 symbols across 1 file. 1 file pinned from the query.
+
+**Source Code**
+
+> The code below is the **verbatim, current on-disk source** of these files — re-read from disk on this call and line-numbered, byte-for-byte identical to what the Read tool returns. It is NOT a summary, outline, or stale cache. Treat each block as a Read you have already performed: do not Read a file shown here.
+
+**`ranges.ts`** — neighbor(function), useful(function)
+
+```typescript
+1	export function neighbor() {
+2	  return \"outside_requested_range\";
+3	}
+4	// range_first
+5	// range_middle
+6	// range_last
+7	export function useful() {
+8	  return 42;
+9	}
+```
+"
+
+ ❯ __tests__/explore-targets-integration.test.ts:122:18
+    120|   it.each(['ranges.ts:0', 'ranges.ts:-2'])('does not widen invalid ran…
+    121|     const text = await ask(query);
+    122|     expect(text).toMatch(/Invalid line target/i);
+       |                  ^
+    123|     expect(body(text)).toBe('');
+    124|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[20/21]⎯
+
+ FAIL  __tests__/explore-targets-integration.test.ts > explicit targets and freshness through the actual explore tool > does not widen invalid range ranges.ts:-2 into the whole file
+AssertionError: expected '**Exploration: ranges.ts:-2**\n\nFoun…' to match /Invalid line target/i
+
+- Expected: 
+/Invalid line target/i
+
++ Received: 
+"**Exploration: ranges.ts:-2**
+
+Found 1 symbol across 1 file.
+
+**Source Code**
+
+> The code below is the **verbatim, current on-disk source** of these files — re-read from disk on this call and line-numbered, byte-for-byte identical to what the Read tool returns. It is NOT a summary, outline, or stale cache. Treat each block as a Read you have already performed: do not Read a file shown here.
+
+**`ranges.ts`** — useful(function)
+
+```typescript
+1	export function neighbor() {
+2	  return \"outside_requested_range\";
+3	}
+4	// range_first
+5	// range_middle
+6	// range_last
+7	export function useful() {
+8	  return 42;
+9	}
+```
+"
+
+ ❯ __tests__/explore-targets-integration.test.ts:122:18
+    120|   it.each(['ranges.ts:0', 'ranges.ts:-2'])('does not widen invalid ran…
+    121|     const text = await ask(query);
+    122|     expect(text).toMatch(/Invalid line target/i);
+       |                  ^
+    123|     expect(body(text)).toBe('');
+    124|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[21/21]⎯
+
+ Test Files  7 failed | 29 passed (36)
+      Tests  21 failed | 361 passed (382)
+   Start at  21:11:35
+   Duration  57.77s (transform 2.29s, setup 0ms, collect 8.54s, tests 43.33s, environment 5ms, prepare 1.66s)
+
+npm notice
+npm notice New major version of npm available! 11.9.0 -> 12.2.1
+npm notice Changelog: https://github.com/npm/cli/releases/tag/v12.2.1
+npm notice To update run: npm install -g npm@12.2.1
+npm notice

@@ -1,0 +1,51 @@
+npm warn Unknown env config "http-proxy". This will stop working in the next major version of npm.
+[33mThe CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.[39m
+
+ RUN  v2.1.9 /workspace/scratch/25a5ec0f2727/explore-alignment
+
+ ✓ __tests__/explore-vocabulary-build.test.ts (26 tests) 2162ms
+   ✓ real sql.js vocabulary construction > builds the complete TEMP vocabulary through the adapter with lossless names and indexed keyset pages 309ms
+   ✓ atomic request-time vocabulary > preserves the first/second/external-commit lifecycle through the real MCP handler 939ms
+ ✓ __tests__/explore-query-cache.test.ts (12 tests) 4647ms
+   ✓ Explore query caches with request-local source verification > reuses the full-graph aggregation across calls on the same MCP handler 602ms
+   ✓ Explore query caches with request-local source verification > retains prepared statements but refreshes cached nodes on same-connection and external writes 303ms
+   ✓ Explore query caches with request-local source verification > recomputes graph aggregation after same-connection and external commits 409ms
+   ✓ Explore query caches with request-local source verification > never retains nodes read inside BEGIN or SAVEPOINT after rollback 324ms
+   ✓ Explore query caches with request-local source verification > does not reuse transaction-local aggregation after rollback 362ms
+   ✓ Explore query caches with request-local source verification > refreshes statements on schema change and never transfers node caches to another connection 711ms
+   ✓ Explore query caches with request-local source verification > redetects FTS after same-connection schema repair and removal 328ms
+   ✓ Explore query caches with request-local source verification > keeps interleaved requests source-local, including lazily evaluated generated flags 315ms
+   ✓ Explore query caches with request-local source verification > caches dominant aggregation without caching its source-dependent generated filter 351ms
+   ✓ Explore query caches with request-local source verification > does not memoize aggregation when a backend cannot report transaction state 328ms
+   ✓ Explore query caches with request-local source verification > keeps independent projects isolated even when their symbol IDs and database stamps coincide 584ms
+ ✓ __tests__/explore-mcp-wire-acceptance.test.ts (3 tests) 3108ms
+   ✓ serves Explore schema and natural-language source over real MCP, without cross-session suppression 1495ms
+   ✓ makes the rendered follow-up executable over MCP (explore), without rewriting source 800ms
+   ✓ makes the rendered follow-up executable over MCP (explore,node), without rewriting source 812ms
+ ✓ __tests__/explore-production-acceptance.test.ts (5 tests) 3211ms
+   ✓ Explore production entry acceptance > lists the actual short-name schema and accepts a Chinese flow question 645ms
+   ✓ Explore production entry acceptance > keeps sessions isolated and re-serves changed source to an existing session 791ms
+   ✓ Explore production entry acceptance > refreshes a warmed handler after sync by an independently opened writer 786ms
+   ✓ Explore production entry acceptance > refreshes a warmed handler across real fixed-path candidate publication 672ms
+   ✓ Explore production entry acceptance > keeps an oversized named function visible without exceeding the response ceiling 316ms
+ ✓ __tests__/explore-cancellation-session.test.ts (3 tests) 1222ms
+   ✓ does not remember a cancelled response, and the retry still delivers its source 630ms
+   ✓ does not remember a failed send, but commits a subsequent successful send exactly once 308ms
+ ✓ __tests__/upstream-native-integration.test.ts (4 tests) 1809ms
+   ✓ official Explore hosted on the native graph > retains C++ declarations, definitions, macros and defines edges without rewriting the graph 540ms
+   ✓ official Explore hosted on the native graph > provides segment recall on a read-only legacy index without changing persistent schema or bytes 306ms
+   ✓ official Explore hosted on the native graph > refreshes the TEMP vocabulary after native index changes 623ms
+   ✓ official Explore hosted on the native graph > routes natural-language queries and keeps session emission metadata off the wire 339ms
+ ✓ __tests__/explore-config-snapshot.test.ts (1 test) 429ms
+   ✓ reads optional ranking config once per exploration, not per ranked candidate 429ms
+
+ Test Files  7 passed (7)
+      Tests  54 passed (54)
+   Start at  21:09:55
+   Duration  21.71s (transform 2.07s, setup 0ms, collect 3.88s, tests 16.59s, environment 1ms, prepare 362ms)
+
+npm notice
+npm notice New major version of npm available! 11.9.0 -> 12.2.1
+npm notice Changelog: https://github.com/npm/cli/releases/tag/v12.2.1
+npm notice To update run: npm install -g npm@12.2.1
+npm notice

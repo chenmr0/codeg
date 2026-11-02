@@ -1,0 +1,104 @@
+npm warn Unknown env config "http-proxy". This will stop working in the next major version of npm.
+[33mThe CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.[39m
+
+ RUN  v2.1.9 /workspace/scratch/25a5ec0f2727/explore-candidate
+
+ ✓ __tests__/upstream-v162/explore-exact-target.test.ts (7 tests) 432ms
+ ❯ __tests__/upstream-v162/dependency-segment-vocab.test.ts (12 tests | 6 failed) 1267ms
+   × name-segment vocabulary + getSegmentMatches (graph-derived gate) > vocab rows are proposals — a name with no surviving node is never surfaced 85ms
+     → queries.insertNameSegmentsBatch is not a function
+   × name-segment vocabulary + getSegmentMatches (graph-derived gate) > sync heals an empty vocab over a populated graph (pre-vocab-table upgrade path) 75ms
+     → queries.clearNameSegmentVocab is not a function
+   × name-segment vocabulary + getSegmentMatches (graph-derived gate) > heal covers UNCHANGED files even when the same sync also indexes changed ones 71ms
+     → queries.clearNameSegmentVocab is not a function
+   × name-segment vocabulary + getSegmentMatches (graph-derived gate) > healSegmentVocabIfEmpty backfills WITHOUT a sync — the prompt-hook open path (#1142) 71ms
+     → queries.clearNameSegmentVocab is not a function
+   × name-segment vocabulary + getSegmentMatches (graph-derived gate) > a name that exists only as an import statement is never surfaced (#1144) 322ms
+     → queries.insertNameSegmentsBatch is not a function
+   × name-segment vocabulary + getSegmentMatches (graph-derived gate) > co-occurrence counts distinct WORDS, not variants — plural pairs cannot pose as two words (#1146) 72ms
+     → queries.insertNameSegmentsBatch is not a function
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 6 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  __tests__/upstream-v162/dependency-segment-vocab.test.ts > name-segment vocabulary + getSegmentMatches (graph-derived gate) > vocab rows are proposals — a name with no surviving node is never surfaced
+TypeError: queries.insertNameSegmentsBatch is not a function
+ ❯ __tests__/upstream-v162/dependency-segment-vocab.test.ts:97:13
+     95|     // Plant an orphan row (as file deletion would): the honesty gate …
+     96|     const queries = (cg as unknown as { queries: { insertNameSegmentsB…
+     97|     queries.insertNameSegmentsBatch(['GhostSymbolMachine']);
+       |             ^
+     98|     const matches = cg.getSegmentMatches(['ghost', 'symbol']);
+     99|     expect(matches).toEqual([]);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/6]⎯
+
+ FAIL  __tests__/upstream-v162/dependency-segment-vocab.test.ts > name-segment vocabulary + getSegmentMatches (graph-derived gate) > sync heals an empty vocab over a populated graph (pre-vocab-table upgrade path)
+TypeError: queries.clearNameSegmentVocab is not a function
+ ❯ __tests__/upstream-v162/dependency-segment-vocab.test.ts:123:13
+    121|   it('sync heals an empty vocab over a populated graph (pre-vocab-tabl…
+    122|     const queries = (cg as unknown as { queries: { clearNameSegmentVoc…
+    123|     queries.clearNameSegmentVocab();
+       |             ^
+    124|     expect(queries.isNameSegmentVocabEmpty()).toBe(true);
+    125|     await cg.sync();
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/6]⎯
+
+ FAIL  __tests__/upstream-v162/dependency-segment-vocab.test.ts > name-segment vocabulary + getSegmentMatches (graph-derived gate) > heal covers UNCHANGED files even when the same sync also indexes changed ones
+TypeError: queries.clearNameSegmentVocab is not a function
+ ❯ __tests__/upstream-v162/dependency-segment-vocab.test.ts:136:13
+    134|     // leaving every unchanged file's names unsegmented forever.
+    135|     const queries = (cg as unknown as { queries: { clearNameSegmentVoc…
+    136|     queries.clearNameSegmentVocab();
+       |             ^
+    137|     const touched = path.join(dir, 'src', 'state-machine.ts');
+    138|     fs.writeFileSync(touched, fs.readFileSync(touched, 'utf8') + '\n//…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/6]⎯
+
+ FAIL  __tests__/upstream-v162/dependency-segment-vocab.test.ts > name-segment vocabulary + getSegmentMatches (graph-derived gate) > healSegmentVocabIfEmpty backfills WITHOUT a sync — the prompt-hook open path (#1142)
+TypeError: queries.clearNameSegmentVocab is not a function
+ ❯ __tests__/upstream-v162/dependency-segment-vocab.test.ts:152:13
+    150|       queries: { clearNameSegmentVocab(): void; isNameSegmentVocabEmpt…
+    151|     }).queries;
+    152|     queries.clearNameSegmentVocab();
+       |             ^
+    153|     expect(queries.isNameSegmentVocabEmpty()).toBe(true);
+    154|     await expect(cg.healSegmentVocabIfEmpty()).resolves.toBe(true);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/6]⎯
+
+ FAIL  __tests__/upstream-v162/dependency-segment-vocab.test.ts > name-segment vocabulary + getSegmentMatches (graph-derived gate) > a name that exists only as an import statement is never surfaced (#1144)
+TypeError: queries.insertNameSegmentsBatch is not a function
+ ❯ __tests__/upstream-v162/dependency-segment-vocab.test.ts:190:13
+    188|     // Legacy rows: plant the vocab entries a pre-exclusion version wr…
+    189|     const queries = (cg as unknown as { queries: { insertNameSegmentsB…
+    190|     queries.insertNameSegmentsBatch(['external-unindexed-pkg']);
+       |             ^
+    191|     expect(cg.getSegmentMatches(['external', 'unindexed'])).toEqual([]…
+    192|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/6]⎯
+
+ FAIL  __tests__/upstream-v162/dependency-segment-vocab.test.ts > name-segment vocabulary + getSegmentMatches (graph-derived gate) > co-occurrence counts distinct WORDS, not variants — plural pairs cannot pose as two words (#1146)
+TypeError: queries.insertNameSegmentsBatch is not a function
+ ❯ __tests__/upstream-v162/dependency-segment-vocab.test.ts:207:13
+    205|     // BillingServicesService carries BOTH the `services` and `service`
+    206|     // segments — two variants of ONE prompt word. It must not meet mi…
+    207|     queries.insertNameSegmentsBatch(['BillingServicesService']);
+       |             ^
+    208|     const hits = queries.getSegmentCoOccurrence(
+    209|       [
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/6]⎯
+
+ Test Files  1 failed | 1 passed (2)
+      Tests  6 failed | 13 passed (19)
+   Start at  20:58:16
+   Duration  4.08s (transform 1.43s, setup 0ms, collect 2.04s, tests 1.70s, environment 0ms, prepare 103ms)
+
+npm notice
+npm notice New major version of npm available! 11.9.0 -> 12.2.1
+npm notice Changelog: https://github.com/npm/cli/releases/tag/v12.2.1
+npm notice To update run: npm install -g npm@12.2.1
+npm notice

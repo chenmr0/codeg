@@ -1,0 +1,1226 @@
+npm warn Unknown env config "http-proxy". This will stop working in the next major version of npm.
+[33mThe CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.[39m
+
+ RUN  v2.1.9 /workspace/scratch/25a5ec0f2727/explore-candidate
+
+ ❯ __tests__/explore-output-budget.test.ts (17 tests | 1 failed) 1127ms
+   ✓ codegraph_explore output respects the adaptive budget > keeps total output under the small-project cap 736ms
+   × codegraph_explore output respects the adaptive budget > still includes the Relationships section — it is the cheapest structural signal 36ms
+     → expected false to be true // Object.is equality
+ ❯ __tests__/explore-selection-p1.test.ts (19 tests | 3 failed) 914ms
+   ✓ P1 on real C++ declarations and out-of-line definitions > preserves type-member priority when the owner was reached through a literal hit 435ms
+   × P1 on real C++ declarations and out-of-line definitions > does not prune source-proven member definitions with low random-walk mass 5ms
+     → computeGraphRelevance does not exist
+   × P1 on real C++ declarations and out-of-line definitions > delivers complete mechanism bodies for ArchiveJob 197ms
+     → expected '**Exploration: ArchiveJob**\n\nFound …' not to contain '349; // spare_349'
+   × P1 on real C++ declarations and out-of-line definitions > delivers complete mechanism bodies for ArchiveJob run stage flush 44ms
+     → expected '**Flow (call path among the symbols y…' not to contain '349; // spare_349'
+ ❯ __tests__/explore-focus-p3.test.ts (10 tests | 1 failed) 440ms
+   × real C++ declaration/definition call-site provenance > delivers late calls from a named free-function body even when the query has no renderable Flow 187ms
+     → expected '**Exploration: smallProbe largeProbe*…' to contain 'Omitted body: probe-entry.ts:5-'
+ ❯ __tests__/explore-retrieval-p0.test.ts (14 tests | 1 failed) 2986ms
+   ✓ exact exploration and semantic traversal on real indexed source > maps unresolved C++ identifiers through ripgrep into a whole indexed function 455ms
+   ✓ exact exploration and semantic traversal on real indexed source > batches literal misses and maps TypeScript as well as C++ bodies 409ms
+   ✓ exact exploration and semantic traversal on real indexed source > never turns fragments of an absent identifier into Thread/score roots 430ms
+   ✓ exact exploration and semantic traversal on real indexed source > counts independent literal identifiers, not repeated occurrences, as file evidence 433ms
+   × exact exploration and semantic traversal on real indexed source > does not promise complete source just because a flow exists 183ms
+     → expected '**Dynamic-dispatch links among your s…' not to match /Full source for these|Complete source…/
+   ✓ exact exploration and semantic traversal on real indexed source > does not map current text hits onto stale indexed function spans 420ms
+   ✓ exact exploration and semantic traversal on real indexed source > reports incomplete fallback scans instead of claiming absence 372ms
+ ✓ __tests__/explore-p0.test.ts (10 tests) 114ms
+ ❯ __tests__/explore-targets-integration.test.ts (12 tests | 12 failed) 465ms
+   × explicit targets and freshness through the actual explore tool > delivers a qualified out-of-line C++ definition 192ms
+     → Target cannot be null or undefined.
+   × explicit targets and freshness through the actual explore tool > does not let a pinned declaration displace its exact implementation at maxFiles=1 10ms
+     → expected '**Exploration: worker.h:3**\n\nFound …' to contain '#### worker.cpp'
+   × explicit targets and freshness through the actual explore tool > delivers an explicit multiline range as that range 4ms
+     → expected '1\texport function neighbor() {\n2\t …' not to contain 'outside_requested_range'
+   × explicit targets and freshness through the actual explore tool > retains indexed source without callable nodes for a path and a range 3ms
+     → expected '' to contain 'comments_only_second'
+   × explicit targets and freshness through the actual explore tool > does not expand a pure line-range request through cross-file calls 3ms
+     → Target cannot be null or undefined.
+   × explicit targets and freshness through the actual explore tool > reports ambiguous basenames rather than choosing a sibling 4ms
+     → expected '**Exploration: peer.ts:1**\n\nFound 1…' to match /ambiguous|unresolved/i
+   × explicit targets and freshness through the actual explore tool > does not reuse verified bytes across queries after a same-size edit 36ms
+     → expected '**Exploration: harbor::LedgerWriter::…' to contain 'Source omitted: worker.cpp'
+   × explicit targets and freshness through the actual explore tool > never slices a shifted body at old indexed line numbers 5ms
+     → expected '**Exploration: worker.cpp:3-6**\n\nFo…' to match /cannot be mapped safely|Source omitted/
+   × explicit targets and freshness through the actual explore tool > reports a missing explicit source instead of silently succeeding with a body 18ms
+     → expected '**Exploration: harbor::LedgerWriter::…' to contain 'source file is missing'
+   × explicit targets and freshness through the actual explore tool > reports an out-of-bounds range without fabricating source lines 3ms
+     → expected '**Exploration: ranges.ts:400-405**\n\…' to contain 'exceeds'
+   × explicit targets and freshness through the actual explore tool > does not widen invalid range ranges.ts:0 into the whole file 3ms
+     → expected '**Exploration: ranges.ts:0**\n\nFound…' to match /Invalid line target/i
+   × explicit targets and freshness through the actual explore tool > does not widen invalid range ranges.ts:-2 into the whole file 9ms
+     → expected '**Exploration: ranges.ts:-2**\n\nFoun…' to match /Invalid line target/i
+ ❯ __tests__/explore-input-contract.test.ts (19 tests | 2 failed) 403ms
+   × explore input and evidence contract > retains basic input validation:     6ms
+     → expected undefined to be true // Object.is equality
+   × explore input and evidence contract > never claims whole files were read or imposes a call quota, including large tiers 11ms
+     → expected '**Exploration: calculate receive**\n\…' to contain 'Only shown source ranges'
+ ❯ __tests__/explore-blast-radius.test.ts (2 tests | 1 failed) 472ms
+   × codegraph_explore — blast radius > lists dependents (locations only) and covering tests for an entry symbol 328ms
+     → expected '**Exploration: target**\n\nFound 4 sy…' to contain '### Blast radius'
+
+⎯⎯⎯⎯⎯⎯ Failed Tests 21 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  __tests__/explore-blast-radius.test.ts > codegraph_explore — blast radius > lists dependents (locations only) and covering tests for an entry symbol
+AssertionError: expected '**Exploration: target**\n\nFound 4 sy…' to contain '### Blast radius'
+
+- Expected
++ Received
+
+- ### Blast radius
++ **Exploration: target**
++
++ Found 4 symbols across 2 files.
++
++ **Blast radius — what depends on these (update/verify before editing)**
++
++ - `target` (src/feature.ts:1) — 3 callers in `src/feature.ts`; tests: `src/feature.test.ts`
++
++ **Source Code**
++
++ > The code below is the **verbatim, current on-disk source** of these files — re-read from disk on this call and line-numbered, byte-for-byte identical to what the Read tool returns. It is NOT a summary, outline, or stale cache. Treat each block as a Read you have already performed: do not Read a file shown here.
++
++ **`src/feature.ts`** — target(function), caller(function)
++
++ ```typescript
++ 1	export function target() { return 1; }
++ 2	export function caller() { return target(); }
++ ```
++
++ **`src/feature.test.ts`** — checkTarget(function), feature.test.ts(file)
++
++ ```typescript
++ 1	import { target } from './feature';
++ 2	export function checkTarget() { return target(); }
++ ```
++
+
+ ❯ __tests__/explore-blast-radius.test.ts:63:18
+     61|     const text = res.content[0].text;
+     62| 
+     63|     expect(text).toContain('### Blast radius');
+       |                  ^
+     64|     expect(text).toContain('`target`');
+     65|     expect(text).toMatch(/caller/); // a caller count is reported
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/21]⎯
+
+ FAIL  __tests__/explore-focus-p3.test.ts > real C++ declaration/definition call-site provenance > delivers late calls from a named free-function body even when the query has no renderable Flow
+AssertionError: expected '**Exploration: smallProbe largeProbe*…' to contain 'Omitted body: probe-entry.ts:5-'
+
+- Expected
++ Received
+
+- Omitted body: probe-entry.ts:5-
++ **Exploration: smallProbe largeProbe**
++
++ Found 5 symbols across 2 files.
++
++ **Blast radius — what depends on these (update/verify before editing)**
++
++ - `storeProbe` (probe-targets.ts:2) — 2 callers in `probe-entry.ts`; no tests found within 3 caller hops
++ - `verifyProbe` (probe-targets.ts:1) — 2 callers in `probe-entry.ts`; no tests found within 3 caller hops
++
++ **Source Code**
++
++ > The code below is the **verbatim, current on-disk source** of these files — re-read from disk on this call and line-numbered, byte-for-byte identical to what the Read tool returns. It is NOT a summary, outline, or stale cache. Treat each block as a Read you have already performed: do not Read a file shown here.
++
++ **`probe-entry.ts`** — imports(imports), largeProbe(function), smallProbe(function), storeProbe(calls), storeProbe(imports), +2 more
++
++ ```typescript
++ 1	import { verifyProbe, storeProbe } from './probe-targets';
++ 2	
++ 3	export function smallProbe(value: number) { return value & 1; }
++ 4	
++ 5	export function largeProbe(value: number) {
++ 6	  let state = value;
++
++ ... (gap) ...
++
++ 264	  state = (state + 257) >>> 0; // deterministic arithmetic deterministic arithmetic deterministic arithmetic 
++ 265	  state = (state + 258) >>> 0; // deterministic arithmetic deterministic arithmetic deterministic arithmetic 
++ 266	  state = (state + 259) >>> 0; // deterministic arithmetic deterministic arithmetic deterministic arithmetic 
++ 267	  const checked = verifyProbe(state);
++ 268	  return storeProbe(checked);
++ 269	}
++ ```
++
++ **`probe-targets.ts`** — storeProbe(function), verifyProbe(function)
++
++ ```typescript
++ 1	export function verifyProbe(value: number) { return Math.max(value, 0); }
++ 2	export function storeProbe(value: number) { return value; }
++ ```
++
++
++ > Some file sections were trimmed for size. Elided symbols are named inside gap markers as `name (file:line)` and preferred in the file header — run another `codegraph_explore` (or `codegraph_node`) with those exact names for their source.
+
+ ❯ __tests__/explore-focus-p3.test.ts:143:18
+    141|     expect(text).toContain(`${lateLines[0]}\t  const checked = verifyP…
+    142|     expect(text).toContain(`${lateLines[1]}\t  return storeProbe(check…
+    143|     expect(text).toContain('Omitted body: probe-entry.ts:5-');
+       |                  ^
+    144|     expect(text.length).toBeLessThanOrEqual(13000);
+    145|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/21]⎯
+
+ FAIL  __tests__/explore-input-contract.test.ts > explore input and evidence contract > retains basic input validation:    
+AssertionError: expected undefined to be true // Object.is equality
+
+- Expected: 
+true
+
++ Received: 
+undefined
+
+ ❯ __tests__/explore-input-contract.test.ts:44:28
+     42|     const spy = vi.spyOn(cg, 'findRelevantContext');
+     43|     const result = await handler.execute('explore', { query });
+     44|     expect(result.isError).toBe(true);
+       |                            ^
+     45|     expect(spy).not.toHaveBeenCalled();
+     46|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/21]⎯
+
+ FAIL  __tests__/explore-input-contract.test.ts > explore input and evidence contract > never claims whole files were read or imposes a call quota, including large tiers
+AssertionError: expected '**Exploration: calculate receive**\n\…' to contain 'Only shown source ranges'
+
+- Expected
++ Received
+
+- Only shown source ranges
++ **Exploration: calculate receive**
++
++ Found 4 symbols across 2 files.
++
++ **Blast radius — what depends on these (update/verify before editing)**
++
++ - `calculate` (engine.cpp:2) — 1 caller in `engine.cpp`; no tests found within 3 caller hops
++
++ **Source Code**
++
++ > The code below is the **verbatim, current on-disk source** of these files — re-read from disk on this call and line-numbered, byte-for-byte identical to what the Read tool returns. It is NOT a summary, outline, or stale cache. Treat each block as a Read you have already performed: do not Read a file shown here.
++
++ **`engine.cpp`** — calculate(function), demo(namespace), apply(function)
++
++ ```cpp
++ 1	namespace demo {
++ 2	int calculate(int value) {
++ 3	  return value + 11;
++ 4	}
++ 5	int apply(int value) {
++ 6	  return calculate(value);
++ 7	}
++ 8	}
++ ```
++
++ **`client.ts`** — receive(function)
++
++ ```typescript
++ 1	export function receive(value: number) {
++ 2	  return value * 7;
++ 3	}
++ ```
++
+
+ ❯ __tests__/explore-input-contract.test.ts:58:18
+     56|     const result = await handler.execute('explore', { query: 'calculat…
+     57|     const text = result.content?.[0]?.text ?? '';
+     58|     expect(text).toContain('Only shown source ranges');
+       |                  ^
+     59|     expect(text).not.toMatch(/Explore budget:|remaining calls|Synthesi…
+     60|     expect(text).toContain('return value + 11;');
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/21]⎯
+
+ FAIL  __tests__/explore-output-budget.test.ts > codegraph_explore output respects the adaptive budget > still includes the Relationships section — it is the cheapest structural signal
+AssertionError: expected false to be true // Object.is equality
+
+- Expected
++ Received
+
+- true
++ false
+
+ ❯ __tests__/explore-output-budget.test.ts:217:53
+    215|     const hasRelationships = text.includes('### Relationships');
+    216|     const sourceFollowsHeader = text.indexOf('### Source Code') > 0;
+    217|     expect(hasRelationships || sourceFollowsHeader).toBe(true);
+       |                                                     ^
+    218|   });
+    219| 
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/21]⎯
+
+ FAIL  __tests__/explore-retrieval-p0.test.ts > exact exploration and semantic traversal on real indexed source > does not promise complete source just because a flow exists
+AssertionError: expected '**Dynamic-dispatch links among your s…' not to match /Full source for these|Complete source…/
+
+- Expected: 
+/Full source for these|Complete source for|already Read|Explore budget:/
+
++ Received: 
+"**Dynamic-dispatch links among your symbols**
+(synthesized — the indirect hops grep/Read would reconstruct; the `@file:line` is the wiring site)
+
+- run → run   [dynamic: cpp decl def @worker.h:5]
+- save → save   [dynamic: cpp decl def @worker.h:6]
+
+> Full source for these symbols is below — the call flow among them, followed by their bodies.
+**Exploration: alpha::detail::WorkerUnit run save**
+
+Found 11 symbols across 2 files.
+
+**Source Code**
+
+> The code below is the **verbatim, current on-disk source** of these files — re-read from disk on this call and line-numbered, byte-for-byte identical to what the Read tool returns. It is NOT a summary, outline, or stale cache. Treat each block as a Read you have already performed: do not Read a file shown here.
+
+**`worker.cpp`** — run(method), beta(namespace), save(method)
+
+```cpp
+1	#include \"worker.h\"
+2	using namespace alpha::detail;
+3	int WorkerUnit::run(int value) { return save() + value; }
+4	int WorkerUnit::run(double value) { return 22; }
+5	int WorkerUnit::save() { return 91; }
+6	namespace beta { int WorkerUnit::run(int value) { return 73; } }
+7	int WorkerUnit::unrelated() { return 999; }
+```
+
+**`worker.h`** — WorkerUnit(class), run(method), beta(namespace)
+
+```cpp
+1	namespace alpha { namespace detail {
+2	class WorkerUnit {
+3	public:
+4	  int run(int value);
+5	  int run(double value);
+6	  int save();
+7	  int unrelated();
+8	};
+9	} }
+10	namespace beta { class WorkerUnit { public: int run(int value); }; }
+```
+"
+
+ ❯ __tests__/explore-retrieval-p0.test.ts:137:22
+    135|     const r = await new ToolHandler(cg).execute('explore', { query: 'a…
+    136|     const text = r.content[0]!.text;
+    137|     expect(text).not.toMatch(/Full source for these|Complete source fo…
+       |                      ^
+    138|     expect(text).toContain('return 91;');
+    139|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/21]⎯
+
+ FAIL  __tests__/explore-selection-p1.test.ts > P1 on real C++ declarations and out-of-line definitions > does not prune source-proven member definitions with low random-walk mass
+Error: computeGraphRelevance does not exist
+ ❯ __tests__/explore-selection-p1.test.ts:149:8
+    147|     const weights = new Map(['job.h', 'base.h', 'job.cpp', 'client.cpp…
+    148|       cg.getNodesInFile(f).map(n => [n.id, f.endsWith('.cpp') ? 0 : 1]…
+    149|     vi.spyOn(handler as any, 'computeGraphRelevance').mockReturnValue(…
+       |        ^
+    150|     const result = await handler.execute('explore', { query: 'ArchiveJ…
+    151|     const text = result.content.filter(c => c.type === 'text').map(c =…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/21]⎯
+
+ FAIL  __tests__/explore-selection-p1.test.ts > P1 on real C++ declarations and out-of-line definitions > delivers complete mechanism bodies for ArchiveJob
+AssertionError: expected '**Exploration: ArchiveJob**\n\nFound …' not to contain '349; // spare_349'
+
+- Expected
++ Received
+
+- 349; // spare_349
++ **Exploration: ArchiveJob**
++
++ Found 14 symbols across 4 files.
++
++ **Blast radius — what depends on these (update/verify before editing)**
++
++ - `run` (job.cpp:3) — 1 caller in `client.cpp`; no tests found within 3 caller hops
++ - `stage` (job.cpp:27) — 1 caller in `job.cpp`; no tests found within 3 caller hops
++
++ **Source Code**
++
++ > The code below is the **verbatim, current on-disk source** of these files — re-read from disk on this call and line-numbered, byte-for-byte identical to what the Read tool returns. It is NOT a summary, outline, or stale cache. Treat each block as a Read you have already performed: do not Read a file shown here.
++
++ **`job.cpp`** — flush(calls), flush(defines), flush(method), run(defines), run(method), +5 more
++
++ ```cpp
++ 1	#include "job.h"
++ 2	using namespace sample;
++ 3	int ArchiveJob::run() {
++ 4	  int value = config->archive_batch_limit;
++ 5	  value += 0; // run_0
++ 6	  value += 1; // run_1
++ 7	  value += 2; // run_2
++ 8	  value += 3; // run_3
++ 9	  value += 4; // run_4
++ 10	  value += 5; // run_5
++ 11	  value += 6; // run_6
++ 12	  value += 7; // run_7
++ 13	  value += 8; // run_8
++ 14	  value += 9; // run_9
++ 15	  value += 10; // run_10
++ 16	  value += 11; // run_11
++ 17	  value += 12; // run_12
++ 18	  value += 13; // run_13
++ 19	  value += 14; // run_14
++ 20	  value += 15; // run_15
++ 21	  value += 16; // run_16
++ 22	  value += 17; // run_17
++ 23	  value += 18; // run_18
++ 24	  value += 19; // run_19
++ 25	  return stage();
++ 26	}
++ 27	int ArchiveJob::stage() {
++ 28	  int value = 0;
++ 29	  value += 0; // stage_0
++ 30	  value += 1; // stage_1
++ 31	  value += 2; // stage_2
++ 32	  value += 3; // stage_3
++ 33	  value += 4; // stage_4
++ 34	  value += 5; // stage_5
++ 35	  value += 6; // stage_6
++ 36	  value += 7; // stage_7
++ 37	  value += 8; // stage_8
++ 38	  value += 9; // stage_9
++ 39	  value += 10; // stage_10
++ 40	  value += 11; // stage_11
++ 41	  value += 12; // stage_12
++ 42	  value += 13; // stage_13
++ 43	  value += 14; // stage_14
++ 44	  value += 15; // stage_15
++ 45	  value += 16; // stage_16
++ 46	  value += 17; // stage_17
++ 47	  value += 18; // stage_18
++ 48	  value += 19; // stage_19
++ 49	  value += 20; // stage_20
++ 50	  value += 21; // stage_21
++ 51	  value += 22; // stage_22
++ 52	  value += 23; // stage_23
++ 53	  value += 24; // stage_24
++ 54	  value += 25; // stage_25
++ 55	  value += 26; // stage_26
++ 56	  value += 27; // stage_27
++ 57	  value += 28; // stage_28
++ 58	  value += 29; // stage_29
++ 59	  value += 30; // stage_30
++ 60	  value += 31; // stage_31
++ 61	  value += 32; // stage_32
++ 62	  value += 33; // stage_33
++ 63	  value += 34; // stage_34
++ 64	  value += 35; // stage_35
++ 65	  value += 36; // stage_36
++ 66	  value += 37; // stage_37
++ 67	  value += 38; // stage_38
++ 68	  value += 39; // stage_39
++ 69	  value += 40; // stage_40
++ 70	  value += 41; // stage_41
++ 71	  value += 42; // stage_42
++ 72	  value += 43; // stage_43
++ 73	  value += 44; // stage_44
++ 74	  value += 45; // stage_45
++ 75	  value += 46; // stage_46
++ 76	  value += 47; // stage_47
++ 77	  value += 48; // stage_48
++ 78	  value += 49; // stage_49
++ 79	  value += 50; // stage_50
++ 80	  value += 51; // stage_51
++ 81	  value += 52; // stage_52
++ 82	  value += 53; // stage_53
++ 83	  value += 54; // stage_54
++ 84	  value += 55; // stage_55
++ 85	  value += 56; // stage_56
++ 86	  value += 57; // stage_57
++ 87	  value += 58; // stage_58
++ 88	  value += 59; // stage_59
++ 89	  value += 60; // stage_60
++ 90	  value += 61; // stage_61
++ 91	  value += 62; // stage_62
++ 92	  value += 63; // stage_63
++ 93	  value += 64; // stage_64
++ 94	  value += 65; // stage_65
++ 95	  value += 66; // stage_66
++ 96	  value += 67; // stage_67
++ 97	  value += 68; // stage_68
++ 98	  value += 69; // stage_69
++ 99	  return flush();
++ 100	}
++ 101	int ArchiveJob::spare() {
++ 102	  int value = 0;
++ 103	  value += 0; // spare_0
++ 104	  value += 1; // spare_1
++
++ ... (gap) ...
++
++ 452	  value += 349; // spare_349
++ 453	  return -1;
++ 454	}
++ 455	int ArchiveJob::flush() {
++ 456	  int value = 0;
++ 457	  value += 0; // flush_0
++ 458	  value += 1; // flush_1
++ 459	  value += 2; // flush_2
++ 460	  value += 3; // flush_3
++ 461	  value += 4; // flush_4
++ 462	  value += 5; // flush_5
++ 463	  value += 6; // flush_6
++ 464	  value += 7; // flush_7
++ 465	  value += 8; // flush_8
++ 466	  value += 9; // flush_9
++ 467	  value += 10; // flush_10
++ 468	  value += 11; // flush_11
++ 469	  value += 12; // flush_12
++ 470	  value += 13; // flush_13
++ 471	  value += 14; // flush_14
++ 472	  value += 15; // flush_15
++ 473	  value += 16; // flush_16
++ 474	  value += 17; // flush_17
++ 475	  value += 18; // flush_18
++ 476	  value += 19; // flush_19
++ 477	  value += 20; // flush_20
++ 478	  value += 21; // flush_21
++ 479	  value += 22; // flush_22
++ 480	  value += 23; // flush_23
++ 481	  value += 24; // flush_24
++ 482	  value += 25; // flush_25
++ 483	  value += 26; // flush_26
++ 484	  value += 27; // flush_27
++ 485	  value += 28; // flush_28
++ 486	  value += 29; // flush_29
++ 487	  value += 30; // flush_30
++ 488	  value += 31; // flush_31
++ 489	  value += 32; // flush_32
++ 490	  value += 33; // flush_33
++ 491	  value += 34; // flush_34
++ 492	  value += 35; // flush_35
++ 493	  value += 36; // flush_36
++ 494	  value += 37; // flush_37
++ 495	  value += 38; // flush_38
++ 496	  value += 39; // flush_39
++ 497	  value += 40; // flush_40
++ 498	  value += 41; // flush_41
++ 499	  value += 42; // flush_42
++ 500	  value += 43; // flush_43
++ 501	  value += 44; // flush_44
++ 502	  value += 45; // flush_45
++ 503	  value += 46; // flush_46
++ 504	  value += 47; // flush_47
++ 505	  value += 48; // flush_48
++ 506	  value += 49; // flush_49
++ 507	  value += 50; // flush_50
++ 508	  value += 51; // flush_51
++ 509	  value += 52; // flush_52
++ 510	  value += 53; // flush_53
++ 511	  value += 54; // flush_54
++ 512	  value += 55; // flush_55
++ 513	  value += 56; // flush_56
++ 514	  value += 57; // flush_57
++ 515	  value += 58; // flush_58
++ 516	  value += 59; // flush_59
++ 517	  value += 60; // flush_60
++ 518	  value += 61; // flush_61
++ 519	  value += 62; // flush_62
++ 520	  value += 63; // flush_63
++ 521	  value += 64; // flush_64
++ 522	  value += 65; // flush_65
++ 523	  value += 66; // flush_66
++ 524	  value += 67; // flush_67
++ 525	  value += 68; // flush_68
++ 526	  value += 69; // flush_69
++ 527	  value += 70; // flush_70
++ 528	  value += 71; // flush_71
++ 529	  value += 72; // flush_72
++ 530	  value += 73; // flush_73
++ 531	  value += 74; // flush_74
++ 532	  value += 75; // flush_75
++ 533	  value += 76; // flush_76
++ 534	  value += 77; // flush_77
++ 535	  value += 78; // flush_78
++ 536	  value += 79; // flush_79
++ 537	  return value + 913;
++ 538	}
++ 539	
++ ```
++
++ **`base.h`** — ArchiveBase(class), run(method), sample(namespace)
++
++ ```cpp
++ 1	namespace sample { class ArchiveBase { public: virtual int run() = 0; }; }
++ ```
++
++ **`job.h`** — ArchiveJob(class), stage(method), spare(method), run(method), flush(method), +1 more
++
++ ```cpp
++ 1	#include "base.h"
++ 2	namespace sample { class ArchiveJob : public ArchiveBase { public: virtual int run() override; int stage(); int flush(); int spare(); }; }
++ ```
++
++ **`client.cpp`** — drive(function)
++
++ ```cpp
++ 1	#include "job.h"
++ 2	int drive(sample::ArchiveJob &job) { return job.run() + 141; }
++ ```
++
++
++ > Some file sections were trimmed for size. Elided symbols are named inside gap markers as `name (file:line)` and preferred in the file header — run another `codegraph_explore` (or `codegraph_node`) with those exact names for their source.
+
+ ❯ __tests__/explore-selection-p1.test.ts:166:24
+    164|       }
+    165|       expect(text.length).toBeLessThanOrEqual(13000);
+    166|       expect(text).not.toContain('349; // spare_349');
+       |                        ^
+    167|     });
+    168|   }
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/21]⎯
+
+ FAIL  __tests__/explore-selection-p1.test.ts > P1 on real C++ declarations and out-of-line definitions > delivers complete mechanism bodies for ArchiveJob run stage flush
+AssertionError: expected '**Flow (call path among the symbols y…' not to contain '349; // spare_349'
+
+- Expected
++ Received
+
+- 349; // spare_349
++ **Flow (call path among the symbols you queried)**
++
++ 1. run (job.cpp:3)
++    ↓ calls
++ 2. stage (job.cpp:27)
++    ↓ calls
++ 3. flush (job.cpp:455)
++
++ **Dynamic-dispatch links among your symbols**
++ (synthesized — the indirect hops grep/Read would reconstruct; the `@file:line` is the wiring site)
++
++ - run → run   [dynamic: cpp override @job.h:2]
++ - stage → stage   [dynamic: cpp decl def @job.h:2]
++ - flush → flush   [dynamic: cpp decl def @job.h:2]
++
++ > Full source for these symbols is below — the call flow among them, followed by their bodies.
++ **Exploration: ArchiveJob run stage flush**
++
++ Found 13 symbols across 3 files.
++
++ **Blast radius — what depends on these (update/verify before editing)**
++
++ - `run` (job.cpp:3) — 1 caller in `client.cpp`; no tests found within 3 caller hops
++ - `run` (job.h:2) — 1 caller in `base.h`; no tests found within 3 caller hops
++
++ **Source Code**
++
++ > The code below is the **verbatim, current on-disk source** of these files — re-read from disk on this call and line-numbered, byte-for-byte identical to what the Read tool returns. It is NOT a summary, outline, or stale cache. Treat each block as a Read you have already performed: do not Read a file shown here.
++
++ **`job.cpp`** — flush(calls), flush(defines), flush(method), run(defines), run(method), +5 more
++
++ ```cpp
++ 1	#include "job.h"
++ 2	using namespace sample;
++ 3	int ArchiveJob::run() {
++ 4	  int value = config->archive_batch_limit;
++ 5	  value += 0; // run_0
++ 6	  value += 1; // run_1
++ 7	  value += 2; // run_2
++ 8	  value += 3; // run_3
++ 9	  value += 4; // run_4
++ 10	  value += 5; // run_5
++ 11	  value += 6; // run_6
++ 12	  value += 7; // run_7
++ 13	  value += 8; // run_8
++ 14	  value += 9; // run_9
++ 15	  value += 10; // run_10
++ 16	  value += 11; // run_11
++ 17	  value += 12; // run_12
++ 18	  value += 13; // run_13
++ 19	  value += 14; // run_14
++ 20	  value += 15; // run_15
++ 21	  value += 16; // run_16
++ 22	  value += 17; // run_17
++ 23	  value += 18; // run_18
++ 24	  value += 19; // run_19
++ 25	  return stage();
++ 26	}
++ 27	int ArchiveJob::stage() {
++ 28	  int value = 0;
++ 29	  value += 0; // stage_0
++ 30	  value += 1; // stage_1
++ 31	  value += 2; // stage_2
++ 32	  value += 3; // stage_3
++ 33	  value += 4; // stage_4
++ 34	  value += 5; // stage_5
++ 35	  value += 6; // stage_6
++ 36	  value += 7; // stage_7
++ 37	  value += 8; // stage_8
++ 38	  value += 9; // stage_9
++ 39	  value += 10; // stage_10
++ 40	  value += 11; // stage_11
++ 41	  value += 12; // stage_12
++ 42	  value += 13; // stage_13
++ 43	  value += 14; // stage_14
++ 44	  value += 15; // stage_15
++ 45	  value += 16; // stage_16
++ 46	  value += 17; // stage_17
++ 47	  value += 18; // stage_18
++ 48	  value += 19; // stage_19
++ 49	  value += 20; // stage_20
++ 50	  value += 21; // stage_21
++ 51	  value += 22; // stage_22
++ 52	  value += 23; // stage_23
++ 53	  value += 24; // stage_24
++ 54	  value += 25; // stage_25
++ 55	  value += 26; // stage_26
++ 56	  value += 27; // stage_27
++ 57	  value += 28; // stage_28
++ 58	  value += 29; // stage_29
++ 59	  value += 30; // stage_30
++ 60	  value += 31; // stage_31
++ 61	  value += 32; // stage_32
++ 62	  value += 33; // stage_33
++ 63	  value += 34; // stage_34
++ 64	  value += 35; // stage_35
++ 65	  value += 36; // stage_36
++ 66	  value += 37; // stage_37
++ 67	  value += 38; // stage_38
++ 68	  value += 39; // stage_39
++ 69	  value += 40; // stage_40
++ 70	  value += 41; // stage_41
++ 71	  value += 42; // stage_42
++ 72	  value += 43; // stage_43
++ 73	  value += 44; // stage_44
++ 74	  value += 45; // stage_45
++ 75	  value += 46; // stage_46
++ 76	  value += 47; // stage_47
++ 77	  value += 48; // stage_48
++ 78	  value += 49; // stage_49
++ 79	  value += 50; // stage_50
++ 80	  value += 51; // stage_51
++ 81	  value += 52; // stage_52
++ 82	  value += 53; // stage_53
++ 83	  value += 54; // stage_54
++ 84	  value += 55; // stage_55
++ 85	  value += 56; // stage_56
++ 86	  value += 57; // stage_57
++ 87	  value += 58; // stage_58
++ 88	  value += 59; // stage_59
++ 89	  value += 60; // stage_60
++ 90	  value += 61; // stage_61
++ 91	  value += 62; // stage_62
++ 92	  value += 63; // stage_63
++ 93	  value += 64; // stage_64
++ 94	  value += 65; // stage_65
++ 95	  value += 66; // stage_66
++ 96	  value += 67; // stage_67
++ 97	  value += 68; // stage_68
++ 98	  value += 69; // stage_69
++ 99	  return flush();
++ 100	}
++ 101	int ArchiveJob::spare() {
++ 102	  int value = 0;
++ 103	  value += 0; // spare_0
++ 104	  value += 1; // spare_1
++
++ ... (gap) ...
++
++ 452	  value += 349; // spare_349
++ 453	  return -1;
++ 454	}
++ 455	int ArchiveJob::flush() {
++ 456	  int value = 0;
++ 457	  value += 0; // flush_0
++ 458	  value += 1; // flush_1
++ 459	  value += 2; // flush_2
++ 460	  value += 3; // flush_3
++ 461	  value += 4; // flush_4
++ 462	  value += 5; // flush_5
++ 463	  value += 6; // flush_6
++ 464	  value += 7; // flush_7
++ 465	  value += 8; // flush_8
++ 466	  value += 9; // flush_9
++ 467	  value += 10; // flush_10
++ 468	  value += 11; // flush_11
++ 469	  value += 12; // flush_12
++ 470	  value += 13; // flush_13
++ 471	  value += 14; // flush_14
++ 472	  value += 15; // flush_15
++ 473	  value += 16; // flush_16
++ 474	  value += 17; // flush_17
++ 475	  value += 18; // flush_18
++ 476	  value += 19; // flush_19
++ 477	  value += 20; // flush_20
++ 478	  value += 21; // flush_21
++ 479	  value += 22; // flush_22
++ 480	  value += 23; // flush_23
++ 481	  value += 24; // flush_24
++ 482	  value += 25; // flush_25
++ 483	  value += 26; // flush_26
++ 484	  value += 27; // flush_27
++ 485	  value += 28; // flush_28
++ 486	  value += 29; // flush_29
++ 487	  value += 30; // flush_30
++ 488	  value += 31; // flush_31
++ 489	  value += 32; // flush_32
++ 490	  value += 33; // flush_33
++ 491	  value += 34; // flush_34
++ 492	  value += 35; // flush_35
++ 493	  value += 36; // flush_36
++ 494	  value += 37; // flush_37
++ 495	  value += 38; // flush_38
++ 496	  value += 39; // flush_39
++ 497	  value += 40; // flush_40
++ 498	  value += 41; // flush_41
++ 499	  value += 42; // flush_42
++ 500	  value += 43; // flush_43
++ 501	  value += 44; // flush_44
++ 502	  value += 45; // flush_45
++ 503	  value += 46; // flush_46
++ 504	  value += 47; // flush_47
++ 505	  value += 48; // flush_48
++ 506	  value += 49; // flush_49
++ 507	  value += 50; // flush_50
++ 508	  value += 51; // flush_51
++ 509	  value += 52; // flush_52
++ 510	  value += 53; // flush_53
++ 511	  value += 54; // flush_54
++ 512	  value += 55; // flush_55
++ 513	  value += 56; // flush_56
++ 514	  value += 57; // flush_57
++ 515	  value += 58; // flush_58
++ 516	  value += 59; // flush_59
++ 517	  value += 60; // flush_60
++ 518	  value += 61; // flush_61
++ 519	  value += 62; // flush_62
++ 520	  value += 63; // flush_63
++ 521	  value += 64; // flush_64
++ 522	  value += 65; // flush_65
++ 523	  value += 66; // flush_66
++ 524	  value += 67; // flush_67
++ 525	  value += 68; // flush_68
++ 526	  value += 69; // flush_69
++ 527	  value += 70; // flush_70
++ 528	  value += 71; // flush_71
++ 529	  value += 72; // flush_72
++ 530	  value += 73; // flush_73
++ 531	  value += 74; // flush_74
++ 532	  value += 75; // flush_75
++ 533	  value += 76; // flush_76
++ 534	  value += 77; // flush_77
++ 535	  value += 78; // flush_78
++ 536	  value += 79; // flush_79
++ 537	  return value + 913;
++ 538	}
++ 539	
++ ```
++
++ **`job.h`** — ArchiveJob(class), run(method), stage(method), flush(method), spare(method), +1 more
++
++ ```cpp
++ 1	#include "base.h"
++ 2	namespace sample { class ArchiveJob : public ArchiveBase { public: virtual int run() override; int stage(); int flush(); int spare(); }; }
++ ```
++
++ **`base.h`** — run(method), ArchiveBase(class), sample(namespace)
++
++ ```cpp
++ 1	namespace sample { class ArchiveBase { public: virtual int run() = 0; }; }
++ ```
++
++
++ > Some file sections were trimmed for size. Elided symbols are named inside gap markers as `name (file:line)` and preferred in the file header — run another `codegraph_explore` (or `codegraph_node`) with those exact names for their source.
+
+ ❯ __tests__/explore-selection-p1.test.ts:166:24
+    164|       }
+    165|       expect(text.length).toBeLessThanOrEqual(13000);
+    166|       expect(text).not.toContain('349; // spare_349');
+       |                        ^
+    167|     });
+    168|   }
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[9/21]⎯
+
+ FAIL  __tests__/explore-targets-integration.test.ts > explicit targets and freshness through the actual explore tool > delivers a qualified out-of-line C++ definition
+AssertionError: Target cannot be null or undefined.
+ ❯ __tests__/explore-targets-integration.test.ts:47:36
+     45|     expect(body(text)).toContain('verified_implementation = 813');
+     46|     expect(body(text)).toContain('return verified_implementation');
+     47|     expect(text.match(/^#### /gm)).toHaveLength(1);
+       |                                    ^
+     48|   });
+     49|   it('does not let a pinned declaration displace its exact implementat…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[10/21]⎯
+
+ FAIL  __tests__/explore-targets-integration.test.ts > explicit targets and freshness through the actual explore tool > does not let a pinned declaration displace its exact implementation at maxFiles=1
+AssertionError: expected '**Exploration: worker.h:3**\n\nFound …' to contain '#### worker.cpp'
+
+- Expected
++ Received
+
+- #### worker.cpp
++ **Exploration: worker.h:3**
++
++ Found 3 symbols across 1 file. 1 file pinned from the query.
++
++ **Source Code**
++
++ > The code below is the **verbatim, current on-disk source** of these files — re-read from disk on this call and line-numbered, byte-for-byte identical to what the Read tool returns. It is NOT a summary, outline, or stale cache. Treat each block as a Read you have already performed: do not Read a file shown here.
++
++ **`worker.h`** — harbor(namespace), LedgerWriter(class), commit(method)
++
++ ```cpp
++ 1	namespace harbor {
++ 2	class LedgerWriter { public:
++ 3	  int commit();
++ 4	};
++ 5	}
++ ```
++
+
+ ❯ __tests__/explore-targets-integration.test.ts:51:18
+     49|   it('does not let a pinned declaration displace its exact implementat…
+     50|     const text = await ask('worker.h:3');
+     51|     expect(text).toContain('#### worker.cpp');
+       |                  ^
+     52|     expect(body(text)).toContain('return verified_implementation');
+     53|     expect(text.match(/^#### /gm)).toHaveLength(1);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[11/21]⎯
+
+ FAIL  __tests__/explore-targets-integration.test.ts > explicit targets and freshness through the actual explore tool > delivers an explicit multiline range as that range
+AssertionError: expected '1\texport function neighbor() {\n2\t …' not to contain 'outside_requested_range'
+
+- Expected
++ Received
+
+- outside_requested_range
++ 1	export function neighbor() {
++ 2	  return "outside_requested_range";
++ 3	}
++ 4	// range_first
++ 5	// range_middle
++ 6	// range_last
++ 7	export function useful() {
++ 8	  return 42;
++ 9	}
+
+ ❯ __tests__/explore-targets-integration.test.ts:59:28
+     57|     expect(body(text)).toContain('4\t// range_first');
+     58|     expect(body(text)).toContain('6\t// range_last');
+     59|     expect(body(text)).not.toContain('outside_requested_range');
+       |                            ^
+     60|   });
+     61|   it('retains indexed source without callable nodes for a path and a r…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[12/21]⎯
+
+ FAIL  __tests__/explore-targets-integration.test.ts > explicit targets and freshness through the actual explore tool > retains indexed source without callable nodes for a path and a range
+AssertionError: expected '' to contain 'comments_only_second'
+
+- Expected
++ Received
+
+- comments_only_second
+
+ ❯ __tests__/explore-targets-integration.test.ts:63:46
+     61|   it('retains indexed source without callable nodes for a path and a r…
+     62|     expect(cg.getFile('notes.cpp')).toBeTruthy();
+     63|     expect(body(await ask('notes.cpp:1-2'))).toContain('comments_only_…
+       |                                              ^
+     64|     expect(body(await ask('notes.cpp'))).toContain('comments_only_firs…
+     65|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[13/21]⎯
+
+ FAIL  __tests__/explore-targets-integration.test.ts > explicit targets and freshness through the actual explore tool > does not expand a pure line-range request through cross-file calls
+AssertionError: Target cannot be null or undefined.
+ ❯ __tests__/explore-targets-integration.test.ts:70:36
+     68|     expect(body(text)).toContain('3\t  return leftPeer();');
+     69|     expect(text).not.toContain('#### left/peer.ts');
+     70|     expect(text.match(/^#### /gm)).toHaveLength(1);
+       |                                    ^
+     71|   });
+     72|   it('reports ambiguous basenames rather than choosing a sibling', asy…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[14/21]⎯
+
+ FAIL  __tests__/explore-targets-integration.test.ts > explicit targets and freshness through the actual explore tool > reports ambiguous basenames rather than choosing a sibling
+AssertionError: expected '**Exploration: peer.ts:1**\n\nFound 1…' to match /ambiguous|unresolved/i
+
+- Expected: 
+/ambiguous|unresolved/i
+
++ Received: 
+"**Exploration: peer.ts:1**
+
+Found 1 symbol across 1 file. 1 file pinned from the query.
+
+**Source Code**
+
+> The code below is the **verbatim, current on-disk source** of these files — re-read from disk on this call and line-numbered, byte-for-byte identical to what the Read tool returns. It is NOT a summary, outline, or stale cache. Treat each block as a Read you have already performed: do not Read a file shown here.
+
+**`left/peer.ts`** — leftPeer(function)
+
+```typescript
+1	export function leftPeer() { return 1; }
+```
+"
+
+ ❯ __tests__/explore-targets-integration.test.ts:74:18
+     72|   it('reports ambiguous basenames rather than choosing a sibling', asy…
+     73|     const text = await ask('peer.ts:1');
+     74|     expect(text).toMatch(/ambiguous|unresolved/i);
+       |                  ^
+     75|     expect(body(text)).not.toContain('leftPeer');
+     76|     expect(body(text)).not.toContain('rightPeer');
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[15/21]⎯
+
+ FAIL  __tests__/explore-targets-integration.test.ts > explicit targets and freshness through the actual explore tool > does not reuse verified bytes across queries after a same-size edit
+AssertionError: expected '**Exploration: harbor::LedgerWriter::…' to contain 'Source omitted: worker.cpp'
+
+- Expected
++ Received
+
+- Source omitted: worker.cpp
++ **Exploration: harbor::LedgerWriter::commit**
++
++ Found 2 symbols across 1 file.
++
++ **Source Code**
++
++ > The code below is the **verbatim, current on-disk source** of these files — re-read from disk on this call and line-numbered, byte-for-byte identical to what the Read tool returns. It is NOT a summary, outline, or stale cache. Treat each block as a Read you have already performed: do not Read a file shown here.
++
++ **`worker.cpp`** — commit(method), harbor(namespace)
++
++ ```cpp
++ 1	#include "worker.h"
++ 2	namespace harbor {
++ 3	int LedgerWriter::commit() {
++ 4	  const int verified_implementation = 927;
++ 5	  return verified_implementation;
++ 6	}
++ 7	}
++ ```
++
++ **Not shown above — explore these names for their source**
++
++ - worker.h: LedgerWriter:2, commit:3, harbor:1
+
+ ❯ __tests__/explore-targets-integration.test.ts:86:20
+     84|       fs.utimesSync(file, stamp.atime, stamp.mtime);
+     85|       const text = await ask('harbor::LedgerWriter::commit');
+     86|       expect(text).toContain('Source omitted: worker.cpp');
+       |                    ^
+     87|       expect(text).toContain('changed since indexing');
+     88|       expect(body(text)).not.toContain('813');
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[16/21]⎯
+
+ FAIL  __tests__/explore-targets-integration.test.ts > explicit targets and freshness through the actual explore tool > never slices a shifted body at old indexed line numbers
+AssertionError: expected '**Exploration: worker.cpp:3-6**\n\nFo…' to match /cannot be mapped safely|Source omitted/
+
+- Expected: 
+/cannot be mapped safely|Source omitted/
+
++ Received: 
+"**Exploration: worker.cpp:3-6**
+
+Found 2 symbols across 1 file. 1 file pinned from the query.
+
+**Source Code**
+
+> The code below is the **verbatim, current on-disk source** of these files — re-read from disk on this call and line-numbered, byte-for-byte identical to what the Read tool returns. It is NOT a summary, outline, or stale cache. Treat each block as a Read you have already performed: do not Read a file shown here.
+
+**`worker.cpp`** — harbor(namespace), commit(method) · ⚠ changed since last index sync — source below is current; the symbol list may be outdated
+
+```cpp
+1	int unrelated_shifted_body() { return 999; }
+2	
+3	#include \"worker.h\"
+4	namespace harbor {
+5	int LedgerWriter::commit() {
+6	  const int verified_implementation = 813;
+7	  return verified_implementation;
+8	}
+9	}
+```
+
+
+> ⚠ Changed on disk after the last index sync: worker.cpp. Line numbers referencing this file elsewhere in this response (flow steps, blast radius, symbol lists) may be shifted until that project's next sync re-indexes it."
+
+ ❯ __tests__/explore-targets-integration.test.ts:99:20
+     97|       fs.writeFileSync(file, 'int unrelated_shifted_body() { return 99…
+     98|       const text = await ask('worker.cpp:3-6');
+     99|       expect(text).toMatch(/cannot be mapped safely|Source omitted/);
+       |                    ^
+    100|       expect(body(text)).not.toContain('unrelated_shifted_body');
+    101|       expect(body(text)).not.toContain('verified_implementation');
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[17/21]⎯
+
+ FAIL  __tests__/explore-targets-integration.test.ts > explicit targets and freshness through the actual explore tool > reports a missing explicit source instead of silently succeeding with a body
+AssertionError: expected '**Exploration: harbor::LedgerWriter::…' to contain 'source file is missing'
+
+- Expected
++ Received
+
+- source file is missing
++ **Exploration: harbor::LedgerWriter::commit**
++
++ Found 5 symbols across 2 files.
++
++ **Source Code**
++
++ > The code below is the **verbatim, current on-disk source** of these files — re-read from disk on this call and line-numbered, byte-for-byte identical to what the Read tool returns. It is NOT a summary, outline, or stale cache. Treat each block as a Read you have already performed: do not Read a file shown here.
++
++ **Not shown above — explore these names for their source**
++
++ - worker.cpp: commit:3, harbor:2
++ - worker.h: LedgerWriter:2, commit:3, harbor:1
+
+ ❯ __tests__/explore-targets-integration.test.ts:109:20
+    107|       fs.unlinkSync(file);
+    108|       const text = await ask('harbor::LedgerWriter::commit');
+    109|       expect(text).toContain('source file is missing');
+       |                    ^
+    110|       expect(body(text)).not.toContain('verified_implementation');
+    111|     } finally { fs.writeFileSync(file, implementation); }
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[18/21]⎯
+
+ FAIL  __tests__/explore-targets-integration.test.ts > explicit targets and freshness through the actual explore tool > reports an out-of-bounds range without fabricating source lines
+AssertionError: expected '**Exploration: ranges.ts:400-405**\n\…' to contain 'exceeds'
+
+- Expected
++ Received
+
+- exceeds
++ **Exploration: ranges.ts:400-405**
++
++ Found 2 symbols across 1 file. 1 file pinned from the query.
++
++ **Source Code**
++
++ > The code below is the **verbatim, current on-disk source** of these files — re-read from disk on this call and line-numbered, byte-for-byte identical to what the Read tool returns. It is NOT a summary, outline, or stale cache. Treat each block as a Read you have already performed: do not Read a file shown here.
++
++ **`ranges.ts`** — neighbor(function), useful(function)
++
++ ```typescript
++ 1	export function neighbor() {
++ 2	  return "outside_requested_range";
++ 3	}
++ 4	// range_first
++ 5	// range_middle
++ 6	// range_last
++ 7	export function useful() {
++ 8	  return 42;
++ 9	}
++ ```
++
+
+ ❯ __tests__/explore-targets-integration.test.ts:115:18
+    113|   it('reports an out-of-bounds range without fabricating source lines'…
+    114|     const text = await ask('ranges.ts:400-405');
+    115|     expect(text).toContain('exceeds');
+       |                  ^
+    116|     expect(body(text)).not.toMatch(/^40[0-5]\t/m);
+    117|     expect(body(text)).toBe('');
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[19/21]⎯
+
+ FAIL  __tests__/explore-targets-integration.test.ts > explicit targets and freshness through the actual explore tool > does not widen invalid range ranges.ts:0 into the whole file
+AssertionError: expected '**Exploration: ranges.ts:0**\n\nFound…' to match /Invalid line target/i
+
+- Expected: 
+/Invalid line target/i
+
++ Received: 
+"**Exploration: ranges.ts:0**
+
+Found 2 symbols across 1 file. 1 file pinned from the query.
+
+**Source Code**
+
+> The code below is the **verbatim, current on-disk source** of these files — re-read from disk on this call and line-numbered, byte-for-byte identical to what the Read tool returns. It is NOT a summary, outline, or stale cache. Treat each block as a Read you have already performed: do not Read a file shown here.
+
+**`ranges.ts`** — neighbor(function), useful(function)
+
+```typescript
+1	export function neighbor() {
+2	  return \"outside_requested_range\";
+3	}
+4	// range_first
+5	// range_middle
+6	// range_last
+7	export function useful() {
+8	  return 42;
+9	}
+```
+"
+
+ ❯ __tests__/explore-targets-integration.test.ts:122:18
+    120|   it.each(['ranges.ts:0', 'ranges.ts:-2'])('does not widen invalid ran…
+    121|     const text = await ask(query);
+    122|     expect(text).toMatch(/Invalid line target/i);
+       |                  ^
+    123|     expect(body(text)).toBe('');
+    124|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[20/21]⎯
+
+ FAIL  __tests__/explore-targets-integration.test.ts > explicit targets and freshness through the actual explore tool > does not widen invalid range ranges.ts:-2 into the whole file
+AssertionError: expected '**Exploration: ranges.ts:-2**\n\nFoun…' to match /Invalid line target/i
+
+- Expected: 
+/Invalid line target/i
+
++ Received: 
+"**Exploration: ranges.ts:-2**
+
+Found 1 symbol across 1 file.
+
+**Source Code**
+
+> The code below is the **verbatim, current on-disk source** of these files — re-read from disk on this call and line-numbered, byte-for-byte identical to what the Read tool returns. It is NOT a summary, outline, or stale cache. Treat each block as a Read you have already performed: do not Read a file shown here.
+
+**`ranges.ts`** — useful(function)
+
+```typescript
+1	export function neighbor() {
+2	  return \"outside_requested_range\";
+3	}
+4	// range_first
+5	// range_middle
+6	// range_last
+7	export function useful() {
+8	  return 42;
+9	}
+```
+"
+
+ ❯ __tests__/explore-targets-integration.test.ts:122:18
+    120|   it.each(['ranges.ts:0', 'ranges.ts:-2'])('does not widen invalid ran…
+    121|     const text = await ask(query);
+    122|     expect(text).toMatch(/Invalid line target/i);
+       |                  ^
+    123|     expect(body(text)).toBe('');
+    124|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[21/21]⎯
+
+ Test Files  7 failed | 1 passed (8)
+      Tests  21 failed | 82 passed (103)
+   Start at  20:54:55
+   Duration  11.60s (transform 1.81s, setup 0ms, collect 3.24s, tests 6.92s, environment 1ms, prepare 395ms)
+
+npm notice
+npm notice New major version of npm available! 11.9.0 -> 12.2.1
+npm notice Changelog: https://github.com/npm/cli/releases/tag/v12.2.1
+npm notice To update run: npm install -g npm@12.2.1
+npm notice

@@ -1,0 +1,553 @@
+npm warn Unknown env config "http-proxy". This will stop working in the next major version of npm.
+[33mThe CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.[39m
+
+ RUN  v2.1.9 /workspace/scratch/25a5ec0f2727/explore-alignment
+
+ ✓ __tests__/upstream-v162/explore-allocation-e2e.test.ts (28 tests) 1090ms
+ ✓ __tests__/upstream-v162/dependency-graph.test.ts (40 tests) 2679ms
+ ✓ __tests__/upstream-v162/explore-proportional-allocation.test.ts (44 tests) 108ms
+ ✓ __tests__/upstream-v162/dependency-query-paths.test.ts (48 tests) 24ms
+ ✓ __tests__/upstream-v162/dependency-dynamic-boundaries.test.ts (37 tests) 1589ms
+   ✓ codegraph_explore — dynamic boundaries > announces a template import boundary from indexed source (#1967) 334ms
+ ✓ __tests__/upstream-v162/explore-session-state.test.ts (31 tests) 967ms
+ ✓ __tests__/upstream-v162/explore-completeness-note.test.ts (25 tests) 724ms
+stderr | __tests__/upstream-v162/dependency-branch-guards.test.ts > branch guards: on the wire > labels symbol-view rails and flow connectors with the call site's conditions
+failed to asynchronously prepare wasm: Error: ENOENT: no such file or directory, open '/workspace/scratch/25a5ec0f2727/explore-alignment/tree-sitter.wasm'
+Aborted(Error: ENOENT: no such file or directory, open '/workspace/scratch/25a5ec0f2727/explore-alignment/tree-sitter.wasm')
+
+ ❯ __tests__/upstream-v162/dependency-branch-guards.test.ts (28 tests | 1 failed) 327ms
+   × branch guards: on the wire > labels symbol-view rails and flow connectors with the call site's conditions 246ms
+     → cg.getFanIn is not a function
+ ✓ __tests__/upstream-v162/explore-cross-call-dedup.test.ts (26 tests) 1290ms
+ ✓ __tests__/upstream-v162/explore-long-query.test.ts (13 tests) 6436ms
+   ✓ name-substring lookups give the rows a LIKE scan gives (#2620) > matches when SQLite scans the table (a small index) 1705ms
+   ✓ name-substring lookups give the rows a LIKE scan gives (#2620) > matches when SQLite reads through the kind index (a large index) 936ms
+   ✓ name-substring lookups give the rows a LIKE scan gives (#2620) > asks SQLite inside a transaction, and for a lookup without a kind filter 365ms
+   ✓ per-word reads happen once per database state (#2620) > reads the names again after a sync or another connection's write 828ms
+   ✓ per-word reads happen once per database state (#2620) > reads the names fresh inside a transaction, and does not keep them 307ms
+   ✓ per-word reads happen once per database state (#2620) > skips the LIKE scan for a word no name or qualified name holds, and still finds one inside a qualified name 320ms
+   ✓ a long query searches a bounded number of words (#2620) > runs a bounded number of searches however long the query is 371ms
+   ✓ a long query searches a bounded number of words (#2620) > searches a bag of symbol names whole 310ms
+   ✓ a long query searches a bounded number of words (#2620) > still searches every word of a query within the bound 329ms
+   ✓ a long query searches a bounded number of words (#2620) > keeps the identifiers of a long paste, wherever they are in it 306ms
+   ✓ a long query searches a bounded number of words (#2620) > drops the plain words past the bound 318ms
+ ✓ __tests__/upstream-v162/dependency-branch-guards-languages.test.ts (31 tests) 198ms
+ ✓ __tests__/upstream-v162/explore-merged-spine-cluster.test.ts (11 tests) 1563ms
+ ✓ __tests__/upstream-v162/explore-synth-link-endpoints.test.ts (6 tests) 1068ms
+   ✓ codegraph_explore — dynamic-dispatch links are listed per link > lists the named implementation and every other off-chain one, the named one first 358ms
+ ❯ __tests__/upstream-v162/cjk-query-tokens.test.ts (12 tests | 1 failed) 407ms
+   × explore and context on Korean, Chinese and Japanese names (#516, #1262) > builds context for names in each script 10ms
+     → expected '## Code Context\n\n**Query:** 로그인\n' to contain '- **로그인** (function) - src/auth.ts:1'
+ ✓ __tests__/upstream-v162/adaptive-explore-sizing.test.ts (8 tests) 601ms
+ ❯ __tests__/upstream-v162/dependency-segment-vocab.test.ts (17 tests | 11 failed) 2885ms
+   × name-segment vocabulary + getSegmentMatches (graph-derived gate) > vocab rows are proposals — a name with no surviving node is never surfaced 131ms
+     → queries.insertNameSegmentsBatch is not a function
+   × name-segment vocabulary + getSegmentMatches (graph-derived gate) > sync heals an empty vocab over a populated graph (pre-vocab-table upgrade path) 90ms
+     → queries.clearNameSegmentVocab is not a function
+   × name-segment vocabulary + getSegmentMatches (graph-derived gate) > heal covers UNCHANGED files even when the same sync also indexes changed ones 100ms
+     → queries.clearNameSegmentVocab is not a function
+   × name-segment vocabulary + getSegmentMatches (graph-derived gate) > healSegmentVocabIfEmpty backfills WITHOUT a sync — the prompt-hook open path (#1142) 101ms
+     → queries.clearNameSegmentVocab is not a function
+   × name-segment vocabulary + getSegmentMatches (graph-derived gate) > a second full index keeps the words of the names it did not rewrite (#2252) 90ms
+     → no such table: name_segment_vocab
+   × name-segment vocabulary + getSegmentMatches (graph-derived gate) > a full index after an edit keeps unchanged files' words and prunes a renamed name (#2252) 358ms
+     → no such table: name_segment_vocab
+   × name-segment vocabulary + getSegmentMatches (graph-derived gate) > a name a full index pruned is written again when it comes back in the same session (#2252) 630ms
+     → no such table: name_segment_vocab
+   × name-segment vocabulary + getSegmentMatches (graph-derived gate) > a cancelled full index keeps the vocabulary it found (#2252) 93ms
+     → no such table: name_segment_vocab
+   × name-segment vocabulary + getSegmentMatches (graph-derived gate) > a full index into a fresh database still starts the vocabulary over (`codegraph index`) 88ms
+     → no such table: name_segment_vocab
+   × name-segment vocabulary + getSegmentMatches (graph-derived gate) > a name that exists only as an import statement is never surfaced (#1144) 356ms
+     → queries.insertNameSegmentsBatch is not a function
+   × name-segment vocabulary + getSegmentMatches (graph-derived gate) > co-occurrence counts distinct WORDS, not variants — plural pairs cannot pose as two words (#1146) 92ms
+     → queries.insertNameSegmentsBatch is not a function
+ ✓ __tests__/upstream-v162/explore-output-budget.test.ts (21 tests) 530ms
+ ✓ __tests__/upstream-v162/explore-allocation-1500.test.ts (17 tests) 474ms
+ ✓ __tests__/upstream-v162/explore-relevance-scoring.test.ts (8 tests) 629ms
+ ✓ __tests__/upstream-v162/explore-declaration-only.test.ts (12 tests) 776ms
+ ✓ __tests__/upstream-v162/explore-reservation-invariant.test.ts (14 tests) 851ms
+ ✓ __tests__/upstream-v162/explore-same-basename-pin.test.ts (5 tests) 566ms
+ ✓ __tests__/upstream-v162/explore-exact-target.test.ts (7 tests) 511ms
+ ✓ __tests__/upstream-v162/explore-diagnostics.test.ts (12 tests) 816ms
+ ❯ __tests__/upstream-v162/dependency-context.test.ts (19 tests | 1 failed) 2276ms
+   × Context Builder > findRelevantContext() > includes union definitions in the default context search 170ms
+     → expected undefined to be defined
+ ✓ __tests__/upstream-v162/explore-displacement-guard.test.ts (11 tests) 799ms
+ ✓ __tests__/upstream-v162/explore-named-file-valve.test.ts (8 tests) 994ms
+ ✓ __tests__/upstream-v162/explore-isolated-named-cluster.test.ts (10 tests) 903ms
+ ✓ __tests__/upstream-v162/explore-pinned-cap-named.test.ts (6 tests) 587ms
+ ✓ __tests__/upstream-v162/explore-named-symbol-render.test.ts (10 tests) 860ms
+ ✓ __tests__/upstream-v162/explore-queried-oversize-symbol.test.ts (9 tests) 556ms
+ ✓ __tests__/upstream-v162/explore-oversize-member.test.ts (9 tests) 482ms
+ ✓ __tests__/upstream-v162/dependency-context-ranking.test.ts (13 tests) 562ms
+ ✓ __tests__/upstream-v162/explore-unindexed-names.test.ts (8 tests) 940ms
+   ✓ #2462 — explore says which named symbols are not in the index > goes away once the folder is re-included and synced 411ms
+ ✓ __tests__/upstream-v162/explore-cluster-starvation.test.ts (9 tests) 636ms
+ ✓ __tests__/upstream-v162/explore-factory-closure.test.ts (6 tests) 405ms
+ ✓ __tests__/upstream-v162/explore-nl-stopword-collision.test.ts (4 tests) 712ms
+   ✓ codegraph_explore — NL-stopword collision guard > a bare English word ("check") does not tier its namesake above the corroborated answer file 328ms
+ ❯ __tests__/upstream-v162/explore-cobol-copybook.test.ts (8 tests | 3 failed) 436ms
+   × explore finds COBOL copybooks by name (#2342) > surfaces an EXEC SQL INCLUDE whose copybook is not indexed (the issue repro) 137ms
+     → expected 'No relevant code found for "MYCOPYBOO…' not to contain 'No relevant code found'
+   × explore finds COBOL copybooks by name (#2342) > pins an indexed copybook ahead of every include site, and lists all of them 38ms
+     → expected 'No relevant code found for "CVACT01Y"…' not to contain 'No relevant code found'
+   × explore finds COBOL copybooks by name (#2342) > feeds the same entry points to codegraph context (buildContext) 36ms
+     → expected '## Code Context\n\n**Query:** MYCOPYB…' to contain 'EXEC SQL INCLUDE MYCOPYBOOK END-EXEC'
+ ❯ __tests__/upstream-v162/explore-blast-radius.test.ts (6 tests | 2 failed) 1226ms
+   ✓ codegraph_explore — blast radius > lists dependents (locations only) and covering tests for an entry symbol 317ms
+   × codegraph_explore — views in the blast radius > lists views in their own slot, past the cap on code callers 108ms
+     → expected '**Exploration: fmt**\n\nFound 7 symbo…' to match /\+1 m…/(?:Edit|Index)\.cshtml`, `Views\
+   × codegraph_explore — views in the blast radius > reads the same when only views depend on a symbol 416ms
+     → expected '**Exploration: onlyViews**\n\nFound 4…' to match /1 caller in 1 view: `Vie…/Solo\.cshtml`
+ ✓ __tests__/upstream-v162/explore-corroboration-ranking.test.ts (2 tests) 524ms
+   ✓ codegraph_explore — multi-term corroboration tier > sources the corroborated backend file alongside a denser frontend cluster in a multi-layer repo 368ms
+ ✓ __tests__/upstream-v162/dependency-identifier-segments.test.ts (20 tests) 10ms
+ ✓ __tests__/upstream-v162/explore-elided-symbol-names.test.ts (9 tests) 391ms
+ ✓ __tests__/upstream-v162/explore-empty-diagnostics.test.ts (11 tests) 1405ms
+   ✓ empty explore diagnostics (#1904) > does not offer deleted symbols left in the segment vocabulary 330ms
+ ✓ __tests__/upstream-v162/explore-path-pinning.test.ts (8 tests) 431ms
+ ✓ __tests__/upstream-v162/explore-named-gap-budget.test.ts (6 tests) 398ms
+ ❯ __tests__/upstream-v162/explore-low-value-tests.test.ts (2 tests | 1 failed) 898ms
+   × the route-file detector skips an e2e mock server > names the app's own routes file 7ms
+     → expected 'e2e/mock-server.js' to be 'src/routes.js' // Object.is equality
+ ✓ __tests__/upstream-v162/explore-result-count.test.ts (1 test) 327ms
+   ✓ codegraph_explore — curated result count (#1046) > header file count equals the number of rendered source sections 326ms
+ ✓ __tests__/upstream-v162/explore-synth-constant-endpoints.test.ts (1 test) 327ms
+   ✓ codegraph_explore — synthesized constant→constant edges surface on small repos > surfaces an RTK thunk→thunk hop (both `constant`) in the Dynamic-dispatch links section 326ms
+ ✓ __tests__/upstream-v162/explore-pinned-allocation.test.ts (5 tests) 4ms
+
+⎯⎯⎯⎯⎯⎯ Failed Tests 20 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  __tests__/upstream-v162/cjk-query-tokens.test.ts > explore and context on Korean, Chinese and Japanese names (#516, #1262) > builds context for names in each script
+AssertionError: expected '## Code Context\n\n**Query:** 로그인\n' to contain '- **로그인** (function) - src/auth.ts:1'
+
+- Expected
++ Received
+
+- - **로그인** (function) - src/auth.ts:1
++ ## Code Context
++
++ **Query:** 로그인
++
+
+ ❯ __tests__/upstream-v162/cjk-query-tokens.test.ts:225:34
+    223|   it('builds context for names in each script', async () => {
+    224|     // main: the header and the query, nothing else.
+    225|     expect(await context('로그인')).toContain('- **로그인** (function)…
+       |                                  ^
+    226|     const japanese = await context('注文処理 在庫確認');
+    227|     expect(japanese).toContain('- **注文処理** (function) - src/order.…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/20]⎯
+
+ FAIL  __tests__/upstream-v162/dependency-branch-guards.test.ts > branch guards: on the wire > labels symbol-view rails and flow connectors with the call site's conditions
+TypeError: cg.getFanIn is not a function
+ ❯ Module.buildNode ../explore-upstream/src/ui-server/api/node.ts:159:22
+    157|   // Fan-in for the rail pills ("hub · N"), for the rows actually retu…
+    158|   // one query, not one per row.
+    159|   const fanInOf = cg.getFanIn([
+       |                      ^
+    160|     ...shownIncoming.map((r) => r.node.id),
+    161|     ...shownOutgoing.map((r) => r.node.id),
+ ❯ __tests__/upstream-v162/dependency-branch-guards.test.ts:362:19
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/20]⎯
+
+ FAIL  __tests__/upstream-v162/dependency-context.test.ts > Context Builder > findRelevantContext() > includes union definitions in the default context search
+AssertionError: expected undefined to be defined
+ ❯ __tests__/upstream-v162/dependency-context.test.ts:209:21
+    207|       );
+    208| 
+    209|       expect(union).toBeDefined();
+       |                     ^
+    210|     });
+    211| 
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/20]⎯
+
+ FAIL  __tests__/upstream-v162/dependency-segment-vocab.test.ts > name-segment vocabulary + getSegmentMatches (graph-derived gate) > vocab rows are proposals — a name with no surviving node is never surfaced
+TypeError: queries.insertNameSegmentsBatch is not a function
+ ❯ __tests__/upstream-v162/dependency-segment-vocab.test.ts:115:13
+    113|     // Plant an orphan row (as file deletion would): the honesty gate …
+    114|     const queries = (cg as unknown as { queries: { insertNameSegmentsB…
+    115|     queries.insertNameSegmentsBatch(['GhostSymbolMachine']);
+       |             ^
+    116|     const matches = cg.getSegmentMatches(['ghost', 'symbol']);
+    117|     expect(matches).toEqual([]);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/20]⎯
+
+ FAIL  __tests__/upstream-v162/dependency-segment-vocab.test.ts > name-segment vocabulary + getSegmentMatches (graph-derived gate) > sync heals an empty vocab over a populated graph (pre-vocab-table upgrade path)
+TypeError: queries.clearNameSegmentVocab is not a function
+ ❯ __tests__/upstream-v162/dependency-segment-vocab.test.ts:141:13
+    139|   it('sync heals an empty vocab over a populated graph (pre-vocab-tabl…
+    140|     const queries = (cg as unknown as { queries: { clearNameSegmentVoc…
+    141|     queries.clearNameSegmentVocab();
+       |             ^
+    142|     expect(queries.isNameSegmentVocabEmpty()).toBe(true);
+    143|     await cg.sync();
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/20]⎯
+
+ FAIL  __tests__/upstream-v162/dependency-segment-vocab.test.ts > name-segment vocabulary + getSegmentMatches (graph-derived gate) > heal covers UNCHANGED files even when the same sync also indexes changed ones
+TypeError: queries.clearNameSegmentVocab is not a function
+ ❯ __tests__/upstream-v162/dependency-segment-vocab.test.ts:154:13
+    152|     // leaving every unchanged file's names unsegmented forever.
+    153|     const queries = (cg as unknown as { queries: { clearNameSegmentVoc…
+    154|     queries.clearNameSegmentVocab();
+       |             ^
+    155|     const touched = path.join(dir, 'src', 'state-machine.ts');
+    156|     fs.writeFileSync(touched, fs.readFileSync(touched, 'utf8') + '\n//…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/20]⎯
+
+ FAIL  __tests__/upstream-v162/dependency-segment-vocab.test.ts > name-segment vocabulary + getSegmentMatches (graph-derived gate) > healSegmentVocabIfEmpty backfills WITHOUT a sync — the prompt-hook open path (#1142)
+TypeError: queries.clearNameSegmentVocab is not a function
+ ❯ __tests__/upstream-v162/dependency-segment-vocab.test.ts:170:13
+    168|       queries: { clearNameSegmentVocab(): void; isNameSegmentVocabEmpt…
+    169|     }).queries;
+    170|     queries.clearNameSegmentVocab();
+       |             ^
+    171|     expect(queries.isNameSegmentVocabEmpty()).toBe(true);
+    172|     await expect(cg.healSegmentVocabIfEmpty()).resolves.toBe(true);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/20]⎯
+
+ FAIL  __tests__/upstream-v162/dependency-segment-vocab.test.ts > name-segment vocabulary + getSegmentMatches (graph-derived gate) > a second full index keeps the words of the names it did not rewrite (#2252)
+Error: no such table: name_segment_vocab
+ ❯ NodeSqliteAdapter.prepare src/db/sqlite-adapter.ts:74:27
+     72| 
+     73|   prepare(sql: string): SqliteStatement {
+     74|     const stmt = this._db.prepare(sql);
+       |                           ^
+     75|     return {
+     76|       run(...params: any[]) {
+ ❯ vocabRows __tests__/upstream-v162/dependency-segment-vocab.test.ts:70:8
+ ❯ __tests__/upstream-v162/dependency-segment-vocab.test.ts:182:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/20]⎯
+
+ FAIL  __tests__/upstream-v162/dependency-segment-vocab.test.ts > name-segment vocabulary + getSegmentMatches (graph-derived gate) > a full index after an edit keeps unchanged files' words and prunes a renamed name (#2252)
+Error: no such table: name_segment_vocab
+ ❯ NodeSqliteAdapter.prepare src/db/sqlite-adapter.ts:74:27
+     72| 
+     73|   prepare(sql: string): SqliteStatement {
+     74|     const stmt = this._db.prepare(sql);
+       |                           ^
+     75|     return {
+     76|       run(...params: any[]) {
+ ❯ vocabRows __tests__/upstream-v162/dependency-segment-vocab.test.ts:70:8
+ ❯ __tests__/upstream-v162/dependency-segment-vocab.test.ts:198:12
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[9/20]⎯
+
+ FAIL  __tests__/upstream-v162/dependency-segment-vocab.test.ts > name-segment vocabulary + getSegmentMatches (graph-derived gate) > a name a full index pruned is written again when it comes back in the same session (#2252)
+Error: no such table: name_segment_vocab
+ ❯ NodeSqliteAdapter.prepare src/db/sqlite-adapter.ts:74:27
+     72| 
+     73|   prepare(sql: string): SqliteStatement {
+     74|     const stmt = this._db.prepare(sql);
+       |                           ^
+     75|     return {
+     76|       run(...params: any[]) {
+ ❯ vocabRows __tests__/upstream-v162/dependency-segment-vocab.test.ts:70:8
+ ❯ __tests__/upstream-v162/dependency-segment-vocab.test.ts:215:12
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[10/20]⎯
+
+ FAIL  __tests__/upstream-v162/dependency-segment-vocab.test.ts > name-segment vocabulary + getSegmentMatches (graph-derived gate) > a cancelled full index keeps the vocabulary it found (#2252)
+Error: no such table: name_segment_vocab
+ ❯ NodeSqliteAdapter.prepare src/db/sqlite-adapter.ts:74:27
+     72| 
+     73|   prepare(sql: string): SqliteStatement {
+     74|     const stmt = this._db.prepare(sql);
+       |                           ^
+     75|     return {
+     76|       run(...params: any[]) {
+ ❯ vocabRows __tests__/upstream-v162/dependency-segment-vocab.test.ts:70:8
+ ❯ __tests__/upstream-v162/dependency-segment-vocab.test.ts:223:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[11/20]⎯
+
+ FAIL  __tests__/upstream-v162/dependency-segment-vocab.test.ts > name-segment vocabulary + getSegmentMatches (graph-derived gate) > a full index into a fresh database still starts the vocabulary over (`codegraph index`)
+Error: no such table: name_segment_vocab
+ ❯ NodeSqliteAdapter.prepare src/db/sqlite-adapter.ts:74:27
+     72| 
+     73|   prepare(sql: string): SqliteStatement {
+     74|     const stmt = this._db.prepare(sql);
+       |                           ^
+     75|     return {
+     76|       run(...params: any[]) {
+ ❯ vocabRows __tests__/upstream-v162/dependency-segment-vocab.test.ts:70:8
+ ❯ __tests__/upstream-v162/dependency-segment-vocab.test.ts:235:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[12/20]⎯
+
+ FAIL  __tests__/upstream-v162/dependency-segment-vocab.test.ts > name-segment vocabulary + getSegmentMatches (graph-derived gate) > a name that exists only as an import statement is never surfaced (#1144)
+TypeError: queries.insertNameSegmentsBatch is not a function
+ ❯ __tests__/upstream-v162/dependency-segment-vocab.test.ts:278:13
+    276|     // Legacy rows: plant the vocab entries a pre-exclusion version wr…
+    277|     const queries = (cg as unknown as { queries: { insertNameSegmentsB…
+    278|     queries.insertNameSegmentsBatch(['external-unindexed-pkg']);
+       |             ^
+    279|     expect(cg.getSegmentMatches(['external', 'unindexed'])).toEqual([]…
+    280|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[13/20]⎯
+
+ FAIL  __tests__/upstream-v162/dependency-segment-vocab.test.ts > name-segment vocabulary + getSegmentMatches (graph-derived gate) > co-occurrence counts distinct WORDS, not variants — plural pairs cannot pose as two words (#1146)
+TypeError: queries.insertNameSegmentsBatch is not a function
+ ❯ __tests__/upstream-v162/dependency-segment-vocab.test.ts:295:13
+    293|     // BillingServicesService carries BOTH the `services` and `service`
+    294|     // segments — two variants of ONE prompt word. It must not meet mi…
+    295|     queries.insertNameSegmentsBatch(['BillingServicesService']);
+       |             ^
+    296|     const hits = queries.getSegmentCoOccurrence(
+    297|       [
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[14/20]⎯
+
+ FAIL  __tests__/upstream-v162/explore-blast-radius.test.ts > codegraph_explore — views in the blast radius > lists views in their own slot, past the cap on code callers
+AssertionError: expected '**Exploration: fmt**\n\nFound 7 symbo…' to match /\+1 m…/(?:Edit|Index)\.cshtml`, `Views\
+
+- Expected: 
+/\+1 more; 2 views: `Views\/(?:Edit|Index)\.cshtml`, `Views\/(?:Edit|Index)\.cshtml`/
+
++ Received: 
+"**Exploration: fmt**
+
+Found 7 symbols across 4 files.
+
+**Blast radius — what depends on these (update/verify before editing)**
+
+- `fmt` (src/helper.js:1) — 10 callers in `src/c.js`, `src/b.js`, `src/d.js`, `src/a.js` +1 more; no tests found within 3 caller hops
+
+**Source Code**
+
+> The code below is the **verbatim, current on-disk source** of these files — re-read from disk on this call and line-numbered, byte-for-byte identical to what the Read tool returns. It is NOT a summary, outline, or stale cache. Treat each block as a Read you have already performed: do not Read a file shown here.
+
+**`src/helper.js`** — fmt(function)
+
+```javascript
+1	export function fmt(x) { return x + 1; }
+```
+
+**`src/c.js`** — use_c(function), c.js(file)
+
+```javascript
+1	import { fmt } from './helper';
+2	export function use_c() { return fmt(1); }
+```
+
+**`src/b.js`** — use_b(function), b.js(file)
+
+```javascript
+1	import { fmt } from './helper';
+2	export function use_b() { return fmt(1); }
+```
+
+**`src/d.js`** — use_d(function), d.js(file)
+
+```javascript
+1	import { fmt } from './helper';
+2	export function use_d() { return fmt(1); }
+```
+
+**Not shown above — explore these names for their source**
+
+- src/a.js: use_a:2, a.js:1
+- src/e.js: use_e:2, e.js:1"
+
+ ❯ __tests__/upstream-v162/explore-blast-radius.test.ts:147:18
+    145|     const res = await new ToolHandler(cg).execute('codegraph_explore',…
+    146|     const text = res.content[0]!.text;
+    147|     expect(text).toMatch(/\+1 more; 2 views: `Views\/(?:Edit|Index)\.c…
+       |                  ^
+    148|   });
+    149| 
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[15/20]⎯
+
+ FAIL  __tests__/upstream-v162/explore-blast-radius.test.ts > codegraph_explore — views in the blast radius > reads the same when only views depend on a symbol
+AssertionError: expected '**Exploration: onlyViews**\n\nFound 4…' to match /1 caller in 1 view: `Vie…/Solo\.cshtml`
+
+- Expected: 
+/1 caller in 1 view: `Views\/Solo\.cshtml`/
+
++ Received: 
+"**Exploration: onlyViews**
+
+Found 4 symbols across 4 files.
+
+**Source Code**
+
+> The code below is the **verbatim, current on-disk source** of these files — re-read from disk on this call and line-numbered, byte-for-byte identical to what the Read tool returns. It is NOT a summary, outline, or stale cache. Treat each block as a Read you have already performed: do not Read a file shown here.
+
+**`src/only.js`** — onlyViews(function)
+
+```javascript
+1	export function onlyViews() { return 1; }
+```
+
+**`Views/Edit.cshtml`** — Edit(component)
+
+```razor
+1	<script>
+2	import { fmt } from '../src/helper';
+3	fmt(2);
+4	</script>
+```
+
+**`Views/Index.cshtml`** — Index(component)
+
+```razor
+1	<script>
+2	import { fmt } from '../src/helper';
+3	fmt(2);
+4	</script>
+```
+
+**`Views/Solo.cshtml`** — Solo(component)
+
+```razor
+1	<script>
+2	import { onlyViews } from '../src/only';
+3	onlyViews();
+4	</script>
+```
+"
+
+ ❯ __tests__/upstream-v162/explore-blast-radius.test.ts:155:34
+    153|     await cg.sync();
+    154|     const res = await new ToolHandler(cg).execute('codegraph_explore',…
+    155|     expect(res.content[0]!.text).toMatch(/1 caller in 1 view: `Views\/…
+       |                                  ^
+    156|   });
+    157| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[16/20]⎯
+
+ FAIL  __tests__/upstream-v162/explore-cobol-copybook.test.ts > explore finds COBOL copybooks by name (#2342) > surfaces an EXEC SQL INCLUDE whose copybook is not indexed (the issue repro)
+AssertionError: expected 'No relevant code found for "MYCOPYBOO…' not to contain 'No relevant code found'
+
+- Expected
++ Received
+
+- No relevant code found
++ No relevant code found for "MYCOPYBOOK"
++
++ Explore matches symbol/file names and indexed code words lexically, not by meaning.
++ This project has nothing indexed.
+
+ ❯ __tests__/upstream-v162/explore-cobol-copybook.test.ts:105:22
+    103|     await index({ 'TESTPROG.cbl': TESTPROG });
+    104|     const text = await explore('MYCOPYBOOK');
+    105|     expect(text).not.toContain('No relevant code found');
+       |                      ^
+    106|     // The include site, listed and rendered.
+    107|     expect(text).toContain('`TESTPROG.cbl:6` — EXEC SQL INCLUDE');
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[17/20]⎯
+
+ FAIL  __tests__/upstream-v162/explore-cobol-copybook.test.ts > explore finds COBOL copybooks by name (#2342) > pins an indexed copybook ahead of every include site, and lists all of them
+AssertionError: expected 'No relevant code found for "CVACT01Y"…' not to contain 'No relevant code found'
+
+- Expected
++ Received
+
+- No relevant code found
++ No relevant code found for "CVACT01Y"
++
++ Explore matches symbol/file names and indexed code words lexically, not by meaning.
++ This project has nothing indexed.
+
+ ❯ __tests__/upstream-v162/explore-cobol-copybook.test.ts:116:22
+    114|     await index(COPYBOOK_PROJECT);
+    115|     const text = await explore('CVACT01Y');
+    116|     expect(text).not.toContain('No relevant code found');
+       |                      ^
+    117|     expect(text).toContain('source `cpy/CVACT01Y.cpy`; included at 2 s…
+    118|     expect(text).toContain('`cbl/ACCTUPDT.cbl:5` — COPY');
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[18/20]⎯
+
+ FAIL  __tests__/upstream-v162/explore-cobol-copybook.test.ts > explore finds COBOL copybooks by name (#2342) > feeds the same entry points to codegraph context (buildContext)
+AssertionError: expected '## Code Context\n\n**Query:** MYCOPYB…' to contain 'EXEC SQL INCLUDE MYCOPYBOOK END-EXEC'
+
+- Expected
++ Received
+
+- EXEC SQL INCLUDE MYCOPYBOOK END-EXEC
++ ## Code Context
++
++ **Query:** MYCOPYBOOK
++
+
+ ❯ __tests__/upstream-v162/explore-cobol-copybook.test.ts:137:21
+    135|     await index({ 'TESTPROG.cbl': TESTPROG, ...COPYBOOK_PROJECT });
+    136|     const missing = await cg.buildContext('MYCOPYBOOK', { format: 'mar…
+    137|     expect(missing).toContain('EXEC SQL INCLUDE MYCOPYBOOK END-EXEC');
+       |                     ^
+    138|     const indexed = await cg.buildContext('CVACT01Y', { format: 'markd…
+    139|     expect(indexed).toContain('ACCOUNT-RECORD');
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[19/20]⎯
+
+ FAIL  __tests__/upstream-v162/explore-low-value-tests.test.ts > the route-file detector skips an e2e mock server > names the app's own routes file
+AssertionError: expected 'e2e/mock-server.js' to be 'src/routes.js' // Object.is equality
+
+Expected: "src/routes.js"
+Received: "e2e/mock-server.js"
+
+ ❯ __tests__/upstream-v162/explore-low-value-tests.test.ts:157:44
+    155| 
+    156|   it("names the app's own routes file", () => {
+    157|     expect(cg.getTopRouteFile()?.filePath).toBe('src/routes.js');
+       |                                            ^
+    158|   });
+    159| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[20/20]⎯
+
+⎯⎯⎯⎯⎯⎯ Unhandled Errors ⎯⎯⎯⎯⎯⎯
+
+Vitest caught 1 unhandled error during the test run.
+This might cause false positive tests. Resolve unhandled errors to make sure your tests are not affected.
+
+⎯⎯⎯⎯ Unhandled Rejection ⎯⎯⎯⎯⎯
+RuntimeError: Aborted(Error: ENOENT: no such file or directory, open '/workspace/scratch/25a5ec0f2727/explore-alignment/tree-sitter.wasm'). Build with -sASSERTIONS for more info.
+ ❯ abort web-tree-sitter:2290:15
+ ❯ instantiateArrayBuffer web-tree-sitter:2331:9
+ ❯ processTicksAndRejections node:internal/process/task_queues:104:5
+ ❯ createWasm web-tree-sitter:2392:22
+ ❯ web-tree-sitter:3505:23
+ ❯ initializeBinding web-tree-sitter:3742:15
+ ❯ Parser.init web-tree-sitter:3777:15
+ ❯ initGrammars ../explore-upstream/src/extraction/grammars.ts:353:3
+    351|   if (parserInitialized) return;
+    352| 
+    353|   await Parser.init();
+       |   ^
+    354| 
+    355|   parserInitialized = true;
+ ❯ Module.loadGrammarsForLanguages ../explore-upstream/src/extraction/grammars.ts:526:5
+ ❯ parse ../explore-upstream/src/graph/branch-guards.ts:215:5
+
+This error originated in "__tests__/upstream-v162/dependency-branch-guards.test.ts" test file. It doesn't mean the error was thrown inside the file itself, but while it was running.
+The latest test that might've caused the error is "__tests__/upstream-v162/dependency-branch-guards.test.ts". It might mean one of the following:
+- The error was thrown, while Vitest was running this test.
+- If the error occurred after the test had been completed, this was the last documented test before it was thrown.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+
+ Test Files  7 failed | 42 passed (49)
+      Tests  20 failed | 682 passed (702)
+     Errors  1 error
+   Start at  21:12:34
+   Duration  68.75s (transform 2.65s, setup 0ms, collect 16.17s, tests 44.20s, environment 8ms, prepare 2.34s)
+
+npm notice
+npm notice New major version of npm available! 11.9.0 -> 12.2.1
+npm notice Changelog: https://github.com/npm/cli/releases/tag/v12.2.1
+npm notice To update run: npm install -g npm@12.2.1
+npm notice

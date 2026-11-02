@@ -1,0 +1,31 @@
+npm warn Unknown env config "http-proxy". This will stop working in the next major version of npm.
+[33mThe CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.[39m
+
+ RUN  v2.1.9 /workspace/scratch/25a5ec0f2727/explore-alignment
+
+ ✓ __tests__/explore-cpp-signature-evidence.test.ts (15 tests) 986ms
+   ✓ Explore change-surface admission with stored C++ relation contracts > rescues source-verified signature type files while leaving stored body references intact 546ms
+   ✓ Signature evidence from actual native C++ extraction > recovers an explicitly global signature dependency from real body references without rescuing a same-name type 392ms
+ ✓ __tests__/explore-cpp-target-identity.test.ts (13 tests) 4393ms
+   ✓ Explore C/C++ logical target identity > uses proven pairs without merging overloads or removing declarations 425ms
+   ✓ Explore C/C++ logical target identity > keeps all identities when the query explicitly requests the declaration file 304ms
+   ✓ Explore C/C++ logical target identity > uses C bridges but leaves unrelated languages unchanged 332ms
+   ✓ Explore C/C++ logical target identity > requires a trusted bridge and does not infer pairing from a shared name 337ms
+   ✓ Explore consumes C++ identity through ranking and explicit targets > keeps an oversize caller focused on its real call to a paired declaration 536ms
+   ✓ Explore consumes C++ identity through ranking and explicit targets > tiers the implementation and covers qualified overloads while retaining graph evidence 361ms
+   ✓ Explore consumes C++ identity through ranking and explicit targets > honors explicit header intent worker.hpp 306ms
+   ✓ Explore consumes C++ identity through ranking and explicit targets > honors explicit header intent worker.hpp:4 332ms
+   ✓ Explore consumes C++ identity through ranking and explicit targets > honors explicit header intent worker.hpp:4-5 318ms
+ ✓ __tests__/native-explore-index-upgrade.test.ts (1 test) 986ms
+   ✓ rebuilds legacy JS/TS docs, members and dispatch edges without changing source bytes 985ms
+
+ Test Files  3 passed (3)
+      Tests  29 passed (29)
+   Start at  20:52:13
+   Duration  9.74s (transform 1.82s, setup 0ms, collect 2.80s, tests 6.36s, environment 0ms, prepare 161ms)
+
+npm notice
+npm notice New major version of npm available! 11.9.0 -> 12.2.1
+npm notice Changelog: https://github.com/npm/cli/releases/tag/v12.2.1
+npm notice To update run: npm install -g npm@12.2.1
+npm notice

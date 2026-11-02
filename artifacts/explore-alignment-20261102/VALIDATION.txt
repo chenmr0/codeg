@@ -1,0 +1,42 @@
+Explore 社区对齐验收（2026-11-02，Linux / Node v24.22.1）
+
+基线：fix/config-change-incremental dbeb21cea9aecd20154cf7f9dc0199e5a7622f9b
+旧候选：e7dc7af4f362dbd7f20349839bd3be112c064983
+社区：f72c9d2efb14454ff4f9fd7b8460abd82f19a287
+新分支：feat/explore-community-alignment-20261102
+
+所有正式回归均 maxWorkers=1 / minWorkers=1，未并行进行性能测量。
+没有 OceanBase 大仓性能结果，没有 Windows/daemon 通过结论。
+
+最终结果：
+1. npm run build：退出 0。
+2. 生产/stdio MCP/取消/只读与TEMP/cache/NUL及真实WASM词表专项：54/54，通过，退出 0。
+   日志 production-final.log；这54项也是下面原生大套的子集，不重复相加。
+3. 原生Explore及相关提取大套：382项，361通过，21失败，无跳过，退出 1。
+   日志 native-final.log。21失败对应旧P0/P1/P2管线输出/白盒预期；在未修改e7dc7af对照8文件103项中也有相同21失败（82通过）。
+   对照 candidate-legacy-tests.log；没有把失败删除/跳过或宣称全绿。
+4. 当前社区查询与依赖套：702项，682通过，20失败，另1个未处理环境异常，退出 1。
+   日志 upstream-final.log。失败分组：
+   - 11：社区持久name_segment_vocab及私有维护API假设，宿主为查询时TEMP词表；生产TEMP重建/回滚/外部写/NUL另有通过验证。
+   - 3：COBOL（含1个context），宿主缺少COBOL提取输入。
+   - 2：Razor script缺调用边；已迁消费展示，补边反事实2/2通过（razor-counterfactual.log），真实提取仍失败。
+   - 1：C union期待kind=union，宿主kind=struct，实际索引及Explore检索均存在该符号（union-kind-evidence.json）。
+   - 1：宿主公开buildContext的CJK能力（非Explore入口）。
+   - 1：宿主getTopRouteFile旧路由检测API（非Explore入口）。
+   - 1：外部社区UI API/getFanIn测试，不属于此宿主Explore API；其独立grammar加载另产生tree-sitter.wasm ENOENT未处理异常。
+5. 数据库查询专门测试包含1944次SQL差分；不能代替真实OceanBase性能对比。
+
+关键新增验证：
+- 只读主库写入依旧失败，TEMP词表可构建，单数据库内容hash不变。
+- 实际候选发布与外部sync后热handler缓存刷新。
+- 同session源码变化、不同session隔离。
+- 真实stdio MCP从提示提取工具名，实际调用follow-up返回遗漏源码；源代码中的codegraph_node/codegraph_explore字符串不被重写。
+- 真实MCPSession+受控transport取消/发送抛错不登记已发送源码；成功后再记录。
+
+复现：
+npm ci --ignore-scripts --cache /tmp/codeg-npm-cache
+npm run build
+npx vitest run __tests__/explore-*.test.ts __tests__/upstream-native-integration.test.ts __tests__/native-explore-index-upgrade.test.ts __tests__/cpp-namespace-range.test.ts __tests__/native-ts-field-receiver.test.ts __tests__/native-ts-members-docstrings.test.ts __tests__/go-field-chain-receiver.test.ts __tests__/go-rtk-evidence-boundaries.test.ts --maxWorkers=1 --minWorkers=1
+CODEGRAPH_UPSTREAM_SOURCE=/path/to/community-checkout npx vitest run --config vitest.upstream.config.ts --maxWorkers=1 --minWorkers=1
+
+upstream测试目录名称保留v162，但使用上述精确社区commit，并保留宿主测试适配器。不能只凭npm版本1.6.2认定源码相同。

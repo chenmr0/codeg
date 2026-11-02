@@ -1,0 +1,139 @@
+npm warn Unknown env config "http-proxy". This will stop working in the next major version of npm.
+[33mThe CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.[39m
+
+ RUN  v2.1.9 /workspace/scratch/25a5ec0f2727/explore-alignment
+
+ ❯ __tests__/upstream-v162/explore-blast-radius.test.ts (6 tests | 2 failed) 1195ms
+   ✓ codegraph_explore — blast radius > lists dependents (locations only) and covering tests for an entry symbol 330ms
+   × codegraph_explore — views in the blast radius > lists views in their own slot, past the cap on code callers 117ms
+     → expected '**Exploration: fmt**\n\nFound 7 symbo…' to match /\+1 m…/(?:Edit|Index)\.cshtml`, `Views\
+   × codegraph_explore — views in the blast radius > reads the same when only views depend on a symbol 369ms
+     → expected '**Exploration: onlyViews**\n\nFound 4…' to match /1 caller in 1 view: `Vie…/Solo\.cshtml`
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  __tests__/upstream-v162/explore-blast-radius.test.ts > codegraph_explore — views in the blast radius > lists views in their own slot, past the cap on code callers
+AssertionError: expected '**Exploration: fmt**\n\nFound 7 symbo…' to match /\+1 m…/(?:Edit|Index)\.cshtml`, `Views\
+
+- Expected: 
+/\+1 more; 2 views: `Views\/(?:Edit|Index)\.cshtml`, `Views\/(?:Edit|Index)\.cshtml`/
+
++ Received: 
+"**Exploration: fmt**
+
+Found 7 symbols across 4 files.
+
+**Blast radius — what depends on these (update/verify before editing)**
+
+- `fmt` (src/helper.js:1) — 10 callers in `src/c.js`, `src/b.js`, `src/d.js`, `src/a.js` +1 more; no tests found within 3 caller hops
+
+**Source Code**
+
+> The code below is the **verbatim, current on-disk source** of these files — re-read from disk on this call and line-numbered, byte-for-byte identical to what the Read tool returns. It is NOT a summary, outline, or stale cache. Treat each block as a Read you have already performed: do not Read a file shown here.
+
+**`src/helper.js`** — fmt(function)
+
+```javascript
+1	export function fmt(x) { return x + 1; }
+```
+
+**`src/c.js`** — use_c(function), c.js(file)
+
+```javascript
+1	import { fmt } from './helper';
+2	export function use_c() { return fmt(1); }
+```
+
+**`src/b.js`** — use_b(function), b.js(file)
+
+```javascript
+1	import { fmt } from './helper';
+2	export function use_b() { return fmt(1); }
+```
+
+**`src/d.js`** — use_d(function), d.js(file)
+
+```javascript
+1	import { fmt } from './helper';
+2	export function use_d() { return fmt(1); }
+```
+
+**Not shown above — explore these names for their source**
+
+- src/a.js: use_a:2, a.js:1
+- src/e.js: use_e:2, e.js:1"
+
+ ❯ __tests__/upstream-v162/explore-blast-radius.test.ts:147:18
+    145|     const res = await new ToolHandler(cg).execute('codegraph_explore',…
+    146|     const text = res.content[0]!.text;
+    147|     expect(text).toMatch(/\+1 more; 2 views: `Views\/(?:Edit|Index)\.c…
+       |                  ^
+    148|   });
+    149| 
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  __tests__/upstream-v162/explore-blast-radius.test.ts > codegraph_explore — views in the blast radius > reads the same when only views depend on a symbol
+AssertionError: expected '**Exploration: onlyViews**\n\nFound 4…' to match /1 caller in 1 view: `Vie…/Solo\.cshtml`
+
+- Expected: 
+/1 caller in 1 view: `Views\/Solo\.cshtml`/
+
++ Received: 
+"**Exploration: onlyViews**
+
+Found 4 symbols across 4 files.
+
+**Source Code**
+
+> The code below is the **verbatim, current on-disk source** of these files — re-read from disk on this call and line-numbered, byte-for-byte identical to what the Read tool returns. It is NOT a summary, outline, or stale cache. Treat each block as a Read you have already performed: do not Read a file shown here.
+
+**`src/only.js`** — onlyViews(function)
+
+```javascript
+1	export function onlyViews() { return 1; }
+```
+
+**`Views/Edit.cshtml`** — Edit(component)
+
+```razor
+1	<script>
+2	import { fmt } from '../src/helper';
+3	fmt(2);
+4	</script>
+```
+
+**`Views/Index.cshtml`** — Index(component)
+
+```razor
+1	<script>
+2	import { fmt } from '../src/helper';
+3	fmt(2);
+4	</script>
+```
+
+**`Views/Solo.cshtml`** — Solo(component)
+
+```razor
+1	<script>
+2	import { onlyViews } from '../src/only';
+3	onlyViews();
+4	</script>
+```
+"
+
+ ❯ __tests__/upstream-v162/explore-blast-radius.test.ts:155:34
+    153|     await cg.sync();
+    154|     const res = await new ToolHandler(cg).execute('codegraph_explore',…
+    155|     expect(res.content[0]!.text).toMatch(/1 caller in 1 view: `Views\/…
+       |                                  ^
+    156|   });
+    157| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 4 passed (6)
+   Start at  21:09:39
+   Duration  3.39s (transform 1.56s, setup 0ms, collect 2.01s, tests 1.19s, environment 0ms, prepare 58ms)
+

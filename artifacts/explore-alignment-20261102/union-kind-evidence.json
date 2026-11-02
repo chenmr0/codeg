@@ -1,0 +1,1 @@
+{"source":"union CallbackOps { int (*run)(int); };","indexed":[{"name":"CallbackOps","kind":"struct"}],"retrieved":[{"name":"CallbackOps","kind":"struct"}],"interpretation":"Native union is represented as struct, not missing from Explore retrieval; upstream assertion requires kind=union."}

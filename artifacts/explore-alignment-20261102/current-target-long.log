@@ -1,0 +1,30 @@
+npm warn Unknown env config "http-proxy". This will stop working in the next major version of npm.
+[33mThe CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.[39m
+
+ RUN  v2.1.9 /workspace/scratch/25a5ec0f2727/explore-alignment
+
+ ✓ __tests__/upstream-v162/explore-long-query.test.ts (13 tests) 6247ms
+   ✓ name-substring lookups give the rows a LIKE scan gives (#2620) > matches when SQLite scans the table (a small index) 1016ms
+   ✓ name-substring lookups give the rows a LIKE scan gives (#2620) > matches when SQLite reads through the kind index (a large index) 791ms
+   ✓ name-substring lookups give the rows a LIKE scan gives (#2620) > asks SQLite inside a transaction, and for a lookup without a kind filter 523ms
+   ✓ per-word reads happen once per database state (#2620) > reads the name list once for every word the fuzzy fallback tries 449ms
+   ✓ per-word reads happen once per database state (#2620) > reads the names again after a sync or another connection's write 908ms
+   ✓ per-word reads happen once per database state (#2620) > reads the names fresh inside a transaction, and does not keep them 323ms
+   ✓ per-word reads happen once per database state (#2620) > skips the LIKE scan for a word no name or qualified name holds, and still finds one inside a qualified name 322ms
+   ✓ a long query searches a bounded number of words (#2620) > runs a bounded number of searches however long the query is 368ms
+   ✓ a long query searches a bounded number of words (#2620) > searches a bag of symbol names whole 400ms
+   ✓ a long query searches a bounded number of words (#2620) > still searches every word of a query within the bound 383ms
+   ✓ a long query searches a bounded number of words (#2620) > keeps the identifiers of a long paste, wherever they are in it 346ms
+   ✓ a long query searches a bounded number of words (#2620) > drops the plain words past the bound 368ms
+ ✓ __tests__/upstream-v162/explore-exact-target.test.ts (7 tests) 627ms
+
+ Test Files  2 passed (2)
+      Tests  20 passed (20)
+   Start at  21:00:34
+   Duration  9.88s (transform 1.81s, setup 0ms, collect 2.61s, tests 6.87s, environment 0ms, prepare 105ms)
+
+npm notice
+npm notice New major version of npm available! 11.9.0 -> 12.2.1
+npm notice Changelog: https://github.com/npm/cli/releases/tag/v12.2.1
+npm notice To update run: npm install -g npm@12.2.1
+npm notice
