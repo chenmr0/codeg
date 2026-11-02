@@ -514,6 +514,13 @@ export class CodeGraph {
   setPortableCostHistory(history: string): void { setPortableMetadata(this.db.getDb(), COST_HISTORY, history); }
   recordPortableFullCost(durationMs: number): void { this.recordCostSample('full', [], durationMs); }
   hasPortableCatchupWork(): boolean { return this.hasSynthesisRecoveryEvidence(); }
+  /** @internal Persisted proof only; caller must fence publication and watcher revisions. */
+  hasPortableCompletionProof(): boolean {
+    const coverage = this.getIndexCompleteness();
+    return coverage.status === 'complete' && coverage.diagnostics.length === 0 &&
+      !this.isIndexStale() && !this.needsLanguageScopeRebuild() &&
+      !this.getPortableCatchup() && !this.hasPortableCatchupWork();
+  }
   getPortableCatchup(): string | null { return portableMetadata(this.db.getDb(), CATCHUP); }
   setPortableCatchup(operation: string): void { setPortableMetadata(this.db.getDb(), CATCHUP, operation); }
   clearPortableCatchup(): void { const ownership = beginSourceWrite(this.db.getDb()); this.db.getDb().prepare('DELETE FROM project_metadata WHERE key=?').run(CATCHUP); finishSourceWrite(this.db.getDb(), ownership, true); }

@@ -296,6 +296,28 @@ class PortableFacade {
       }
     });
   }
+  /** Adopt persisted completion only while no publisher or mutator can run.
+   * A watcher event revokes the old proof even if a different process later
+   * publishes: only our own refresh can certify that local event sequence. */
+  private adoptPublishedReadiness(): void {
+    if (this.activeWriter || this.writeMutex.isLocked() || this.aborts.size > 0 ||
+        this.watchRevisionOffset + (this.watcher?.getChangeRevision() ?? 0) !== this.readinessWatchRevision)
+      return;
+    const snapshot = this.coordinator.snapshot();
+    if (snapshot.mode !== "idle" || (this.lastReadiness && snapshot.revision === this.readinessRevision)) return;
+    let writer: PortableLease | undefined;
+    try {
+      writer = this.coordinator.acquireWriter();
+      const state = this.coordinator.snapshot();
+      if (state.mode !== "idle") return;
+      const reader = this.getReader();
+      if (reader.revision !== state.revision || !reader.graph.hasPortableCompletionProof()) return;
+      this.readinessRevision = state.revision;
+      this.lastReadiness = { generation: ++this.readinessGeneration, symbolsReady: true, relationshipsReady: true };
+    } catch (error) {
+      if (!(error instanceof PortableBusyError)) throw error;
+    } finally { writer?.release(); }
+  }
   private async finishGraph(
     graph: { close(): void; whenIdle(): Promise<void> },
     leases: PortableLease[],
@@ -479,6 +501,9 @@ class PortableFacade {
                 options,
               );
             } catch (error) {
+              const failure = `[adaptive-sync] ${JSON.stringify({ strategy: "rebuild", reason: "rebuild-failed", error: error instanceof Error ? error.stack ?? error.message : String(error), at: new Date().toISOString() })}`;
+              if (options.verbose) console.error(failure);
+              try { appendFileSync(path.join(this.dataDir, "adaptive-sync.log"), failure + "\n"); } catch { /* diagnostics must not replace original error */ }
               abort.signal.throwIfAborted();
               // Only fall back after child exit AND successful fenced recovery.
               // If publication committed, the next loop must honor its DB marker.
@@ -579,6 +604,7 @@ class PortableFacade {
       return () => this.writeMutex.isLocked() || this.aborts.size > 0;
     if (key === "getIndexDataReadiness")
       return () => {
+        this.adoptPublishedReadiness();
         const state =
           this.activeWriter?.getIndexDataReadiness() ?? this.lastReadiness;
         if (!state) return null;

@@ -8,6 +8,7 @@ import { MCPEngine } from '../src/mcp/engine';
 import { __emitWatchEventForTests } from '../src/sync/watcher';
 import { DatabaseConnection } from '../src/db';
 import { QueryBuilder } from '../src/db/queries';
+import { PortableCoordinator } from '../src/sync/portable/protocol';
 import { createDirectory, getCodeGraphDir } from '../src/directory';
 
 function deferred() {
@@ -331,6 +332,91 @@ describe('portable facade public MCP readiness contract', () => {
     expect(cg.getIndexDataReadiness()).toMatchObject({ symbolsReady: true, relationshipsReady: true });
     expect(await text('search', { query: 'target' })).not.toContain('⚠️');
     expect(await text('status', {})).not.toContain('⚠️');
+  });
+
+  it('adopts an externally completed revision without keeping the previous generation stale', async () => {
+    await cg.indexAll();
+    const previous = cg.getIndexDataReadiness()!.generation;
+    const other = await CodeGraph.open(folder);
+    try {
+      fs.appendFileSync(path.join(folder, 'api.c'), 'int external(void) { return 3; }\n');
+      expect((await other.sync({ adaptive: false })).complete).toBe(true);
+    } finally { other.close(); await other.whenIdle(); }
+    expect(cg.getIndexDataReadiness()).toMatchObject({ symbolsReady: true, relationshipsReady: true });
+    expect(cg.getIndexDataReadiness()!.generation).toBeGreaterThan(previous);
+    expect(await text('search', { query: 'external' })).not.toContain('⚠️');
+  });
+
+  it('does not adopt persisted completion while another writer holds the new revision', async () => {
+    await cg.indexAll();
+    const coordinator = new PortableCoordinator(getCodeGraphDir(folder));
+    const writer = coordinator.acquireWriter();
+    try {
+      coordinator.markMutation();
+      expect(cg.getIndexDataReadiness()).toMatchObject({ symbolsReady: false, relationshipsReady: false });
+    } finally { writer.release(); }
+    expect(cg.getIndexDataReadiness()).toMatchObject({ symbolsReady: true, relationshipsReady: true });
+  });
+
+  it('does not revive the old completed proof between planning and the local sync writer', async () => {
+    await cg.indexAll();
+    const previous = cg.getIndexDataReadiness()!.generation;
+    fs.appendFileSync(path.join(folder, 'api.c'), 'int planned(void) { return 4; }\n');
+    const observations: Array<ReturnType<CodeGraph['getIndexDataReadiness']>> = [];
+    const result = await cg.sync({ onAdaptiveDecision() {
+      observations.push(cg.getIndexDataReadiness());
+    } });
+    expect(observations.length).toBeGreaterThan(0);
+    for (const readiness of observations) {
+      expect(readiness?.symbolsReady).not.toBe(true);
+      expect(readiness?.relationshipsReady).not.toBe(true);
+      if (readiness) expect(readiness.generation).toBe(previous);
+    }
+    expect(result.complete).toBe(true);
+    expect(cg.getIndexDataReadiness()).toMatchObject({ symbolsReady: true, relationshipsReady: true });
+  });
+
+  it('rejects persisted complete status with outstanding diagnostics', async () => {
+    await cg.indexAll();
+    const coordinator = new PortableCoordinator(getCodeGraphDir(folder));
+    const writer = coordinator.acquireWriter();
+    try {
+      coordinator.markMutation();
+      const raw = CodeGraph.openPortableRaw(folder, cg.getDatabaseFilePath(), false);
+      try {
+        (raw as any).queries.setMetadata('index_diagnostics', JSON.stringify([
+          { severity: 'error', code: 'unverified_fixture', message: 'Outstanding coverage problem' },
+        ]));
+        expect(raw.getIndexCompleteness().status).toBe('complete');
+        expect(raw.hasPortableCompletionProof()).toBe(false);
+      } finally { raw.close(); await raw.whenIdle(); }
+    } finally { writer.release(); }
+    expect(cg.getIndexDataReadiness()).toMatchObject({ symbolsReady: false, relationshipsReady: false });
+  });
+
+  it('rejects a complete external revision with a different language scope', async () => {
+    vi.stubEnv('CODEGRAPH_ALL_LANGUAGES', '0');
+    await cg.indexAll();
+    const coordinator = new PortableCoordinator(getCodeGraphDir(folder));
+    const writer = coordinator.acquireWriter();
+    try { coordinator.markMutation(); }
+    finally { writer.release(); }
+    vi.stubEnv('CODEGRAPH_ALL_LANGUAGES', '1');
+    expect(cg.getIndexCompleteness().status).toBe('complete');
+    expect(cg.getIndexDataReadiness()).toMatchObject({ symbolsReady: false, relationshipsReady: false });
+  });
+
+  it('does not adopt a new revision with pending source reconciliation', async () => {
+    await cg.indexAll();
+    const coordinator = new PortableCoordinator(getCodeGraphDir(folder));
+    const writer = coordinator.acquireWriter();
+    try {
+      coordinator.markMutation();
+      const raw = CodeGraph.openPortableRaw(folder, cg.getDatabaseFilePath(), false);
+      try { raw.setPortableCatchup('pending-test'); }
+      finally { raw.close(); await raw.whenIdle(); }
+    } finally { writer.release(); }
+    expect(cg.getIndexDataReadiness()).toMatchObject({ symbolsReady: false, relationshipsReady: false });
   });
 
   it('revokes a completed proof on a watcher event and does not restore it by stopping or restarting the watcher', async () => {
