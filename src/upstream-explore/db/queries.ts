@@ -1,3 +1,4 @@
+import { subgraphEdgeSql } from './subgraph-edge-plan';
 import { NAME_SUBSTRING_KINDS, buildNameSubstringIndex, searchNameSubstring, type NameSubstringIndex, type ScanOrder } from './name-substring-index';
 /**
  * Database Queries
@@ -3305,7 +3306,7 @@ export class QueryBuilder {
       params.push(...kinds);
     }
 
-    const rows = this.db.prepare(sql).all(...params) as EdgeRow[];
+    const rows = this.db.prepare(subgraphEdgeSql(this.db, sql, params)).all(...params) as EdgeRow[];
     return rows.map(rowToEdge);
   }
 

@@ -1,0 +1,44 @@
+The CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.
+
+ RUN  v2.1.9 /workspace/scratch/25a5ec0f2727/explore-edge-opt
+
+ ✓ __tests__/explore-query-cache.test.ts (12 tests) 4640ms
+   ✓ Explore query caches with request-local source verification > reuses the full-graph aggregation across calls on the same MCP handler 772ms
+   ✓ Explore query caches with request-local source verification > retains prepared statements but refreshes cached nodes on same-connection and external writes 312ms
+   ✓ Explore query caches with request-local source verification > recomputes graph aggregation after same-connection and external commits 324ms
+   ✓ Explore query caches with request-local source verification > never retains nodes read inside BEGIN or SAVEPOINT after rollback 320ms
+   ✓ Explore query caches with request-local source verification > does not reuse transaction-local aggregation after rollback 350ms
+   ✓ Explore query caches with request-local source verification > refreshes statements on schema change and never transfers node caches to another connection 633ms
+   ✓ Explore query caches with request-local source verification > redetects FTS after same-connection schema repair and removal 314ms
+   ✓ Explore query caches with request-local source verification > keeps interleaved requests source-local, including lazily evaluated generated flags 321ms
+   ✓ Explore query caches with request-local source verification > caches dominant aggregation without caching its source-dependent generated filter 360ms
+   ✓ Explore query caches with request-local source verification > does not memoize aggregation when a backend cannot report transaction state 316ms
+   ✓ Explore query caches with request-local source verification > keeps independent projects isolated even when their symbol IDs and database stamps coincide 591ms
+ ✓ __tests__/explore-subgraph-edge-plan.test.ts (26 tests) 12577ms
+   ✓ subgraph ordered differential / native > preserves full ordered rows for normal 1371ms
+   ✓ subgraph ordered differential / wasm > preserves full ordered rows for normal 3927ms
+   ✓ subgraph ordered differential / wasm > preserves full ordered rows for target-desc 599ms
+   ✓ subgraph ordered differential / wasm > preserves full ordered rows for target-nocase 482ms
+   ✓ subgraph ordered differential / wasm > preserves full ordered rows for target-extra 476ms
+   ✓ subgraph ordered differential / wasm > preserves full ordered rows for source-missing 479ms
+   ✓ subgraph ordered differential / wasm > preserves full ordered rows for partial 439ms
+   ✓ subgraph ordered differential / wasm > preserves full ordered rows for reverse 539ms
+   ✓ subgraph ordered differential / wasm > preserves full ordered rows for without-rowid 583ms
+   ✓ subgraph ordered differential / wasm > preserves full ordered rows for analyzed 460ms
+   ✓ subgraph ordered differential / wasm > preserves full ordered rows for source-hub 443ms
+   ✓ subgraph ordered differential / wasm > preserves full ordered rows for source-desc 518ms
+   ✓ subgraph ordered differential / wasm > preserves full ordered rows for source-nocase 538ms
+   ✓ subgraph ordered differential / wasm > preserves full ordered rows for source-extra 481ms
+ ✓ __tests__/explore-upstream-20261102-graph.test.ts (8 tests) 16ms
+ ✓ __tests__/explore-upstream-20261102-db.test.ts (4 tests) 545ms
+ ✓ __tests__/upstream-native-integration.test.ts (4 tests) 1959ms
+   ✓ official Explore hosted on the native graph > retains C++ declarations, definitions, macros and defines edges without rewriting the graph 590ms
+   ✓ official Explore hosted on the native graph > provides segment recall on a read-only legacy index without changing persistent schema or bytes 361ms
+   ✓ official Explore hosted on the native graph > refreshes the TEMP vocabulary after native index changes 663ms
+   ✓ official Explore hosted on the native graph > routes natural-language queries and keeps session emission metadata off the wire 343ms
+
+ Test Files  5 passed (5)
+      Tests  54 passed (54)
+   Start at  23:25:24
+   Duration  23.28s (transform 1.82s, setup 0ms, collect 2.69s, tests 19.74s, environment 1ms, prepare 241ms)
+

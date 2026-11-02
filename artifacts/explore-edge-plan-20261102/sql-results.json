@@ -1,0 +1,306 @@
+{
+  "native": {
+    "ids": 145,
+    "args_sha": "b0d0e671b878716c373bd6e4a3a362e31a088b6769695f18e4c548d6b57af955",
+    "rows": [
+      {
+        "pass": 0,
+        "variant": "before",
+        "ms": 480.30357200000003,
+        "rows": 191,
+        "order_sha": "c72faf7ac7ff6eb54c4789809527240258666aea98cd1bbf16effc5d6f6ca8d1",
+        "changed": false
+      },
+      {
+        "pass": 0,
+        "variant": "after",
+        "ms": 4.316977999999949,
+        "rows": 191,
+        "order_sha": "c72faf7ac7ff6eb54c4789809527240258666aea98cd1bbf16effc5d6f6ca8d1",
+        "changed": true
+      },
+      {
+        "pass": 1,
+        "variant": "before",
+        "ms": 465.702278,
+        "rows": 191,
+        "order_sha": "c72faf7ac7ff6eb54c4789809527240258666aea98cd1bbf16effc5d6f6ca8d1",
+        "changed": false
+      },
+      {
+        "pass": 1,
+        "variant": "after",
+        "ms": 4.527725000000146,
+        "rows": 191,
+        "order_sha": "c72faf7ac7ff6eb54c4789809527240258666aea98cd1bbf16effc5d6f6ca8d1",
+        "changed": true
+      },
+      {
+        "pass": 2,
+        "variant": "before",
+        "ms": 466.41058699999985,
+        "rows": 191,
+        "order_sha": "c72faf7ac7ff6eb54c4789809527240258666aea98cd1bbf16effc5d6f6ca8d1",
+        "changed": false
+      },
+      {
+        "pass": 2,
+        "variant": "after",
+        "ms": 3.7803819999999178,
+        "rows": 191,
+        "order_sha": "c72faf7ac7ff6eb54c4789809527240258666aea98cd1bbf16effc5d6f6ca8d1",
+        "changed": true
+      }
+    ],
+    "original_plan": [
+      {
+        "id": 3,
+        "parent": 0,
+        "notused": 98,
+        "detail": "SEARCH edges USING INDEX idx_edges_target_kind (target=?)"
+      },
+      {
+        "id": 7,
+        "parent": 0,
+        "notused": 0,
+        "detail": "LIST SUBQUERY 2"
+      },
+      {
+        "id": 9,
+        "parent": 7,
+        "notused": 0,
+        "detail": "SCAN json_each VIRTUAL TABLE INDEX 1:"
+      },
+      {
+        "id": 55,
+        "parent": 0,
+        "notused": 0,
+        "detail": "LIST SUBQUERY 1"
+      },
+      {
+        "id": 58,
+        "parent": 55,
+        "notused": 0,
+        "detail": "SCAN json_each VIRTUAL TABLE INDEX 1:"
+      },
+      {
+        "id": 67,
+        "parent": 55,
+        "notused": 0,
+        "detail": "CREATE BLOOM FILTER"
+      }
+    ],
+    "optimized_plan": [
+      {
+        "id": 4,
+        "parent": 0,
+        "notused": 110,
+        "detail": "SEARCH edges USING INDEX idx_edges_source_kind (source=?)"
+      },
+      {
+        "id": 8,
+        "parent": 0,
+        "notused": 0,
+        "detail": "LIST SUBQUERY 1"
+      },
+      {
+        "id": 10,
+        "parent": 8,
+        "notused": 0,
+        "detail": "SCAN json_each VIRTUAL TABLE INDEX 1:"
+      },
+      {
+        "id": 56,
+        "parent": 0,
+        "notused": 0,
+        "detail": "LIST SUBQUERY 2"
+      },
+      {
+        "id": 59,
+        "parent": 56,
+        "notused": 0,
+        "detail": "SCAN json_each VIRTUAL TABLE INDEX 1:"
+      },
+      {
+        "id": 68,
+        "parent": 56,
+        "notused": 0,
+        "detail": "CREATE BLOOM FILTER"
+      },
+      {
+        "id": 88,
+        "parent": 0,
+        "notused": 0,
+        "detail": "USE TEMP B-TREE FOR ORDER BY"
+      }
+    ]
+  },
+  "community": {
+    "ids": 184,
+    "args_sha": "93130626e5fca4a17366f0f0489e5e607b8b64b39145a40b7c04ea84039e4882",
+    "rows": [
+      {
+        "pass": 0,
+        "variant": "before",
+        "ms": 1274.240055,
+        "rows": 531,
+        "order_sha": "ab7a0cae2ccb3218ad593070c829c81c69bf418b4b9f26ca383f99d4b1324e57",
+        "changed": false
+      },
+      {
+        "pass": 0,
+        "variant": "after",
+        "ms": 5.564684000000398,
+        "rows": 531,
+        "order_sha": "ab7a0cae2ccb3218ad593070c829c81c69bf418b4b9f26ca383f99d4b1324e57",
+        "changed": true
+      },
+      {
+        "pass": 1,
+        "variant": "before",
+        "ms": 155.23436999999967,
+        "rows": 531,
+        "order_sha": "ab7a0cae2ccb3218ad593070c829c81c69bf418b4b9f26ca383f99d4b1324e57",
+        "changed": false
+      },
+      {
+        "pass": 1,
+        "variant": "after",
+        "ms": 5.651213000000098,
+        "rows": 531,
+        "order_sha": "ab7a0cae2ccb3218ad593070c829c81c69bf418b4b9f26ca383f99d4b1324e57",
+        "changed": true
+      },
+      {
+        "pass": 2,
+        "variant": "before",
+        "ms": 152.73361099999966,
+        "rows": 531,
+        "order_sha": "ab7a0cae2ccb3218ad593070c829c81c69bf418b4b9f26ca383f99d4b1324e57",
+        "changed": false
+      },
+      {
+        "pass": 2,
+        "variant": "after",
+        "ms": 4.2041189999999915,
+        "rows": 531,
+        "order_sha": "ab7a0cae2ccb3218ad593070c829c81c69bf418b4b9f26ca383f99d4b1324e57",
+        "changed": true
+      }
+    ],
+    "original_plan": [
+      {
+        "id": 3,
+        "parent": 0,
+        "notused": 101,
+        "detail": "SEARCH edges USING INDEX idx_edges_target_kind (target=?)"
+      },
+      {
+        "id": 7,
+        "parent": 0,
+        "notused": 0,
+        "detail": "LIST SUBQUERY 2"
+      },
+      {
+        "id": 9,
+        "parent": 7,
+        "notused": 0,
+        "detail": "SCAN json_each VIRTUAL TABLE INDEX 1:"
+      },
+      {
+        "id": 55,
+        "parent": 0,
+        "notused": 0,
+        "detail": "LIST SUBQUERY 1"
+      },
+      {
+        "id": 58,
+        "parent": 55,
+        "notused": 0,
+        "detail": "SCAN json_each VIRTUAL TABLE INDEX 1:"
+      },
+      {
+        "id": 67,
+        "parent": 55,
+        "notused": 0,
+        "detail": "CREATE BLOOM FILTER"
+      }
+    ],
+    "optimized_plan": [
+      {
+        "id": 4,
+        "parent": 0,
+        "notused": 108,
+        "detail": "SEARCH edges USING INDEX idx_edges_source_kind (source=?)"
+      },
+      {
+        "id": 8,
+        "parent": 0,
+        "notused": 0,
+        "detail": "LIST SUBQUERY 1"
+      },
+      {
+        "id": 10,
+        "parent": 8,
+        "notused": 0,
+        "detail": "SCAN json_each VIRTUAL TABLE INDEX 1:"
+      },
+      {
+        "id": 56,
+        "parent": 0,
+        "notused": 0,
+        "detail": "LIST SUBQUERY 2"
+      },
+      {
+        "id": 59,
+        "parent": 56,
+        "notused": 0,
+        "detail": "SCAN json_each VIRTUAL TABLE INDEX 1:"
+      },
+      {
+        "id": 68,
+        "parent": 56,
+        "notused": 0,
+        "detail": "CREATE BLOOM FILTER"
+      },
+      {
+        "id": 88,
+        "parent": 0,
+        "notused": 0,
+        "detail": "USE TEMP B-TREE FOR ORDER BY"
+      }
+    ]
+  },
+  "tiny": {
+    "rows": [
+      {
+        "variant": "before",
+        "per_call_ms": 0.016951375000001007,
+        "rewrites": 0,
+        "order_sha": "4db7d51d7449c558897d5a4004c4b76eb4a9a26dd12a1b5acc07235e13a15c1f"
+      },
+      {
+        "variant": "after",
+        "per_call_ms": 0.10722891000000118,
+        "rewrites": 0,
+        "order_sha": "4db7d51d7449c558897d5a4004c4b76eb4a9a26dd12a1b5acc07235e13a15c1f"
+      }
+    ]
+  },
+  "source-hub": {
+    "rows": [
+      {
+        "variant": "before",
+        "per_call_ms": 0.018621184999999513,
+        "rewrites": 0,
+        "order_sha": "4db7d51d7449c558897d5a4004c4b76eb4a9a26dd12a1b5acc07235e13a15c1f"
+      },
+      {
+        "variant": "after",
+        "per_call_ms": 0.32477452000000084,
+        "rewrites": 0,
+        "order_sha": "4db7d51d7449c558897d5a4004c4b76eb4a9a26dd12a1b5acc07235e13a15c1f"
+      }
+    ]
+  }
+}

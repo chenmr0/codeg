@@ -1,0 +1,358 @@
+{
+  "arm": "after",
+  "pragma": {
+    "cache_size": {
+      "cache_size": -2000
+    },
+    "mmap_size": {
+      "mmap_size": 0
+    },
+    "temp_store": {
+      "temp_store": 2
+    },
+    "query_only": {
+      "query_only": 0
+    },
+    "journal_mode": {
+      "journal_mode": "wal"
+    }
+  },
+  "results": [
+    {
+      "pass": 0,
+      "id": "ttl-seed-bag",
+      "ms": 17572.925046,
+      "isError": false,
+      "chars": 24876,
+      "sha": "82cc6a0f4712692a057773c31f0bc8091ef9b85f921e4e17d4e29c217f3440cc"
+    },
+    {
+      "pass": 0,
+      "id": "ttl-mixed-bag",
+      "ms": 3446.4426669999993,
+      "isError": false,
+      "chars": 24964,
+      "sha": "01e85c311cccd303fe498ced521806c6e50dff3f8fae71596f8d3da74e9ef322"
+    },
+    {
+      "pass": 0,
+      "id": "ttl-task-single",
+      "ms": 1427.268293000001,
+      "isError": false,
+      "chars": 24886,
+      "sha": "92775779b125e36eb549511ca45e60a260cdaec3b82f99612300531bde76309b"
+    },
+    {
+      "pass": 0,
+      "id": "ttl-throttler-single",
+      "ms": 3252.2359819999983,
+      "isError": false,
+      "chars": 24937,
+      "sha": "c0574d4dbefae7fefcde2158bd6ad40b606c5ead92ed8e9d17c7866a65625e64"
+    },
+    {
+      "pass": 0,
+      "id": "ttl-throttler-methods",
+      "ms": 4715.565220999997,
+      "isError": false,
+      "chars": 24983,
+      "sha": "e8b408ac3a2c1dd11398e3706e882a6dd4459406b7c94fae338b729fc17252b7"
+    },
+    {
+      "pass": 0,
+      "id": "ttl-task-methods",
+      "ms": 3911.5707559999973,
+      "isError": false,
+      "chars": 24985,
+      "sha": "7c19aa6e1f1cbcfa0068dd143457adb0be3f1a8126a60eadf85582bf7f33cffe"
+    },
+    {
+      "pass": 0,
+      "id": "dtl-seed-bag",
+      "ms": 1639.6219340000025,
+      "isError": false,
+      "chars": 24988,
+      "sha": "49adedcde4a43aa7186b98a010d68939b43d57624db6f6b973b096530735c213"
+    },
+    {
+      "pass": 0,
+      "id": "dtl-methods",
+      "ms": 2056.8244970000014,
+      "isError": false,
+      "chars": 24958,
+      "sha": "e1014f2a35df57e47fb1eb4f2fa5c060b5a6d7e6b1e2a477595ab2fc311026d1"
+    },
+    {
+      "pass": 0,
+      "id": "ttl-explicit-range",
+      "ms": 1078.8629959999962,
+      "isError": false,
+      "chars": 24726,
+      "sha": "f991b694bc3f19671c5a6463c9ed8550f80836e2b81f5788371a5bfb8f3d61e7"
+    },
+    {
+      "pass": 0,
+      "id": "ttl-qualified-member",
+      "ms": 1456.4890939999968,
+      "isError": false,
+      "chars": 23336,
+      "sha": "90c48efbdaab7adb89194d7e9448c7203765e501f7a9cf3033d07c84095a8531"
+    },
+    {
+      "pass": 0,
+      "id": "dtl-explicit-range",
+      "ms": 1133.887794999995,
+      "isError": false,
+      "chars": 24733,
+      "sha": "4e8d519e4eaf6c9527d5cd80ac0d45698260d551f34ddaf58fa2b85b4485d3f8"
+    },
+    {
+      "pass": 0,
+      "id": "dtl-qualified-member",
+      "ms": 1840.719477999999,
+      "isError": false,
+      "chars": 24996,
+      "sha": "b12b8d00e5a4e60eb5e99faea41232096edad166bbb6fcae32c6075b8b656716"
+    },
+    {
+      "pass": 0,
+      "id": "ttl-flow-current",
+      "ms": 3627.1708629999994,
+      "isError": false,
+      "chars": 24985,
+      "sha": "7c19aa6e1f1cbcfa0068dd143457adb0be3f1a8126a60eadf85582bf7f33cffe"
+    },
+    {
+      "pass": 0,
+      "id": "dtl-current-range",
+      "ms": 1057.379295000006,
+      "isError": false,
+      "chars": 24733,
+      "sha": "3e108769235c6701db479daa697250d7756407a602d4bbd50b6b0ccaa46c781e"
+    },
+    {
+      "pass": 1,
+      "id": "ttl-seed-bag",
+      "ms": 3109.4399529999937,
+      "isError": false,
+      "chars": 24876,
+      "sha": "82cc6a0f4712692a057773c31f0bc8091ef9b85f921e4e17d4e29c217f3440cc"
+    },
+    {
+      "pass": 1,
+      "id": "ttl-mixed-bag",
+      "ms": 3547.094382999996,
+      "isError": false,
+      "chars": 24964,
+      "sha": "01e85c311cccd303fe498ced521806c6e50dff3f8fae71596f8d3da74e9ef322"
+    },
+    {
+      "pass": 1,
+      "id": "ttl-task-single",
+      "ms": 1408.9970590000012,
+      "isError": false,
+      "chars": 24886,
+      "sha": "92775779b125e36eb549511ca45e60a260cdaec3b82f99612300531bde76309b"
+    },
+    {
+      "pass": 1,
+      "id": "ttl-throttler-single",
+      "ms": 1629.1267969999972,
+      "isError": false,
+      "chars": 24937,
+      "sha": "c0574d4dbefae7fefcde2158bd6ad40b606c5ead92ed8e9d17c7866a65625e64"
+    },
+    {
+      "pass": 1,
+      "id": "ttl-throttler-methods",
+      "ms": 4780.630999000001,
+      "isError": false,
+      "chars": 24983,
+      "sha": "e8b408ac3a2c1dd11398e3706e882a6dd4459406b7c94fae338b729fc17252b7"
+    },
+    {
+      "pass": 1,
+      "id": "ttl-task-methods",
+      "ms": 3463.261808000003,
+      "isError": false,
+      "chars": 24985,
+      "sha": "7c19aa6e1f1cbcfa0068dd143457adb0be3f1a8126a60eadf85582bf7f33cffe"
+    },
+    {
+      "pass": 1,
+      "id": "dtl-seed-bag",
+      "ms": 1635.69696999999,
+      "isError": false,
+      "chars": 24988,
+      "sha": "49adedcde4a43aa7186b98a010d68939b43d57624db6f6b973b096530735c213"
+    },
+    {
+      "pass": 1,
+      "id": "dtl-methods",
+      "ms": 1890.3866100000014,
+      "isError": false,
+      "chars": 24958,
+      "sha": "e1014f2a35df57e47fb1eb4f2fa5c060b5a6d7e6b1e2a477595ab2fc311026d1"
+    },
+    {
+      "pass": 1,
+      "id": "ttl-explicit-range",
+      "ms": 1082.5060990000056,
+      "isError": false,
+      "chars": 24726,
+      "sha": "f991b694bc3f19671c5a6463c9ed8550f80836e2b81f5788371a5bfb8f3d61e7"
+    },
+    {
+      "pass": 1,
+      "id": "ttl-qualified-member",
+      "ms": 1540.8085569999967,
+      "isError": false,
+      "chars": 23336,
+      "sha": "90c48efbdaab7adb89194d7e9448c7203765e501f7a9cf3033d07c84095a8531"
+    },
+    {
+      "pass": 1,
+      "id": "dtl-explicit-range",
+      "ms": 1101.3011350000015,
+      "isError": false,
+      "chars": 24733,
+      "sha": "4e8d519e4eaf6c9527d5cd80ac0d45698260d551f34ddaf58fa2b85b4485d3f8"
+    },
+    {
+      "pass": 1,
+      "id": "dtl-qualified-member",
+      "ms": 1758.810931999993,
+      "isError": false,
+      "chars": 24996,
+      "sha": "b12b8d00e5a4e60eb5e99faea41232096edad166bbb6fcae32c6075b8b656716"
+    },
+    {
+      "pass": 1,
+      "id": "ttl-flow-current",
+      "ms": 3544.6352729999926,
+      "isError": false,
+      "chars": 24985,
+      "sha": "7c19aa6e1f1cbcfa0068dd143457adb0be3f1a8126a60eadf85582bf7f33cffe"
+    },
+    {
+      "pass": 1,
+      "id": "dtl-current-range",
+      "ms": 1150.519140999997,
+      "isError": false,
+      "chars": 24733,
+      "sha": "3e108769235c6701db479daa697250d7756407a602d4bbd50b6b0ccaa46c781e"
+    },
+    {
+      "pass": 2,
+      "id": "ttl-seed-bag",
+      "ms": 3064.305223000003,
+      "isError": false,
+      "chars": 24876,
+      "sha": "82cc6a0f4712692a057773c31f0bc8091ef9b85f921e4e17d4e29c217f3440cc"
+    },
+    {
+      "pass": 2,
+      "id": "ttl-mixed-bag",
+      "ms": 3212.552898000009,
+      "isError": false,
+      "chars": 24964,
+      "sha": "01e85c311cccd303fe498ced521806c6e50dff3f8fae71596f8d3da74e9ef322"
+    },
+    {
+      "pass": 2,
+      "id": "ttl-task-single",
+      "ms": 1419.9281740000006,
+      "isError": false,
+      "chars": 24886,
+      "sha": "92775779b125e36eb549511ca45e60a260cdaec3b82f99612300531bde76309b"
+    },
+    {
+      "pass": 2,
+      "id": "ttl-throttler-single",
+      "ms": 1744.449066000001,
+      "isError": false,
+      "chars": 24937,
+      "sha": "c0574d4dbefae7fefcde2158bd6ad40b606c5ead92ed8e9d17c7866a65625e64"
+    },
+    {
+      "pass": 2,
+      "id": "ttl-throttler-methods",
+      "ms": 4877.679708000011,
+      "isError": false,
+      "chars": 24983,
+      "sha": "e8b408ac3a2c1dd11398e3706e882a6dd4459406b7c94fae338b729fc17252b7"
+    },
+    {
+      "pass": 2,
+      "id": "ttl-task-methods",
+      "ms": 3519.8968909999967,
+      "isError": false,
+      "chars": 24985,
+      "sha": "7c19aa6e1f1cbcfa0068dd143457adb0be3f1a8126a60eadf85582bf7f33cffe"
+    },
+    {
+      "pass": 2,
+      "id": "dtl-seed-bag",
+      "ms": 1649.0128580000019,
+      "isError": false,
+      "chars": 24988,
+      "sha": "49adedcde4a43aa7186b98a010d68939b43d57624db6f6b973b096530735c213"
+    },
+    {
+      "pass": 2,
+      "id": "dtl-methods",
+      "ms": 2020.9414470000047,
+      "isError": false,
+      "chars": 24958,
+      "sha": "e1014f2a35df57e47fb1eb4f2fa5c060b5a6d7e6b1e2a477595ab2fc311026d1"
+    },
+    {
+      "pass": 2,
+      "id": "ttl-explicit-range",
+      "ms": 1219.6074660000013,
+      "isError": false,
+      "chars": 24726,
+      "sha": "f991b694bc3f19671c5a6463c9ed8550f80836e2b81f5788371a5bfb8f3d61e7"
+    },
+    {
+      "pass": 2,
+      "id": "ttl-qualified-member",
+      "ms": 1711.762293000007,
+      "isError": false,
+      "chars": 23336,
+      "sha": "90c48efbdaab7adb89194d7e9448c7203765e501f7a9cf3033d07c84095a8531"
+    },
+    {
+      "pass": 2,
+      "id": "dtl-explicit-range",
+      "ms": 1245.628794999997,
+      "isError": false,
+      "chars": 24733,
+      "sha": "4e8d519e4eaf6c9527d5cd80ac0d45698260d551f34ddaf58fa2b85b4485d3f8"
+    },
+    {
+      "pass": 2,
+      "id": "dtl-qualified-member",
+      "ms": 2114.979024,
+      "isError": false,
+      "chars": 24996,
+      "sha": "b12b8d00e5a4e60eb5e99faea41232096edad166bbb6fcae32c6075b8b656716"
+    },
+    {
+      "pass": 2,
+      "id": "ttl-flow-current",
+      "ms": 4674.009946000006,
+      "isError": false,
+      "chars": 24985,
+      "sha": "7c19aa6e1f1cbcfa0068dd143457adb0be3f1a8126a60eadf85582bf7f33cffe"
+    },
+    {
+      "pass": 2,
+      "id": "dtl-current-range",
+      "ms": 1343.1180580000073,
+      "isError": false,
+      "chars": 24733,
+      "sha": "3e108769235c6701db479daa697250d7756407a602d4bbd50b6b0ccaa46c781e"
+    }
+  ]
+}
