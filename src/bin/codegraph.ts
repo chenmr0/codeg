@@ -814,7 +814,7 @@ program
     const commandStarted = performance.now();
 
     try {
-      if (!isInitialized(projectPath)) {
+      if (!isQueryProject(projectPath)) {
         if (!options.quiet) {
           error(`CodeGraph not initialized in ${projectPath}`);
         }
@@ -842,6 +842,7 @@ program
 
       const syncPipelineStarted = performance.now();
       const result = await cg.sync({
+        displayOnlyProgress: true,
         onScanFallback: message => console.log(message),
         onProgress: progress.onProgress,
         verbose: options.verbose,

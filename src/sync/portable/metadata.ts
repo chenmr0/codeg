@@ -6,6 +6,17 @@ import type { SqliteDatabase as Database } from "../../db/sqlite-adapter";
 export const DATABASE_ID = "portable:database-id-v1";
 export const CATCHUP = "portable:source-catchup-v1";
 export const COST_HISTORY = "adaptive:cost-history-v1";
+/** Cost hints are bounded and optional, including after an offline DB import. */
+export function portableCostHistory(raw: string | null): AdaptiveCostHistory {
+  try {
+    if (raw && raw.length <= 256 * 1024) {
+      const history = JSON.parse(raw) as AdaptiveCostHistory;
+      if (history?.version === 1 && Array.isArray(history.samples))
+        return { version: 1, samples: history.samples.slice(-96) };
+    }
+  } catch { /* ignore damaged performance hints */ }
+  return { version: 1, samples: [] };
+}
 export function metadata(db: Database, key: string): string | null {
   return (
     (

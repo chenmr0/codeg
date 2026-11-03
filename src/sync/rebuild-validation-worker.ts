@@ -4,19 +4,20 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { acquireGenerationLease, acquireCurrentGenerationLease, resolveGeneration, type GenerationLease } from './generation-store';
 import { DatabaseConnection, DatabaseOpenError } from '../db';
+import { portableCostHistory } from './portable/metadata';
 import { PortableCoordinator, type PortableLease } from './portable/protocol';
 import { QueryBuilder } from '../db/queries';
-import { adaptiveRuntimeKey, readAdaptiveHistory, createAdaptivePlan, chooseAdaptiveStrategy, includeAdaptiveReindexWork,
+import { adaptiveRuntimeKey, readAdaptiveHistory, createAdaptivePlan, chooseAdaptiveStrategy, includeAdaptiveReindexWork, scopedCandidateCounts, hasCanonicalScope,
   validateAdaptiveSnapshot, canSkipScopedAdaptivePlan, adaptiveSampleFromFiles, recordAdaptiveSample, adaptiveConfigFingerprint, type AdaptiveCostHistory, type AdaptiveEligibility, type AdaptiveSnapshot } from './adaptive-plan';
 import { validateRebuiltDatabase } from './rebuild-controller';
 import { isSourceOwned, inspectLegacySourceProvenance } from './source-ownership';
 import { EXTRACTION_VERSION } from '../extraction/extraction-version';
-import { SEMANTIC_CONFIG_KEY, SEMANTIC_REINDEX_PENDING, semanticConfigFingerprint, requiresSemanticReindex } from './index-policy';
+import { SEMANTIC_CONFIG_KEY, SEMANTIC_REINDEX_PENDING, semanticConfigFingerprint, requiresSemanticReindex, indexConfigFingerprints } from './index-policy';
 
 export type AdaptiveReadJob =
   | { type: 'validate-initial'; root: string; databasePath: string }
   | { type: 'record-full'; root: string; databasePath: string; durationMs: number }
-  | { type: 'evaluate'; root: string; databasePath: string; eligibility: AdaptiveEligibility; paths?: string[]; portable?: boolean; fullHash?: boolean }
+  | { type: 'evaluate'; root: string; databasePath: string; eligibility: AdaptiveEligibility; paths?: string[]; portable?: boolean; fullHash?: boolean; decisionOnly?: boolean }
   | { type: 'validate'; root: string; databasePath: string; sourceDatabasePath: string; snapshot: AdaptiveSnapshot; runtimeKey: string };
 
 
@@ -101,35 +102,18 @@ async function execute(job: AdaptiveReadJob): Promise<unknown> {
       if (job.portable) {
         // The DB is the portable authority. Do not accidentally revive an old
         // directory's JSON history after a public database was replaced.
-        const raw = queries.getMetadata('adaptive:cost-history-v1');
-        try {
-          if (raw && raw.length <= 256 * 1024) {
-            const parsed = JSON.parse(raw) as AdaptiveCostHistory;
-            if (parsed?.version === 1 && Array.isArray(parsed.samples)) {
-              // A copied DB may carry another machine's measurements. Ignore
-              // them rather than triggering a rebuild because its host changed.
-              history = { version: 1, samples: parsed.samples.slice(-96).filter(sample =>
-                sample && typeof sample === 'object' && sample.runtimeKey === runtimeKey) };
-            }
-          }
-        } catch { /* Corrupt cost hints cannot invalidate an otherwise valid index. */ }
+        history = portableCostHistory(queries.getMetadata('adaptive:cost-history-v1'));
+        history.samples = history.samples.filter(sample => sample?.runtimeKey === runtimeKey);
       } else history = readAdaptiveHistory(job.root);
       if (!job.fullHash && job.paths?.length && indexedConfig && !eligibility.upgradeRequired && !eligibility.configurationChanged) {
         const paths = [...new Set(job.paths)];
         const prior = new Map(tracked.map(file => [file.path, file]));
-        const safe = paths.every(relative => {
-          const absolute = path.resolve(job.root, relative);
-          if (!absolute.startsWith(path.resolve(job.root) + path.sep) || path.isAbsolute(relative)) return false;
-          try { return fs.realpathSync(absolute) === absolute && fs.statSync(absolute).isFile(); }
-          catch (error) { return (error as NodeJS.ErrnoException).code === 'ENOENT' && prior.has(relative); }
-        });
-        const currentConfig = adaptiveConfigFingerprint(job.root, [...tracked, ...paths.map(path => ({ path }))]);
-        const currentSemantic = semanticConfigFingerprint(job.root, [...tracked, ...paths.map(path => ({ path }))]);
-        if (safe && currentConfig === indexedConfig &&
-          !requiresSemanticReindex(indexedSemantic, currentSemantic, indexedConfig, currentConfig, upgradeRequired, semanticPending) && canSkipScopedAdaptivePlan({ pathsCount: paths.length,
-          affectedOldNodes: paths.reduce((total, relative) => total + (prior.get(relative)?.nodeCount ?? 0), 0),
-          totalOldNodes: tracked.reduce((total, file) => total + file.nodeCount, 0),
-        }, history, runtimeKey, currentConfig, eligibility)) {
+        const { configFingerprint: currentConfig, semanticConfigFingerprint: currentSemantic } =
+          indexConfigFingerprints(job.root, [...tracked, ...paths.map(path => ({ path }))]);
+        if (currentConfig === indexedConfig &&
+          !requiresSemanticReindex(indexedSemantic, currentSemantic, indexedConfig, currentConfig, upgradeRequired, semanticPending) &&
+          canSkipScopedAdaptivePlan(scopedCandidateCounts(paths, prior), history, runtimeKey, currentConfig, eligibility) &&
+          await hasCanonicalScope(job.root, paths, prior)) {
           return { decision: { strategy: 'incremental', reason: 'scoped-small-change' } };
         }
       }
@@ -143,6 +127,7 @@ async function execute(job: AdaptiveReadJob): Promise<unknown> {
         history = { version: 1, samples: [] };
       }
       const decision = chooseAdaptiveStrategy(plan, history, eligibility);
+      if (job.decisionOnly) return { decision };
       const configurationChanged = eligibility.configurationChanged === true ||
         (indexedConfig !== undefined && indexedConfig !== null && indexedConfig !== plan.snapshot.configFingerprint);
       return { plan, decision, legacy: legacy.eligible, configurationChanged };

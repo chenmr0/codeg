@@ -30,10 +30,11 @@ import {
 } from './types';
 import { DatabaseConnection, DatabaseOpenError } from './db';
 import { createDatabase } from './db/sqlite-adapter';
-import { WalCheckpointValve } from './db/wal-valve';
+import { WalCheckpointValve, resolveWalValveMb } from './db/wal-valve';
 import { QueryBuilder } from './db/queries';
 import {
   isInitialized,
+  hasIndexForOpen,
   getCodeGraphDir,
   createDirectory,
   removeDirectory,
@@ -44,6 +45,9 @@ import {
   IndexProgress,
   IndexResult,
   SyncResult,
+  scanSyncInventory,
+  summarizeSyncCandidates,
+  type SyncInventory,
   extractFromSource,
   initGrammars,
 } from './extraction';
@@ -57,14 +61,14 @@ import { ContextBuilder, createContextBuilder } from './context';
 import { Mutex, canonicalFilePath } from './utils';
 import { GenerationWriterLock, resolveGeneration, createGeneration, publishGeneration, hasRebuildDiskSpace, acquireCurrentGenerationLease, acquireGenerationLease, cleanupGenerationCandidate, collectRetiredGenerations, type GenerationLease } from './sync/generation-store';
 import { installSourceOwnership, isSourceOwned, beginSourceWrite, finishSourceWrite } from './sync/source-ownership';
-import { adaptiveRuntimeKey, adaptiveConfigFingerprint, adaptiveSampleFromFiles,
+import { adaptiveRuntimeKey, adaptiveConfigFingerprint, adaptiveSampleFromFiles, canSkipAdaptiveEvaluation, scopedCandidateCounts, hasCanonicalScope,
   recordAdaptiveSample, type AdaptiveDecision, type AdaptivePlan, type AdaptiveFallbackPolicy } from './sync/adaptive-plan';
 import { runRebuildChild, runAdaptiveReadWorker } from './sync/rebuild-controller';
 import { PortableCoordinator, type PortableLease } from './sync/portable/protocol';
-import { createPortableFacade, type PortableReadPin } from './sync/portable/facade';
-import { initializeIdentity, metadata as portableMetadata, setMetadata as setPortableMetadata, CATCHUP, COST_HISTORY, recordCost } from './sync/portable/metadata';
+import { createPortableFacade, prepareSmallSync, type PortableReadPin } from './sync/portable/facade';
+import { initializeIdentity, metadata as portableMetadata, setMetadata as setPortableMetadata, CATCHUP, COST_HISTORY, recordCost, portableCostHistory } from './sync/portable/metadata';
 import { FileWatcher, WatchOptions, PendingFile, LockUnavailableError } from './sync';
-import { SEMANTIC_CONFIG_KEY, SEMANTIC_REINDEX_PENDING, semanticConfigFingerprint, requiresSemanticReindex } from './sync/index-policy';
+import { SEMANTIC_CONFIG_KEY, SEMANTIC_REINDEX_PENDING, semanticConfigFingerprint, requiresSemanticReindex, indexConfigFingerprints } from './sync/index-policy';
 import { EXTRACTION_VERSION } from './extraction/extraction-version';
 import { recoverAppendDeltas } from './extraction/append-delta';
 import { getLanguageScopeKey, withLanguageScope } from './extraction/language-scope';
@@ -191,6 +195,8 @@ export interface IndexOptions {
 
 /** Options for incremental synchronization. */
 export interface SyncOptions extends IndexOptions {
+  /** @internal The CLI renderer only displays progress and scan notices; SDK callbacks may edit source. */
+  displayOnlyProgress?: boolean;
   /** Optional native fallback notice sink. Library/MCP/watch callers stay silent by default. */
   onScanFallback?: (message: string) => void;
   /**
@@ -206,6 +212,14 @@ export interface SyncOptions extends IndexOptions {
   adaptiveFallback?: Partial<AdaptiveFallbackPolicy>;
   /** Decision diagnostics; no stdout output is emitted for library/MCP callers. */
   onAdaptiveDecision?: (decision: AdaptiveDecision) => void;
+}
+
+interface PreparedSync {
+  startedAt: number;
+  tracked: FileRecord[];
+  inventory?: SyncInventory;
+  policyFiles: ReadonlyArray<{ path: string }>;
+  policy: ReturnType<typeof indexConfigFingerprints>;
 }
 
 /** Read visibility for the most recent in-process refresh; not a completion stamp. */
@@ -547,6 +561,8 @@ export class CodeGraph {
   static openPortableRaw(root: string, file: string, readOnly: boolean): CodeGraph {
     const db = readOnly ? DatabaseConnection.openReadOnly(file) : DatabaseConnection.open(file, { nativeOnly: true });
     try {
+      // Verify the public graph tables/columns on open without counting or grouping their rows.
+      if (readOnly) db.getDb().prepare('SELECT nodes.kind, edges.kind, files.language FROM nodes, edges, files LIMIT 0').get();
       const graph = new CodeGraph(db, new QueryBuilder(db.getDb()), path.resolve(root), true, readOnly, readOnly, path.dirname(file));
       graph.portableBound = true;
       // Ownership is held outside the replaceable graph object, across worker exits.
@@ -632,7 +648,7 @@ export class CodeGraph {
     const resolvedRoot = path.resolve(projectRoot);
 
     // Check if initialized
-    if (!isInitialized(resolvedRoot)) {
+    if (!hasIndexForOpen(resolvedRoot)) {
       throw new Error(`CodeGraph not initialized in ${resolvedRoot}. Run init() first.`);
     }
 
@@ -660,7 +676,7 @@ export class CodeGraph {
     const resolvedRoot = path.resolve(projectRoot);
 
     // Check if initialized
-    if (!isInitialized(resolvedRoot)) {
+    if (!hasIndexForOpen(resolvedRoot)) {
       throw new Error(`CodeGraph not initialized in ${resolvedRoot}. Run init() first.`);
     }
 
@@ -1308,14 +1324,15 @@ export class CodeGraph {
     return active;
   }
 
-  private recordCostSample(kind: 'full' | 'incremental', before: FileRecord[], durationMs: number, changedFilePaths?: string[]): void {
+  private recordCostSample(kind: 'full' | 'incremental', before: FileRecord[], durationMs: number,
+    verifiedPolicy?: ReturnType<typeof indexConfigFingerprints>): void {
     if ((this.shadowCandidate && !this.portableBound) || this.db.getBackend() !== 'node-sqlite' || (!this.disposableCandidate && getCodeGraphDir(this.projectRoot) !== this.dataDir) || !isSourceOwned(this.db.getDb())) return;
     try {
       const after = this.queries.getAllFiles();
-      const sample = adaptiveSampleFromFiles({ kind, before, after, durationMs, changedFilePaths,
+      const sample = adaptiveSampleFromFiles({ kind, before, after, durationMs,
         runtimeKey: adaptiveRuntimeKey(this.projectRoot, this.db.getBackend()),
-        semanticConfigFingerprint: semanticConfigFingerprint(this.projectRoot, after),
-        configFingerprint: adaptiveConfigFingerprint(this.projectRoot, [...before, ...after]) });
+        semanticConfigFingerprint: verifiedPolicy?.semanticConfigFingerprint ?? semanticConfigFingerprint(this.projectRoot, after),
+        configFingerprint: verifiedPolicy?.configFingerprint ?? adaptiveConfigFingerprint(this.projectRoot, [...before, ...after]) });
       if (this.portableBound) recordCost(this.db.getDb(), sample);
       else recordAdaptiveSample(this.projectRoot, sample, true);
     } catch { /* Performance hints must never invalidate a successful index. */ }
@@ -1439,10 +1456,93 @@ export class CodeGraph {
     try { return await this.syncInternal(options); } finally { this.refreshIdleFacade(); }
   }
 
-  private async syncInternal(options: SyncOptions, inheritedLock = false): Promise<SyncResult> {
+  /** @internal Called only on the raw graph under the portable writer lease.
+   * A negative gate can reuse ordinary sync evidence. Only the full planner
+   * and publisher may authorize replacement. */
+  async [prepareSmallSync](options: SyncOptions): Promise<((writer: CodeGraph) => Promise<SyncResult>) | SyncResult | AdaptiveDecision | null> {
+    const startedAt = performance.now();
+    return withLanguageScope(async () => {
+      if (this.getPortableCatchup() || this.isIndexStale() || this.needsLanguageScopeReconciliation() ||
+          this.queries.getMetadata(SEMANTIC_REINDEX_PENDING) !== null) return null;
+      const indexedSemantic = this.queries.getMetadata(SEMANTIC_CONFIG_KEY);
+      const indexedConfig = this.queries.getMetadata('adaptive:index-config-v1');
+      if (!indexedConfig || !indexedSemantic) return null;
+      if (options.onAdaptiveDecision && !isSourceOwned(this.db.getDb())) return null;
+      const tracked = this.queries.getAllFiles();
+      const policy = indexConfigFingerprints(this.projectRoot, tracked);
+      if (policy.configFingerprint !== indexedConfig || policy.semanticConfigFingerprint !== indexedSemantic) return null;
+      const scoped = options.paths?.length ? [...new Set(options.paths)] : undefined;
+      let inventory: SyncInventory | undefined;
+      let candidates: ReturnType<typeof scopedCandidateCounts>;
+      let addedPaths: string[];
+      const history = portableCostHistory(this.getPortableCostHistory());
+      if (scoped) {
+        const prior = new Map(tracked.map(file => [file.path, file]));
+        candidates = scopedCandidateCounts(scoped, prior);
+        if (!canSkipAdaptiveEvaluation(candidates, history, options.adaptiveFallback, tracked.length) ||
+            !await hasCanonicalScope(this.projectRoot, scoped, prior)) return null;
+        addedPaths = scoped.filter(file => !prior.has(file));
+      } else {
+        inventory = await scanSyncInventory(this.projectRoot, options.verbose);
+        const full = await summarizeSyncCandidates(this.projectRoot, inventory, tracked);
+        if (!full || !canSkipAdaptiveEvaluation(full, history, options.adaptiveFallback, tracked.length)) return null;
+        candidates = full;
+        addedPaths = full.addedPaths;
+      }
+      options.signal?.throwIfAborted();
+      // The planner checks old AND newly visible source ancestors for configuration.
+      const policyFiles = addedPaths.length ? [...tracked, ...addedPaths.map(path => ({ path }))] : tracked;
+      if (addedPaths.length) {
+        const expanded = indexConfigFingerprints(this.projectRoot, policyFiles);
+        if (expanded.configFingerprint !== indexedConfig || expanded.semanticConfigFingerprint !== indexedSemantic) return null;
+      }
+      const reason = scoped ? 'scoped-small-change' : candidates.pathsCount ? 'below-rebuild-range' : 'no-content-changes';
+      // Deliver user decision callbacks after releasing the lease. They can
+      // change source/configuration, so do not carry any observations across them.
+      if (options.onAdaptiveDecision) return { strategy: 'incremental', reason };
+      this.emitAdaptiveDecision(options, { strategy: 'incremental', reason });
+      // An SDK scanning callback can create or remove sources. Keep its existing
+      // fresh scan, whereas the CLI renderer and callback-free calls reuse ours.
+      const reusable = options.displayOnlyProgress || (!options.onProgress && !options.onScanFallback);
+      if (inventory && reusable && candidates.pathsCount === 0 && this.canFinishWithoutWriting()) {
+        // Reconcile on the pinned, query-only connection. Every source has
+        // already matched its tracked stat and no same-hash refresh is owed.
+        // Keep normal progress, fallback notices, counters and result shape.
+        const result = await this.orchestrator.sync(options.onProgress, undefined, options.verbose,
+          undefined, undefined, undefined, options.onScanFallback, undefined, undefined, { inventory, tracked });
+        options.signal?.throwIfAborted();
+        const finalizeStarted = performance.now();
+        const after = indexConfigFingerprints(this.projectRoot, policyFiles);
+        if (after.configFingerprint !== indexedConfig || after.semanticConfigFingerprint !== indexedSemantic) {
+          // The writer will re-evaluate the new policy and persist any retry evidence.
+          return null;
+        }
+        if (options.verbose) console.log(`[sync] tail-detail mode=read-only prepareAndWalMs=0ms finalizeMs=${Math.round(performance.now() - finalizeStarted)}ms`);
+        result.durationMs = Math.round(performance.now() - startedAt);
+        return result;
+      }
+      const prepared = { startedAt, tracked, inventory: reusable ? inventory : undefined, policyFiles, policy };
+      return writer => writer.syncInternal({ ...options, adaptive: false }, false, prepared);
+    });
+  }
+
+  /** Ordinary sync must still run recovery and one-time repairs with zero
+   * changed sources. Only a complete tool-owned DB with clean evidence can
+   * finish on the reader. Leave large/outstanding WAL work to the writer. */
+  private canFinishWithoutWriting(): boolean {
+    const macro = this.queries.getMetadata('resolution:cpp-macro-evidence-v1');
+    return macro !== null && this.queries.getMetadata('resolution:cpp-macro-evidence-clean-v1') === macro &&
+      this.queries.getMetadata('repair:cpp-include-targets-v1') === 'done' &&
+      this.queries.getMetadata('indexed_with_version') === CodeGraphPackageVersion &&
+      this.queries.getMetadata('indexed_with_extraction_version') === String(EXTRACTION_VERSION) &&
+      this.db.getWalSizeBytes() < resolveWalValveMb(process.env.CODEGRAPH_WAL_VALVE_MB) * 1024 * 1024 &&
+      isSourceOwned(this.db.getDb()) && this.hasPortableCompletionProof();
+  }
+
+  private async syncInternal(options: SyncOptions, inheritedLock = false, prepared?: PreparedSync): Promise<SyncResult> {
     if (this.closed) throw new Error('CodeGraph is closed');
     options.signal?.throwIfAborted();
-    const syncStartedAt = performance.now();
+    const syncStartedAt = prepared?.startedAt ?? performance.now();
     let acquiredWriteLock = false;
     const result = await withLanguageScope(() => this.indexMutex.withLock(() => this.trackDataReadiness(async () => {
       try {
@@ -1459,17 +1559,16 @@ export class CodeGraph {
           return await active.syncInternal(options, true);
         } finally { active?.close(); this.forwardedWriter = null; this.fileLock.release(); }
       }
-      let adaptiveBefore: FileRecord[] = [];
       try {
         const rebuilt = await this.tryAdaptiveRebuild(options);
         if (rebuilt) { this.fileLock.release(); return rebuilt; }
-        if (this.db.getBackend() === 'node-sqlite' && isSourceOwned(this.db.getDb())) adaptiveBefore = this.queries.getAllFiles();
       } catch (error) { this.fileLock.release(); throw error; }
-      const policyFiles = this.queries.getAllFiles();
+      const tracked = prepared?.tracked ?? this.queries.getAllFiles();
+      const policyFiles = prepared?.policyFiles ?? tracked;
       const scopeChanged = this.needsLanguageScopeReconciliation();
       const extractionChanged = this.isIndexStale();
-      const configBefore = adaptiveConfigFingerprint(this.projectRoot, policyFiles);
-      const semanticBefore = semanticConfigFingerprint(this.projectRoot, policyFiles);
+      const { configFingerprint: configBefore, semanticConfigFingerprint: semanticBefore } =
+        prepared?.policy ?? indexConfigFingerprints(this.projectRoot, policyFiles);
       const configChanged = this.queries.getMetadata('adaptive:index-config-v1') !== configBefore;
       const reextract = requiresSemanticReindex(this.queries.getMetadata(SEMANTIC_CONFIG_KEY), semanticBefore,
         this.queries.getMetadata('adaptive:index-config-v1'), configBefore, extractionChanged,
@@ -1481,7 +1580,7 @@ export class CodeGraph {
       if (scopeChanged || configChanged || reextract) {
         options = { ...options, paths: undefined,
           forceReindexPaths: reextract ? [...new Set([
-            ...(options.forceReindexPaths ?? []), ...policyFiles.map(file => file.path),
+            ...(options.forceReindexPaths ?? []), ...tracked.map(file => file.path),
           ])] : options.forceReindexPaths };
         this.orchestrator.resetLanguageScopeCaches();
         this.resolver.resetProjectConfiguration();
@@ -1581,6 +1680,7 @@ export class CodeGraph {
           walValve ? { hardCapBytes: walValve.hardCapBytes,
             getWalSizeBytes: () => this.db.getWalSizeBytes() } : undefined,
           options.forceReindexPaths,
+          { inventory: prepared?.inventory, tracked: (options.displayOnlyProgress || !options.onProgress) ? tracked : undefined },
         );
         // Old unstamped edges need source re-extraction, even if their caller
         // was unchanged (or was stored before a later target replacement).
@@ -1988,8 +2088,8 @@ export class CodeGraph {
         options.signal?.throwIfAborted();
         // Do not acknowledge a moving configuration: old policy metadata remains
         // durable retry evidence, including on an interrupted extractor upgrade.
-        if (adaptiveConfigFingerprint(this.projectRoot, policyFiles) !== configBefore ||
-            semanticConfigFingerprint(this.projectRoot, policyFiles) !== semanticBefore) {
+        const verified = indexConfigFingerprints(this.projectRoot, policyFiles);
+        if (verified.configFingerprint !== configBefore || verified.semanticConfigFingerprint !== semanticBefore) {
           this.beginSynthesis();
           throw new Error('Index configuration changed during sync; retry to reconcile the new policy');
         }
@@ -2017,21 +2117,26 @@ export class CodeGraph {
           }
         }
         if (result.complete === true) {
-          this.queries.applyMetadataChanges({
+          const metadata = {
             indexed_language_scope: getLanguageScopeKey(),
             language_scope_pending: null,
             indexed_with_version: CodeGraphPackageVersion,
             indexed_with_extraction_version: String(EXTRACTION_VERSION),
             [SEMANTIC_CONFIG_KEY]: semanticBefore,
             [SEMANTIC_REINDEX_PENDING]: null,
-            'adaptive:index-config-v1': adaptiveConfigFingerprint(this.projectRoot, this.queries.getAllFiles()),
-          });
+            'adaptive:index-config-v1': result.filesAdded || result.filesRemoved
+              ? adaptiveConfigFingerprint(this.projectRoot, this.queries.getAllFiles()) : configBefore,
+          };
+          if (Object.entries(metadata).some(([key, value]) => this.queries.getMetadata(key) !== value)) {
+            this.queries.applyMetadataChanges(metadata);
+          }
         }
         tailMark('finalizeMs');
         finishSourceWrite(this.db.getDb(), ownership, result.complete === true);
         // Content-only observations must not learn the cost of policy-driven same-hash re-extraction.
         if (result.complete === true && !reextract && (result.filesAdded + result.filesModified + result.filesRemoved) > 0) {
-          this.recordCostSample('incremental', adaptiveBefore, performance.now() - syncStartedAt, result.changedFilePaths);
+          this.recordCostSample('incremental', tracked, performance.now() - syncStartedAt,
+            result.filesAdded || result.filesRemoved ? undefined : verified);
         }
         return result;
       } finally {

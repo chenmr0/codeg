@@ -5,9 +5,11 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import * as extraction from '../src/extraction';
 import { hashContent } from '../src/extraction';
 import { getCodeGraphDir } from '../src/directory';
+import { indexConfigFingerprints } from '../src/sync/index-policy';
+import { getLanguageScopeKey } from '../src/extraction/language-scope';
 import type { FileRecord } from '../src/types';
 import { adaptiveConfigFingerprint, adaptiveRuntimeKey, adaptiveSampleFromFiles, chooseAdaptiveStrategy,
-  createAdaptivePlan, includeAdaptiveReindexWork, adaptiveChangeGate, canSkipScopedAdaptivePlan, hasAdaptiveCalibration, hasStructuralRebuildWork, readAdaptiveHistory, recordAdaptiveSample,
+  createAdaptivePlan, includeAdaptiveReindexWork, adaptiveChangeGate, canSkipAdaptiveEvaluation, canSkipScopedAdaptivePlan, hasAdaptiveCalibration, hasStructuralRebuildWork, readAdaptiveHistory, recordAdaptiveSample,
   validateAdaptiveSnapshot, type AdaptivePlan, type AdaptiveCostHistory, type AdaptiveCostSample } from '../src/sync/adaptive-plan';
 
 const roots: string[] = [];
@@ -33,6 +35,62 @@ function history(): AdaptiveCostHistory {
 }
 
 describe('adaptive cost decision', () => {
+  it('rules out structurally small changes across unknown runtime keys without hiding measured savings', () => {
+    const scope = { pathsCount: 1, affectedOldNodes: 1000, totalOldNodes: 40000 };
+    const measured = [1, 2, 3].map(() => sample({ changedFiles: 1, durationMs: 20000 }));
+    const full = sample({ kind: 'full', durationMs: 1000 });
+    expect(canSkipAdaptiveEvaluation(scope, { version: 1, samples: [full, ...measured] })).toBe(false);
+    expect(canSkipAdaptiveEvaluation(scope, { version: 1, samples: [full, ...measured.slice(0, 2)] })).toBe(true);
+    expect(canSkipAdaptiveEvaluation(scope, { version: 1, samples: [{ ...full, durationMs: 300000 }, ...measured] })).toBe(true);
+    expect(canSkipAdaptiveEvaluation({ ...scope, affectedOldNodes: 10000 }, { version: 1, samples: [] })).toBe(false);
+    expect(canSkipAdaptiveEvaluation({ ...scope, pathsCount: 128 }, { version: 1, samples: [] })).toBe(false);
+    const breadth = { ...scope, pathsCount: 128 };
+    const cold: AdaptiveCostHistory = { version: 1, samples: [] };
+    expect(canSkipAdaptiveEvaluation(breadth, cold, {}, 100000)).toBe(true);
+    expect(canSkipAdaptiveEvaluation(breadth, cold, {}, 512)).toBe(false);
+    expect(canSkipAdaptiveEvaluation(breadth, cold, {}, 0)).toBe(false);
+    expect(canSkipAdaptiveEvaluation(breadth, { version: 1, samples: [full, ...measured] }, {}, 100000)).toBe(false);
+    expect(canSkipAdaptiveEvaluation({ ...scope, affectedOldNodes: 0 },
+      { version: 1, samples: [full, ...measured.map(s => ({ ...s, shape: 'added-only' as const }))] })).toBe(false);
+  });
+
+  it('preserves published configuration digests and rereads same-stat configuration bytes', () => {
+    const dir = root(), lib = path.join(dir, 'lib');
+    fs.mkdirSync(lib);
+    fs.writeFileSync(path.join(dir, '.gitignore'), '*.tmp\n');
+    fs.writeFileSync(path.join(lib, '.gitignore'), '*.log\n');
+    fs.writeFileSync(path.join(lib, 'Cargo.toml'), 'first\n');
+    fs.writeFileSync(path.join(dir, 'package.json'), '{"name":"example"}');
+    const files = ['a.cpp', 'lib/a.cpp', 'lib/none/sub/extra.cpp'].map(path => ({ path }));
+    const fingerprints = indexConfigFingerprints(dir, files);
+    // Produced by 0e5d4518 for this fixture.
+    expect(fingerprints).toEqual({
+      configFingerprint: getLanguageScopeKey() === 'all' ? 'ca802356997fec40172e777755fd869aaa753dd957234ceb397d50443ff3d088'
+        : 'f6cc80ac767211edd79a307d4b4631b6fc763e592d3310f8ac165df060577e8f',
+      semanticConfigFingerprint: '02b0bdf7ac73617a20b5b8c2a2fd21e345589faa6500eaa8576e0e65dbdeda4a',
+    });
+    const cargo = path.join(lib, 'Cargo.toml'), time = fs.statSync(cargo).mtime;
+    fs.writeFileSync(cargo, 'other\n');
+    fs.utimesSync(cargo, time, time);
+    const changed = indexConfigFingerprints(dir, files);
+    expect(changed.configFingerprint).toBe(fingerprints.configFingerprint);
+    expect(changed.semanticConfigFingerprint).not.toBe(fingerprints.semanticConfigFingerprint);
+  });
+
+  it('counts a Git-listed missing source as a removal and rejects its reappearance at validation', async () => {
+    const dir = root(), source = path.join(dir, 'removed.cpp');
+    fs.writeFileSync(source, 'int original;');
+    const tracked = [record(dir, 'removed.cpp')];
+    fs.unlinkSync(source);
+    const scan = vi.spyOn(extraction, 'scanDirectoryAsync').mockResolvedValue(['removed.cpp']);
+    try {
+      const result = await createAdaptivePlan(dir, tracked, { runtimeKey: 'runtime' });
+      expect(result.removed).toEqual(['removed.cpp']);
+      expect(await validateAdaptiveSnapshot(dir, result.snapshot)).toBe(true);
+      fs.writeFileSync(source, 'int returned;');
+      expect(await validateAdaptiveSnapshot(dir, result.snapshot)).toBe(false);
+    } finally { scan.mockRestore(); }
+  });
   it('uses measured local costs rather than a changed-file percentage', () => {
     const result = chooseAdaptiveStrategy(plan(), history());
     expect(result.strategy).toBe('rebuild');

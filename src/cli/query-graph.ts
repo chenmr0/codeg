@@ -1,11 +1,11 @@
 import type CodeGraph from '../index';
 import { PortableBusyError } from '../sync/portable/protocol';
-import { isInitialized } from '../directory';
+import { hasIndexForOpen } from '../directory';
 
 /** A live publisher is evidence of an existing project, not an absent index.
  * Actual query admission below waits for its publication fence. */
 export function isQueryProject(projectPath: string): boolean {
-  try { return isInitialized(projectPath); }
+  try { return hasIndexForOpen(projectPath); }
   catch (error) {
     if (error instanceof PortableBusyError) return true;
     throw error;

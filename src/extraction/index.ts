@@ -848,6 +848,90 @@ export async function scanDirectoryAsync(
   return withLanguageScope(() => scanDirectoryAsyncInScope(rootDir, onProgress, diagnostics, capture));
 }
 
+/** One full reconciliation's enumeration. Only reuse it under the same writer
+ * admission and when no user callback can change the source between phases. */
+export interface SyncInventory {
+  paths: string[];
+  nativeCapture: RustScanCapture;
+  diagnostics?: ReconcileDiagnostics;
+  elapsedMs: number;
+  /** An unchanged file only needs a sentinel tied to its exact tracked row.
+   * Retain full identity for stat changes to bracket subsequent hash reads. */
+  fileStats?: WeakMap<FileRecord, true | fs.Stats | Error>;
+}
+
+export async function scanSyncInventory(root: string, verbose = false): Promise<SyncInventory> {
+  clearCanonicalCache();
+  const diagnostics = verbose ? new ReconcileDiagnostics() : undefined;
+  const nativeCapture: RustScanCapture = {};
+  const started = performance.now();
+  const paths = await scanDirectoryAsync(root, undefined, diagnostics?.scan, nativeCapture);
+  const elapsedMs = performance.now() - started;
+  if (diagnostics) diagnostics.phases.enumerateMs = elapsedMs;
+  return { paths, nativeCapture, diagnostics, elapsedMs };
+}
+
+function matchesTrackedStat(stat: { size: number; mtimeMs: number }, tracked: FileRecord): boolean {
+  return stat.size === tracked.size && Math.floor(stat.mtimeMs) === Math.floor(tracked.modifiedAt);
+}
+
+/** Upper-bound the content changes visible to ordinary sync without reading
+ * source bytes. A stat mismatch may only be a touch; the writer still hashes
+ * it before indexing. An inaccessible file cannot certify a small scope. */
+export async function summarizeSyncCandidates(root: string, inventory: SyncInventory, tracked: readonly FileRecord[]) {
+  const started = performance.now();
+  const { diagnostics } = inventory;
+  const remaining = new Map<string, FileRecord>();
+  const addedPaths: string[] = [];
+  let pathsCount = 0, affectedOldNodes = 0, totalOldNodes = 0;
+  for (const file of tracked) {
+    remaining.set(file.path, file);
+    totalOldNodes += file.nodeCount;
+  }
+  try {
+    let checked = 0;
+    for (const relative of inventory.paths) {
+      if (++checked % SYNC_RECONCILE_YIELD_INTERVAL === 0) await new Promise<void>(resolve => setImmediate(resolve));
+      const prior = remaining.get(relative);
+      if (!prior) { addedPaths.push(relative); pathsCount++; continue; }
+      remaining.delete(relative);
+      if (!hasDeclarationMacroRecoverySkipped(prior.errors)) {
+        const nativeStat = inventory.nativeCapture.snapshot?.stats.get(relative);
+        if (nativeStat) {
+          if (matchesTrackedStat(nativeStat, prior)) continue;
+        } else {
+          const fileStats = inventory.fileStats ??= new WeakMap();
+          const statStarted = diagnostics ? performance.now() : 0;
+          if (diagnostics) diagnostics.counts.statChecks++;
+          try {
+            const stat = fs.statSync(path.join(root, relative));
+            const unchanged = matchesTrackedStat(stat, prior);
+            fileStats.set(prior, unchanged || stat);
+            if (unchanged) continue;
+          } catch (error) {
+            const code = (error as NodeJS.ErrnoException).code;
+            if (!(error instanceof Error) || (code !== 'ENOENT' && code !== 'ENOTDIR')) return null;
+            // Git may still list an unstaged deletion. Reconcile confirms the
+            // path is absent immediately before removing the indexed record.
+            fileStats.set(prior, error);
+          } finally {
+            if (diagnostics) diagnostics.io.statMs += performance.now() - statStarted;
+          }
+        }
+      }
+      pathsCount++;
+      affectedOldNodes += prior.nodeCount;
+    }
+    pathsCount += remaining.size;
+    for (const prior of remaining.values()) affectedOldNodes += prior.nodeCount;
+    return { pathsCount, affectedOldNodes, totalOldNodes, addedPaths };
+  } finally {
+    const elapsed = performance.now() - started;
+    inventory.elapsedMs += elapsed;
+    if (diagnostics) diagnostics.phases.changeCheckMs += elapsed;
+  }
+}
+
 async function scanDirectoryAsyncInScope(
   rootDir: string,
   onProgress?: (current: number, file: string) => void,
@@ -2617,8 +2701,9 @@ export class ExtractionOrchestrator {
     removalBatch?: RemovalBatchOptions,
     /** Verified catch-up paths must bypass both stat and same-hash shortcuts. */
     forceReindexPaths?: string[],
+    prepared?: { inventory?: SyncInventory; tracked?: FileRecord[] },
   ): Promise<SyncResult> {
-    return withLanguageScope(() => this.syncInScope(onProgress, scopedPaths, verbose, replaceFileStore, afterWrite, beforeNodeWrite, onScanFallback, removalBatch, forceReindexPaths));
+    return withLanguageScope(() => this.syncInScope(onProgress, scopedPaths, verbose, replaceFileStore, afterWrite, beforeNodeWrite, onScanFallback, removalBatch, forceReindexPaths, prepared));
   }
 
   private async syncInScope(
@@ -2633,11 +2718,12 @@ export class ExtractionOrchestrator {
     removalBatch?: RemovalBatchOptions,
     /** Verified catch-up paths must bypass both stat and same-hash shortcuts. */
     forceReindexPaths?: string[],
+    prepared?: { inventory?: SyncInventory; tracked?: FileRecord[] },
   ): Promise<SyncResult> {
     const forced = new Set(forceReindexPaths);
     await initGrammars(); // Initialize WASM runtime (grammars loaded lazily below)
-    // Sync rescans; clear the canonical-path cache so repointed symlinks are seen.
-    clearCanonicalCache();
+    const inventory = scopedPaths?.length ? undefined : prepared?.inventory;
+    if (!inventory) clearCanonicalCache();
     const startTime = Date.now();
     let filesChecked = 0;
     let filesAdded = 0;
@@ -2656,7 +2742,7 @@ export class ExtractionOrchestrator {
     const log = verbose
       ? (message: string) => console.log(`[sync] ${message}`)
       : (_message: string) => {};
-    const diagnostics = verbose ? new ReconcileDiagnostics() : undefined;
+    const diagnostics = verbose ? inventory?.diagnostics ?? new ReconcileDiagnostics() : undefined;
     const reconcileStarted = performance.now();
 
     onProgress?.({
@@ -2680,7 +2766,7 @@ export class ExtractionOrchestrator {
     // watcher paths must never masquerade as the complete macro/framework list.
     // Keep this snapshot local to this sync, not on the orchestrator.
     let fullProjectFiles: string[] | undefined;
-    const nativeCapture: RustScanCapture = {};
+    const nativeCapture: RustScanCapture = inventory?.nativeCapture ?? {};
     let trackedFiles: FileRecord[];
     let phaseStarted = diagnostics ? performance.now() : 0;
     if (scopedPaths && scopedPaths.length > 0) {
@@ -2738,13 +2824,13 @@ export class ExtractionOrchestrator {
         filesChecked = currentFiles.length;
       }
     } else {
-      currentFiles = await scanDirectoryAsync(this.rootDir, undefined, diagnostics?.scan, nativeCapture);
+      currentFiles = inventory?.paths ?? await scanDirectoryAsync(this.rootDir, undefined, diagnostics?.scan, nativeCapture);
       fullProjectFiles = currentFiles;
       if (diagnostics) {
-        diagnostics.phases.enumerateMs = performance.now() - phaseStarted;
+        if (!inventory) diagnostics.phases.enumerateMs = performance.now() - phaseStarted;
         phaseStarted = performance.now();
       }
-      trackedFiles = this.queries.getAllFiles();
+      trackedFiles = prepared?.tracked ?? this.queries.getAllFiles();
       filesChecked = currentFiles.length;
     }
     if (nativeCapture.fallback && onScanFallback) {
@@ -3006,8 +3092,9 @@ export class ExtractionOrchestrator {
           const nativeStat = nativeCapture.snapshot?.stats.get(filePath);
           if (nativeStat && diagnostics) diagnostics.counts.snapshotStats++;
           try {
-            const stat = nativeStat ?? (beforeReadStat = readStat(fullPath));
-            if (stat.size === tracked.size && Math.floor(stat.mtimeMs) === Math.floor(tracked.modifiedAt)) {
+            const observed = inventory?.fileStats?.get(tracked);
+            if (observed instanceof Error) throw observed;
+            if (observed === true || matchesTrackedStat(nativeStat ?? (beforeReadStat = observed ?? readStat(fullPath)), tracked)) {
               if (diagnostics) diagnostics.counts.statUnchanged++;
               continue;
             }
@@ -3098,8 +3185,8 @@ export class ExtractionOrchestrator {
       }
     }
 
-    if (diagnostics) diagnostics.phases.changeCheckMs = performance.now() - phaseStarted;
-    const reconcileMs = performance.now() - reconcileStarted;
+    if (diagnostics) diagnostics.phases.changeCheckMs += performance.now() - phaseStarted;
+    const reconcileMs = performance.now() - reconcileStarted + (inventory?.elapsedMs ?? 0);
     if (diagnostics) {
       diagnostics.counts.added = filesAdded;
       diagnostics.counts.modified = filesModified;

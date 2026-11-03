@@ -8,6 +8,7 @@ import {
   PortableCoordinator,
   PortableBusyError,
   type PortableLease,
+  type PortableSnapshot,
 } from "./protocol";
 import {
   FileWatcher,
@@ -19,12 +20,17 @@ import { runAdaptiveReadWorker } from "../rebuild-controller";
 import type { AdaptivePlan, AdaptiveDecision } from "../adaptive-plan";
 import { runPortableRebuild } from "./publisher-client";
 import type { SyncResult } from "../../extraction";
+import { withLanguageScope } from "../../extraction/language-scope";
 
 export interface PortableReadPin {
   graph: CodeGraph;
   identity: string;
   release(): void;
 }
+/** The scan and its consumption must share a writer lease. A rejected gate
+ * is read-only and must not advance the published revision. */
+export const prepareSmallSync = Symbol("prepareSmallSync");
+type WriteAction<T> = (graph: CodeGraph) => Promise<T> | T;
 const writes = new Set([
   "indexAll",
   "indexFiles",
@@ -119,7 +125,7 @@ class PortableFacade {
     this.timer.unref();
     facades.add(this);
     try {
-      this.read((graph) => graph.getStats());
+      this.getReader();
     } catch (error) {
       this.close();
       throw error;
@@ -133,9 +139,9 @@ class PortableFacade {
     );
     return work;
   }
-  private retireIdle(): void {
+  private retireIdle(snapshot?: PortableSnapshot): void {
     if (this.active || !this.reader) return;
-    const state = this.coordinator.snapshot();
+    const state = snapshot ?? this.coordinator.snapshot();
     if (
       this.closed ||
       state.mode !== "idle" ||
@@ -158,9 +164,12 @@ class PortableFacade {
   }
   private getReader(): NonNullable<PortableFacade["reader"]> {
     if (this.closed) throw new Error("CodeGraph is closed");
-    this.retireIdle();
-    if (this.coordinator.snapshot().mode !== "idle")
-      throw new PortableBusyError("Database publication is draining readers");
+    if (this.reader) {
+      const state = this.coordinator.snapshot();
+      this.retireIdle(state);
+      if (state.mode !== "idle")
+        throw new PortableBusyError("Database publication is draining readers");
+    }
     if (!this.reader) {
       const lease = this.coordinator.acquireReader();
       try {
@@ -242,7 +251,7 @@ class PortableFacade {
     }
   }
   private async write<T>(
-    action: (graph: CodeGraph) => Promise<T> | T,
+    action: WriteAction<T> | { prepare: (reader: CodeGraph) => Promise<WriteAction<T> | { result: T }> },
     signal?: AbortSignal,
   ): Promise<T> {
     if (this.readOnly) throw new Error("CodeGraph is read-only");
@@ -252,6 +261,9 @@ class PortableFacade {
       let graph: CodeGraph | undefined;
       try {
         this.coordinator.recover();
+        const admitted = typeof action === "function" ? action : await this.readAsync(action.prepare);
+        if (typeof admitted !== "function") return admitted.result;
+        signal?.throwIfAborted();
         this.coordinator.markMutation();
         lease = this.coordinator.acquireReader();
         graph = this.factory(false);
@@ -261,7 +273,7 @@ class PortableFacade {
           this.watchRevisionOffset + (this.watcher?.getChangeRevision() ?? 0);
         this.readinessRevision = this.coordinator.snapshot().revision;
         this.lastReadiness = null;
-        return await action(graph);
+        return await admitted(graph);
       } catch (error) {
         if (
           !graph &&
@@ -459,9 +471,30 @@ class PortableFacade {
         }
         if (!fallbackReason && options.adaptive !== false &&
             process.env.CODEGRAPH_ADAPTIVE_SYNC !== "0") {
-          const evaluation = await this.readAsync((graph) =>
+          let decision: AdaptiveDecision | undefined;
+          if (!options.forceReindexPaths?.length) {
+            const small = await this.write<SyncResult | AdaptiveDecision | null>({
+              prepare: async reader => {
+                const watchRevision = this.watchRevisionOffset + (this.watcher?.getChangeRevision() ?? 0);
+                const prepared = await reader[prepareSmallSync](options);
+                if (typeof prepared === "function") return prepared;
+                if (prepared && !("strategy" in prepared)) {
+                  // The full scan certified this watcher epoch while holding
+                  // the writer fence. No database revision changed.
+                  this.readinessRevision = this.coordinator.snapshot().revision;
+                  this.readinessWatchRevision = watchRevision;
+                  this.lastReadiness = { generation: ++this.readinessGeneration, symbolsReady: true, relationshipsReady: true };
+                }
+                return { result: prepared };
+              },
+            }, abort.signal);
+            if (small && "strategy" in small) decision = small;
+            else if (small) return small;
+            // Another publisher may have committed while we awaited the writer.
+            if (this.read(graph => graph.getPortableCatchup())) continue;
+          }
+          const evaluation = decision ? { decision } : await this.readAsync((graph) =>
             runAdaptiveReadWorker<{
-              plan?: AdaptivePlan;
               decision: AdaptiveDecision;
             }>(
               {
@@ -470,11 +503,12 @@ class PortableFacade {
                 databasePath: graph.getDatabaseFilePath(),
                 portable: true,
                 paths: options.paths,
+                decisionOnly: true,
                 eligibility: {
                   upgradeRequired: graph.isIndexStale(),
                   fallback: options.adaptiveFallback,
                 },
-              } as any,
+              },
               { signal: abort.signal },
             ),
           );
@@ -513,9 +547,10 @@ class PortableFacade {
           }
         }
         const incremental = await this.write(
-          (graph) => graph.sync({ ...options, adaptive: false }),
+          (graph) => graph.getPortableCatchup() ? null : graph.sync({ ...options, adaptive: false }),
           abort.signal,
         );
+        if (!incremental) continue;
         return fallbackReason
           ? {
               ...incremental,
@@ -657,7 +692,7 @@ class PortableFacade {
         throw new Error("Stop all processes before removing portable storage");
       };
     if (key === "sync")
-      return (options: SyncOptions = {}) => this.track(this.sync(options));
+      return (options: SyncOptions = {}) => this.track(withLanguageScope(() => this.sync(options)));
     if (writes.has(key))
       return (...args: unknown[]) =>
         asyncWrites.has(key)

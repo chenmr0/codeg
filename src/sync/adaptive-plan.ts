@@ -14,12 +14,18 @@ import { rustScanBinaryPath, automaticRustScanStatus } from '../extraction/rust-
 import { rustMacroBinaryPath, automaticRustMacroStatus } from '../extraction/rust-macros';
 import { getCodeGraphDir } from '../directory';
 import type { FileRecord } from '../types';
-import { semanticConfigFingerprint } from './index-policy';
+import { indexConfigFingerprints } from './index-policy';
+export { adaptiveConfigFingerprint } from './index-policy';
 
 const HISTORY_VERSION = 1;
 const MAX_SAMPLES = 24; // Per runtime/configuration bucket.
 const MAX_HISTORY_BUCKETS = 4;
 const HISTORY_FILE = 'adaptive-cost-history.json';
+const MAX_WORK_EXTRAPOLATION = 2;
+const INCREMENTAL_COST_MARGIN = 0.9;
+const REBUILD_COST_MARGIN = 1.15;
+const savesEnough = (incrementalMs: number, rebuildMs: number) =>
+  incrementalMs - rebuildMs >= 10_000 && rebuildMs <= incrementalMs * 0.8;
 const digest = (value: unknown): string => crypto.createHash('sha256').update(JSON.stringify(value)).digest('hex');
 export type AdaptiveShape = 'modified-only' | 'added-only' | 'removed-only' | 'mixed';
 export interface AdaptiveInventoryEntry {
@@ -161,31 +167,6 @@ export function adaptiveRuntimeKey(root: string, backend: string): string {
     memory: os.totalmem(), execArgv: process.execArgv, nodeOptions: process.env.NODE_OPTIONS ?? '', env });
 }
 
-/** Include controls in every source ancestor, including nested gitignore files. */
-export function adaptiveConfigFingerprint(root: string, files: ReadonlyArray<{ path: string }>): string {
-  const rootControls = ['.gitignore', '.codegraphignore', '.git/info/exclude', 'compile_commands.json',
-    'compile_flags.txt', 'tsconfig.json', 'jsconfig.json', 'package.json', 'CMakeLists.txt'];
-  const controls = new Set(rootControls);
-  for (const file of files) {
-    let dir = path.posix.dirname(file.path.replace(/\\/g, '/'));
-    while (dir !== '.') {
-      controls.add(`${dir}/.gitignore`);
-      controls.add(`${dir}/.codegraphignore`);
-      const next = path.posix.dirname(dir);
-      if (next === dir) throw new Error('Invalid source path in adaptive planner');
-      dir = next;
-    }
-  }
-  return digest([getLanguageScopeKey(), [...controls].sort().map(relative => {
-    const absolute = path.resolve(root, relative);
-    if (!absolute.startsWith(path.resolve(root) + path.sep)) throw new Error('Adaptive control path escapes root');
-    try { return [relative, crypto.createHash('sha256').update(fs.readFileSync(absolute)).digest('hex')]; }
-    catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return rootControls.includes(relative) ? [relative, null] : null;
-      throw error;
-    }
-  }).filter(value => value !== null)]);
-}
 function shape(added: number, modified: number, removed: number): AdaptiveShape {
   if (added && !modified && !removed) return 'added-only';
   if (removed && !added && !modified) return 'removed-only';
@@ -234,7 +215,15 @@ export async function createAdaptivePlan(root: string, tracked: ReadonlyArray<Fi
     const relative = visible[i]!;
     const absolute = path.resolve(root, relative);
     if (!absolute.startsWith(path.resolve(root) + path.sep)) throw new Error('Adaptive source path escapes root');
-    const before = fs.lstatSync(absolute);
+    let before: fs.Stats;
+    try { before = fs.lstatSync(absolute); }
+    catch (error) {
+      // Git may enumerate a tracked but unstaged deletion. Keep its indexed
+      // record in old so it contributes to removals. Other I/O failures abort.
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code === 'ENOENT' || code === 'ENOTDIR') continue;
+      throw error;
+    }
     if (!before.isFile() || before.isSymbolicLink()) throw new Error(`Unsupported adaptive source: ${relative}`);
     // A directory symlink can otherwise hide an external or alias source.
     if (fs.realpathSync(absolute) !== absolute) throw new Error(`Symlink source is not eligible: ${relative}`);
@@ -264,9 +253,8 @@ export async function createAdaptivePlan(root: string, tracked: ReadonlyArray<Fi
     affectedOldNodes += previous.nodeCount;
   }
   const configSourcePaths = [...new Set([...tracked.map(file => file.path), ...files.map(file => file.path), ...(options.configSourcePaths ?? [])])].sort();
-  const configFingerprint = adaptiveConfigFingerprint(root, configSourcePaths.map(path => ({ path })));
-  const snapshot = { files, configFingerprint, configSourcePaths,
-    semanticConfigFingerprint: semanticConfigFingerprint(root, configSourcePaths.map(path => ({ path }))),
+  const { configFingerprint, semanticConfigFingerprint } = indexConfigFingerprints(root, configSourcePaths.map(path => ({ path })));
+  const snapshot = { files, configFingerprint, configSourcePaths, semanticConfigFingerprint,
     contentFingerprint: digest([configFingerprint, files.map(file => [file.path, file.contentHash])]) };
   return { snapshot, added, modified, removed, changedFiles: added.length + modified.length + removed.length,
     affectedOldNodes, changedBytes, totalFiles: files.length, totalBytes: files.reduce((n, file) => n + file.size, 0),
@@ -336,6 +324,68 @@ export function recordAdaptiveSample(root: string, sample: Omit<AdaptiveCostSamp
 export function hasAdaptiveCalibration(history: AdaptiveCostHistory, runtimeKey: string): boolean {
   const matching = history.samples.filter(sample => sample.runtimeKey === runtimeKey);
   return matching.some(sample => sample.kind === 'full') && matching.filter(sample => sample.kind === 'incremental' && sample.changedFiles > 0).length >= 3;
+}
+
+/** The indexed rows use canonical paths. Verify that assumption before using
+ * this upper bound to skip a wider scan for authoritative watcher events. */
+export function scopedCandidateCounts(paths: string[], prior: Map<string, FileRecord>) {
+  let totalOldNodes = 0;
+  for (const file of prior.values()) totalOldNodes += file.nodeCount;
+  return { pathsCount: paths.length, totalOldNodes,
+    affectedOldNodes: paths.reduce((n, file) => n + (prior.get(file)?.nodeCount ?? 0), 0) };
+}
+
+export async function hasCanonicalScope(root: string, paths: string[], prior: Map<string, FileRecord>): Promise<boolean> {
+  const base = path.resolve(root);
+  for (const [i, relative] of paths.entries()) {
+    const absolute = path.resolve(base, relative);
+    if (!absolute.startsWith(base + path.sep) || path.relative(base, absolute).split(path.sep).join('/') !== relative) return false;
+    try { if (fs.realpathSync(absolute) !== absolute || !fs.statSync(absolute).isFile()) return false; }
+    catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT' || !prior.has(relative)) return false; }
+    if ((i + 1) % 100 === 0) await new Promise<void>(resolve => setImmediate(resolve));
+  }
+  return true;
+}
+
+/** Negative-only gate for a full inventory or authoritative watcher scope. The caller must include ALL paths
+ * requiring work (including policy re-extraction), or bypass this shortcut.
+ * Considering every runtime/config key avoids hashing the implementation and
+ * grammars just to rule out an incremental-cost estimate. */
+export function canSkipAdaptiveEvaluation(
+  candidates: { pathsCount: number; affectedOldNodes: number; totalOldNodes: number },
+  history: AdaptiveCostHistory, fallback?: Partial<AdaptiveFallbackPolicy>, totalOldFiles = 0,
+): boolean {
+  const policy = fallbackPolicy(fallback);
+  const { pathsCount, affectedOldNodes, totalOldNodes } = candidates;
+  if (!Number.isSafeInteger(pathsCount) || pathsCount < 0 || !Number.isSafeInteger(totalOldFiles) ||
+      totalOldFiles < 0 || !finite(affectedOldNodes) ||
+      !finite(totalOldNodes) || affectedOldNodes > totalOldNodes) return false;
+  if (pathsCount === 0) return true;
+  // The old file count is a lower bound on max(old, target), even when Git
+  // still lists missing files. The unverified enumeration count need not be.
+  const broadChange = pathsCount >= policy.minChangedFiles &&
+    (totalOldFiles === 0 || pathsCount / totalOldFiles >= policy.minChangedFraction);
+  if (broadChange || (affectedOldNodes >= policy.minAffectedOldNodes &&
+      totalOldNodes > 0 && affectedOldNodes / totalOldNodes >= policy.minAffectedOldNodeFraction)) return false;
+
+  const samples = history.samples.filter(validSample);
+  for (const full of samples) {
+    if (full.kind !== 'full') continue;
+    const compatible = samples.filter(sample => sample.kind === 'incremental' && sample.changedFiles > 0 &&
+      sample.runtimeKey === full.runtimeKey && sample.configFingerprint === full.configFingerprint);
+    for (const shape of new Set(compatible.map(sample => sample.shape))) {
+      const units = (s: AdaptiveCostSample) => shape === 'added-only' ? s.changedBytes : s.affectedOldNodes;
+      const measured = compatible.filter(s => s.shape === shape && units(s) > 0);
+      if (measured.length < 3 || !measured.some(s => s.changedFiles <= pathsCount)) continue;
+      if (shape !== 'added-only' && !measured.some(s => units(s) <= affectedOldNodes)) continue;
+      // chooseAdaptiveStrategy caps extrapolation at 2 * max measured units.
+      // Its minimum rate is at most the rate of that max-units observation,
+      // so even an arbitrary compatible subset cannot exceed this cost.
+      const incrementalUpper = Math.max(...measured.map(s => s.durationMs)) * MAX_WORK_EXTRAPOLATION * INCREMENTAL_COST_MARGIN;
+      if (savesEnough(incrementalUpper, full.durationMs * REBUILD_COST_MARGIN)) return false;
+    }
+  }
+  return true;
 }
 
 /** Negative-only shortcut for an authoritative, complete set of scoped paths.
@@ -456,11 +506,10 @@ export function chooseAdaptiveStrategy(plan: AdaptivePlan, history: AdaptiveCost
   // Do not extrapolate without bound, or reverse an already favorable decision
   // solely because work/file breadth grew. Cap estimated work at the former
   // supported edge; never divide it by the growing changed-file count.
-  const estimatedUnits = Math.min(units, maxUnits * 2);
-  const estimatedIncrementalMs = Math.min(...useful.map(sample => sample.durationMs / work(sample))) * estimatedUnits * 0.9;
-  const estimatedRebuildMs = Math.max(...full.map(sample => sample.durationMs * Math.max(1, plan.totalBytes / sample.totalBytes))) * 1.15;
-  const saving = estimatedIncrementalMs - estimatedRebuildMs;
-  const beneficial = saving >= 10_000 && estimatedRebuildMs <= estimatedIncrementalMs * 0.8;
+  const estimatedUnits = Math.min(units, maxUnits * MAX_WORK_EXTRAPOLATION);
+  const estimatedIncrementalMs = Math.min(...useful.map(sample => sample.durationMs / work(sample))) * estimatedUnits * INCREMENTAL_COST_MARGIN;
+  const estimatedRebuildMs = Math.max(...full.map(sample => sample.durationMs * Math.max(1, plan.totalBytes / sample.totalBytes))) * REBUILD_COST_MARGIN;
+  const beneficial = savesEnough(estimatedIncrementalMs, estimatedRebuildMs);
   return { strategy: beneficial ? 'rebuild' : 'incremental', reason: beneficial ? 'local-cost-estimate-favors-rebuild' : 'insufficient-estimated-savings',
     estimatedIncrementalMs, estimatedRebuildMs };
 }

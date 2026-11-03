@@ -139,6 +139,14 @@ export function isInitialized(projectRoot: string): boolean {
   finally { lease.release(); }
 }
 
+/** Discovery before an actual open: a managed active file identifies the
+ * project. The facade recovers and admits the connection under its lease.
+ * An absent active file still requires checking for interrupted publication. */
+export function hasIndexForOpen(projectRoot: string): boolean {
+  const dir = getCodeGraphDir(projectRoot);
+  return (hasPortableRuntime(dir) && fs.existsSync(path.join(dir, 'codegraph.db'))) || isInitialized(projectRoot);
+}
+
 /**
  * Find the nearest parent directory containing .codegraph/
  *
