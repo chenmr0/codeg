@@ -1,0 +1,10 @@
+{
+  "outputDir": "./run-output",
+  "runtimes": {
+    "baseline": "./repos/codeg-baseline",
+    "final": "./repos/codeg-final",
+    "community": "./repos/community"
+  },
+  "forkProject": "./indexed/oceanbase-codeg",
+  "communityProject": "./indexed/oceanbase-community"
+}

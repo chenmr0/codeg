@@ -1,0 +1,918 @@
+[
+  {
+    "id": "plan-cache-symbol",
+    "subsystem": "plan-cache",
+    "category": "qualified-symbol",
+    "query": "ObPlanCache::try_get_ps_plan",
+    "gold": [
+      {
+        "path": "src/sql/plan_cache/ob_plan_cache.cpp",
+        "line": 564,
+        "text": "  int64_t original_param_cnt = pctx->get_param_store().count();",
+        "fact": "int64_t original_param_cnt = pctx->get_param_store().count();"
+      },
+      {
+        "path": "src/sql/plan_cache/ob_plan_cache.cpp",
+        "line": 571,
+        "text": "  pctx->restore_param_store(original_param_cnt);",
+        "fact": "pctx->restore_param_store(original_param_cnt);"
+      }
+    ],
+    "assessment": "exact source evidence retrieval, not answer accuracy"
+  },
+  {
+    "id": "plan-cache-en",
+    "subsystem": "plan-cache",
+    "category": "natural-language-en",
+    "query": "How does OceanBase plan cache restore prepared statement parameters after trying a cached plan?",
+    "gold": [
+      {
+        "path": "src/sql/plan_cache/ob_plan_cache.cpp",
+        "line": 564,
+        "text": "  int64_t original_param_cnt = pctx->get_param_store().count();",
+        "fact": "int64_t original_param_cnt = pctx->get_param_store().count();"
+      },
+      {
+        "path": "src/sql/plan_cache/ob_plan_cache.cpp",
+        "line": 571,
+        "text": "  pctx->restore_param_store(original_param_cnt);",
+        "fact": "pctx->restore_param_store(original_param_cnt);"
+      }
+    ],
+    "assessment": "exact source evidence retrieval, not answer accuracy"
+  },
+  {
+    "id": "plan-cache-zh",
+    "subsystem": "plan-cache",
+    "category": "natural-language-zh",
+    "query": "OceanBase 在尝试获取预编译语句缓存计划后如何恢复参数数量？",
+    "gold": [
+      {
+        "path": "src/sql/plan_cache/ob_plan_cache.cpp",
+        "line": 564,
+        "text": "  int64_t original_param_cnt = pctx->get_param_store().count();",
+        "fact": "int64_t original_param_cnt = pctx->get_param_store().count();"
+      },
+      {
+        "path": "src/sql/plan_cache/ob_plan_cache.cpp",
+        "line": 571,
+        "text": "  pctx->restore_param_store(original_param_cnt);",
+        "fact": "pctx->restore_param_store(original_param_cnt);"
+      }
+    ],
+    "assessment": "exact source evidence retrieval, not answer accuracy"
+  },
+  {
+    "id": "hash-rescan-symbol",
+    "subsystem": "hash-join",
+    "category": "qualified-symbol",
+    "query": "ObHashJoinOp::inner_rescan",
+    "gold": [
+      {
+        "path": "src/sql/engine/join/ob_hash_join_op.cpp",
+        "line": 667,
+        "text": "  if (OB_FAIL(part_rescan(true))) {",
+        "fact": "if (OB_FAIL(part_rescan(true))) {"
+      },
+      {
+        "path": "src/sql/engine/join/ob_hash_join_op.cpp",
+        "line": 669,
+        "text": "  } else if (OB_FAIL(ObJoinOp::inner_rescan())) {",
+        "fact": "} else if (OB_FAIL(ObJoinOp::inner_rescan())) {"
+      },
+      {
+        "path": "src/sql/engine/join/ob_hash_join_op.cpp",
+        "line": 672,
+        "text": "    batch_round_ = 1;",
+        "fact": "    batch_round_ = 1;"
+      }
+    ],
+    "assessment": "exact source evidence retrieval, not answer accuracy"
+  },
+  {
+    "id": "hash-rescan-en",
+    "subsystem": "hash-join",
+    "category": "natural-language-en",
+    "query": "How does the hash join operator reset its state when rescanned?",
+    "gold": [
+      {
+        "path": "src/sql/engine/join/ob_hash_join_op.cpp",
+        "line": 667,
+        "text": "  if (OB_FAIL(part_rescan(true))) {",
+        "fact": "if (OB_FAIL(part_rescan(true))) {"
+      },
+      {
+        "path": "src/sql/engine/join/ob_hash_join_op.cpp",
+        "line": 669,
+        "text": "  } else if (OB_FAIL(ObJoinOp::inner_rescan())) {",
+        "fact": "} else if (OB_FAIL(ObJoinOp::inner_rescan())) {"
+      },
+      {
+        "path": "src/sql/engine/join/ob_hash_join_op.cpp",
+        "line": 672,
+        "text": "    batch_round_ = 1;",
+        "fact": "    batch_round_ = 1;"
+      }
+    ],
+    "assessment": "exact source evidence retrieval, not answer accuracy"
+  },
+  {
+    "id": "hash-rescan-zh",
+    "subsystem": "hash-join",
+    "category": "natural-language-zh",
+    "query": "哈希连接算子重新扫描时如何重置批次和迭代结束状态？",
+    "gold": [
+      {
+        "path": "src/sql/engine/join/ob_hash_join_op.cpp",
+        "line": 667,
+        "text": "  if (OB_FAIL(part_rescan(true))) {",
+        "fact": "if (OB_FAIL(part_rescan(true))) {"
+      },
+      {
+        "path": "src/sql/engine/join/ob_hash_join_op.cpp",
+        "line": 669,
+        "text": "  } else if (OB_FAIL(ObJoinOp::inner_rescan())) {",
+        "fact": "} else if (OB_FAIL(ObJoinOp::inner_rescan())) {"
+      },
+      {
+        "path": "src/sql/engine/join/ob_hash_join_op.cpp",
+        "line": 672,
+        "text": "    batch_round_ = 1;",
+        "fact": "    batch_round_ = 1;"
+      }
+    ],
+    "assessment": "exact source evidence retrieval, not answer accuracy"
+  },
+  {
+    "id": "mysql-handshake-symbol",
+    "subsystem": "mysql-protocol",
+    "category": "qualified-symbol",
+    "query": "ObMPConnect::deserialize",
+    "gold": [
+      {
+        "path": "src/observer/mysql/obmp_connect.cpp",
+        "line": 147,
+        "text": "    if (OB_FAIL(hsr_.decode())) {",
+        "fact": "    if (OB_FAIL(hsr_.decode())) {"
+      },
+      {
+        "path": "src/observer/mysql/obmp_connect.cpp",
+        "line": 178,
+        "text": "    deser_ret_ = ret;  // record deserialize ret code.",
+        "fact": "    deser_ret_ = ret;  // record deserialize ret code."
+      },
+      {
+        "path": "src/observer/mysql/obmp_connect.cpp",
+        "line": 179,
+        "text": "    ret = OB_SUCCESS;  // return OB_SUCCESS anyway.",
+        "fact": "    ret = OB_SUCCESS;  // return OB_SUCCESS anyway."
+      }
+    ],
+    "assessment": "exact source evidence retrieval, not answer accuracy"
+  },
+  {
+    "id": "mysql-handshake-en",
+    "subsystem": "mysql-protocol",
+    "category": "natural-language-en",
+    "query": "How does MySQL handshake deserialization record an error but return success in OceanBase?",
+    "gold": [
+      {
+        "path": "src/observer/mysql/obmp_connect.cpp",
+        "line": 147,
+        "text": "    if (OB_FAIL(hsr_.decode())) {",
+        "fact": "    if (OB_FAIL(hsr_.decode())) {"
+      },
+      {
+        "path": "src/observer/mysql/obmp_connect.cpp",
+        "line": 178,
+        "text": "    deser_ret_ = ret;  // record deserialize ret code.",
+        "fact": "    deser_ret_ = ret;  // record deserialize ret code."
+      },
+      {
+        "path": "src/observer/mysql/obmp_connect.cpp",
+        "line": 179,
+        "text": "    ret = OB_SUCCESS;  // return OB_SUCCESS anyway.",
+        "fact": "    ret = OB_SUCCESS;  // return OB_SUCCESS anyway."
+      }
+    ],
+    "assessment": "exact source evidence retrieval, not answer accuracy"
+  },
+  {
+    "id": "mysql-handshake-zh",
+    "subsystem": "mysql-protocol",
+    "category": "natural-language-zh",
+    "query": "OceanBase MySQL 握手反序列化为什么记录错误却仍返回成功？",
+    "gold": [
+      {
+        "path": "src/observer/mysql/obmp_connect.cpp",
+        "line": 147,
+        "text": "    if (OB_FAIL(hsr_.decode())) {",
+        "fact": "    if (OB_FAIL(hsr_.decode())) {"
+      },
+      {
+        "path": "src/observer/mysql/obmp_connect.cpp",
+        "line": 178,
+        "text": "    deser_ret_ = ret;  // record deserialize ret code.",
+        "fact": "    deser_ret_ = ret;  // record deserialize ret code."
+      },
+      {
+        "path": "src/observer/mysql/obmp_connect.cpp",
+        "line": 179,
+        "text": "    ret = OB_SUCCESS;  // return OB_SUCCESS anyway.",
+        "fact": "    ret = OB_SUCCESS;  // return OB_SUCCESS anyway."
+      }
+    ],
+    "assessment": "exact source evidence retrieval, not answer accuracy"
+  },
+  {
+    "id": "bloom-merge-symbol",
+    "subsystem": "storage-bloom",
+    "category": "qualified-symbol",
+    "query": "ObBloomFilter::merge",
+    "gold": [
+      {
+        "path": "src/storage/blocksstable/ob_bloom_filter_cache.cpp",
+        "line": 153,
+        "text": "                  src_bf.nhash_ != nhash_ || src_bf.nbit_ != nbit_)) {",
+        "fact": "                  src_bf.nhash_ != nhash_ || src_bf.nbit_ != nbit_)) {"
+      },
+      {
+        "path": "src/storage/blocksstable/ob_bloom_filter_cache.cpp",
+        "line": 159,
+        "text": "      bits_[i] |= src_bf.bits_[i];",
+        "fact": "      bits_[i] |= src_bf.bits_[i];"
+      }
+    ],
+    "assessment": "exact source evidence retrieval, not answer accuracy"
+  },
+  {
+    "id": "bloom-merge-en",
+    "subsystem": "storage-bloom",
+    "category": "natural-language-en",
+    "query": "What compatibility checks are required before merging two storage bloom filters?",
+    "gold": [
+      {
+        "path": "src/storage/blocksstable/ob_bloom_filter_cache.cpp",
+        "line": 153,
+        "text": "                  src_bf.nhash_ != nhash_ || src_bf.nbit_ != nbit_)) {",
+        "fact": "                  src_bf.nhash_ != nhash_ || src_bf.nbit_ != nbit_)) {"
+      },
+      {
+        "path": "src/storage/blocksstable/ob_bloom_filter_cache.cpp",
+        "line": 159,
+        "text": "      bits_[i] |= src_bf.bits_[i];",
+        "fact": "      bits_[i] |= src_bf.bits_[i];"
+      }
+    ],
+    "assessment": "exact source evidence retrieval, not answer accuracy"
+  },
+  {
+    "id": "bloom-merge-zh",
+    "subsystem": "storage-bloom",
+    "category": "natural-language-zh",
+    "query": "存储层合并两个布隆过滤器前需要检查什么条件？",
+    "gold": [
+      {
+        "path": "src/storage/blocksstable/ob_bloom_filter_cache.cpp",
+        "line": 153,
+        "text": "                  src_bf.nhash_ != nhash_ || src_bf.nbit_ != nbit_)) {",
+        "fact": "                  src_bf.nhash_ != nhash_ || src_bf.nbit_ != nbit_)) {"
+      },
+      {
+        "path": "src/storage/blocksstable/ob_bloom_filter_cache.cpp",
+        "line": 159,
+        "text": "      bits_[i] |= src_bf.bits_[i];",
+        "fact": "      bits_[i] |= src_bf.bits_[i];"
+      }
+    ],
+    "assessment": "exact source evidence retrieval, not answer accuracy"
+  },
+  {
+    "id": "sort-topn-symbol",
+    "subsystem": "sort",
+    "category": "qualified-symbol",
+    "query": "ObSortOp::get_topn_count",
+    "gold": [
+      {
+        "path": "src/sql/engine/sort/ob_sort_op.cpp",
+        "line": 168,
+        "text": "  } else if (((NULL != MY_SPEC.topn_expr_) && (NULL != MY_SPEC.topk_limit_expr_))) {",
+        "fact": "  } else if (((NULL != MY_SPEC.topn_expr_) && (NULL != MY_SPEC.topk_limit_expr_))) {"
+      },
+      {
+        "path": "src/sql/engine/sort/ob_sort_op.cpp",
+        "line": 176,
+        "text": "      topn_cnt = std::max(MY_SPEC.minimum_row_count_, topn_cnt);",
+        "fact": "      topn_cnt = std::max(MY_SPEC.minimum_row_count_, topn_cnt);"
+      }
+    ],
+    "assessment": "exact source evidence retrieval, not answer accuracy"
+  },
+  {
+    "id": "sort-topn-en",
+    "subsystem": "sort",
+    "category": "natural-language-en",
+    "query": "How does the sort operator reject simultaneous topn and topk expressions and enforce minimum row count?",
+    "gold": [
+      {
+        "path": "src/sql/engine/sort/ob_sort_op.cpp",
+        "line": 168,
+        "text": "  } else if (((NULL != MY_SPEC.topn_expr_) && (NULL != MY_SPEC.topk_limit_expr_))) {",
+        "fact": "  } else if (((NULL != MY_SPEC.topn_expr_) && (NULL != MY_SPEC.topk_limit_expr_))) {"
+      },
+      {
+        "path": "src/sql/engine/sort/ob_sort_op.cpp",
+        "line": 176,
+        "text": "      topn_cnt = std::max(MY_SPEC.minimum_row_count_, topn_cnt);",
+        "fact": "      topn_cnt = std::max(MY_SPEC.minimum_row_count_, topn_cnt);"
+      }
+    ],
+    "assessment": "exact source evidence retrieval, not answer accuracy"
+  },
+  {
+    "id": "sort-topn-zh",
+    "subsystem": "sort",
+    "category": "natural-language-zh",
+    "query": "排序算子如何处理同时指定 topn 和 topk 表达式，并保证最小返回行数？",
+    "gold": [
+      {
+        "path": "src/sql/engine/sort/ob_sort_op.cpp",
+        "line": 168,
+        "text": "  } else if (((NULL != MY_SPEC.topn_expr_) && (NULL != MY_SPEC.topk_limit_expr_))) {",
+        "fact": "  } else if (((NULL != MY_SPEC.topn_expr_) && (NULL != MY_SPEC.topk_limit_expr_))) {"
+      },
+      {
+        "path": "src/sql/engine/sort/ob_sort_op.cpp",
+        "line": 176,
+        "text": "      topn_cnt = std::max(MY_SPEC.minimum_row_count_, topn_cnt);",
+        "fact": "      topn_cnt = std::max(MY_SPEC.minimum_row_count_, topn_cnt);"
+      }
+    ],
+    "assessment": "exact source evidence retrieval, not answer accuracy"
+  },
+  {
+    "id": "chunk-compress-symbol",
+    "subsystem": "chunk-storage",
+    "category": "qualified-symbol",
+    "query": "ObChunkBlockCompressor::compress",
+    "gold": [
+      {
+        "path": "src/sql/engine/basic/chunk_store/ob_chunk_block_compressor.cpp",
+        "line": 84,
+        "text": "    } else if (comp_size >= in_size) {",
+        "fact": "    } else if (comp_size >= in_size) {"
+      },
+      {
+        "path": "src/sql/engine/basic/chunk_store/ob_chunk_block_compressor.cpp",
+        "line": 88,
+        "text": "      out_size = in_size;",
+        "fact": "      out_size = in_size;"
+      }
+    ],
+    "assessment": "exact source evidence retrieval, not answer accuracy"
+  },
+  {
+    "id": "chunk-compress-en",
+    "subsystem": "chunk-storage",
+    "category": "natural-language-en",
+    "query": "What happens when compressing a chunk produces data no smaller than the original?",
+    "gold": [
+      {
+        "path": "src/sql/engine/basic/chunk_store/ob_chunk_block_compressor.cpp",
+        "line": 84,
+        "text": "    } else if (comp_size >= in_size) {",
+        "fact": "    } else if (comp_size >= in_size) {"
+      },
+      {
+        "path": "src/sql/engine/basic/chunk_store/ob_chunk_block_compressor.cpp",
+        "line": 88,
+        "text": "      out_size = in_size;",
+        "fact": "      out_size = in_size;"
+      }
+    ],
+    "assessment": "exact source evidence retrieval, not answer accuracy"
+  },
+  {
+    "id": "chunk-compress-zh",
+    "subsystem": "chunk-storage",
+    "category": "natural-language-zh",
+    "query": "数据块压缩后大小不小于原始数据时如何处理？",
+    "gold": [
+      {
+        "path": "src/sql/engine/basic/chunk_store/ob_chunk_block_compressor.cpp",
+        "line": 84,
+        "text": "    } else if (comp_size >= in_size) {",
+        "fact": "    } else if (comp_size >= in_size) {"
+      },
+      {
+        "path": "src/sql/engine/basic/chunk_store/ob_chunk_block_compressor.cpp",
+        "line": 88,
+        "text": "      out_size = in_size;",
+        "fact": "      out_size = in_size;"
+      }
+    ],
+    "assessment": "exact source evidence retrieval, not answer accuracy"
+  },
+  {
+    "id": "plan-cache-chain",
+    "subsystem": "plan-cache",
+    "category": "multi-hop",
+    "query": "ObPlanCache try_get_plan get_plan construct_fast_parser_result get_plan_cache",
+    "gold": [
+      {
+        "path": "src/sql/plan_cache/ob_plan_cache.cpp",
+        "line": 552,
+        "text": "  } else if (OB_FAIL(get_plan(allocator, pc_ctx, guard))) {",
+        "fact": "  } else if (OB_FAIL(get_plan(allocator, pc_ctx, guard))) {"
+      },
+      {
+        "path": "src/sql/plan_cache/ob_plan_cache.cpp",
+        "line": 610,
+        "text": "    if (OB_FAIL(get_plan_cache(pc_ctx, guard))) {",
+        "fact": 610
+      }
+    ],
+    "assessment": "exact source evidence retrieval, not answer accuracy"
+  },
+  {
+    "id": "compress-range",
+    "subsystem": "chunk-storage",
+    "category": "file-range",
+    "query": "src/sql/engine/basic/chunk_store/ob_chunk_block_compressor.cpp:96-118",
+    "gold": [
+      {
+        "path": "src/sql/engine/basic/chunk_store/ob_chunk_block_compressor.cpp",
+        "line": 102,
+        "text": "  if ((compressor_type_ == NONE_COMPRESSOR) || in_size == uncomp_size) {",
+        "fact": "  if ((compressor_type_ == NONE_COMPRESSOR) || in_size == uncomp_size) {"
+      },
+      {
+        "path": "src/sql/engine/basic/chunk_store/ob_chunk_block_compressor.cpp",
+        "line": 112,
+        "text": "    out_size = decomp_size;",
+        "fact": "    out_size = decomp_size;"
+      }
+    ],
+    "assessment": "exact source evidence retrieval, not answer accuracy"
+  },
+  {
+    "id": "ambiguous-init",
+    "subsystem": "control",
+    "category": "ambiguous",
+    "query": "init",
+    "gold": [],
+    "assessment": "manual: no unique intended owner; do not score as retrieval accuracy"
+  },
+  {
+    "id": "missing-qualified",
+    "subsystem": "control",
+    "category": "negative",
+    "query": "ObBloomFilter::quantum_rebalance_holdout_20261103",
+    "gold": [],
+    "assessment": "manual: missing member must not be claimed real; unrelated output is not supporting evidence"
+  },
+  {
+    "id": "holdout-palf-append",
+    "subsystem": "palf-log",
+    "category": "symbol-guards",
+    "query": "PalfHandleImpl submit_log check_disk_space_enough can_append",
+    "question": "提交PALF日志时，磁盘与proposal/角色检查如何阻止追加，最终委托哪个组件？",
+    "gold": [
+      {
+        "path": "src/logservice/palf/palf_handle_impl.cpp",
+        "line": 425,
+        "exact": "      ret = OB_LOG_OUTOF_DISK_SPACE;",
+        "fact": "磁盘空间检查不通过返回OB_LOG_OUTOF_DISK_SPACE。",
+        "context_start": 423,
+        "context_end": 431,
+        "text": "      ret = OB_LOG_OUTOF_DISK_SPACE;"
+      },
+      {
+        "path": "src/logservice/palf/palf_handle_impl.cpp",
+        "line": 430,
+        "exact": "      ret = OB_NOT_MASTER;",
+        "fact": "state_mgr_.can_append不通过返回OB_NOT_MASTER。",
+        "context_start": 429,
+        "context_end": 437,
+        "text": "      ret = OB_NOT_MASTER;"
+      },
+      {
+        "path": "src/logservice/palf/palf_handle_impl.cpp",
+        "line": 434,
+        "exact": "    } else if (OB_FAIL(sw_.submit_log(buf, buf_len, ref_scn, lsn, scn))) {",
+        "fact": "通过检查后委托sliding window的submit_log。",
+        "context_start": 429,
+        "context_end": 440,
+        "text": "    } else if (OB_FAIL(sw_.submit_log(buf, buf_len, ref_scn, lsn, scn))) {"
+      }
+    ],
+    "assessment": "冻结源码预先标注；三个gold事实需按各自context区间解释。精确引用行覆盖只作检索证据代理，不等同完整答案正确率；尚未查看任何explore输出。"
+  },
+  {
+    "id": "holdout-palf-change-leader",
+    "subsystem": "palf-log",
+    "category": "cross-class-call-chain",
+    "query": "PalfHandleImpl change_leader_to ElectionImpl proposer_ record_election_leader_change_event",
+    "question": "从PALF主动切主到选举proposer的转发路径是什么，成功后如何记录事件？",
+    "gold": [
+      {
+        "path": "src/logservice/palf/palf_handle_impl.cpp",
+        "line": 517,
+        "exact": "  } else if (OB_FAIL(election_.change_leader_to(dest_addr))) {",
+        "fact": "PALF把目标地址转给election_.change_leader_to。",
+        "context_start": 510,
+        "context_end": 524,
+        "text": "  } else if (OB_FAIL(election_.change_leader_to(dest_addr))) {"
+      },
+      {
+        "path": "src/logservice/palf/election/algorithm/election_impl.cpp",
+        "line": 204,
+        "exact": "  if (CLICK_FAIL(proposer_.change_leader_to(dest_addr))) {",
+        "fact": "ElectionImpl在检查并加锁后转给proposer_。",
+        "context_start": 196,
+        "context_end": 211,
+        "text": "  if (CLICK_FAIL(proposer_.change_leader_to(dest_addr))) {"
+      },
+      {
+        "path": "src/logservice/palf/palf_handle_impl.cpp",
+        "line": 521,
+        "exact": "    plugins_.record_election_leader_change_event(palf_id_, dest_addr);",
+        "fact": "PALF切主调用成功后通知插件记录切主事件。",
+        "context_start": 510,
+        "context_end": 524,
+        "text": "    plugins_.record_election_leader_change_event(palf_id_, dest_addr);"
+      }
+    ],
+    "assessment": "冻结源码预先标注；三个gold事实需按各自context区间解释。精确引用行覆盖只作检索证据代理，不等同完整答案正确率；尚未查看任何explore输出。"
+  },
+  {
+    "id": "holdout-election-prepare",
+    "subsystem": "election",
+    "category": "natural-language-en",
+    "query": "How does ElectionAcceptor handle a prepare request with a stale membership version or an existing leader?",
+    "question": "prepare消息的成员版本过旧如何处理，leader prepare走什么投票路径？",
+    "gold": [
+      {
+        "path": "src/logservice/palf/election/algorithm/election_acceptor.cpp",
+        "line": 226,
+        "exact": "  } else if (prepare_req.get_membership_version() < p_election_->get_membership_version_()) {",
+        "fact": "过旧membership version请求进入忽略分支。",
+        "context_start": 223,
+        "context_end": 229,
+        "text": "  } else if (prepare_req.get_membership_version() < p_election_->get_membership_version_()) {"
+      },
+      {
+        "path": "src/logservice/palf/election/algorithm/election_acceptor.cpp",
+        "line": 235,
+        "exact": "        advance_ballot_number_and_reset_related_states_(prepare_req.get_ballot_number(), phase);",
+        "fact": "合法leader prepare且ballot更大时推进ballot并重置相关状态。",
+        "context_start": 230,
+        "context_end": 241,
+        "text": "        advance_ballot_number_and_reset_related_states_(prepare_req.get_ballot_number(), phase);"
+      },
+      {
+        "path": "src/logservice/palf/election/algorithm/election_acceptor.cpp",
+        "line": 239,
+        "exact": "        prepare_res_accept.set_accepted(ballot_number_, lease_);",
+        "fact": "leader prepare响应携带当前ballot与lease作为接受结果。",
+        "context_start": 233,
+        "context_end": 248,
+        "text": "        prepare_res_accept.set_accepted(ballot_number_, lease_);"
+      }
+    ],
+    "assessment": "冻结源码预先标注；三个gold事实需按各自context区间解释。精确引用行覆盖只作检索证据代理，不等同完整答案正确率；尚未查看任何explore输出。"
+  },
+  {
+    "id": "holdout-election-lease",
+    "subsystem": "election",
+    "category": "multi-hop",
+    "query": "ElectionImpl handle_message ElectionAcceptRequestMsg ElectionAcceptor on_accept_request lease_",
+    "question": "accept消息如何更新lease并重新安排prepare任务？",
+    "gold": [
+      {
+        "path": "src/logservice/palf/election/algorithm/election_impl.cpp",
+        "line": 286,
+        "exact": "    acceptor_.on_accept_request(msg, &us_to_expired);",
+        "fact": "ElectionImpl委托acceptor处理accept并取得剩余租约时间。",
+        "context_start": 270,
+        "context_end": 289,
+        "text": "    acceptor_.on_accept_request(msg, &us_to_expired);"
+      },
+      {
+        "path": "src/logservice/palf/election/algorithm/election_acceptor.cpp",
+        "line": 315,
+        "exact": "    lease_.update_from(accept_req);",
+        "fact": "ballot合法后，acceptor从accept消息更新lease。",
+        "context_start": 307,
+        "context_end": 318,
+        "text": "    lease_.update_from(accept_req);"
+      },
+      {
+        "path": "src/logservice/palf/election/algorithm/election_impl.cpp",
+        "line": 302,
+        "exact": "    } else if (CLICK_FAIL(proposer_.reschedule_or_register_prepare_task_after_(us_to_expired - CALCULATE_TRIGGER_ELECT_WATER_MARK()))) {",
+        "fact": "剩余租约满足水位条件时按剩余时间减触发水位重排prepare任务。",
+        "context_start": 299,
+        "context_end": 309,
+        "text": "    } else if (CLICK_FAIL(proposer_.reschedule_or_register_prepare_task_after_(us_to_expired - CALCULATE_TRIGGER_ELECT_WATER_MARK()))) {"
+      }
+    ],
+    "assessment": "冻结源码预先标注；三个gold事实需按各自context区间解释。精确引用行覆盖只作检索证据代理，不等同完整答案正确率；尚未查看任何explore输出。"
+  },
+  {
+    "id": "holdout-backup-clean-start",
+    "subsystem": "backup-clean",
+    "category": "natural-language-zh",
+    "query": "OceanBase 用户租户发起备份清理时能否指定其他租户，任务建立后会唤醒哪些服务？",
+    "question": "用户租户备份清理的跨租户限制及成功唤醒行为是什么？",
+    "gold": [
+      {
+        "path": "src/rootserver/backup/ob_backup_clean_scheduler.cpp",
+        "line": 541,
+        "exact": "      ret = OB_INVALID_ARGUMENT;",
+        "fact": "用户租户clean_tenant_ids_非空时拒绝跨租户清理。",
+        "context_start": 538,
+        "context_end": 545,
+        "text": "      ret = OB_INVALID_ARGUMENT;"
+      },
+      {
+        "path": "src/rootserver/backup/ob_backup_clean_scheduler.cpp",
+        "line": 547,
+        "exact": "      backup_service_->wakeup_tenant_service(in_arg.tenant_id_);",
+        "fact": "用户租户任务建立后唤醒对应租户服务。",
+        "context_start": 543,
+        "context_end": 548,
+        "text": "      backup_service_->wakeup_tenant_service(in_arg.tenant_id_);"
+      },
+      {
+        "path": "src/rootserver/backup/ob_backup_clean_scheduler.cpp",
+        "line": 551,
+        "exact": "    backup_service_->wakeup();",
+        "fact": "整体成功时再唤醒backup_service。",
+        "context_start": 549,
+        "context_end": 554,
+        "text": "    backup_service_->wakeup();"
+      }
+    ],
+    "assessment": "冻结源码预先标注；三个gold事实需按各自context区间解释。精确引用行覆盖只作检索证据代理，不等同完整答案正确率；尚未查看任何explore输出。"
+  },
+  {
+    "id": "holdout-backup-clean-cancel",
+    "subsystem": "backup-clean",
+    "category": "symbol-state-transition",
+    "query": "ObBackupCleanScheduler cancel_tenant_jobs_ advance_job_status CANCELING",
+    "question": "取消清理任务如何转换INIT/DOING状态，并提交或回滚？",
+    "gold": [
+      {
+        "path": "src/rootserver/backup/ob_backup_clean_scheduler.cpp",
+        "line": 490,
+        "exact": "        next_status.status_ = ObBackupCleanStatus::Status::CANCELING;",
+        "fact": "INIT/DOING清理任务转为CANCELING（终态及已取消中状态跳过）。",
+        "context_start": 486,
+        "context_end": 496,
+        "text": "        next_status.status_ = ObBackupCleanStatus::Status::CANCELING;"
+      },
+      {
+        "path": "src/rootserver/backup/ob_backup_clean_scheduler.cpp",
+        "line": 494,
+        "exact": "        } else if (OB_FAIL(ObBackupCleanJobOperator::advance_job_status(trans, job_attr, next_status, result, job_attr.end_ts_))) {",
+        "fact": "检查leader后以OB_CANCELED结果推进任务状态。",
+        "context_start": 491,
+        "context_end": 498,
+        "text": "        } else if (OB_FAIL(ObBackupCleanJobOperator::advance_job_status(trans, job_attr, next_status, result, job_attr.end_ts_))) {"
+      },
+      {
+        "path": "src/rootserver/backup/ob_backup_clean_scheduler.cpp",
+        "line": 510,
+        "exact": "      if (OB_SUCCESS != (tmp_ret = trans.end(false))) {",
+        "fact": "任一任务处理失败时回滚事务；成功路径使用trans.end(true)。",
+        "context_start": 499,
+        "context_end": 515,
+        "text": "      if (OB_SUCCESS != (tmp_ret = trans.end(false))) {"
+      }
+    ],
+    "assessment": "冻结源码预先标注；三个gold事实需按各自context区间解释。精确引用行覆盖只作检索证据代理，不等同完整答案正确率；尚未查看任何explore输出。"
+  },
+  {
+    "id": "holdout-restore-dispatch",
+    "subsystem": "physical-restore",
+    "category": "symbol-state-machine",
+    "query": "ObRestoreScheduler process_restore_job PHYSICAL_RESTORE_WAIT_CONSISTENT_SCN PHYSICAL_RESTORE_POST_CHECK",
+    "question": "物理恢复调度如何分发等待一致SCN、后检查和终态？",
+    "gold": [
+      {
+        "path": "src/rootserver/restore/ob_restore_scheduler.cpp",
+        "line": 170,
+        "exact": "        ret = restore_wait_to_consistent_scn(job);",
+        "fact": "WAIT_CONSISTENT_SCN分发到restore_wait_to_consistent_scn。",
+        "context_start": 167,
+        "context_end": 174,
+        "text": "        ret = restore_wait_to_consistent_scn(job);"
+      },
+      {
+        "path": "src/rootserver/restore/ob_restore_scheduler.cpp",
+        "line": 179,
+        "exact": "        ret = post_check(job);",
+        "fact": "POST_CHECK分发到post_check。",
+        "context_start": 174,
+        "context_end": 181,
+        "text": "        ret = post_check(job);"
+      },
+      {
+        "path": "src/rootserver/restore/ob_restore_scheduler.cpp",
+        "line": 188,
+        "exact": "        ret = restore_finish(job);",
+        "fact": "FAIL终态也调用restore_finish（SUCCESS分支同样调用）。",
+        "context_start": 187,
+        "context_end": 191,
+        "text": "        ret = restore_finish(job);"
+      }
+    ],
+    "assessment": "冻结源码预先标注；三个gold事实需按各自context区间解释。精确引用行覆盖只作检索证据代理，不等同完整答案正确率；尚未查看任何explore输出。"
+  },
+  {
+    "id": "holdout-restore-postcheck",
+    "subsystem": "physical-restore",
+    "category": "natural-language-en",
+    "query": "What does ObRestoreScheduler post_check do when the tenant sync SCN is not ready, and when does it advance the restore job?",
+    "question": "恢复post_check何时等待，检查哪些密钥步骤，何时更新状态？",
+    "gold": [
+      {
+        "path": "src/rootserver/restore/ob_restore_scheduler.cpp",
+        "line": 749,
+        "exact": "    ret = OB_NEED_WAIT;",
+        "fact": "租户sync未满足时返回OB_NEED_WAIT，而不推进作业状态。",
+        "context_start": 745,
+        "context_end": 751,
+        "text": "    ret = OB_NEED_WAIT;"
+      },
+      {
+        "path": "src/rootserver/restore/ob_restore_scheduler.cpp",
+        "line": 757,
+        "exact": "  } else if (OB_FAIL(ObRestoreCommonUtil::rebuild_master_key_version(rpc_proxy_, tenant_id_))) {",
+        "fact": "schema处理、restore key检查通过后重建master key version。",
+        "context_start": 753,
+        "context_end": 759,
+        "text": "  } else if (OB_FAIL(ObRestoreCommonUtil::rebuild_master_key_version(rpc_proxy_, tenant_id_))) {"
+      },
+      {
+        "path": "src/rootserver/restore/ob_restore_scheduler.cpp",
+        "line": 763,
+        "exact": "    if (OB_SUCCESS != (tmp_ret = try_update_job_status(*sql_proxy_, ret, job_info))) {",
+        "fact": "仅OB_SUCC(ret)时尝试更新恢复作业状态。",
+        "context_start": 761,
+        "context_end": 766,
+        "text": "    if (OB_SUCCESS != (tmp_ret = try_update_job_status(*sql_proxy_, ret, job_info))) {"
+      }
+    ],
+    "assessment": "冻结源码预先标注；三个gold事实需按各自context区间解释。精确引用行覆盖只作检索证据代理，不等同完整答案正确率；尚未查看任何explore输出。"
+  },
+  {
+    "id": "holdout-ddl-queue-rollback",
+    "subsystem": "ddl-scheduler",
+    "category": "symbol-error-cleanup",
+    "query": "ObDDLTaskQueue push_task task_map_ task_id_map_",
+    "question": "DDL任务入队如何维护两个map，插入失败时清理哪些结构？",
+    "gold": [
+      {
+        "path": "src/rootserver/ddl_task/ob_ddl_scheduler.cpp",
+        "line": 102,
+        "exact": "    if (OB_FAIL(task_map_.set_refactored(task->get_task_key(), task, is_overwrite))) {",
+        "fact": "先以get_task_key插入task_map，禁止覆盖。",
+        "context_start": 98,
+        "context_end": 108,
+        "text": "    if (OB_FAIL(task_map_.set_refactored(task->get_task_key(), task, is_overwrite))) {"
+      },
+      {
+        "path": "src/rootserver/ddl_task/ob_ddl_scheduler.cpp",
+        "line": 110,
+        "exact": "      if (OB_FAIL(task_id_map_.set_refactored(task->get_ddl_task_id(), task, is_overwrite))) {",
+        "fact": "再以get_ddl_task_id插入task_id_map，禁止覆盖。",
+        "context_start": 108,
+        "context_end": 117,
+        "text": "      if (OB_FAIL(task_id_map_.set_refactored(task->get_ddl_task_id(), task, is_overwrite))) {"
+      },
+      {
+        "path": "src/rootserver/ddl_task/ob_ddl_scheduler.cpp",
+        "line": 127,
+        "exact": "      if (OB_SUCCESS != (tmp_ret = task_map_.erase_refactored(task->get_task_key()))) {",
+        "fact": "失败且此前已入map时，回滚链表后删除task_map中的任务键。",
+        "context_start": 120,
+        "context_end": 132,
+        "text": "      if (OB_SUCCESS != (tmp_ret = task_map_.erase_refactored(task->get_task_key()))) {"
+      }
+    ],
+    "assessment": "冻结源码预先标注；三个gold事实需按各自context区间解释。精确引用行覆盖只作检索证据代理，不等同完整答案正确率；尚未查看任何explore输出。"
+  },
+  {
+    "id": "holdout-ddl-heartbeat",
+    "subsystem": "ddl-scheduler",
+    "category": "natural-language-zh",
+    "query": "OceanBase 如何判定 DDL 任务心跳已经失活，时间阈值和锁竞争的处理是什么？",
+    "question": "DDL心跳失活使用什么阈值，如何选出失活ID，锁暂不可得怎样处理？",
+    "gold": [
+      {
+        "path": "src/rootserver/ddl_task/ob_ddl_scheduler.cpp",
+        "line": 488,
+        "exact": "    const int64_t TIME_OUT_THRESHOLD = 5L * 60L * 1000L * 1000L;",
+        "fact": "阈值为5分钟，单位为微秒。",
+        "context_start": 481,
+        "context_end": 504,
+        "text": "    const int64_t TIME_OUT_THRESHOLD = 5L * 60L * 1000L * 1000L;"
+      },
+      {
+        "path": "src/rootserver/ddl_task/ob_ddl_scheduler.cpp",
+        "line": 492,
+        "exact": "        ret = OB_SUCCESS;",
+        "fact": "尝试获取全桶读锁返回OB_EAGAIN时把返回码恢复为成功，不扫描。",
+        "context_start": 489,
+        "context_end": 494,
+        "text": "        ret = OB_SUCCESS;"
+      },
+      {
+        "path": "src/rootserver/ddl_task/ob_ddl_scheduler.cpp",
+        "line": 496,
+        "exact": "        if (ObTimeUtility::current_time() - it->second > TIME_OUT_THRESHOLD) {",
+        "fact": "仅当距最后活动时间严格大于阈值才收集任务ID。",
+        "context_start": 494,
+        "context_end": 500,
+        "text": "        if (ObTimeUtility::current_time() - it->second > TIME_OUT_THRESHOLD) {"
+      }
+    ],
+    "assessment": "冻结源码预先标注；三个gold事实需按各自context区间解释。精确引用行覆盖只作检索证据代理，不等同完整答案正确率；尚未查看任何explore输出。"
+  },
+  {
+    "id": "holdout-ddl-merge-dispatch",
+    "subsystem": "ddl-storage",
+    "category": "multi-hop",
+    "query": "ObDDLTableMergeTask process merge_ddl_kvs merge_full_direct_load_ddl_kvs merge_incremental_direct_load_ddl_kvs",
+    "question": "DDL merge处理获取tablet后怎样进入full或incremental direct load分支？",
+    "gold": [
+      {
+        "path": "src/storage/ddl/ob_ddl_merge_task.cpp",
+        "line": 539,
+        "exact": "  } else if (OB_FAIL(merge_ddl_kvs(ls_handle, tablet_handle))) {",
+        "fact": "process在前置检查及跳过条件之后调用merge_ddl_kvs。",
+        "context_start": 527,
+        "context_end": 542,
+        "text": "  } else if (OB_FAIL(merge_ddl_kvs(ls_handle, tablet_handle))) {"
+      },
+      {
+        "path": "src/storage/ddl/ob_ddl_merge_task.cpp",
+        "line": 549,
+        "exact": "    if (OB_FAIL(merge_full_direct_load_ddl_kvs(ls_handle, *tablet_handle.get_obj()))) {",
+        "fact": "full direct load调用merge_full_direct_load_ddl_kvs。",
+        "context_start": 545,
+        "context_end": 554,
+        "text": "    if (OB_FAIL(merge_full_direct_load_ddl_kvs(ls_handle, *tablet_handle.get_obj()))) {"
+      },
+      {
+        "path": "src/storage/ddl/ob_ddl_merge_task.cpp",
+        "line": 553,
+        "exact": "    if (OB_FAIL(merge_incremental_direct_load_ddl_kvs(ls_handle, tablet_handle))) {",
+        "fact": "非full分支调用merge_incremental_direct_load_ddl_kvs。",
+        "context_start": 550,
+        "context_end": 558,
+        "text": "    if (OB_FAIL(merge_incremental_direct_load_ddl_kvs(ls_handle, tablet_handle))) {"
+      }
+    ],
+    "assessment": "冻结源码预先标注；三个gold事实需按各自context区间解释。精确引用行覆盖只作检索证据代理，不等同完整答案正确率；尚未查看任何explore输出。"
+  },
+  {
+    "id": "holdout-ddl-prepare-kv",
+    "subsystem": "ddl-storage",
+    "category": "symbol-expiry-guards",
+    "query": "ObDDLTableMergeDag prepare_ddl_kvs prepare_full_direct_load_ddl_kvs OB_TASK_EXPIRED",
+    "question": "准备full direct-load DDL KV时，manager缺失或start_scn过旧如何处理，获取哪些KV？",
+    "gold": [
+      {
+        "path": "src/storage/ddl/ob_ddl_merge_task.cpp",
+        "line": 296,
+        "exact": "      ret = OB_TASK_EXPIRED;",
+        "fact": "get_ddl_kv_mgr返回OB_ENTRY_NOT_EXIST时转换为OB_TASK_EXPIRED。",
+        "context_start": 289,
+        "context_end": 301,
+        "text": "      ret = OB_TASK_EXPIRED;"
+      },
+      {
+        "path": "src/storage/ddl/ob_ddl_merge_task.cpp",
+        "line": 301,
+        "exact": "  } else if (ddl_param_.start_scn_ < tablet.get_tablet_meta().ddl_start_scn_) {",
+        "fact": "任务start_scn早于tablet ddl_start_scn时认为任务过期。",
+        "context_start": 300,
+        "context_end": 308,
+        "text": "  } else if (ddl_param_.start_scn_ < tablet.get_tablet_meta().ddl_start_scn_) {"
+      },
+      {
+        "path": "src/storage/ddl/ob_ddl_merge_task.cpp",
+        "line": 304,
+        "exact": "  } else if (OB_FAIL(ddl_kv_mgr_handle.get_obj()->get_ddl_kvs(true/*frozen_only*/, ddl_kvs_handle))) {",
+        "fact": "成功路径只取冻结的DDL KVs。",
+        "context_start": 301,
+        "context_end": 309,
+        "text": "  } else if (OB_FAIL(ddl_kv_mgr_handle.get_obj()->get_ddl_kvs(true/*frozen_only*/, ddl_kvs_handle))) {"
+      }
+    ],
+    "assessment": "冻结源码预先标注；三个gold事实需按各自context区间解释。精确引用行覆盖只作检索证据代理，不等同完整答案正确率；尚未查看任何explore输出。"
+  }
+]
