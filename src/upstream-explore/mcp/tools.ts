@@ -22,6 +22,7 @@ import { EXPLORE_DEDUP, dedupeRange, exploreDedupEnabled, fileFingerprint, forma
 import { indexedHashInput } from '../file-limits';
 import { CppTargetIdentity, cppIdentityRankingView } from './cpp-target-identity';
 import { CppSignatureTypeEvidence } from './cpp-signature-evidence';
+import { coNamedCppMethodTarget } from './cpp-owner-target';
 
 
 
@@ -2180,6 +2181,16 @@ export class ToolHandler {
       const typeTokens = tokens.filter(
         (o) => /^[A-Z][A-Za-z0-9]{3,}/.test(o) && !projectNameTokens.has(normalizeNameToken(o)),
       );
+      const ownerNodeCache = new Map<string, Node[]>();
+      const ownerNodes = (name: string): Node[] => {
+        let nodes = ownerNodeCache.get(name);
+        if (!nodes) {
+          nodes = cg.getNodesByName(name);
+          ownerNodeCache.set(name, nodes);
+        }
+        return nodes;
+      };
+      const ownerTokens = tokens.filter(token => !projectNameTokens.has(normalizeNameToken(token)));
       const inNamedContext = (n: Node) =>
         typeTokens.some((ct) => {
           const lc = ct.toLowerCase();
@@ -2233,6 +2244,10 @@ export class ToolHandler {
         // codegraph_node's findSymbolMatches.) Qualified tokens keep findAllSymbols.
         const isQual = /[.\/]|::/.test(t);
         const raw = isQual ? this.findAllSymbols(cg, t).nodes : cg.getNodesByName(t);
+        // Separate owner/member tokens carry exact selection evidence too,
+        // but only for one concrete C++ body with an unambiguous indexed owner.
+        // Resolve against RAW candidates, before filtering or overload caps.
+        const ownerTarget = coNamedCppMethodTarget(t, raw, ownerTokens, ownerNodes);
         // A query that NAMES a declared type is a question ABOUT that type, and
         // must still reach its declaration file at full weight — so record the
         // files those declarations live in and exempt them from the
@@ -2341,7 +2356,8 @@ export class ToolHandler {
           // choosing one overload out of a family — `SQLCompiler.as_sql`, not
           // the 109 other `as_sql`s. The bare name keeps the family rules; the
           // qualified one is an exact target (see `exactNodeIds`).
-          if ((isQual && cands.length <= 3 && CALLABLE.has(n.kind)) || dataIds.has(n.id)) exactNodeIds.add(n.id);
+          if ((isQual && cands.length <= 3 && CALLABLE.has(n.kind)) || dataIds.has(n.id)
+            || ownerTarget?.id === n.id) exactNodeIds.add(n.id);
         }
         // An interface's `method_signature` seeds (so RWR and the flow ranking
         // still see it, and a query that names it still reaches its file) but
