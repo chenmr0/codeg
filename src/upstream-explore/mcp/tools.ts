@@ -2059,51 +2059,6 @@ export class ToolHandler {
       anchorSpans.set(anchor.file, spans);
     }
 
-    if (subgraph.nodes.size === 0) {
-      diag?.finishEmpty('no relevant code found — empty subgraph');
-      const missNote = unresolvedPathSpans.length > 0
-        ? ` (no indexed file uniquely matches ${unresolvedPathSpans.map((s) => `\`${s}\``).join(', ')})`
-        : '';
-      let explanation = '\n\nExplore matches symbol/file names and indexed code words lexically, not by meaning.';
-      if (indexedNodeCount === 0) {
-        explanation += '\nThis project has nothing indexed.';
-      } else {
-        const miss = cg.getExploreMissDiagnostics(matchQuery);
-        const list = (words: string[]) => words.map(w => `\`${w}\``).join(', ');
-        // Separate caps preserve the retry instruction and complete candidate
-        // names even with long queries or generated identifiers.
-        const cappedList = (words: string[], cap: number) => {
-          const kept: string[] = [];
-          for (const word of words) {
-            if (list([...kept, word]).length > cap) break;
-            kept.push(word);
-          }
-          return list(kept) + (kept.length < words.length ? ' …' : '');
-        };
-        explanation += '\nChecked indexed names, signatures, docstrings (FTS prefixes) and live name segments; not all source text.';
-        if (miss.limited) explanation += '\nWord check limited to 16 words of at most 64 characters.';
-        explanation += `\nNo lexical matches for checked words: ${cappedList(miss.unmatched, 250) || '(none)'}.`;
-        if (miss.matched.length > 0) {
-          explanation += `\nMatched indexed words: ${cappedList(miss.matched, 200)}; these did not yield a relevant result after filtering/scoring.`;
-        }
-        explanation += miss.candidates.length > 0
-          ? `\nCandidates to retry with ${this.toolName('explore')} (shared words, not confirmed answers): ${cappedList(miss.candidates, 350)}`
-          : `\nNo shared-word symbol candidates found; retry ${this.toolName('explore')} with literal symbol/file names or code terms.`;
-        // Names written like code that the index has never seen may live in
-        // files it does not index (#2462): say which, and where to look.
-        const named = exploreQueryTokens(matchQuery).filter(isIdentifierShapedToken);
-        let unseen: string[] = [];
-        try { unseen = named.length > 0 ? cg.getUnseenNames(named) : []; } catch { /* never fail an explore call */ }
-        if (unseen.length > 0) explanation += `\n\n${notInIndexNote(unseen, false)}`;
-      }
-      const empty = `No relevant code found for "${query}"${missNote}${explanation}`;
-      // Still an explore call, so it is still recorded: an empty answer spends a
-      // call against the tier budget even though it emits no source.
-      return { ...this.textResult(empty), [EXPLORE_EMISSION_KEY]: {
-        projectRoot, query, files: [], sourceBytes: 0, responseBytes: empty.length,
-      } };
-    }
-
     // Graph-aware glue: findRelevantContext builds the subgraph from name/text
     // search, so a method that BRIDGES named symbols — e.g. App.tsx's
     // triggerRender, which calls the named triggerUpdate — is never a search hit
@@ -2404,6 +2359,57 @@ export class ToolHandler {
           if (!isInterfaceOwnedMethod(n)) tierSeedIds.add(n.id);
         }
       }
+    }
+
+    // A ranked gather may be empty while exact indexed names still resolve.
+    // Run existing named-symbol seeding before declaring a miss, including its
+    // callable/variable and camel-infix recovery. Token/admission caps, ambiguity
+    // checks and prose guards apply equally to empty and non-empty gathers;
+    // exact-name lookups still inspect the full same-name family for disambiguation.
+    // Keep true misses on the same diagnostic/accounting path.
+    if (subgraph.nodes.size === 0) {
+      diag?.finishEmpty('no relevant code found — empty subgraph');
+      const missNote = unresolvedPathSpans.length > 0
+        ? ` (no indexed file uniquely matches ${unresolvedPathSpans.map((s) => `\`${s}\``).join(', ')})`
+        : '';
+      let explanation = '\n\nExplore matches symbol/file names and indexed code words lexically, not by meaning.';
+      if (indexedNodeCount === 0) {
+        explanation += '\nThis project has nothing indexed.';
+      } else {
+        const miss = cg.getExploreMissDiagnostics(matchQuery);
+        const list = (words: string[]) => words.map(w => `\`${w}\``).join(', ');
+        // Separate caps preserve the retry instruction and complete candidate
+        // names even with long queries or generated identifiers.
+        const cappedList = (words: string[], cap: number) => {
+          const kept: string[] = [];
+          for (const word of words) {
+            if (list([...kept, word]).length > cap) break;
+            kept.push(word);
+          }
+          return list(kept) + (kept.length < words.length ? ' …' : '');
+        };
+        explanation += '\nChecked indexed names, signatures, docstrings (FTS prefixes) and live name segments; not all source text.';
+        if (miss.limited) explanation += '\nWord check limited to 16 words of at most 64 characters.';
+        explanation += `\nNo lexical matches for checked words: ${cappedList(miss.unmatched, 250) || '(none)'}.`;
+        if (miss.matched.length > 0) {
+          explanation += `\nMatched indexed words: ${cappedList(miss.matched, 200)}; these did not yield a relevant result after filtering/scoring.`;
+        }
+        explanation += miss.candidates.length > 0
+          ? `\nCandidates to retry with ${this.toolName('explore')} (shared words, not confirmed answers): ${cappedList(miss.candidates, 350)}`
+          : `\nNo shared-word symbol candidates found; retry ${this.toolName('explore')} with literal symbol/file names or code terms.`;
+        // Names written like code that the index has never seen may live in
+        // files it does not index (#2462): say which, and where to look.
+        const named = exploreQueryTokens(matchQuery).filter(isIdentifierShapedToken);
+        let unseen: string[] = [];
+        try { unseen = named.length > 0 ? cg.getUnseenNames(named) : []; } catch { /* never fail an explore call */ }
+        if (unseen.length > 0) explanation += `\n\n${notInIndexNote(unseen, false)}`;
+      }
+      const empty = `No relevant code found for "${query}"${missNote}${explanation}`;
+      // Still an explore call, so it is still recorded: an empty answer spends a
+      // call against the tier budget even though it emits no source.
+      return { ...this.textResult(empty), [EXPLORE_EMISSION_KEY]: {
+        projectRoot, query, files: [], sourceBytes: 0, responseBytes: empty.length,
+      } };
     }
 
     // Step 2: Group nodes by file, score by relevance

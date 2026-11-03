@@ -38,6 +38,7 @@ import { isTestFile, splitAtCjkSwitches, isQueryNameToken } from '../search/quer
 
 import { qualifiedSymbolMatches } from './symbol-lookup';
 import { goPackageReaderFor } from './go-package';
+import { cppLogicalCallTarget } from './cpp-logical-calls';
 
 // Preserve the existing imports while sharing the matcher with the CLI and MCP.
 export { RUST_PATH_PREFIXES, lastQualifierPart, matchesSymbol } from './symbol-lookup';
@@ -283,7 +284,8 @@ export function flowTokens(query: string): string[] {
 export function resolveNamedTokens(
   cg: CodeGraph,
   query: string,
-  opts: NamedSymbolFlowOptions = {}
+  opts: NamedSymbolFlowOptions = {},
+  logicalTarget: (node: Node) => Node = node => node,
 ): NamedSymbolFlow {
   const directed = opts.mode === 'directed';
   const out = EMPTY_FLOW();
@@ -331,9 +333,16 @@ export function resolveNamedTokens(
             const container = segs.length >= 2 ? segs[segs.length - 2] : '';
             return !!container && segPool.has(container);
           });
+    // Identity is a traversal view, not permission to admit more namesakes.
+    // Preserve raw-family ambiguity/co-naming first: collapsing two owners'
+    // decl/def pairs from four hits to two must not bypass the owner guard.
+    const logicalPicks = [...new Map(pick.map(node => {
+      const target = logicalTarget(node);
+      return [target.id, target] as const;
+    })).values()];
     const kept = directed
-      ? rankForDirected(pick).slice(0, MAX_CANDIDATES_DIRECTED)
-      : pick.slice(0, MAX_CANDIDATES_PER_TOKEN);
+      ? rankForDirected(logicalPicks).slice(0, MAX_CANDIDATES_DIRECTED)
+      : logicalPicks.slice(0, MAX_CANDIDATES_PER_TOKEN);
     out.tokenNodes.set(
       t,
       kept.map((n) => n.id)
@@ -656,7 +665,11 @@ export function resolveNamedSymbolFlow(
 ): NamedSymbolFlow {
   try {
     const directed = opts.mode === 'directed';
-    const flow = resolveNamedTokens(cg, query, opts);
+    // Named Flow can cross a proven prototype identity without inventing a
+    // call or spending an extra hop. Directed traversal retains its existing
+    // bidirectional semantics until both frontiers share an identity view.
+    const logicalTarget = directed ? (node: Node) => node : cppLogicalCallTarget(cg);
+    const flow = resolveNamedTokens(cg, query, opts, logicalTarget);
     if (flow.named.size < 2) return flow;
 
     const maxHops = opts.maxHops ?? (directed ? DIRECTED_MAX_HOPS : DEFAULT_MAX_HOPS);
@@ -684,7 +697,7 @@ export function resolveNamedSymbolFlow(
       const calleesOf: CalleesOf = (id) => {
         let out = callees.get(id);
         if (!out) {
-          out = cg.getCallees(id);
+          out = cg.getCallees(id).map(call => ({ ...call, node: logicalTarget(call.node) }));
           callees.set(id, out);
         }
         return out;
