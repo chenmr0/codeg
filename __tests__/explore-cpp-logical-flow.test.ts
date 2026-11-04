@@ -12,7 +12,11 @@ import type { Edge, Node } from '../src/upstream-explore/types';
 
 const roots: string[] = [];
 const opened: CodeGraph[] = [];
-afterEach(() => { for (const g of opened.splice(0)) g.close(); for (const r of roots.splice(0)) fs.rmSync(r, {recursive:true,force:true}); vi.unstubAllEnvs(); });
+afterEach(async () => {
+  for (const g of opened.splice(0)) { await g.whenIdle(); g.close(); await g.whenIdle(); }
+  for (const r of roots.splice(0)) fs.rmSync(r, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  vi.unstubAllEnvs();
+});
 
 describe('proven C/C++ prototype identities in named Flow', () => {
   it('preserves raw-family owner admission before collapsing real overload pairs', async () => {

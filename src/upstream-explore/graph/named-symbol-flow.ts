@@ -34,7 +34,8 @@
 
 import type CodeGraph from '../index';
 import type { Node, Edge } from '../types';
-import { isTestFile, splitAtCjkSwitches, isQueryNameToken } from '../search/query-utils';
+import { isTestFile } from '../search/query-utils';
+import { parseExploreQuery, type ExploreQueryIntent } from '../search/query-intent';
 
 import { qualifiedSymbolMatches } from './symbol-lookup';
 import { goPackageReaderFor } from './go-package';
@@ -194,6 +195,8 @@ export interface FlowChain {
 }
 
 export interface NamedSymbolFlowOptions {
+  /** Reuse Explore's normalized hints; directed endpoints retain their own syntax. */
+  queryIntent?: ExploreQueryIntent;
   /** `named` = explore's rules; `directed` = a pinned from → to question. */
   mode?: 'named' | 'directed';
   /** Required in `directed` mode: the token the path must start at. */
@@ -266,15 +269,7 @@ function isPreciseToken(token: string): boolean {
  * characters in those scripts (`入口 末端`) and three elsewhere (#1262).
  */
 export function flowTokens(query: string): string[] {
-  return [
-    ...new Set(
-      query
-        .split(/[\s,()[\]]+/)
-        .map((t) => t.replace(FILE_EXT, '').trim())
-        .flatMap(splitAtCjkSwitches)
-        .filter(isQueryNameToken)
-    ),
-  ].slice(0, MAX_TOKENS);
+  return parseExploreQuery(query, { maxNamedTokens: MAX_TOKENS }).symbolTokens;
 }
 
 /**
@@ -288,6 +283,7 @@ export function resolveNamedTokens(
   logicalTarget: (node: Node) => Node = node => node,
 ): NamedSymbolFlow {
   const directed = opts.mode === 'directed';
+  const queryIntent = opts.queryIntent ?? parseExploreQuery(query);
   const out = EMPTY_FLOW();
   // A directed question names its two ends exactly — a symbol's own name, as
   // the viewer's links write it: an Objective-C selector (`initWithFrame:`), a
@@ -296,7 +292,7 @@ export function resolveNamedTokens(
   // one of those, leaving the other end reported as naming nothing.
   const tokens = directed && opts.from && opts.to
     ? [...new Set([normalizeToken(opts.from), normalizeToken(opts.to)])]
-    : flowTokens(query);
+    : queryIntent.symbolTokens;
   out.tokens = tokens;
   if (tokens.length < 2) return out;
 
@@ -347,7 +343,8 @@ export function resolveNamedTokens(
       t,
       kept.map((n) => n.id)
     );
-    const precise = isPreciseToken(t);
+    const precise = isPreciseToken(t) || queryIntent.mentions.some(m =>
+      m.kind === 'symbol' && m.normalized === t && m.quoted);
     for (const n of kept) {
       out.named.set(n.id, n);
       if (specific) out.uniqueNamedNodeIds.add(n.id);

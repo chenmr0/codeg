@@ -70,12 +70,21 @@ describe('#1711 helpers — name what a trim dropped', () => {
     expect(text).toContain('TWO');
     expect(text).toContain('mid (f.ts:20)');
   });
+
+  it('keeps both source parts when no spare budget remains for gap labels', () => {
+    const text = joinPartsWithNamedGaps('f.ts', [
+      { range: { start: 1, end: 5 }, text: 'ONE' },
+      { range: { start: 40, end: 45 }, text: 'TWO' },
+    ], [{ name: 'mid', kind: 'function', startLine: 20, endLine: 25 }], 0);
+    expect(text).toBe('ONE\n\n... (gap) ...\n\nTWO');
+  });
 });
 
 describe('#1711 explore — trimmed file names its elisions', () => {
   let dir: string;
   let cg: CodeGraph;
   let response: string;
+  const methodRanges: { name: string; start: number; end: number }[] = [];
 
   beforeAll(async () => {
     dir = fs.mkdtempSync(path.join(os.tmpdir(), 'codegraph-1711-'));
@@ -85,20 +94,24 @@ describe('#1711 explore — trimmed file names its elisions', () => {
     // One large observer + noise files so the budget trims rather than shipping whole.
     const lines: string[] = ['export class EspnDraftObserver {'];
     for (let i = 0; i < 40; i++) {
+      methodRanges.push({ name: `imports${i}`, start: lines.length + 1, end: lines.length + 1 });
       lines.push(`  imports${i}() { return ${i}; }`, '');
     }
     const big = (name: string, next: string | null, n: number) => {
+      const start = lines.length + 1;
       lines.push(`  ${name}() {`);
       lines.push(`    const marker = "${name}_MARKER";`);
       for (let j = 0; j < n; j++) lines.push(`    const x${j} = ${j} + marker.length;`);
       lines.push(next ? `    return this.${next}();` : '    return marker;');
       lines.push('  }', '');
+      methodRanges.push({ name, start, end: lines.length - 1 });
     };
     big('persistDraftState', null, 60);
     big('performHeavyDraftSync', 'persistDraftState', 60);
     big('syncStateNow', 'performHeavyDraftSync', 60);
     big('scrapeFullDraftState', 'syncStateNow', 60);
     for (let i = 0; i < 30; i++) {
+      methodRanges.push({ name: `calls${i}`, start: lines.length + 1, end: lines.length + 1 });
       lines.push(`  calls${i}() { return ${i}; }`, '');
     }
     lines.push('}', '');
@@ -125,12 +138,34 @@ describe('#1711 explore — trimmed file names its elisions', () => {
     expect(response).toContain('espn-draft-observer.ts');
   });
 
-  it('names elided symbols inside gap markers as name (file:line)', () => {
+  const displayedLines = () => new Set(response.split('\n').flatMap(line => {
+    const match = /^(\d+)\t/.exec(line);
+    return match ? [Number(match[1])] : [];
+  }));
+
+  it('names an actually elided method in a gap or the file header', () => {
     // Match only in-fence gap markers that list at least one path:line ref.
     const namedGaps = response.match(/\.\.\. \(gap: [^\n]*?\([^\n]+?:\d+\)[^\n]*?\) \.\.\./g) ?? [];
-    expect(namedGaps.length, `response head:\n${response.slice(0, 2000)}`).toBeGreaterThan(0);
     for (const g of namedGaps) {
       expect(g).toMatch(/\w+ \([^\s)]+:\d+\)/);
+    }
+    // Naming may use only spare chars: a correctly pinned file can exhaust
+    // them. The renderer's existing contract then names omissions in its
+    // header instead. Check a real missing definition, not an arbitrary name.
+    const shown = displayedLines();
+    const omitted = methodRanges.filter(m => !shown.has(m.start));
+    expect(omitted.length).toBeGreaterThan(0);
+    const header = response.split('\n').find(l => l.includes('**`src/espn-draft-observer.ts`**')) ?? '';
+    expect(omitted.some(m => header.includes(`${m.name}(method)`)
+      || namedGaps.some(g => g.includes(`${m.name} (src/espn-draft-observer.ts:${m.start})`)))).toBe(true);
+  });
+
+  it('keeps every line of the four answer-chain bodies', () => {
+    const shown = displayedLines();
+    for (const name of ['persistDraftState', 'performHeavyDraftSync', 'syncStateNow', 'scrapeFullDraftState']) {
+      const body = methodRanges.find(m => m.name === name)!;
+      expect(body.end - body.start + 1).toBe(64);
+      for (let line = body.start; line <= body.end; line++) expect(shown.has(line), `${name}:${line}`).toBe(true);
     }
   });
 

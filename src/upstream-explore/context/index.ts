@@ -32,6 +32,7 @@ import {
 import { LOW_CONFIDENCE_MARKER } from './markers';
 import { findNamedCopybooks, isCopybookInclude } from '../graph/cobol-copybooks';
 import { describeSynthesizedHop } from '../graph/synthesized-hop';
+import { parseExploreQuery } from '../search/query-intent';
 
 /**
  * Most top-level declarations of one copybook that become entry points — its
@@ -209,7 +210,7 @@ const HIGH_VALUE_NODE_KINDS: NodeKind[] = [
 /**
  * Default options for finding relevant context
  */
-const DEFAULT_FIND_OPTIONS: Required<FindRelevantContextOptions> = {
+const DEFAULT_FIND_OPTIONS: Required<Omit<FindRelevantContextOptions, 'queryIntent'>> = {
   searchLimit: 3,        // Reduced from 5
   traversalDepth: 1,     // Reduced from 2
   maxNodes: 20,          // Reduced from 50
@@ -514,7 +515,11 @@ export class ContextBuilder {
     // === HYBRID SEARCH ===
 
     // Step 1: Extract potential symbol names from query
-    const symbolsFromQuery = extractSymbolsFromQuery(query).slice(0, MAX_QUERY_SYMBOLS);
+    const intent = opts.queryIntent ?? parseExploreQuery(query);
+    // Shared lexical names supplement the legacy extractor. Whether a name
+    // exists is resolved against the index, never inferred from surrounding prose.
+    const symbolsFromQuery = [...new Set([...intent.searchSymbols, ...extractSymbolsFromQuery(query)])]
+      .slice(0, MAX_QUERY_SYMBOLS);
     logDebug('Extracted symbols from query', { query, symbols: symbolsFromQuery });
 
     // Step 2: Look up exact matches for extracted symbols

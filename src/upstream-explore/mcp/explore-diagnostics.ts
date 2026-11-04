@@ -32,6 +32,9 @@
  */
 
 import { appendFileSync } from 'fs';
+import type { Node } from '../types';
+import type { ExploreQueryIntent } from '../search/query-intent';
+import { QueryContractTrace } from './query-contract-trace';
 import type { ExploreProjectState } from './explore-session-state';
 
 /** How a file's source was rendered into the response. */
@@ -203,6 +206,8 @@ export interface ExploreDiagnosticSession {
 /** The full report — one per explore call, JSON-serialized to the sink. */
 export interface ExploreDiagnosticReport {
   tool: 'codegraph_explore';
+  /** Bounded target/identity/delivery observations; no additional graph lookups. */
+  queryContract?: Record<string, unknown>;
   query: string;
   projectRoot: string;
   indexedFileCount: number;
@@ -291,6 +296,8 @@ const pct = (f: number) => `${(f * 100).toFixed(1)}%`;
 
 export class ExploreDiagnostics {
   private readonly files = new Map<string, FileRecord>();
+  private contract?: QueryContractTrace;
+  private deliveredRanges: ReadonlyMap<string, readonly { start: number; end: number }[]> = new Map();
   private readonly stages: StageCounts = {
     grouped: 0, pastScoreFloor: 0, pastLowValueFilter: 0, pastRelevanceGate: 0,
   };
@@ -331,6 +338,23 @@ export class ExploreDiagnostics {
     } catch {
       return null;
     }
+  }
+
+  attachQueryIntent(intent: ExploreQueryIntent): void {
+    try { this.contract = new QueryContractTrace(intent); } catch { /* diagnostics never fail a request */ }
+  }
+  updateQueryIntent(intent: ExploreQueryIntent): void { try { this.contract?.updateIntent(intent); } catch { /* observational */ } }
+  queryCheckpoint(stage: string): void { try { this.contract?.checkpoint(stage); } catch { /* observational */ } }
+  queryPaths(pins: readonly string[], unresolved: readonly string[]): void { try { this.contract?.paths(pins, unresolved); } catch { /* observational */ } }
+  queryGather(nodes: Iterable<Node>): void { try { this.contract?.gather(nodes); } catch { /* observational */ } }
+  queryCandidates(token: string, raw: readonly Node[], eligible: readonly Node[], picked: readonly Node[]): void {
+    try { this.contract?.candidates(token, raw, eligible, picked); } catch { /* observational */ }
+  }
+  querySelection(nodes: Iterable<Node>, aliases: ReadonlyMap<string, string>, named: ReadonlySet<string>, exact: ReadonlySet<string>, flow: ReadonlySet<string>): void {
+    try { this.contract?.selection(nodes, aliases, named, exact, flow); } catch { /* observational */ }
+  }
+  queryDeliveredRanges(ranges: ReadonlyMap<string, { ranges: readonly { start: number; end: number }[] }>): void {
+    try { this.deliveredRanges = new Map([...ranges].map(([file, value]) => [file, value.ranges])); } catch { /* observational */ }
   }
 
   /**
@@ -527,6 +551,7 @@ export class ExploreDiagnostics {
     const sourceChars = rendered.reduce((s, r) => s + r.finalChars, 0);
     return {
       tool: 'codegraph_explore',
+      queryContract: this.contract?.finish(finalText, records, this.deliveredRanges),
       query: this.query,
       projectRoot: this.projectRoot,
       indexedFileCount: this.indexedFileCount,

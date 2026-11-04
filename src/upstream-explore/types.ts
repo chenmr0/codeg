@@ -675,6 +675,8 @@ export interface TaskContext {
  * Options for finding relevant context
  */
 export interface FindRelevantContextOptions {
+  /** One request-local lexical interpretation shared with Explore and Flow. */
+  queryIntent?: import('./search/query-intent').ExploreQueryIntent;
   /** Number of semantic search results (default: 5) */
   searchLimit?: number;
 

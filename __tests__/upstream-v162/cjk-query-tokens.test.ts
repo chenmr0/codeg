@@ -108,10 +108,29 @@ describe('an ASCII query reads exactly as before (#516, #1262)', () => {
     for (const q of corpus) expect(extractSymbolsFromQuery(q), q).toEqual(oldExtractSymbolsFromQuery(q));
   });
 
-  it('gives the same explore and Flow tokens', () => {
+  it('keeps Explore and Flow on the same normalized name contract', () => {
     for (const q of corpus) {
+      expect(exploreQueryTokens(q), q).toEqual(flowTokens(q));
+    }
+  });
+
+  it('preserves every old corpus case outside the deliberately expanded punctuation grammar', () => {
+    // This stage deliberately recognizes quotes, terminal punctuation and
+    // Erlang/Lua qualified names. Keep the original oracle for ALL remaining
+    // cases, including its overlapping three-word windows, not just examples.
+    const changedSyntax = /["'`;!?]|(?<!:):(?!:)/;
+    const unaffected = corpus.filter(q => !changedSyntax.test(q));
+    expect(unaffected.length).toBeGreaterThan(60);
+    for (const q of unaffected) {
       expect(exploreQueryTokens(q), q).toEqual(oldNameTokens(q).slice(0, 16));
       expect(flowTokens(q), q).toEqual(oldNameTokens(q).slice(0, 16));
+    }
+  });
+
+  it('treats quoted names as code hints', () => {
+    for (const q of ['"quoted"', '`quoted`', '「quoted」']) {
+      expect(exploreQueryTokens(q)).toEqual(['quoted']);
+      expect(flowTokens(q)).toEqual(['quoted']);
     }
   });
 });

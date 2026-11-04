@@ -1,3 +1,4 @@
+import { parseExploreQuery, type ExploreQueryIntent } from './query-intent';
 /**
  * File-path recognition for explore queries.
  *
@@ -32,6 +33,8 @@
  */
 
 export interface QueryPathExtraction {
+  /** Present only for a shared-IR call; original path tokens actually consumed. */
+  consumedPathTokens?: string[];
   /** The query with resolved/clearly-path spans removed, whitespace-joined. */
   strippedQuery: string;
   /** Indexed file paths the query named, appearance-ordered, deduped. */
@@ -84,7 +87,8 @@ export interface QueryLineAnchor {
  * alternative requires clean non-word boundaries, which keeps `--flags` and
  * snake_case-with-a-dash hybrids from firing it.
  */
-export function queryMightContainPaths(query: string): boolean {
+export function queryMightContainPaths(query: string, intent?: ExploreQueryIntent): boolean {
+  query = (intent ?? parseExploreQuery(query)).pathQuery;
   return /[/\\]/.test(query)
     || /\.[A-Za-z][A-Za-z0-9]{0,7}(?=[\s,;:)\]'"`]|$)/.test(query)
     || /(?:^|[^-\w])[A-Za-z0-9]+(?:-[A-Za-z0-9]+)+(?=[^-\w]|$)/.test(query);
@@ -116,10 +120,6 @@ const LAST_EXTENSION = /\.[A-Za-z][A-Za-z0-9]{0,7}$/;
  * A query token that names a symbol, in the shape explore's named-symbol
  * seeder reads: `clampedInt`, `SQLCompiler.as_sql`, `Engine::ServeHTTP`.
  */
-const SYMBOL_TOKEN = /^[A-Za-z_$][\w$]*(?:(?:::|\.)[\w$]+)*$/;
-/** Symbol tokens consulted per query — the seeder's cap. */
-const MAX_SYMBOL_TOKENS = 16;
-
 /**
  * The seeder's NL-stopword test: camelCase, PascalCase, snake_case, `$` and
  * qualified tokens are unmistakably code. A bare lowercase word (`options`,
@@ -135,18 +135,17 @@ function isPreciseSymbolToken(t: string): boolean {
  * (`editorOptions.ts` is identifier-shaped too). Split on the same brackets
  * the seeder splits on, so `clampedInt()` still counts.
  */
-function querySymbolTokens(tokens: readonly string[], indexedBasenames: ReadonlySet<string>): string[] {
-  const out = new Set<string>();
-  for (const raw of tokens) {
-    for (const part of raw.split(/[,()[\]{}]+/)) {
-      const t = part.replace(/^['"`<]+/, '').replace(/['"`>.,;:!?]+$/, '');
-      if (t.length < 3 || !SYMBOL_TOKEN.test(t) || !isPreciseSymbolToken(t)) continue;
-      if (indexedBasenames.has(t.toLowerCase())) continue;
-      out.add(t);
-      if (out.size >= MAX_SYMBOL_TOKENS) return [...out];
-    }
-  }
-  return [...out];
+function querySymbolTokens(intent: ExploreQueryIntent, indexedBasenames: ReadonlySet<string>): string[] {
+  const pathSpans = new Set(intent.mentions.filter(m => m.kind === 'path').map(m => `${m.start}:${m.end}`));
+  const independentMentions = intent.mentions.filter(m => m.kind === 'symbol'
+    && !pathSpans.has(`${m.start}:${m.end}`));
+  const independentNames = new Set(independentMentions.map(m => m.normalized));
+  const quotedNames = new Set(independentMentions.filter(m => m.quoted).map(m => m.normalized));
+  // Explicitly quoted lowercase names have the same precision here as in
+  // named-target protection and Flow. Prose `render` still cannot choose a
+  // file by itself; the caller must also supply actual indexed definitions.
+  return intent.symbolTokens.filter(t => independentNames.has(t) && (quotedNames.has(t) || isPreciseSymbolToken(t))
+    && !indexedBasenames.has(t.toLowerCase()));
 }
 
 /**
@@ -215,6 +214,19 @@ function stripLineTokenPunctuation(token: string): string {
  */
 function stripWrapping(token: string): { path: string; lines: { start: number; end: number } | null } {
   let s = token;
+  // A pair enclosing the complete span is prose wrapping. A route segment
+  // inside the span, such as src/(private)/[id]/page.ts, is not wrapping.
+  while ((s.startsWith('(') && s.endsWith(')')) || (s.startsWith('[') && s.endsWith(']')) || (s.startsWith('{') && s.endsWith('}'))) {
+    const opener = s[0]!, closer = s[s.length - 1]!;
+    let depth = 0, complete = true;
+    for (let i = 0; i < s.length; i++) {
+      if (s[i] === opener) depth++;
+      if (s[i] === closer) depth--;
+      if (depth === 0 && i < s.length - 1) { complete = false; break; }
+    }
+    if (!complete || depth !== 0) break;
+    s = s.slice(1, -1);
+  }
   for (;;) {
     const first = s[0];
     if (!first) break;
@@ -315,6 +327,8 @@ export function extractQueryPaths(
      * Must not throw — the caller absorbs lookup errors and returns nothing.
      */
     symbolFiles?: (symbol: string) => Iterable<string>;
+    /** The request's shared lexical interpretation; do not re-tokenize a normalized copy. */
+    intent?: ExploreQueryIntent;
   } = {},
 ): QueryPathExtraction {
   const maxPins = Math.max(1, opts.maxPins ?? 8);
@@ -322,6 +336,7 @@ export function extractQueryPaths(
 
   const passthrough: QueryPathExtraction = {
     strippedQuery: query,
+    ...(opts.intent ? { consumedPathTokens: [] } : {}),
     pinnedFiles: [],
     unresolvedPathSpans: [],
     lineAnchors: [],
@@ -334,8 +349,10 @@ export function extractQueryPaths(
   const lowerToOriginal = new Map<string, string>();
   for (const p of indexedPaths) lowerToOriginal.set(p.toLowerCase(), p);
 
-  const tokens = query.split(/\s+/).filter(Boolean);
+  const intent = opts.intent ?? parseExploreQuery(query);
+  const tokens = intent.pathTokens;
   const consumed = new Set<number>();
+  const pathTokenIndexes = new Set<number>();
   const pinned: string[] = [];
   const pinnedSeen = new Set<string>();
   const unresolved: string[] = [];
@@ -368,7 +385,7 @@ export function extractQueryPaths(
       for (const p of indexedPaths) {
         basenames.add(p.slice(Math.max(p.lastIndexOf('/'), p.lastIndexOf('\\')) + 1).toLowerCase());
       }
-      symbolTokens = querySymbolTokens(tokens, basenames);
+      symbolTokens = querySymbolTokens(intent, basenames);
     }
     const candidates = new Set(matches);
     const definers = new Set<string>();
@@ -411,7 +428,7 @@ export function extractQueryPaths(
     const matches = pinnable ?? [];
     const ambiguous = resolved.ambiguous || (resolved.matches.length > 0 && pinnable === null);
     if (matches.length > 0) {
-      consumed.add(i);
+      consumed.add(i); pathTokenIndexes.add(i);
       for (const m of matches) {
         if (pinnedSeen.has(m) || pinned.length >= maxPins) continue;
         pinnedSeen.add(m);
@@ -434,7 +451,7 @@ export function extractQueryPaths(
       // `input/output`, so the file's existence on disk decides. Loosening the
       // SHAPE test instead would strip that prose out of every query and mint a
       // false "no indexed file matches `and/or`" caveat.
-      consumed.add(i);
+      consumed.add(i); pathTokenIndexes.add(i);
       if (unresolved.length < 4) unresolved.push(normalized);
     }
     // Anything else (`and/or`, `call/2`, `foo.Bar`) is not a path reference:
@@ -466,7 +483,7 @@ export function extractQueryPaths(
     const stemMatches = basenameStems.get(stripped.toLowerCase());
     const matches = stemMatches ? pinnableMatches(stripped, stemMatches) : null;
     if (!matches) continue;
-    consumed.add(i);
+    consumed.add(i); pathTokenIndexes.add(i);
     for (const m of matches) {
       if (pinnedSeen.has(m) || pinned.length >= maxPins) continue;
       pinnedSeen.add(m);
@@ -523,6 +540,7 @@ export function extractQueryPaths(
   const seenAnchor = new Set<string>();
   return {
     strippedQuery: tokens.filter((_, i) => !consumed.has(i)).join(' '),
+    ...(opts.intent ? { consumedPathTokens: [...pathTokenIndexes].map(i => tokens[i]!) } : {}),
     pinnedFiles: pinned,
     unresolvedPathSpans: unresolved,
     lineAnchors: anchors.filter((a) => {

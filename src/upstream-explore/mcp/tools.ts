@@ -5,7 +5,7 @@ import { isCopybookInclude, MAX_COPYBOOK_INCLUDES, type NamedCopybook } from '..
 import type CodeGraph from '../index';
 import type { PendingFile } from '../sync';
 import type { Node, Edge, Subgraph } from '../types';
-import { isTestFile, normalizeNameToken, splitAtCjkSwitches, isQueryNameToken } from '../search/query-utils';
+import { isTestFile, normalizeNameToken } from '../search/query-utils';
 import { isQualifiedSymbol, lastQualifierPart, matchesSymbol } from '../graph/symbol-lookup';
 import { extractQueryPaths, queryMightContainPaths, type QueryLineAnchor, type QuerySetAsideMatch } from '../search/query-paths';
 import { existsSync, readFileSync, statSync } from 'fs';
@@ -17,6 +17,7 @@ import { countImplementers } from '../graph/type-hierarchy';
 import { findAllSymbols, resolveNamedSymbolFlow, type FlowStep } from '../graph/named-symbol-flow';
 import { type AnswerFile } from './answer-freshness';
 import { ExploreDiagnostics } from './explore-diagnostics';
+import { parseExploreQuery, consumeQueryPaths, type ExploreQueryIntent } from '../search/query-intent';
 import { EXPLORE_EMISSION_KEY, EXPLORE_SESSION_VIEW_ARG, ExploreSessionState, readExploreSessionView, viewForProject, type ExploreEmission, type ExploreFileEmission, type ExploreLineRange } from './explore-session-state';
 import { EXPLORE_DEDUP, dedupeRange, exploreDedupEnabled, fileFingerprint, formatBackReference, mergeRanges, servedRangesForFile, symbolsInSpans } from './explore-dedup';
 import { indexedHashInput } from '../file-limits';
@@ -1759,13 +1760,7 @@ export function elidedBodyNote(filePath: string, name: string, from: number, to:
 }
 
 export function exploreQueryTokens(query: string): string[] {
-  const FILE_EXT = /\.(?:java|kt|kts|ts|tsx|js|jsx|mjs|cjs|cs|py|go|rb|php|swift|rs|cpp|cc|cxx|c|h|hpp|scala|lua|dart|vue|svelte|astro|erl|hrl)$/i;
-  return [...new Set(
-    query.split(/[\s,()[\]]+/)
-      .map((t) => t.replace(FILE_EXT, '').trim())
-      .flatMap(splitAtCjkSwitches)
-      .filter(isQueryNameToken)
-  )].slice(0, 16);
+  return parseExploreQuery(query).symbolTokens;
 }
 
 export function isIdentifierShapedToken(token: string): boolean {
@@ -1865,6 +1860,7 @@ export class ToolHandler {
     // One normalization point so the flow-builder, relevance search, and
     // ranking all see the same canonical spelling (Erlang `mod:fn/arity`).
     const query = normalizeQuerySpelling(rawQuery);
+    let queryIntent = parseExploreQuery(rawQuery);
 
     const cg = this.getCodeGraph(args.projectPath as string | undefined);
     const projectRoot = cg.getProjectRoot();
@@ -1884,6 +1880,8 @@ export class ToolHandler {
       budget = getExploreOutputBudget(Infinity);
     }
     const maxFiles = clamp((args.maxFiles as number) || budget.defaultMaxFiles, 1, 20);
+    const diag = ExploreDiagnostics.start(query, projectRoot, budget, maxFiles, indexedFileCount);
+    diag?.attachQueryIntent(queryIntent);
 
     // File paths named in the query become PINNED files: guaranteed admission,
     // top of the rank order, funded first — and their span is REMOVED from the
@@ -1898,12 +1896,13 @@ export class ToolHandler {
     let lineAnchors: QueryLineAnchor[] = [];
     let setAsideMatches: QuerySetAsideMatch[] = [];
     let matchQuery = query;
-    if (queryMightContainPaths(rawQuery)) {
+    if (queryMightContainPaths(rawQuery, queryIntent)) {
       try {
         const extraction = extractQueryPaths(
           rawQuery,
           cg.getFiles().map((f) => f.path),
           {
+            intent: queryIntent,
             maxPins: maxFiles,
             existsOnDisk: (rel) => pathIsProjectFile(projectRoot, rel),
             symbolFiles: (symbol) => filesDefiningSymbol(cg, symbol),
@@ -1915,6 +1914,8 @@ export class ToolHandler {
           lineAnchors = extraction.lineAnchors;
           setAsideMatches = extraction.setAsideMatches;
           matchQuery = normalizeQuerySpelling(extraction.strippedQuery);
+          queryIntent = consumeQueryPaths(queryIntent, extraction.consumedPathTokens ?? []);
+          diag?.updateQueryIntent(queryIntent);
         }
       } catch { /* path pinning must never fail an explore call */ }
     }
@@ -1948,7 +1949,8 @@ export class ToolHandler {
     // Per-file allocation diagnostic (CG-4). `null` unless CODEGRAPH_EXPLORE_DEBUG
     // is set — every `diag?.` below is then a no-op and the response is
     // byte-identical. It only OBSERVES: it must never feed back into rendering.
-    const diag = ExploreDiagnostics.start(query, projectRoot, budget, maxFiles, indexedFileCount);
+    diag?.queryPaths(pinnedFiles, unresolvedPathSpans);
+    diag?.queryCheckpoint('path-resolution');
 
     // What this session has already been served for THIS project (CG-17), and
     // whether this call may act on it (CG-18). Dedup is off on the session's
@@ -2007,7 +2009,10 @@ export class ToolHandler {
       traversalDepth: 3,
       maxNodes: 200,
       minScore: 0.2,
+      queryIntent,
     });
+    diag?.queryGather(subgraph.nodes.values());
+    diag?.queryCheckpoint('context-gather');
 
     // Pinned files' symbols enter the gather unconditionally — the agent named
     // the file itself, so its contents ARE the answer regardless of what the
@@ -2167,7 +2172,7 @@ export class ToolHandler {
       const isTestPath = (p: string) => /(^|\/)(tests?|specs?|__tests__|testdata|mocks?|fixtures?)\//i.test(p) || /\.(test|spec)\.[a-z]+$/i.test(p);
       const bodyLines = (n: Node) => Math.max(0, (n.endLine ?? n.startLine) - n.startLine);
       const callerCount = (n: Node) => { try { return cg.getCallers(n.id).length; } catch { return 0; } };
-      const tokens = exploreQueryTokens(matchQuery);
+      const tokens = queryIntent.symbolTokens;
       // PascalCase tokens in the query are type/file disambiguators — when the
       // agent writes "DataRequest task validate", the `task`/`validate` it wants
       // are DataRequest's, NOT the same-named overloads in Validation.swift /
@@ -2197,8 +2202,9 @@ export class ToolHandler {
       // itself a symbol defined in that same file (the "check drain fire"
       // sibling-bag case), which an incidental English-word collision never is.
       const lcTokens = new Set(tokens.map((x) => x.toLowerCase()));
+      const quotedNames = new Set(queryIntent.mentions.filter(m => m.kind === 'symbol' && m.quoted).map(m => m.normalized));
       const isPreciseToken = (x: string) =>
-        /[._$]|::|\//.test(x) || /[a-z][A-Z]/.test(x) || /^[A-Z]/.test(x);
+        quotedNames.has(x) || /[._$]|::|\//.test(x) || /[a-z][A-Z]/.test(x) || /^[A-Z]/.test(x);
       const fileNameSets = new Map<string, Set<string>>();
       const coNamedInFile = (t: string, fp: string): boolean => {
         let names = fileNameSets.get(fp);
@@ -2328,6 +2334,7 @@ export class ToolHandler {
         // Keep their tiny exact-name allowance independent of overload ranking.
         picks = [...picks, ...dataAnchors];
         tierPicks = [...tierPicks, ...dataAnchors];
+        diag?.queryCandidates(t, raw, cands, picks);
         for (const n of picks) {
           if (!subgraph.nodes.has(n.id)) subgraph.nodes.set(n.id, n);
           // Mark as a named seed EVEN IF the FTS gather already had it — being
@@ -2367,8 +2374,8 @@ export class ToolHandler {
     // checks and prose guards apply equally to empty and non-empty gathers;
     // exact-name lookups still inspect the full same-name family for disambiguation.
     // Keep true misses on the same diagnostic/accounting path.
+    diag?.queryCheckpoint('named-seeding');
     if (subgraph.nodes.size === 0) {
-      diag?.finishEmpty('no relevant code found — empty subgraph');
       const missNote = unresolvedPathSpans.length > 0
         ? ` (no indexed file uniquely matches ${unresolvedPathSpans.map((s) => `\`${s}\``).join(', ')})`
         : '';
@@ -2399,12 +2406,13 @@ export class ToolHandler {
           : `\nNo shared-word symbol candidates found; retry ${this.toolName('explore')} with literal symbol/file names or code terms.`;
         // Names written like code that the index has never seen may live in
         // files it does not index (#2462): say which, and where to look.
-        const named = exploreQueryTokens(matchQuery).filter(isIdentifierShapedToken);
+        const named = queryIntent.symbolTokens.filter(isIdentifierShapedToken);
         let unseen: string[] = [];
         try { unseen = named.length > 0 ? cg.getUnseenNames(named) : []; } catch { /* never fail an explore call */ }
         if (unseen.length > 0) explanation += `\n\n${notInIndexNote(unseen, false)}`;
       }
       const empty = `No relevant code found for "${query}"${missNote}${explanation}`;
+      diag?.finishEmpty('no relevant code found — empty subgraph');
       // Still an explore call, so it is still recorded: an empty answer spends a
       // call against the tier budget even though it emits no source.
       return { ...this.textResult(empty), [EXPLORE_EMISSION_KEY]: {
@@ -2959,6 +2967,7 @@ export class ToolHandler {
     // Blast radius (always-on, compact): for the entry symbols, who depends on
     // them + which tests cover them — locations only, no source — so the agent
     // knows what to update/verify before editing without a separate call.
+    diag?.queryCheckpoint('identity-and-file-ranking');
     const blastRadius = this.buildBlastRadiusSection(cg, subgraph, exactNodeIds);
     if (blastRadius) lines.push(blastRadius);
 
@@ -3004,7 +3013,7 @@ export class ToolHandler {
     // The Flow section labels each hop with its branch conditions; that read
     // is synchronous, so the grammars it needs are loaded here, once.
     await warmBranchGuardGrammars();
-    const flow = this.buildFlowFromNamedSymbols(cg, matchQuery);
+    const flow = this.buildFlowFromNamedSymbols(cg, matchQuery, queryIntent);
     // Flow keeps its original narrative and call evidence. Only downstream
     // source-priority identities are canonicalized; a declaration's call-site
     // line must never be transplanted onto a different definition file.
@@ -3013,6 +3022,9 @@ export class ToolHandler {
     flow.uniqueNamedNodeIds = logicalFlowIds(flow.uniqueNamedNodeIds);
     flow.pathNodeIds = logicalFlowIds(flow.pathNodeIds);
     for (const id of cppAliases.keys()) flow.spineCallSites.delete(id);
+    // Report the same logical Flow identities that receive source priority,
+    // rather than the declaration IDs retained in the narrative call evidence.
+    diag?.querySelection(subgraph.nodes.values(), cppAliases, namedSeedIds, exactNodeIds, flow.pathNodeIds);
 
     // The symbols the question is about: exact targets, the named ones, the spine.
     const questionIds = new Set([...exactNodeIds, ...flow.pathNodeIds, ...flow.namedNodeIds]);
@@ -3097,6 +3109,7 @@ export class ToolHandler {
       maxFiles,
     );
     diag?.setAllocation(allocation.allowances, allocation.cliffed, allocation.cliffAt, allocation.pool);
+    diag?.queryCheckpoint('flow-and-file-allocation');
     // Cliffed files ship as pointers — path, symbols, line numbers — so the agent
     // can name one in a follow-up explore. Rendered below with the other
     // not-shown files, and force-enabled even on tiers that suppress that list:
@@ -5528,6 +5541,7 @@ export class ToolHandler {
 
     // Emit the allocation diagnostic from the FINAL text, so per-file bytes and
     // shares account for the hard-ceiling truncation above (CG-4).
+    diag?.queryDeliveredRanges(emittedByFile);
     diag?.finish(finalText, output.length, hardCeiling, filesIncluded);
 
     // Session record (CG-17): only the files that SURVIVED the hard ceiling —
@@ -5854,7 +5868,7 @@ export class ToolHandler {
    * whose qualifiedName contains another named token (`PmsProductServiceImpl::list`),
    * dropping unrelated `OmsOrderService::list`.
    */
-  private buildFlowFromNamedSymbols(cg: CodeGraph, query: string): { text: string; pathNodeIds: Set<string>; namedNodeIds: Set<string>; uniqueNamedNodeIds: Set<string>; spineCallSites: Map<string, number> } {
+  private buildFlowFromNamedSymbols(cg: CodeGraph, query: string, queryIntent?: ExploreQueryIntent): { text: string; pathNodeIds: Set<string>; namedNodeIds: Set<string>; uniqueNamedNodeIds: Set<string>; spineCallSites: Map<string, number> } {
     // spineCallSites: for each spine node, the line where it CALLS the next hop —
     // lets the source assembler window an oversize spine method (e.g. n8n's 962-line
     // processRunExecutionData) to the call site instead of dumping the whole body.
@@ -5863,7 +5877,7 @@ export class ToolHandler {
       // Token resolution — parsing, overload disambiguation, the CONSTANT/
       // VARIABLE synth endpoints — is shared with `/api/flow`, so a name written
       // in the viewer's search box resolves to the same nodes it does here.
-      const flow = resolveNamedSymbolFlow(cg, query);
+      const flow = resolveNamedSymbolFlow(cg, query, { queryIntent });
       const { named, dynNamed, tokenNodes, tokenFamily, uniqueNamedNodeIds, preciseNamedIds } =
         flow;
       if (flow.tokens.length < 2) return EMPTY;

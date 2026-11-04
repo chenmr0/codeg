@@ -14,9 +14,9 @@ const data = (name: string, extra: Partial<Node> = {}): Node => ({
   filePath: 'metric.h', startLine: 1, endLine: 1, startColumn: 0, endColumn: 0, updatedAt: 0, ...extra,
 });
 const roots: string[] = [], graphs: CodeGraph[] = [];
-afterEach(() => {
-  for (const graph of graphs.splice(0)) graph.close();
-  for (const root of roots.splice(0)) fs.rmSync(root, { recursive: true, force: true });
+afterEach(async () => {
+  for (const graph of graphs.splice(0)) { await graph.whenIdle(); graph.close(); await graph.whenIdle(); }
+  for (const root of roots.splice(0)) fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   vi.restoreAllMocks(); vi.unstubAllEnvs();
 });
 
@@ -74,6 +74,7 @@ describe('bounded explicit enum/field definition anchors', () => {
     expect(gather).toHaveBeenCalledTimes(1);
     expect(gather).toHaveBeenCalledWith(query, {
       searchLimit: 8, traversalDepth: 3, maxNodes: 200, minScore: 0.2,
+      queryIntent: expect.objectContaining({ raw: query, symbolTokens: [query] }),
     });
     expect(record).toHaveBeenCalledTimes(1);
     expect(record.mock.calls[0]![0].sourceBytes).toBeGreaterThan(0);
