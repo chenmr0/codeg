@@ -1,0 +1,17 @@
+# AR-04：日志限流等待的提前结束原因可诊断
+
+## 背景
+当日志盘压力、回收进度和需要尽快处理的元数据任务交错出现时，运维只能看到累计等待，很难解释“本次为什么等待”“为什么没有等满”以及“是否真正写入”。希望增加可关联的单次限流摘要，帮助分析延迟，而不是改变已有保护策略。
+
+## 需求
+本次已知背景包括 `LogWritingThrottle`、`LogIOWorker`、`PalfThrottleOptions` 和 `LogThrottlingStat`；有人把排查入口记在 `src/logservice/palf/log_throttle.cpp`，但评审不能只局限于这个文件。
+
+每次受限写入应能区分：未触发等待、正常等完、空间回收后提前结束、压力解除或配置变化后提前结束，以及为了让需要尽快处理的任务前进而跳过等待。摘要至少包含预计等待、实际等待、处理字节数和结束原因。设计稿的原因字段暂称 `throttle_resume_reason`，恢复事件名暂称 `THROTTLE_RECOVERED`；两者均为拟新增表达，不要求在源码中已有同名定义。
+
+请评估 `notify_need_writing_throttling`、`throttling`、`after_append_log` 周边的影响面。等待期可能碰到容量快照变化，`unrecyclable_disk_space_` 与 `appended_log_size_cur_round_` 的诊断口径必须一致，不能把新旧轮次混在一条摘要中。一次等待被提前结束时，要在既有检测节奏内响应，不得为了生成日志增加额外的长时间阻塞。
+
+对 `NeedPurgingThrottlingFunc` 涉及的例外路径，说明如何与普通限流区分；`purge_throttling_task_submitted_seq_`、`purge_throttling_task_handled_seq_` 的推进不能因为新增诊断而改变。任务入队失败、执行失败和成功写入必须采用不同事实口径，不能将等待完成记成写入成功。
+
+## 范围与验收
+不改变限流曲线、租户容量、停止写入门槛或原有任务顺序；不扩展到归档限速，也不新增系统表。
+测试应覆盖正常等完、等待中空间回收、配置在线变化、例外任务到来、入队失败、执行失败、零字节任务及不参与限流的系统日志流。摘要应可关联但避免逐次刷屏，关闭详细输出时不应显著增加写入热点开销。
