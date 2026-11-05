@@ -715,6 +715,107 @@ export class QueryBuilder {
     return rows.map(row => row.file_path);
   }
 
+  /** Candidate-name probes for every C/C++ resolution strategy, including receivers. */
+  getCppBindingSourceFilesForNames(names: readonly string[]): string[] {
+    const files = new Set<string>();
+    const originals = new Map<string, Set<string>>();
+    for (const name of names) {
+      const key = name.toLowerCase(), spellings = originals.get(key) ?? new Set<string>();
+      spellings.add(name); originals.set(key, spellings);
+    }
+    const normalized = [...originals.keys()];
+    for (let offset = 0; offset < normalized.length; offset += 256) {
+      const chunk = JSON.stringify(normalized.slice(offset, offset + 256));
+      const rows = this.db.prepare(`SELECT DISTINCT s.file_path FROM nodes t INDEXED BY idx_nodes_lower_name
+        JOIN edges e ON e.target=t.id JOIN nodes s ON s.id=e.source
+        WHERE lower(t.name) IN (SELECT value FROM json_each(?)) AND s.language IN ('c','cpp')
+          AND e.kind NOT IN ('contains','defines')`).all(chunk) as Array<{ file_path: string }>;
+      for (const row of rows) files.add(row.file_path);
+      // Failed-reference tails are case preserving. Probe the existing index
+      // with the original spelling rather than applying lower() to every row.
+      const original = JSON.stringify(normalized.slice(offset, offset + 256).flatMap(name => [...originals.get(name)!]));
+      const failed = this.db.prepare(`SELECT DISTINCT file_path FROM unresolved_refs INDEXED BY idx_unresolved_failed_tail
+        WHERE status='failed' AND name_tail IN (SELECT value FROM json_each(?)) AND language IN ('c','cpp')`)
+        .all(original) as Array<{ file_path: string }>;
+      for (const row of failed) files.add(row.file_path);
+    }
+    return [...files];
+  }
+
+  /**
+   * Recreate source-stamped references before deleting old successful edges.
+   * Each bounded page is atomic; a durable caller-owned journal can retry the
+   * remaining pages after interruption. Unstamped semantic edges require source
+   * extraction, and are deliberately not deleted here.
+   */
+  async requeueCppBindingEdges(filePath: string): Promise<{ queued: number; requiresRefresh: boolean }> {
+    const meta = "CASE WHEN json_valid(e.metadata) THEN e.metadata ELSE '{}' END";
+    // Both existing indexes end in SQLite's implicit rowid. Fix their leading
+    // columns before seeking, so each page starts after its cursor instead of
+    // sorting every source's remaining edges again for a global edge-id order.
+    const sources = this.db.prepare(`SELECT rowid AS node_rowid,id,language FROM nodes INDEXED BY idx_nodes_file_path
+      WHERE file_path=? AND rowid>? AND language IN ('c','cpp') ORDER BY rowid LIMIT 256`);
+    const edgeKinds = this.db.prepare(`SELECT DISTINCT kind FROM edges INDEXED BY idx_edges_source_kind
+      WHERE source=? AND kind NOT IN ('contains','defines') ORDER BY kind`);
+    const statement = this.db.prepare(`SELECT e.id,e.source,e.kind,e.line,e.col,e.metadata
+      FROM edges e INDEXED BY idx_edges_source_kind JOIN nodes t ON t.id=e.target
+      WHERE e.source=? AND e.kind=? AND e.id>? AND (
+        json_type(${meta},'$.refName')='text' OR e.kind IN ('calls','references','instantiates','extends','implements')
+        OR (e.kind='imports' AND t.kind='file')) ORDER BY e.id LIMIT 1000`);
+    const insert = this.db.prepare(`INSERT INTO unresolved_refs
+      (from_node_id,reference_name,reference_kind,line,col,file_path,language)
+      SELECT ?,?,?,?,?,?,? WHERE NOT EXISTS (SELECT 1 FROM unresolved_refs
+        WHERE from_node_id=? AND reference_name=? AND reference_kind=? AND line=? AND col=?)`);
+    const pending = this.db.prepare(`UPDATE unresolved_refs SET status='pending',name_tail=''
+      WHERE from_node_id=? AND reference_name=? AND reference_kind=? AND line=? AND col=?`);
+    const remove = this.db.prepare('DELETE FROM edges WHERE id=?');
+    const kinds = new Set(['calls', 'references', 'instantiates', 'imports', 'exports', 'extends', 'implements',
+      'type_of', 'returns', 'overrides', 'decorates']);
+    let afterSource = 0, queued = 0, requiresRefresh = false;
+    for (;;) {
+      const nodes = sources.all(filePath, afterSource) as Array<{ node_rowid: number; id: string; language: Language }>;
+      if (!nodes.length) break;
+      for (const source of nodes) {
+        // The schema has a small fixed edge-kind vocabulary, not an unbounded
+        // cache of source ids or edge rows.
+        const partitions = edgeKinds.all(source.id) as Array<{ kind: string }>;
+        for (const partition of partitions) {
+          let after = 0;
+          for (;;) {
+            const rows = statement.all(source.id, partition.kind, after) as Array<{
+              id: number; source: string; kind: EdgeKind; line: number | null; col: number | null; metadata: string | null;
+            }>;
+            if (!rows.length) break;
+            this.db.transaction(() => {
+              for (const row of rows) {
+                const parsed = row.metadata ? safeJsonParse<unknown>(row.metadata, null) : null;
+                const data = parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)
+                  ? parsed as Record<string, unknown> : {};
+                const kind = typeof data.refKind === 'string' ? data.refKind : row.kind;
+                if (typeof data.refName !== 'string' || !data.refName || row.line === null || row.col === null || !kinds.has(kind)) {
+                  requiresRefresh = true; continue;
+                }
+                const identity = [row.source, data.refName, kind, row.line, row.col];
+                insert.run(...identity, filePath, source.language, ...identity);
+                pending.run(...identity);
+                remove.run(row.id);
+                queued++;
+              }
+            })();
+            after = rows[rows.length - 1]!.id;
+            await new Promise<void>(resolve => setImmediate(resolve));
+          }
+        }
+      }
+      afterSource = nodes[nodes.length - 1]!.node_rowid;
+      await new Promise<void>(resolve => setImmediate(resolve));
+    }
+    // Evidence changes can make a formerly failed receiver/overload legal.
+    this.db.prepare(`UPDATE unresolved_refs SET status='pending',name_tail=''
+      WHERE file_path=? AND language IN ('c','cpp') AND status='failed'`).run(filePath);
+    return { queued, requiresRefresh };
+  }
+
   /** Stamped exact resolutions only; unknown/legacy edges are rebuilt normally. */
   getAppendResolutionEdges(filePath: string, limit: number): Array<{ id: number; ref: UnresolvedReference }> {
     const rows = this.db.prepare(`SELECT e.id,e.source,e.kind,e.line,e.col,e.metadata,n.language

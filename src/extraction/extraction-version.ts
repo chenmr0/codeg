@@ -23,6 +23,7 @@
  * turns the re-index hint into noise — keep it honest (see CLAUDE.md, "Honesty
  * in the product is load-bearing").
  */
-// v40: source-validated C++ namespace ranges must preserve receiver owners
-// when parser recovery drops an outer namespace prefix. Reindex to repair IDs.
-export const EXTRACTION_VERSION = 40;
+// v41: C/C++ binding admission uses source visibility, receiver ownership and
+// call-arity evidence. Reindex to replace previously successful wrong edges;
+// retrying unresolved references alone cannot repair retained resolutions.
+export const EXTRACTION_VERSION = 41;

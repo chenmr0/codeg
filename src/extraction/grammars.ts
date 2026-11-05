@@ -453,7 +453,82 @@ export function maskCStyleCommentsAndLiterals(source: string): string {
  * data table before the first namespace/class must not select the C grammar.
  */
 function looksLikeCpp(code: string): boolean {
+  if (hasCppStructDefinition(code)) return true;
   return /\bnamespace\b|\bclass\s+\w+(?:\s+final)?\s*[:{;]|\btemplate\s*<|\b(?:public|private|protected)\s*:|\bvirtual\b|\busing\s+(?:namespace\b|\w+\s*=|\w+::)|\b(?:constexpr|consteval|constinit|noexcept|decltype|nullptr)\b|\benum\s+(?:class|struct)\s+\w+|\b(?:static_cast|reinterpret_cast|const_cast|dynamic_cast)\s*<|\bstd::/.test(code);
+}
+
+/** Recognize only complete C++ struct heads, including their opening body. */
+function hasCppStructDefinition(code: string): boolean {
+  // `struct Foo:` alone is also a C _Generic association. Require a complete
+  // base list followed by `{`, rather than treating the colon as C++ evidence.
+  // Whitespace before final keeps an ordinary tag ending in "final" in C.
+  const head = /\bstruct\s+(?:[A-Za-z_]\w*\s*::\s*)*[A-Za-z_]\w*(\s+final)?\s*(:(?!:)|\{)/g;
+  let match: RegExpExecArray | null;
+  while ((match = head.exec(code)) !== null) {
+    if (match[2] === '{') {
+      if (match[1]) return true;
+    } else if (hasCppBaseClauseBody(code, head.lastIndex)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function hasCppBaseClauseBody(code: string, start: number): boolean {
+  // This deliberately accepts a small type-oriented token set. Parentheses,
+  // semicolons, single colons, directives, and unsupported expressions stop
+  // detection; scanning must not jump from an association to a later body.
+  const tokens = /\s*(::|[A-Za-z_]\w*|[0-9]+[uUlL]*|\.\.\.|[<>,*&{}])/y;
+  let cursor = start;
+  const next = (): string | undefined => {
+    tokens.lastIndex = cursor;
+    const match = tokens.exec(code);
+    if (!match) return undefined;
+    cursor = tokens.lastIndex;
+    return match[1];
+  };
+  const isName = (token: string | undefined): boolean => token !== undefined && /^[A-Za-z_]\w*$/.test(token);
+  let token = next();
+  while (token !== undefined) {
+    let accessSeen = false;
+    let virtualSeen = false;
+    while (token === 'public' || token === 'protected' || token === 'private' || token === 'virtual') {
+      if (token === 'virtual') {
+        if (virtualSeen) return false;
+        virtualSeen = true;
+      } else {
+        if (accessSeen) return false;
+        accessSeen = true;
+      }
+      token = next();
+    }
+    if (token === '::') token = next();
+    if (!isName(token)) return false;
+    while (true) {
+      token = next();
+      if (token === '<') {
+        // Common template bases may contain nested types and integral args.
+        // More complex argument syntax conservatively provides no evidence.
+        let depth = 1;
+        while (depth > 0) {
+          token = next();
+          if (token === undefined || token === '{' || token === '}') return false;
+          if (token === '<') depth++;
+          else if (token === '>') depth--;
+        }
+        token = next();
+      }
+      if (token !== '::') break;
+      token = next();
+      if (token === 'template') token = next();
+      if (!isName(token)) return false;
+    }
+    if (token === '...') token = next();
+    if (token === '{') return true;
+    if (token !== ',') return false;
+    token = next();
+  }
+  return false;
 }
 
 /**

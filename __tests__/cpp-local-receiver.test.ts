@@ -55,7 +55,7 @@ describe('bounded C++ local receiver evidence', () => {
     'void invoke() { /* PictureData data; */ data.flatten(); }',
     'void invoke() { const char* x = "PictureData data;"; data.flatten(); }',
     'void invoke() { const char* x = R"raw(PictureData data;)raw"; data.flatten(); }',
-  ])('leaves uncertain/inactive evidence on the old path: %s', text => expect(check(text)).toBe(false));
+  ])('declines uncertain/inactive local evidence: %s', text => expect(check(text)).toBe(false));
   it('handles comments, raw literals, CRLF and Unicode without shifting the receiver', () => {
     expect(check('void invoke() {\r\n/* 中文 { */ PictureData data;\r\nconst char* t = R"x(})x"; data.flatten();\r\n}')).toBe(true);
   });
@@ -81,7 +81,7 @@ describe('bounded C++ local receiver evidence', () => {
     expect(hasSimpleCppLocalReceiver('data','PictureData',{...ref,line:2,column:0},source,lines)).toBe(true);
     expect(mask).toHaveBeenCalledTimes(141);
   });
-  it.each(['macro','type_alias','template'] as const)('keeps existing fallback when the apparent type also names a %s', kind => {
+  it.each(['macro','type_alias','template'] as const)('leaves the receiver unresolved when the apparent type also names a %s', kind => {
     const {source,ref,lines} = site('void invoke() { PictureData data; data.flatten(); }');
     source.signature='void invoke()';
     const type: Node={...source,id:'type',name:'PictureData',kind:'class',qualifiedName:'PictureData',filePath:'type.hpp'};
@@ -95,13 +95,14 @@ describe('bounded C++ local receiver evidence', () => {
     };
     expect(matchMethodCall(ref,context)).toBeNull();
     nodes.push({...type,id:'indirect',kind:kind==='template'?'class':kind,...(kind==='template'?{typeParameters:['T']}: {})});
-    expect(matchMethodCall(ref,context)?.targetNodeId).toBe('other');
+    // An ambiguous apparent type does not justify choosing an unrelated owner.
+    expect(matchMethodCall(ref,context)).toBeNull();
   });
 });
 
 beforeAll(() => grammars.loadGrammarsForLanguages(['c','cpp']));
 describe('local C++ receiver delete/restart/restore', () => {
-  it.each([false,true])('preserves fallback for a declared but unresolved base (cache off=%s)', async off => {
+  it.each([false,true])('leaves a declared but unresolved base unresolved (cache off=%s)', async off => {
     if(off) vi.stubEnv('CODEGRAPH_NO_RESOLVE_EQUIVALENCE_CACHE','1');
     const root=fs.mkdtempSync(path.join(os.tmpdir(),'cg-local-unknown-base-'));
     let cg: CodeGraph | undefined;
@@ -109,15 +110,14 @@ describe('local C++ receiver delete/restart/restore', () => {
       fs.writeFileSync(path.join(root,'types.hpp'),'class PictureData : public UnindexedBase { };\nclass OtherData { public: void flatten(); };\n');
       fs.writeFileSync(path.join(root,'caller.cpp'),'void invoke() { PictureData data; data.flatten(); }\n');
       cg=CodeGraph.initSync(root);await cg.indexAll();
-      const db=(cg as any).db.db;
+      const db=cg.getExploreQueryConnection();
       expect(db.prepare("SELECT COUNT(*) n FROM unresolved_refs WHERE reference_kind='extends' AND status='failed'").get().n).toBeGreaterThan(0);
       expect(db.prepare(`SELECT t.qualified_name target FROM edges e JOIN nodes s ON s.id=e.source
-        JOIN nodes t ON t.id=e.target WHERE s.name='invoke' AND e.kind='calls'`).all()).toEqual([{target:'OtherData::flatten'}]);
-      // Unknown inheritance deliberately retains the pre-existing heuristic;
-      // this test proves no new tightening, not semantic correctness of that guess.
-    } finally {cg?.close();fs.rmSync(root,{recursive:true,force:true});}
+        JOIN nodes t ON t.id=e.target WHERE s.name='invoke' AND e.kind='calls'`).all()).toEqual([]);
+      // An unknown base cannot establish that an unrelated class owns this call.
+    } finally {cg?.close();await cg?.whenIdle();fs.rmSync(root,{recursive:true,force:true});}
   });
-  it('keeps the existing fallback for inheritance beyond the typed lookup depth bound', async () => {
+  it('leaves valid inheritance beyond the typed lookup depth bound unresolved', async () => {
     const root=fs.mkdtempSync(path.join(os.tmpdir(),'cg-local-deep-base-'));
     let cg: CodeGraph | undefined;
     try {
@@ -125,10 +125,12 @@ describe('local C++ receiver delete/restart/restore', () => {
         Array.from({length:5},(_,i)=>`class B${i+1} : public B${i} {};\n`).join(''));
       fs.writeFileSync(path.join(root,'caller.cpp'),'void invoke() { B5 data; data.flatten(); }\n');
       cg=CodeGraph.initSync(root);await cg.indexAll();
-      const calls=(cg as any).db.db.prepare(`SELECT t.qualified_name target FROM edges e
+      const calls=cg.getExploreQueryConnection().prepare(`SELECT t.qualified_name target FROM edges e
         JOIN nodes s ON s.id=e.source JOIN nodes t ON t.id=e.target WHERE s.name='invoke' AND e.kind='calls'`).all();
-      expect(calls).toEqual([{target:'B0::flatten'}]);
-    } finally {cg?.close();fs.rmSync(root,{recursive:true,force:true});}
+      // B0::flatten is semantically valid, but exceeds the bounded typed lookup.
+      // This is a conservative coverage limit, not an invalid target.
+      expect(calls).toEqual([]);
+    } finally {cg?.close();await cg?.whenIdle();fs.rmSync(root,{recursive:true,force:true});}
   });
   it.each(['PictureData data;', 'PictureData data(42);', 'PictureData data{42};',
     'PictureData* data = make_data();'])('does not guess a different class after %s', async declaration => {
@@ -140,16 +142,16 @@ describe('local C++ receiver delete/restart/restore', () => {
       fs.writeFileSync(path.join(root,'other.hpp'),'class OtherData { public: void flatten(); };\n');
       fs.writeFileSync(path.join(root,'caller.cpp'),`class PictureData;\nvoid invoke() { ${declaration} data${declaration.includes('*')?'->':'.'}flatten(); }\n`);
       cg=CodeGraph.initSync(root); await cg.indexAll();
-      const calls=()=> (cg as any).db.db.prepare(`SELECT t.qualified_name target FROM edges e
+      const calls=()=> cg!.getExploreQueryConnection().prepare(`SELECT t.qualified_name target FROM edges e
         JOIN nodes s ON s.id=e.source JOIN nodes t ON t.id=e.target
         WHERE s.name='invoke' AND e.kind='calls' AND t.name='flatten'`).all();
       expect(calls()).toEqual([{target:'PictureData::flatten'}]);
       fs.unlinkSync(path.join(root,'provider.hpp')); await cg.sync();
       expect(calls()).toEqual([]);
-      cg.close(); cg=CodeGraph.openSync(root);
+      cg.close(); await cg.whenIdle(); cg=CodeGraph.openSync(root);
       fs.writeFileSync(path.join(root,'provider.hpp'),provider); await cg.sync();
       expect(calls()).toEqual([{target:'PictureData::flatten'}]);
       await cg.sync(); expect(calls()).toEqual([{target:'PictureData::flatten'}]);
-    } finally { cg?.close(); fs.rmSync(root,{recursive:true,force:true}); }
+    } finally { cg?.close(); await cg?.whenIdle(); fs.rmSync(root,{recursive:true,force:true}); }
   });
 });

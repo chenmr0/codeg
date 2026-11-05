@@ -11,8 +11,10 @@ import { splitNameWords } from './text-cache';
 import { stripCommentsForRegex } from './strip-comments';
 import { resolveImportPath } from './import-resolver';
 import * as path from 'node:path';
-import { hasSimpleCppLocalReceiver } from './cpp-local-receiver';
 import { cppDeclaratorRegex as buildDeclaratorRegex, lastDeclarationBefore } from './cpp-receiver-index';
+import { cppCallableSignatureKey, filterCppCallCandidates, isCppCallArityAllowed } from './cpp-call-admission';
+import { filterCppBindingCandidates } from './cpp-binding-evidence';
+import { maskCStyleCommentsAndLiterals } from '../extraction/grammars';
 
 /**
  * Try to resolve a path-like reference (e.g., "snippets/drawer-menu.liquid")
@@ -269,8 +271,119 @@ function applyReferenceGates(candidates: Node[], ref: UnresolvedRef): Node[] {
   return applyTargetKindGate(applyLanguageGate(candidates, ref), ref);
 }
 
-/** A bare C/C++ identifier cannot name an unrelated class member in another file. */
+function cppOwner(node: Node): string {
+  const cut = node.qualifiedName.lastIndexOf('::');
+  return cut < 0 ? '' : node.qualifiedName.slice(0, cut);
+}
+
+function cppCallerOwner(ref: UnresolvedRef, context: ResolutionContext): string {
+  const source = context.getNodesInFile(ref.filePath).find(n => n.id === ref.fromNodeId);
+  return source?.kind === 'method' ? cppOwner(source) : '';
+}
+
+function cppDirectMethods(type: string, method: string, ref: UnresolvedRef, context: ResolutionContext): Node[] {
+  const want = `${type}::${method}`;
+  // Shared .h files can retain the C extraction tag even when they declare
+  // C++ members. Query both indexes, while still requiring a real method node.
+  const nodes = context.getMethodMatches
+    ? (['cpp', 'c'] as const).flatMap(language => context.getMethodMatches!(type, method, language))
+    : context.getNodesByName(method);
+  return filterCppBindingCandidates(nodes.filter(n => n.kind === 'method' && sameLanguageFamily(n.language, ref.language) &&
+    (n.qualifiedName === want || n.qualifiedName.endsWith('::' + want))), ref, context);
+}
+
+/** using Base::name imports a hidden overload set; inheritance alone does not. */
+function cppUsingBase(type: string, base: string, method: string, ref: UnresolvedRef, context: ResolutionContext): boolean {
+  const owners = context.getNodesByName(cppLastSegment(type)).filter(n =>
+    ['class', 'struct'].includes(n.kind) && sameLanguageFamily(n.language, ref.language) &&
+    (n.qualifiedName === type || n.qualifiedName.endsWith('::' + type)));
+  const escape = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const pattern = new RegExp('\\busing\\s+(?:::)?' + escape(base) + '\\s*::\\s*' + escape(method) + '\\s*;');
+  return owners.some(owner => {
+    const lines = context.getFileLines?.(owner.filePath) ?? context.readFile(owner.filePath)?.split(/\r?\n/);
+    if (!lines || owner.endLine - owner.startLine > 512) return false;
+    const code = maskCStyleCommentsAndLiterals(lines.slice(owner.startLine - 1, owner.endLine).join('\n')).slice(owner.startColumn);
+    const open = code.indexOf('{');
+    if (open < 0) return false;
+    let depth = 1;
+    for (let i = open + 1; i < code.length && depth > 0; i++) {
+      // Only a declaration immediately in this class imports its overloads.
+      // Nested classes/functions and conditional directives are not evidence.
+      if (depth === 1 && code[i] === '#') return false;
+      if (depth === 1 && code[i] === 'u' && pattern.exec(code.slice(i))?.index === 0) return true;
+      if (code[i] === '{') depth++;
+      else if (code[i] === '}') depth--;
+    }
+    return false;
+  });
+}
+
+function cppMethodsOnType(type: string, method: string, ref: UnresolvedRef, context: ResolutionContext,
+  depth = 0, seen = new Set<string>()): Node[] {
+  if (depth > 4 || seen.has(type) || /[<>]/.test(type)) return [];
+  const owners = context.getNodesByName(cppLastSegment(type)).filter(n =>
+    ['class', 'struct'].includes(n.kind) && sameLanguageFamily(n.language, ref.language) &&
+    (n.qualifiedName === type || n.qualifiedName.endsWith('::' + type)));
+  if (owners.some(owner => owner.typeParameters?.length)) return [];
+  seen.add(type);
+  const own = cppDirectMethods(type, method, ref, context);
+  const hiddenByData = context.getNodesByName(method).some(n => sameLanguageFamily(n.language, ref.language) && n.kind !== 'method'
+    && (cppOwner(n) === type || cppOwner(n).endsWith('::' + type)));
+  // Data members and nested type names hide base functions too. Until the
+  // field's callable type is proved, keep its call unresolved, never bind Base.
+  if (hiddenByData) return [];
+  const matches = [...filterCppCallCandidates(own, ref, context)];
+  for (const base of context.getSupertypes?.(type, ref.language) ?? []) {
+    if (own.length && !cppUsingBase(type, base, method, ref, context)) continue;
+    matches.push(...cppMethodsOnType(base, method, ref, context, depth + 1, new Set(seen)));
+  }
+  return [...new Map(matches.map(n => [n.id, n])).values()];
+}
+
+function cppUniqueMethod(matches: Node[]): Node | null {
+  if (matches.length === 1) return matches[0]!;
+  if (!matches.length) return null;
+  const keys = matches.map(cppCallableSignatureKey);
+  if (keys.some(key => key === null) || new Set(keys).size !== 1) return null;
+  return matches.find(n => !n.isDeclaration) ?? matches[0]!;
+}
+
+/** The receiver/owner is authoritative even for a target selected by another strategy. */
+export function isCppCallTargetAllowed(candidate: Node, ref: UnresolvedRef, context: ResolutionContext): boolean {
+  if ((ref.language !== 'cpp' && ref.language !== 'c') || ref.referenceKind !== 'calls') return true;
+  if (!isCppCallArityAllowed(candidate, ref, context)) return false;
+  // C structure fields can contain callbacks; they are not C++ methods.
+  if (ref.language !== 'cpp') return true;
+  const dotted = /^(.+)\.([A-Za-z_]\w*)$/.exec(ref.referenceName);
+  if (dotted) {
+    const receiver = dotted[1]!, method = dotted[2]!;
+    const chain = /^(.*)\(\)$/.exec(receiver);
+    const type = receiver === 'this' ? cppCallerOwner(ref, context)
+      : chain ? resolveCppCallResultType(chain[1]!, ref, context) : inferCppReceiverType(receiver, ref, context);
+    return !!type && cppMethodsOnType(type, method, ref, context).some(n => n.id === candidate.id);
+  }
+  const qualified = /^(?:::)?(.+)::([A-Za-z_]\w*)$/.exec(ref.referenceName);
+  if (qualified) {
+    const want = ref.referenceName.replace(/^::/, '');
+    if (candidate.qualifiedName === want || candidate.qualifiedName.endsWith('::' + want)) return true;
+    return candidate.kind === 'method' && cppMethodsOnType(qualified[1]!, qualified[2]!, ref, context).some(n => n.id === candidate.id);
+  }
+  if (!/^\w+$/.test(ref.referenceName)) return true;
+  const owner = cppCallerOwner(ref, context);
+  const line = context.getFileLines?.(ref.filePath)?.[ref.line - 1];
+  const explicitThis = !!line && (/^this\s*->/.test(line.slice(ref.column)) || /\bthis\s*->\s*$/.test(line.slice(0, ref.column)));
+  if (candidate.kind === 'method') return !!owner && cppMethodsOnType(owner, ref.referenceName, ref, context).some(n => n.id === candidate.id);
+  if (explicitThis) return false;
+  // A declared member hides a same-named free function, including when none of
+  // the member overloads accepts this arity. Other bare free helpers survive.
+  return !owner || !cppDirectMethods(owner, ref.referenceName, ref, context).length;
+}
+
+/** Bare identifiers cannot name unrelated class members, even in the same file. */
 function applyCppMemberScopeGate(candidates: Node[], ref: UnresolvedRef, context: ResolutionContext): Node[] {
+  if (ref.language === 'cpp' && ref.referenceKind === 'calls') {
+    return candidates.filter(candidate => isCppCallTargetAllowed(candidate, ref, context));
+  }
   if ((ref.language !== 'c' && ref.language !== 'cpp') || !/^\w+$/.test(ref.referenceName)
     || !candidates.some(n => (n.kind === 'field' || n.kind === 'method') && n.filePath !== ref.filePath)) return candidates;
   const source = context.getNodesInFile(ref.filePath).find(n => n.id === ref.fromNodeId);
@@ -301,6 +414,10 @@ function applyCppMemberScopeGate(candidates: Node[], ref: UnresolvedRef, context
   });
 }
 
+function applyCppCandidateGates(candidates: Node[], ref: UnresolvedRef, context: ResolutionContext): Node[] {
+  return applyCppMemberScopeGate(filterCppCallCandidates(filterCppBindingCandidates(candidates, ref, context), ref, context), ref, context);
+}
+
 /**
  * Try to resolve a reference by exact name match
  */
@@ -308,11 +425,13 @@ export function matchByExactName(
   ref: UnresolvedRef,
   context: ResolutionContext
 ): ResolvedRef | null {
-  const candidates = applyCppMemberScopeGate(applyReferenceGates(context.getNodesByName(ref.referenceName), ref), ref, context);
+  const candidates = applyCppCandidateGates(applyReferenceGates(context.getNodesByName(ref.referenceName), ref), ref, context);
 
   if (candidates.length === 0) {
     return null;
   }
+  if (ref.language === 'cpp' && ref.referenceKind === 'calls' && candidates.length > 1 &&
+      candidates.every(n => n.kind === 'method') && !cppUniqueMethod(candidates)) return null;
 
   // If only one match, use it — but penalize cross-language matches
   if (candidates.length === 1) {
@@ -354,7 +473,7 @@ export function matchByQualifiedName(
     return null;
   }
 
-  const qualifiedCandidates = context.getNodesByQualifiedName(ref.referenceName);
+  const qualifiedCandidates = applyCppCandidateGates(context.getNodesByQualifiedName(ref.referenceName), ref, context);
   const candidates = ref.referenceKind === 'instantiates' || isCppInheritance(ref)
     ? applyReferenceGates(qualifiedCandidates, ref)
     : qualifiedCandidates;
@@ -372,10 +491,12 @@ export function matchByQualifiedName(
   const parts = ref.referenceName.split(/[:.]/);
   const lastName = parts[parts.length - 1];
   if (lastName) {
-    const namedCandidates = context.getNodesByName(lastName);
+    const namedCandidates = applyCppCandidateGates(context.getNodesByName(lastName), ref, context);
     const partialCandidates = ref.referenceKind === 'instantiates' || isCppInheritance(ref)
       ? applyReferenceGates(namedCandidates, ref)
       : namedCandidates;
+    if (ref.language === 'cpp' && ref.referenceKind === 'calls' && partialCandidates.length > 1 &&
+        partialCandidates.every(n => n.kind === 'method') && !cppUniqueMethod(partialCandidates)) return null;
     for (const candidate of partialCandidates) {
       if (candidate.qualifiedName.endsWith(ref.referenceName)) {
         return {
@@ -410,6 +531,10 @@ function resolveMethodOnType(
   /** Recursion guard for the supertype/conformance walk. */
   depth = 0,
 ): ResolvedRef | null {
+  if (ref.language === 'cpp') {
+    const target = cppUniqueMethod(cppMethodsOnType(typeName, methodName, ref, context));
+    return target ? { original: ref, targetNodeId: target.id, confidence, resolvedBy } : null;
+  }
   // Look up methods by name and match by qualifiedName ending in
   // `<typeName>::<methodName>`. This works whether the method is defined
   // in-class (`class Foo { int bar() { ... } }`) or out-of-line in a separate
@@ -488,7 +613,6 @@ function normalizeCppTypeName(typeName: string): string | null {
   const normalized = typeName
     .replace(/\b(const|volatile|mutable|typename|class|struct)\b/g, ' ')
     .replace(/[&*]+/g, ' ')
-    .replace(/<[^>]*>/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
 
@@ -497,7 +621,9 @@ function normalizeCppTypeName(typeName: string): string | null {
   const last = parts[parts.length - 1];
   if (!last) return null;
   if (CPP_NON_TYPE_TOKENS.has(last)) return null;
-  return last;
+  // Namespace qualification is evidence, while a dependent template receiver
+  // is not the same type as the template's unqualified primary spelling.
+  return /^(?:::)?[A-Za-z_]\w*(?:::[A-Za-z_]\w*)*$/.test(normalized) ? normalized.replace(/^::/, '') : null;
 }
 
 // Large sources use compact declaration evidence. Small sources and external
@@ -519,62 +645,45 @@ function inferCppReceiverType(
   const escapedReceiver = receiverName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const receiverPattern = new RegExp(`\\b${escapedReceiver}\\b`);
   const declaratorRegex = buildDeclaratorRegex(escapedReceiver);
+  const caller = context.getNodesInFile(ref.filePath).find(n => n.id === ref.fromNodeId);
+  const firstLine = caller ? Math.max(0, caller.startLine - 1) : 0;
 
   // Only source-spelled evidence is reused. In particular, an auto initializer
   // is evaluated against the CURRENT graph, even when its line is cached.
   const start = indexed ? lastDeclarationBefore(indexed.declarations, callLineIndex) : callLineIndex;
   for (let i = start; i >= 0; i--) {
     const declaration = indexed?.declarations[i];
-    const line = indexed ? indexed.lineText(declaration!.line) : lines![i];
+    const row = declaration?.line ?? i;
+    if (row < firstLine) break;
+    const fullLine = indexed ? indexed.lineText(row) : lines![row];
+    const line = row === callLineIndex ? fullLine?.slice(0, ref.column) : fullLine;
     if (!line || (!indexed && !receiverPattern.test(line))) continue;
 
-    const rawType = declaration ? declaration.rawType : line.match(declaratorRegex)?.[1];
-    if (rawType !== undefined) {
+    const declarations = [...line.matchAll(new RegExp(declaratorRegex.source, 'g'))];
+    for (const match of declarations.reverse()) {
+      const rawType = match[1]!;
+      // A use such as `return value` is not a newer declaration/shadowing.
+      // Continue within this same line before looking at preceding lines.
+      if (rawType.split(/\W+/).some(token => CPP_NON_TYPE_TOKENS.has(token))) continue;
       const normalized = normalizeCppTypeName(rawType);
       if (normalized === 'auto') {
         // `auto x = Foo::instance();` — the declared type is deduced; recover it
         // from the initializer (call return type / construction) (#645).
-        const initType = inferCppAutoInitializerType(line, receiverName, ref, context, depth);
-        if (initType) return initType;
-        // No usable initializer on this line — keep scanning earlier ones.
+        return inferCppAutoInitializerType(line, receiverName, ref, context, depth);
       } else if (normalized) {
         return normalized;
       }
+      return null;
     }
   }
 
-  const headerCandidates = [
-    ref.filePath.replace(/\.(?:c|cc|cpp|cxx)$/i, '.h'),
-    ref.filePath.replace(/\.(?:c|cc|cpp|cxx)$/i, '.hpp'),
-    ref.filePath.replace(/\.(?:c|cc|cpp|cxx)$/i, '.hxx'),
-  ].filter((candidate, index, arr) => arr.indexOf(candidate) === index && candidate !== ref.filePath);
-
-  for (const headerPath of headerCandidates) {
-    if (!context.fileExists(headerPath)) continue;
-    const headerIndex = context.getCppReceiverDeclarations?.(headerPath, receiverName);
-    if (headerIndex) {
-      // Headers retain the original FORWARD scan and skip auto declarations.
-      for (const declaration of headerIndex.declarations) {
-        const normalized = normalizeCppTypeName(declaration.rawType);
-        if (normalized && normalized !== 'auto') return normalized;
-      }
-      continue;
-    }
-    const headerLines = context.getFileLines
-      ? context.getFileLines(headerPath)
-      : context.readFile(headerPath)?.split(/\r?\n/);
-    if (!headerLines) continue;
-
-    for (const line of headerLines) {
-      if (!receiverPattern.test(line)) continue;
-      const declaratorMatch = line.match(declaratorRegex);
-      if (!declaratorMatch) continue;
-      const normalized = normalizeCppTypeName(declaratorMatch[1] ?? '');
-      if (normalized && normalized !== 'auto') return normalized;
-    }
-  }
-
-  return null;
+  // A same-named field in a neighbouring class/header is not receiver evidence.
+  const owner = caller?.kind === 'method' ? cppOwner(caller) : '';
+  if (!owner) return null;
+  const fields = filterCppBindingCandidates(context.getNodesByName(receiverName).filter(n =>
+    sameLanguageFamily(n.language, ref.language) && n.kind === 'field' && cppOwner(n) === owner), ref, context);
+  const types = fields.map(n => normalizeCppTypeName(n.signature?.match(declaratorRegex)?.[1] ?? ''));
+  return types.length && !types.includes(null) && new Set(types).size === 1 ? types[0]! : null;
 }
 
 /**
@@ -603,12 +712,12 @@ function lookupCalleeReturnType(
     method = parts[parts.length - 1] ?? callee;
     cls = parts.slice(0, -1).join('::');
   }
-  const candidates = context.getNodesByName(method).filter(
+  const candidates = filterCppBindingCandidates(context.getNodesByName(method).filter(
     (n) =>
       (n.kind === 'method' || n.kind === 'function') &&
-      n.language === ref.language &&
+      ((ref.language === 'cpp' || ref.language === 'c') ? sameLanguageFamily(n.language, ref.language) : n.language === ref.language) &&
       !!n.returnType,
-  );
+  ), ref, context);
   if (cls) {
     const want = `${cls}::${method}`;
     // The call site may name the class with MORE namespace qualification than
@@ -617,15 +726,19 @@ function lookupCalleeReturnType(
     // immediate class), or LESS. Accept an exact match or either being a
     // namespace-suffix of the other; the shared `::<class>::<method>` tail keeps
     // it specific.
-    const m = candidates.find(
+    const matches = candidates.filter(
       (n) =>
         n.qualifiedName === want ||
         n.qualifiedName.endsWith(`::${want}`) ||
         want.endsWith(`::${n.qualifiedName}`),
     );
-    return m?.returnType ?? null;
+    if (ref.language !== 'cpp' && ref.language !== 'c') return matches[0]?.returnType ?? null;
+    const results = new Set(matches.map(n => n.returnType));
+    return results.size === 1 ? [...results][0]! : null;
   }
-  return candidates.find((n) => n.kind === 'function')?.returnType ?? null;
+  if (ref.language !== 'cpp' && ref.language !== 'c') return candidates.find(n => n.kind === 'function')?.returnType ?? null;
+  const results = new Set(candidates.filter(n => n.kind === 'function').map(n => n.returnType));
+  return results.size === 1 ? [...results][0]! : null;
 }
 
 /** Does the graph contain a class/struct named `name`'s last segment? */
@@ -633,7 +746,8 @@ function cppClassExists(name: string, ref: UnresolvedRef, context: ResolutionCon
   const last = cppLastSegment(name);
   return context
     .getNodesByName(last)
-    .some((n) => (n.kind === 'class' || n.kind === 'struct') && n.language === ref.language);
+    .some((n) => (n.kind === 'class' || n.kind === 'struct') && sameLanguageFamily(n.language, ref.language) &&
+      (!name.includes('::') || n.qualifiedName === name || n.qualifiedName.endsWith('::' + name)));
 }
 
 /**
@@ -655,7 +769,7 @@ function resolveCppCallResultType(
   if (depth > 3) return null; // guard against pathological mutual recursion
   const expr = inner.trim();
 
-  const make = expr.match(/(?:^|::)(?:make_unique|make_shared)\s*<\s*([A-Za-z_]\w*)/);
+  const make = expr.match(/(?:^|::)(?:make_unique|make_shared)\s*<\s*([A-Za-z_][\w:]*)/);
   if (make) return make[1] ?? null;
 
   // Single-level member call `recv.method` (the `manager.view().render()` shape).
@@ -673,7 +787,7 @@ function resolveCppCallResultType(
   if (ret) return ret;
 
   // Direct construction — the callee itself names a class/struct.
-  if (cppClassExists(expr, ref, context)) return cppLastSegment(expr);
+  if (cppClassExists(expr, ref, context)) return expr;
 
   return null;
 }
@@ -696,7 +810,7 @@ function inferCppAutoInitializerType(
   const init = m[1].trim();
 
   const neu = init.match(/^new\s+([A-Za-z_][\w:]*)/);
-  if (neu && neu[1]) return cppLastSegment(neu[1]);
+  if (neu && neu[1]) return neu[1];
 
   // A call or construction: `Foo(...)`, `A::b(...)`, `make_unique<T>(...)`.
   const call = init.match(/^([A-Za-z_][\w:]*(?:\s*<[^>;]*>)?)\s*\(/);
@@ -1076,7 +1190,8 @@ export function matchMethodCall(
   // a multi-dot extension-method call (C# DI `builder.Services.AddCoreServices()`,
   // `Guard.Against.X()`) matched no pattern and never resolved.
   const dotMatch = ref.referenceName.match(/^([\w.]+)\.(\w+:?(?:\w+:)*)$/);
-  const colonMatch = ref.referenceName.match(/^(\w+)::(\w+)$/);
+  const colonMatch = ref.referenceName.match(ref.language === 'cpp'
+    ? /^(\w+(?:::\w+)*)::(\w+)$/ : /^(\w+)::(\w+)$/);
 
   const match = dotMatch || colonMatch;
   if (!match) {
@@ -1085,52 +1200,13 @@ export function matchMethodCall(
 
   const [, objectOrClass, methodName] = match;
 
-  if (ref.language === 'cpp' && colonMatch &&
-    !context.getNodesByName(objectOrClass!).some(n => n.kind === 'type_alias')) {
-    // An explicit C++ owner is not a variable-name similarity hint. If the
-    // member is missing, keep it unresolved rather than selecting Other::name.
-    // Inheritance remains supported; existing alias heuristics stay unchanged.
-    return resolveMethodOnType(objectOrClass!, methodName!, ref, context, 0.85, 'qualified-name');
-  }
-
-  if (ref.language === 'cpp' && dotMatch) {
-    const inferredType = inferCppReceiverType(objectOrClass!, ref, context);
-    if (inferredType) {
-      const typedMatch = resolveMethodOnType(
-        inferredType,
-        methodName!,
-        ref,
-        context,
-        0.9,
-        'instance-method',
-      );
-      if (typedMatch) {
-        return typedMatch;
-      }
-      // A source-spelled PARAMETER is strong receiver evidence. If its
-      // indexed class has no such method, don't fall back to another class's
-      // same-name member. For value/reference parameters require a literal dot
-      // access: operator-> proxies must keep the existing conservative fallback.
-      const source = context.getNodesInFile(ref.filePath).find(n => n.id === ref.fromNodeId);
-      const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      if (source?.signature && cppClassExists(inferredType, ref, context)) {
-        const type = escape(inferredType), receiver = escape(objectOrClass!);
-        const pointer = new RegExp(`\\b${type}\\s*\\*\\s*(?:const\\s+)?${receiver}\\b`).test(source.signature);
-        const line = context.getFileLines?.(ref.filePath)?.[ref.line - 1];
-        const dot = line !== undefined && new RegExp(`^${receiver}\\s*\\.`).test(line.slice(ref.column));
-        const valueOrReference = dot && new RegExp(`\\b${type}\\s*(?:&\\s*)?(?:const\\s+)?${receiver}\\b`).test(source.signature);
-        if (pointer || valueOrReference) return null;
-        // The helper is bounded and source-only; run it only on failed typed
-        // lookups. Inherited/template/indirect types keep the old path: a
-        // depth-capped typed lookup is not evidence that their method is absent.
-        const types = context.getNodesByName(inferredType);
-        if (!types.some(n => n.kind === 'type_alias' || n.kind === 'macro' || n.typeParameters?.length) &&
-            context.hasCppInheritance?.(inferredType) === false) {
-          const lines = context.getFileLines?.(ref.filePath);
-          if (lines && hasSimpleCppLocalReceiver(objectOrClass!, inferredType, ref, source, lines)) return null;
-        }
-      }
-    }
+  if (ref.language === 'cpp') {
+    if (colonMatch) return resolveMethodOnType(objectOrClass!, methodName!, ref, context, 0.85, 'qualified-name');
+    const inferredType = objectOrClass === 'this' ? cppCallerOwner(ref, context)
+      : inferCppReceiverType(objectOrClass!, ref, context);
+    // Unknown and known-but-unmatched receivers never become types through
+    // capitalization, word overlap, or a unique project-wide method name.
+    return inferredType ? resolveMethodOnType(inferredType, methodName!, ref, context, 0.9, 'instance-method') : null;
   }
 
   // Java/Kotlin: receiver may be a field whose name doesn't match the type by
@@ -1414,7 +1490,7 @@ export function matchFuzzy(
   const kindCandidates = ref.referenceKind === 'instantiates' || isCppInheritance(ref)
     ? applyTargetKindGate(candidates, ref)
     : candidates.filter((n) => callableKinds.has(n.kind));
-  const callableCandidates = applyCppMemberScopeGate(applyLanguageGate(kindCandidates, ref), ref, context);
+  const callableCandidates = applyCppCandidateGates(applyLanguageGate(kindCandidates, ref), ref, context);
 
   // Prefer same-language matches
   const sameLanguageCandidates = callableCandidates.filter(n => n.language === ref.language);

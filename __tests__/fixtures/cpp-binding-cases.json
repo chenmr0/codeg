@@ -1,0 +1,708 @@
+{
+  "schemaVersion": 1,
+  "classification": "Allowed evidence, forbidden binding, unresolved and missing are separate outcomes; no edge never counts as full correctness.",
+  "originalCaseIds": [
+    "macro-vs-test-variable",
+    "included-static-vs-foreign-static",
+    "external-declaration-vs-private-static",
+    "c-linkage-vs-cpp-namesake",
+    "function-pointer-positive",
+    "direct-call-positive"
+  ],
+  "cases": [
+    {
+      "id": "macro-vs-test-variable",
+      "group": "original-six",
+      "purpose": "Function-like macro invocation must not bind to a same-name test variable.",
+      "files": {
+        "include/token_rules.h": "#define PACK_VALUE(value) ((value) + 1)\n",
+        "src/use_token.cpp": "#include \"../include/token_rules.h\"\nint consume_token(int value) {\n  return PACK_VALUE(value);\n}\n",
+        "tests/unrelated.cpp": "int PACK_VALUE = 9;\nint test_local_value() { return PACK_VALUE; }\n"
+      },
+      "sourceSha256": {
+        "include/token_rules.h": "a943b5264f3648babcc12920a1a98dce15598c0bb3c7646349c27780d5d51498",
+        "src/use_token.cpp": "9d584dc07e5542b3195266243b73c10274c7246f3ee1d2b5fd5a47da8b6a2bc9",
+        "tests/unrelated.cpp": "d2ab211d5365a43593dbe1c08c3c0b667164cd9b51ba1258890c79cd7cf28862"
+      },
+      "site": {
+        "path": "src/use_token.cpp",
+        "line": 3,
+        "sourceName": "consume_token",
+        "refName": "PACK_VALUE"
+      },
+      "allowedTargets": [
+        {
+          "path": "include/token_rules.h",
+          "name": "PACK_VALUE"
+        }
+      ],
+      "forbiddenTargets": [
+        {
+          "path": "tests/unrelated.cpp",
+          "name": "PACK_VALUE"
+        }
+      ],
+      "requireAllowed": false
+    },
+    {
+      "id": "included-static-vs-foreign-static",
+      "group": "original-six",
+      "purpose": "Included internal-linkage definition is visible; another translation unit static function is not.",
+      "files": {
+        "include/unit_rules.h": "static inline int normalize_unit(int value) { return value + 1; }\n",
+        "src/consumer.cpp": "#include \"../include/unit_rules.h\"\nint consume_unit(int value) {\n  return normalize_unit(value);\n}\n",
+        "src/unrelated.cpp": "static int normalize_unit(int value) { return value + 100; }\nint other_entry(int value) { return normalize_unit(value); }\n"
+      },
+      "sourceSha256": {
+        "include/unit_rules.h": "878ae0fb0b9c57bc2d1a4a4a0e85985151ad36104d7e2fbcefc0155a7144c84b",
+        "src/consumer.cpp": "90f90746031f94450041722d45818dabaa92cf26348b21a08fe2eb39c265dedf",
+        "src/unrelated.cpp": "89654aa636bd6f1ea54e9ea655bb2f68414b05ad806fd639be537cd6646a9d46"
+      },
+      "site": {
+        "path": "src/consumer.cpp",
+        "line": 3,
+        "sourceName": "consume_unit",
+        "refName": "normalize_unit"
+      },
+      "allowedTargets": [
+        {
+          "path": "include/unit_rules.h",
+          "name": "normalize_unit"
+        }
+      ],
+      "forbiddenTargets": [
+        {
+          "path": "src/unrelated.cpp",
+          "name": "normalize_unit"
+        }
+      ],
+      "requireAllowed": false
+    },
+    {
+      "id": "external-declaration-vs-private-static",
+      "group": "original-six",
+      "purpose": "An external API declaration cannot be completed by a private static symbol in another translation unit.",
+      "files": {
+        "include/external_api.h": "int external_route(int value);\n",
+        "src/consumer.cpp": "#include \"../include/external_api.h\"\nint consume_route(int value) {\n  return external_route(value);\n}\n",
+        "src/private.cpp": "static int external_route(int value) { return value + 41; }\nint private_entry(int value) { return external_route(value); }\n"
+      },
+      "sourceSha256": {
+        "include/external_api.h": "2a3644fd4ee0b1d329e1b1c227b784610d0bc23543b7727dc77f690c3af7886c",
+        "src/consumer.cpp": "a3ea8af9b1643781c381648c45920d5611f071fc271ecf2d6331162c65d9c408",
+        "src/private.cpp": "ccf9be27918656b8f36e39132f11598cca2473c4ce5c74572fe4057936490e8d"
+      },
+      "site": {
+        "path": "src/consumer.cpp",
+        "line": 3,
+        "sourceName": "consume_route",
+        "refName": "external_route"
+      },
+      "allowedTargets": [
+        {
+          "path": "include/external_api.h",
+          "name": "external_route"
+        }
+      ],
+      "forbiddenTargets": [
+        {
+          "path": "src/private.cpp",
+          "name": "external_route"
+        }
+      ],
+      "requireAllowed": false
+    },
+    {
+      "id": "c-linkage-vs-cpp-namesake",
+      "group": "original-six",
+      "purpose": "C linkage via an included header must not be replaced by an unrelated C++ linkage namesake.",
+      "files": {
+        "include/bridge.h": "#ifdef __cplusplus\nextern \"C\" {\n#endif\nint bridge_value(int value);\n#ifdef __cplusplus\n}\n#endif\n",
+        "src/bridge.c": "#include \"../include/bridge.h\"\nint bridge_value(int value) { return value + 1; }\n",
+        "src/consumer.cpp": "#include \"../include/bridge.h\"\nint consume_bridge(int value) {\n  return bridge_value(value);\n}\n",
+        "src/unrelated.cpp": "int bridge_value(int value) { return value + 100; }\n"
+      },
+      "sourceSha256": {
+        "include/bridge.h": "855a2e9a93ecfeace5d0993609913d9dc25a7ad3e034eb3342d8ed6c404216f5",
+        "src/bridge.c": "250a37c3b2e4e9975d21ef59e98ff9d1cbc61d62410093cc21ec578648a3ecb9",
+        "src/consumer.cpp": "6b1cdba362ca8060ff60b4933a91a2f2284dd392bd9c82b79669ec27360ec46c",
+        "src/unrelated.cpp": "5fc39ad7f05c63ef626943b8fa9ffeabd62443ab6c6cf94e381a1bea1c1a2f09"
+      },
+      "site": {
+        "path": "src/consumer.cpp",
+        "line": 3,
+        "sourceName": "consume_bridge",
+        "refName": "bridge_value"
+      },
+      "allowedTargets": [
+        {
+          "path": "include/bridge.h",
+          "name": "bridge_value"
+        },
+        {
+          "path": "src/bridge.c",
+          "name": "bridge_value"
+        }
+      ],
+      "forbiddenTargets": [
+        {
+          "path": "src/unrelated.cpp",
+          "name": "bridge_value"
+        }
+      ],
+      "requireAllowed": false
+    },
+    {
+      "id": "function-pointer-positive",
+      "group": "original-six",
+      "purpose": "Calling a known function pointer variable is legal and must not be rejected solely because the target kind is variable.",
+      "files": {
+        "src/callback.cpp": "static int callback_leaf(int value) { return value + 1; }\nint (*shared_callback)(int) = callback_leaf;\nint invoke_callback(int value) {\n  return shared_callback(value);\n}\n"
+      },
+      "sourceSha256": {
+        "src/callback.cpp": "d1b310c1b9bf446841eff62adbaeba7d3917ed165996ade22870cad56bcd5f0b"
+      },
+      "site": {
+        "path": "src/callback.cpp",
+        "line": 4,
+        "sourceName": "invoke_callback",
+        "refName": "shared_callback"
+      },
+      "allowedTargets": [
+        {
+          "path": "src/callback.cpp",
+          "name": "shared_callback"
+        },
+        {
+          "path": "src/callback.cpp",
+          "name": "callback_leaf"
+        }
+      ],
+      "forbiddenTargets": [],
+      "requireAllowed": true
+    },
+    {
+      "id": "direct-call-positive",
+      "group": "original-six",
+      "purpose": "Plain same-file direct call controls the basic extraction and resolver path.",
+      "files": {
+        "src/direct.cpp": "int stable_leaf(int value) { return value + 7; }\nint stable_entry(int value) {\n  return stable_leaf(value);\n}\n"
+      },
+      "sourceSha256": {
+        "src/direct.cpp": "1dc6860cb7a4fa38d13dcd5b1a1fe63e7f0fd8915d1df0b9293cf294b0d042b5"
+      },
+      "site": {
+        "path": "src/direct.cpp",
+        "line": 3,
+        "sourceName": "stable_entry",
+        "refName": "stable_leaf"
+      },
+      "allowedTargets": [
+        {
+          "path": "src/direct.cpp",
+          "name": "stable_leaf"
+        }
+      ],
+      "forbiddenTargets": [],
+      "requireAllowed": true
+    },
+    {
+      "id": "foreign-static-constexpr-and-anonymous",
+      "group": "general-counterexample",
+      "purpose": "",
+      "files": {
+        "main.cpp": "extern int tune(int);\nint invoke(int value) {\n  return tune(value);\n}\n",
+        "private.cpp": "static constexpr int tune(int value) { return value + 1; }\n",
+        "anonymous.cpp": "namespace { int tune(int value) { return value + 2; } }\n"
+      },
+      "sourceSha256": {
+        "main.cpp": "7da6b07701cf24d7846f1f742f70594763c0eaae1f61c002614af8d1652f9ce2",
+        "private.cpp": "8b15c62fc2b4e697cc3ea2293321bc754a4a9c7288c4ce470edab96bed82aa6c",
+        "anonymous.cpp": "0b555772005f88793298253a76f20a9d6f1e7fa5d001f945b412d17ce2dd2886"
+      },
+      "site": {
+        "path": "main.cpp",
+        "line": 3,
+        "sourceName": "invoke",
+        "refName": "tune",
+        "kind": "calls"
+      },
+      "allowedTargets": [
+        {
+          "path": "main.cpp",
+          "name": "tune"
+        }
+      ],
+      "forbiddenTargets": [
+        {
+          "path": "private.cpp",
+          "name": "tune"
+        },
+        {
+          "path": "anonymous.cpp",
+          "name": "tune"
+        }
+      ],
+      "requireAllowed": false
+    },
+    {
+      "id": "included-inline-header",
+      "group": "general-counterexample",
+      "purpose": "",
+      "files": {
+        "ops.h": "inline int blend(int value) { return value + 1; }\n",
+        "main.cpp": "#include \"ops.h\"\nint invoke(int value) {\n  return blend(value);\n}\n",
+        "private.cpp": "static int blend(int value) { return value + 2; }\n"
+      },
+      "sourceSha256": {
+        "ops.h": "34b2aedfb4772ef1d383e006be02e10c3afe60dd62d37eab57d21a1807af236f",
+        "main.cpp": "9b98312e90c4a8a0c0025e0c2ce4123d245d5dfa5f8e5604e51ad2857339e387",
+        "private.cpp": "3ef9416df5f63799ee3d254dc305e5804621250aaa149595acf1b3b5cb596bba"
+      },
+      "site": {
+        "path": "main.cpp",
+        "line": 3,
+        "sourceName": "invoke",
+        "refName": "blend",
+        "kind": "calls"
+      },
+      "allowedTargets": [
+        {
+          "path": "ops.h",
+          "name": "blend"
+        }
+      ],
+      "forbiddenTargets": [
+        {
+          "path": "private.cpp",
+          "name": "blend"
+        }
+      ],
+      "requireAllowed": true
+    },
+    {
+      "id": "textual-cpp-include",
+      "group": "general-counterexample",
+      "purpose": "",
+      "files": {
+        "fragment.cpp": "static int tune(int value) { return value + 1; }\n",
+        "main.cpp": "#include \"fragment.cpp\"\nint invoke(int value) {\n  return tune(value);\n}\n",
+        "private.cpp": "static int tune(int value) { return value + 2; }\n"
+      },
+      "sourceSha256": {
+        "fragment.cpp": "971516648ad8558b7cc65b9574195b86b7cb86d761773cd4a5f73344ddaabb94",
+        "main.cpp": "d57ee99d5da2c01cb3f76a868e78a93081e9240658e013dee7ed6574fc95474b",
+        "private.cpp": "d6945c348e90de6674dd6c19f52c28ecd85e5a0c76fb52dabaee412bcf4f27b7"
+      },
+      "site": {
+        "path": "main.cpp",
+        "line": 3,
+        "sourceName": "invoke",
+        "refName": "tune",
+        "kind": "calls"
+      },
+      "allowedTargets": [
+        {
+          "path": "fragment.cpp",
+          "name": "tune"
+        }
+      ],
+      "forbiddenTargets": [
+        {
+          "path": "private.cpp",
+          "name": "tune"
+        }
+      ],
+      "requireAllowed": true
+    },
+    {
+      "id": "ordinary-extern-definition",
+      "group": "general-counterexample",
+      "purpose": "",
+      "files": {
+        "api.h": "extern int route(int);\n",
+        "main.cpp": "#include \"api.h\"\nint invoke(int value) {\n  return route(value);\n}\n",
+        "implementation.cpp": "int route(int value) { return value + 1; }\n"
+      },
+      "sourceSha256": {
+        "api.h": "d460fca74d03723eb995bc562c0100b154d5db13c3318794d148c3d4d6bf1e1b",
+        "main.cpp": "76b17b48d0e9df1a7f279fcae6b90a41631010b9bb0e384fd55ce0bdd9275085",
+        "implementation.cpp": "e2a935161ab4995baf439cd6dc9f25db716e59d450609b5dec1e459c4f921254"
+      },
+      "site": {
+        "path": "main.cpp",
+        "line": 3,
+        "sourceName": "invoke",
+        "refName": "route",
+        "kind": "calls"
+      },
+      "allowedTargets": [
+        {
+          "path": "api.h",
+          "name": "route"
+        },
+        {
+          "path": "implementation.cpp",
+          "name": "route"
+        }
+      ],
+      "forbiddenTargets": [],
+      "requireAllowed": true
+    },
+    {
+      "id": "typed-parameter-receiver",
+      "group": "general-counterexample",
+      "purpose": "",
+      "files": {
+        "main.cpp": "struct Other { int step(int value) { return value + 99; } };\nstruct Rotor { int step() { return 0; } int step(int value) { return value + 1; } };\nint invoke(Rotor &value) {\n  return value.step(7);\n}\n"
+      },
+      "sourceSha256": {
+        "main.cpp": "a381383b650002a28a2234c73960b855d1170f73843a2e74e2caff776ca76a47"
+      },
+      "site": {
+        "path": "main.cpp",
+        "line": 4,
+        "sourceName": "invoke",
+        "refName": "value.step",
+        "kind": "calls"
+      },
+      "allowedTargets": [
+        {
+          "path": "main.cpp",
+          "name": "step",
+          "qualifiedName": "Rotor::step",
+          "signatureContains": "int value"
+        }
+      ],
+      "forbiddenTargets": [
+        {
+          "path": "main.cpp",
+          "name": "step",
+          "qualifiedName": "Other::step"
+        },
+        {
+          "path": "main.cpp",
+          "name": "step",
+          "qualifiedName": "Rotor::step",
+          "signatureContains": "step()"
+        }
+      ],
+      "requireAllowed": true
+    },
+    {
+      "id": "qualified-pointer-receiver",
+      "group": "general-counterexample",
+      "purpose": "",
+      "files": {
+        "main.cpp": "struct Rotor { int step(int value) { return value + 99; } };\nnamespace wheel { struct Rotor { int step(int value) { return value + 1; } }; }\nint invoke(wheel::Rotor *value) {\n  return value->step(7);\n}\n"
+      },
+      "sourceSha256": {
+        "main.cpp": "9c671af1beb6ace509970b6819f3729d709ea4a943ca2f502d910b710cbaa19b"
+      },
+      "site": {
+        "path": "main.cpp",
+        "line": 4,
+        "sourceName": "invoke",
+        "refName": "value.step",
+        "kind": "calls"
+      },
+      "allowedTargets": [
+        {
+          "path": "main.cpp",
+          "name": "step",
+          "qualifiedName": "wheel::Rotor::step"
+        }
+      ],
+      "forbiddenTargets": [
+        {
+          "path": "main.cpp",
+          "name": "step",
+          "qualifiedName": "Rotor::step"
+        }
+      ],
+      "requireAllowed": true
+    },
+    {
+      "id": "inherited-overload-with-using",
+      "group": "general-counterexample",
+      "purpose": "",
+      "files": {
+        "main.cpp": "struct Base { int step(int left, int right) { return left + right; } };\nstruct Derived : Base { using Base::step; int step() { return 0; } };\nint invoke(Derived &value) {\n  return value.step(1, 2);\n}\n"
+      },
+      "sourceSha256": {
+        "main.cpp": "e4865246fea33d61989a0603f16cebb4e2ed0b77f0ac683d53df7cd49bee15c1"
+      },
+      "site": {
+        "path": "main.cpp",
+        "line": 4,
+        "sourceName": "invoke",
+        "refName": "value.step",
+        "kind": "calls"
+      },
+      "allowedTargets": [
+        {
+          "path": "main.cpp",
+          "name": "step",
+          "qualifiedName": "Base::step"
+        }
+      ],
+      "forbiddenTargets": [
+        {
+          "path": "main.cpp",
+          "name": "step",
+          "qualifiedName": "Derived::step"
+        }
+      ],
+      "requireAllowed": true
+    },
+    {
+      "id": "derived-member-hides-base-without-using",
+      "group": "general-counterexample",
+      "purpose": "",
+      "files": {
+        "main.cpp": "struct Base { int step(int value) { return value + 99; } };\nstruct Derived : Base { int step(double value) { return int(value); } };\nint invoke(Derived &value) {\n  return value.step(1.5);\n}\n"
+      },
+      "sourceSha256": {
+        "main.cpp": "8168668d20b9dafa6f2dfa888ed2ee45e1c9648001d06711c5d03ebb26f969ba"
+      },
+      "site": {
+        "path": "main.cpp",
+        "line": 4,
+        "sourceName": "invoke",
+        "refName": "value.step",
+        "kind": "calls"
+      },
+      "allowedTargets": [
+        {
+          "path": "main.cpp",
+          "name": "step",
+          "qualifiedName": "Derived::step"
+        }
+      ],
+      "forbiddenTargets": [
+        {
+          "path": "main.cpp",
+          "name": "step",
+          "qualifiedName": "Base::step"
+        }
+      ],
+      "requireAllowed": true
+    },
+    {
+      "id": "default-parameter-arity",
+      "group": "general-counterexample",
+      "purpose": "",
+      "files": {
+        "main.cpp": "int blend(int left, int right = 3) { return left + right; }\nint invoke() {\n  return blend(7);\n}\n"
+      },
+      "sourceSha256": {
+        "main.cpp": "6c7aa4c26f2cab459366c4f1df08be5c670498dcce7145a5dba171a802766b66"
+      },
+      "site": {
+        "path": "main.cpp",
+        "line": 3,
+        "sourceName": "invoke",
+        "refName": "blend",
+        "kind": "calls"
+      },
+      "allowedTargets": [
+        {
+          "path": "main.cpp",
+          "name": "blend"
+        }
+      ],
+      "forbiddenTargets": [],
+      "requireAllowed": true
+    },
+    {
+      "id": "variadic-arity",
+      "group": "general-counterexample",
+      "purpose": "",
+      "files": {
+        "main.cpp": "int collect(int count, ...) { return count; }\nint invoke() {\n  return collect(2, 7, 9);\n}\n"
+      },
+      "sourceSha256": {
+        "main.cpp": "9cc411b394186b0a0a550bbeccb03f40dd5ea9baaf0cb40c131a64eaeefc307d"
+      },
+      "site": {
+        "path": "main.cpp",
+        "line": 3,
+        "sourceName": "invoke",
+        "refName": "collect",
+        "kind": "calls"
+      },
+      "allowedTargets": [
+        {
+          "path": "main.cpp",
+          "name": "collect"
+        }
+      ],
+      "forbiddenTargets": [],
+      "requireAllowed": true
+    },
+    {
+      "id": "nested-function-pointer-parameter-arity",
+      "group": "general-counterexample",
+      "purpose": "",
+      "files": {
+        "main.cpp": "int leaf(int left, int right) { return left + right; }\nint apply(int (*callback)(int, int), int count = 2) { return callback(count, count); }\nint invoke() {\n  return apply(&leaf);\n}\n"
+      },
+      "sourceSha256": {
+        "main.cpp": "629876f66240c935568ead44e4da90f7ba4c4e74f2356511cc14ed7b13269af2"
+      },
+      "site": {
+        "path": "main.cpp",
+        "line": 4,
+        "sourceName": "invoke",
+        "refName": "apply",
+        "kind": "calls"
+      },
+      "allowedTargets": [
+        {
+          "path": "main.cpp",
+          "name": "apply"
+        }
+      ],
+      "forbiddenTargets": [],
+      "requireAllowed": true
+    },
+    {
+      "id": "macro-unknown-formal-arity",
+      "group": "general-counterexample",
+      "purpose": "",
+      "files": {
+        "main.cpp": "#define FORMALS int left, int right\nint blend(FORMALS) { return left + right; }\nint invoke() {\n  return blend(7, 9);\n}\n"
+      },
+      "sourceSha256": {
+        "main.cpp": "37fe273d43c8853bdd0cb127a3b402dba3524c6e47359d29185a513b8796517a"
+      },
+      "site": {
+        "path": "main.cpp",
+        "line": 4,
+        "sourceName": "invoke",
+        "refName": "blend",
+        "kind": "calls"
+      },
+      "allowedTargets": [
+        {
+          "path": "main.cpp",
+          "name": "blend"
+        }
+      ],
+      "forbiddenTargets": [],
+      "requireAllowed": true
+    },
+    {
+      "id": "test-same-file-function-pointer",
+      "group": "general-counterexample",
+      "purpose": "",
+      "files": {
+        "tests/local.cpp": "int leaf(int value) { return value + 1; }\nint (*dispatch)(int) = leaf;\nint invoke(int value) {\n  return dispatch(value);\n}\n"
+      },
+      "sourceSha256": {
+        "tests/local.cpp": "1956031ddd51036cf0b561edaa0be62d02cb980e834b14e4a406dff2ca0dc289"
+      },
+      "site": {
+        "path": "tests/local.cpp",
+        "line": 4,
+        "sourceName": "invoke",
+        "refName": "dispatch",
+        "kind": "calls"
+      },
+      "allowedTargets": [
+        {
+          "path": "tests/local.cpp",
+          "name": "dispatch"
+        },
+        {
+          "path": "tests/local.cpp",
+          "name": "leaf"
+        }
+      ],
+      "forbiddenTargets": [],
+      "requireAllowed": true
+    },
+    {
+      "id": "test-same-file-variable-read",
+      "group": "general-counterexample",
+      "purpose": "",
+      "files": {
+        "tests/local.cpp": "int LIMIT = 3;\nint read_limit() {\n  return LIMIT;\n}\n"
+      },
+      "sourceSha256": {
+        "tests/local.cpp": "97442a2ece4d84d5911a8fd1e037e2bbfdf48823d1f72f79f71dd88dc4500040"
+      },
+      "site": {
+        "path": "tests/local.cpp",
+        "line": 3,
+        "sourceName": "read_limit",
+        "refName": "LIMIT",
+        "kind": "references"
+      },
+      "allowedTargets": [
+        {
+          "path": "tests/local.cpp",
+          "name": "LIMIT"
+        }
+      ],
+      "forbiddenTargets": [],
+      "requireAllowed": true
+    }
+  ],
+  "syncCases": [
+    {
+      "id": "include-evidence-change",
+      "files": {
+        "leaf.h": "static int tune(int value) { return value + 1; }\n",
+        "bridge.h": "#include \"leaf.h\"\n",
+        "main.cpp": "#include \"bridge.h\"\nint invoke(int value) {\n  return tune(value);\n}\n"
+      },
+      "changedPath": "bridge.h",
+      "changedSource": "extern int tune(int value);\n",
+      "site": {
+        "path": "main.cpp",
+        "line": 3,
+        "sourceName": "invoke",
+        "refName": "tune"
+      },
+      "before": {
+        "path": "leaf.h",
+        "name": "tune"
+      },
+      "after": [
+        {
+          "path": "bridge.h",
+          "name": "tune"
+        }
+      ]
+    },
+    {
+      "id": "receiver-inheritance-change",
+      "files": {
+        "owners.h": "struct Left { int step(int value) { return value + 1; } };\nstruct Right { int step(int value) { return value + 2; } };\n",
+        "receiver.h": "#include \"owners.h\"\nstruct Receiver : Left {};\n",
+        "main.cpp": "#include \"receiver.h\"\nint invoke(Receiver &value) {\n  return value.step(7);\n}\n"
+      },
+      "changedPath": "receiver.h",
+      "changedSource": "#include \"owners.h\"\nstruct Receiver : Right {};\n",
+      "site": {
+        "path": "main.cpp",
+        "line": 3,
+        "sourceName": "invoke",
+        "refName": "value.step"
+      },
+      "before": {
+        "path": "owners.h",
+        "name": "step",
+        "qualifiedName": "Left::step"
+      },
+      "after": [
+        {
+          "path": "owners.h",
+          "name": "step",
+          "qualifiedName": "Right::step"
+        }
+      ]
+    }
+  ]
+}

@@ -24,7 +24,9 @@ import {
   sameInstantiationLanguageFamily,
   crossesKnownFamily,
   isValidInstantiationTarget,
+  isCppCallTargetAllowed,
 } from './name-matcher';
+import { clearCppBindingEvidence, isCppBindingTargetAllowed } from './cpp-binding-evidence';
 import { resolveViaImport, resolveJvmImport, extractImportMappings, extractReExports, loadCppIncludeDirs, clearImportMappingCache, isPhpIncludePathRef } from './import-resolver';
 import { detectFrameworks, isFrameworkEnabled } from './frameworks';
 import { getLanguageScopeKey, isLanguageEnabled } from '../extraction/language-scope';
@@ -428,6 +430,7 @@ export class ReferenceResolver {
   }
 
   clearCaches(): void {
+    clearCppBindingEvidence(this.context);
     this.nodeCache.clear();
     this.fileCache.clear();
     this.textCache.clear();
@@ -695,7 +698,8 @@ export class ReferenceResolver {
               for (const pending of pendingBases) {
                 const resolved = this.resolveOne({...pending, filePath:tn.filePath, language:tn.language});
                 const target = resolved && this.queries.getNodeById(resolved.targetNodeId);
-                if (target && SUPERTYPE_BEARING_KINDS.has(target.kind) && target.language === language
+                if (target && SUPERTYPE_BEARING_KINDS.has(target.kind)
+                  && (target.language === language || language === 'cpp' && target.language === 'c')
                   && target.name !== typeName) supertypes.add(target.qualifiedName);
               }
             }
@@ -809,6 +813,12 @@ export class ReferenceResolver {
     const cached = this.supertypeNodeCache.get(key);
     if (cached !== undefined) return cached;
     const nodes = this.queries.getSupertypeNodes(typeName, language, language === 'cpp' && typeName.includes('::'));
+    if (language === 'cpp') {
+      const seen = new Set(nodes.map(node => node.id));
+      for (const node of this.queries.getSupertypeNodes(typeName, 'c', typeName.includes('::'))) {
+        if (!seen.has(node.id)) { seen.add(node.id); nodes.push(node); }
+      }
+    }
     this.supertypeNodeCache.set(key, nodes);
     return nodes;
   }
@@ -1899,6 +1909,8 @@ export class ReferenceResolver {
   private gateLanguage(result: ResolvedRef | null, ref: UnresolvedRef): ResolvedRef | null {
     if (!result) return result;
     const target = this.queries.getNodeById(result.targetNodeId);
+    if (target && (!isCppBindingTargetAllowed(target, ref, this.context)
+      || !isCppCallTargetAllowed(target, ref, this.context))) return null;
     if (ref.referenceKind === 'instantiates' && target && !isValidInstantiationTarget(target, ref)) {
       return null;
     }
@@ -1910,7 +1922,11 @@ export class ReferenceResolver {
       !sameInstantiationLanguageFamily(tgt, ref.language, ref.filePath)
     ) return null;
     if (ref.referenceKind === 'imports' && crossesKnownFamily(tgt, ref.language)) return null;
-    return refineCppOverload(result, target, ref, this.context);
+    const refined = refineCppOverload(result, target, ref, this.context);
+    if (!refined || refined.targetNodeId === result.targetNodeId) return refined;
+    const refinedTarget = this.queries.getNodeById(refined.targetNodeId);
+    return refinedTarget && (!isCppBindingTargetAllowed(refinedTarget, ref, this.context)
+      || !isCppCallTargetAllowed(refinedTarget, ref, this.context)) ? null : refined;
   }
 
   /**
@@ -1928,7 +1944,8 @@ export class ReferenceResolver {
    */
   private gateFrameworkLanguage(result: ResolvedRef | null, ref: UnresolvedRef): ResolvedRef | null {
     if (!result) return result;
-    if (ref.referenceKind === 'instantiates' || ref.language==='cpp' && ref.referenceKind==='calls') return this.gateLanguage(result, ref);
+    if (ref.referenceKind === 'instantiates' || (ref.language === 'c' || ref.language === 'cpp')
+      && (ref.referenceKind === 'calls' || ref.referenceKind === 'references')) return this.gateLanguage(result, ref);
     if (ref.referenceKind !== 'references' && ref.referenceKind !== 'imports') return result;
     const tgt = this.getLanguageFromNodeId(result.targetNodeId);
     if (tgt && ref.language && crossesKnownFamily(tgt, ref.language)) return null;

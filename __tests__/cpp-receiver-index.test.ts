@@ -116,14 +116,14 @@ describe('indexed inference preserves graph decisions', () => {
     expect(matchMethodCall(ref(2), indexed)?.targetNodeId).toBe('Beta');
   });
 
-  it('keeps header precedence and forward order, skipping auto there', () => {
+  it('does not infer a receiver from an unreferenced same-basename header', () => {
     const nodes = [method('Alpha'), method('Beta')];
     const sources = new Map([['main.cpp', 'obj.flush();'], ['main.h', 'auto obj = make();\nAlpha obj;\nBeta obj;'], ['main.hpp', 'Beta obj;']]);
     const plain = context(nodes, sources, false), indexed = context(nodes, sources, true);
     expect(matchMethodCall(ref(1), indexed)).toEqual(matchMethodCall(ref(1), plain));
-    expect(matchMethodCall(ref(1), indexed)?.targetNodeId).toBe('Alpha');
+    expect(matchMethodCall(ref(1), indexed)).toBeNull();
     sources.delete('main.h');
-    expect(matchMethodCall(ref(1), indexed)?.targetNodeId).toBe('Beta');
+    expect(matchMethodCall(ref(1), indexed)).toBeNull();
     for (const text of ['', '\r\n']) {
       sources.set('main.cpp', text);
       expect(matchMethodCall(ref(1), indexed)).toEqual(matchMethodCall(ref(1), plain));
@@ -132,7 +132,7 @@ describe('indexed inference preserves graph decisions', () => {
     expect(matchMethodCall(ref(1), indexed)).toEqual(matchMethodCall(ref(1), plain));
   });
 
-  it('reevaluates auto return types and falls back past an unresolved auto declaration', () => {
+  it('reevaluates auto return types without reusing a shadowed declaration when auto is unresolved', () => {
     const factory = { ...method('Factory'), id: 'factory', name: 'create', qualifiedName: 'Factory::create', returnType: 'Alpha' };
     const nodes = [method('Alpha'), method('Beta'), factory];
     const sources = new Map([['main.cpp', 'Beta obj;\nauto obj = Factory::create();\nobj.flush();']]);
@@ -142,7 +142,7 @@ describe('indexed inference preserves graph decisions', () => {
     expect(matchMethodCall(ref(3), indexed)?.targetNodeId).toBe('Beta');
     factory.returnType = '';
     expect(matchMethodCall(ref(3), indexed)).toEqual(matchMethodCall(ref(3), plain));
-    expect(matchMethodCall(ref(3), indexed)?.targetNodeId).toBe('Beta');
+    expect(matchMethodCall(ref(3), indexed)).toBeNull();
   });
 
   it('uses compact evidence for a large source and clears it with resolver caches', () => {

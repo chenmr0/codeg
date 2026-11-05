@@ -79,6 +79,8 @@ import { CodeGraphPackageVersion } from './mcp/version';
 import { cancelRawEvidenceScans } from './mcp/raw-source-worker-client';
 import { ResolutionDiagnostics } from './resolution/diagnostics';
 import { syncNameLookupMode } from './resolution/name-lookup';
+import { establishCppBindingBaseline, invalidateCppBindingChanges,
+  acknowledgeCppBindingRefresh } from './resolution/cpp-binding-invalidation';
 
 // A 10,000-reference page can hold the MCP event loop for seconds. Sync
 // persists smaller complete batches, yielding with no open reader/transaction.
@@ -762,6 +764,8 @@ export class CodeGraph {
           semanticBefore, this.queries.getMetadata('adaptive:index-config-v1'),
           adaptiveConfigFingerprint(this.projectRoot, policyFiles), extractionChanged,
           this.queries.getMetadata(SEMANTIC_REINDEX_PENDING) !== null);
+        const forceAllBindingFiles = scopeChanged || extractionChanged || semanticChanged;
+        const hadCppBindingBaseline = this.queries.getMetadata('resolution:cpp-binding-inventory-v1') !== null;
         if (semanticChanged) {
           this.queries.setMetadata(SEMANTIC_REINDEX_PENDING, semanticBefore);
           this.orchestrator.resetLanguageScopeCaches();
@@ -849,7 +853,7 @@ export class CodeGraph {
                     useWorker: this.db.getBackend() === 'node-sqlite',
                   }
                 : null,
-              { force: scopeChanged || extractionChanged || semanticChanged, reconcile: scopeChanged || extractionChanged || semanticChanged },
+              { force: forceAllBindingFiles, reconcile: forceAllBindingFiles },
             );
           } finally {
             try {
@@ -878,7 +882,34 @@ export class CodeGraph {
           }
 
           await this.queries.invalidateCppMacroCalls();
-          const needsResolution = result.filesIndexed > 0 || scopeChanged || semanticChanged ||
+          // indexAll skips unchanged files on an existing index. Re-admit old
+          // successes before resolving changed headers, just as sync does;
+          // fresh/forced extraction has already rebuilt every original ref.
+          const bindingEvidence = !freshDb && !forceAllBindingFiles
+            ? await invalidateCppBindingChanges(this.projectRoot, this.queries)
+            : { files: [] as string[], refreshFiles: [] as string[] };
+          for (const filePath of bindingEvidence.refreshFiles) {
+            options.signal?.throwIfAborted();
+            let stored = false;
+            try {
+              const recovery = await this.orchestrator.indexFile(filePath, { force: true });
+              stored = recovery.stored;
+              if (stored) result.filesIndexed++;
+              if (!stored || recovery.errors.some(error => error.severity === 'error')) result.filesErrored++;
+              const errors = !stored && recovery.errors.length === 0
+                ? [{ filePath, severity: 'error' as const, code: 'parse_error',
+                    message: 'C/C++ binding recovery produced no storable result; retry indexing.' }]
+                : recovery.errors;
+              result.errors.push(...errors.map(error => ({ ...error, filePath: error.filePath ?? filePath })));
+            } catch (error) {
+              result.filesErrored++;
+              result.errors.push({ filePath, severity: 'error', code: 'parse_error',
+                message: error instanceof Error ? error.message : String(error) });
+            }
+            // Storage/checkpoint failures are not source parse diagnostics.
+            if (stored && walValve) await walValve.backpressure();
+          }
+          const needsResolution = result.filesIndexed > 0 || scopeChanged || semanticChanged || bindingEvidence.files.length > 0 ||
             this.queries.getUnresolvedReferencesCount() > 0 || this.needsSynthesisRetry() ||
             this.queries.getMetadata(SYNTHESIS_COMPLETED_VERSION) !== SYNTHESIS_VERSION;
 
@@ -994,6 +1025,13 @@ export class CodeGraph {
           if (this.queries.getMetadata(SYNTHESIS_PENDING) && scopeApplied) {
             this.queries.setMetadata(SYNTHESIS_PENDING,
               hasDeclarationMacroRecoverySkip ? 'incomplete' : 'complete');
+          }
+          if (result.complete) {
+            if (freshDb || forceAllBindingFiles || !hadCppBindingBaseline) {
+              await establishCppBindingBaseline(this.projectRoot, this.queries);
+            } else {
+              acknowledgeCppBindingRefresh(this.queries, bindingEvidence.refreshFiles, this.projectRoot);
+            }
           }
           // A version change forces replacement even for unchanged source.
           // Do not retire the old stamp after a partial/aborted rebuild: its
@@ -1508,9 +1546,14 @@ export class CodeGraph {
         retryState.finishPrimaryExtraction();
         const macroReferenceFiles = deferredMacroBaseline ? [] : await this.queries.invalidateCppMacroCalls();
         tailMark('macroEvidenceMs');
+        // Successful C/C++ edges also depend on declarations/include/receiver
+        // evidence. A stable target ID is not proof its old binding is valid.
+        // Re-admit only affected callers; body-only changes retain their edges.
+        const bindingEvidence = await invalidateCppBindingChanges(this.projectRoot, this.queries);
+        tailMark('cppBindingEvidenceMs');
         const referenceFiles = [...new Set([
           ...(result.changedFilePaths ?? []), ...recoveredRetryFiles, ...repairedIncludeFiles, ...recoveredDeltaFiles,
-          ...recoveredMacroFiles, ...macroReferenceFiles,
+          ...recoveredMacroFiles, ...macroReferenceFiles, ...bindingEvidence.files,
         ])];
 
         // Fold extraction writes before resolution starts reading the changed
@@ -1534,7 +1577,7 @@ export class CodeGraph {
         tailMark('postExtractMs');
         // No node-writing fallback may remain when symbol queries are admitted.
         // A resolving progress event alone is not sufficient evidence.
-        const needsNodeFallback = rewireRecoveryFiles.length > 0 || (result.failedRewireSourceFiles?.some(
+        const needsNodeFallback = rewireRecoveryFiles.length > 0 || bindingEvidence.refreshFiles.length > 0 || (result.failedRewireSourceFiles?.some(
           fp => !(result.changedFilePaths ?? []).includes(fp),
         ) ?? false);
         this.publishSymbolsReady(result.complete !== false && !needsNodeFallback);
@@ -1673,6 +1716,7 @@ export class CodeGraph {
           ...(result.failedRewireSourceFiles ?? []).filter(
             fp => !(result.changedFilePaths ?? []).includes(fp)),
           ...rewireRecoveryFiles,
+          ...bindingEvidence.refreshFiles,
         ])];
 
         if (failedFiles.length > 0) {
@@ -1931,6 +1975,8 @@ export class CodeGraph {
           }
         }
         if (result.complete === true) {
+          if (scopeChanged || reextract) await establishCppBindingBaseline(this.projectRoot, this.queries);
+          else acknowledgeCppBindingRefresh(this.queries, bindingEvidence.refreshFiles, this.projectRoot);
           this.queries.applyMetadataChanges({
             indexed_language_scope: getLanguageScopeKey(),
             language_scope_pending: null,
