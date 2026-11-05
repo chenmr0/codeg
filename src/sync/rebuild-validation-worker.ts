@@ -4,10 +4,9 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { acquireGenerationLease, acquireCurrentGenerationLease, resolveGeneration, type GenerationLease } from './generation-store';
 import { DatabaseConnection, DatabaseOpenError } from '../db';
-import { portableCostHistory } from './portable/metadata';
 import { PortableCoordinator, type PortableLease } from './portable/protocol';
 import { QueryBuilder } from '../db/queries';
-import { adaptiveRuntimeKey, readAdaptiveHistory, createAdaptivePlan, chooseAdaptiveStrategy, includeAdaptiveReindexWork, scopedCandidateCounts, hasCanonicalScope,
+import { adaptiveRuntimeKey, readAdaptiveHistory, createAdaptivePlan, chooseAdaptiveStrategy, chooseStructuralStrategy, includeAdaptiveReindexWork, scopedCandidateCounts, hasCanonicalScope,
   validateAdaptiveSnapshot, canSkipScopedAdaptivePlan, adaptiveSampleFromFiles, recordAdaptiveSample, adaptiveConfigFingerprint, type AdaptiveCostHistory, type AdaptiveEligibility, type AdaptiveSnapshot } from './adaptive-plan';
 import { validateRebuiltDatabase } from './rebuild-controller';
 import { isSourceOwned, inspectLegacySourceProvenance } from './source-ownership';
@@ -18,7 +17,7 @@ export type AdaptiveReadJob =
   | { type: 'validate-initial'; root: string; databasePath: string }
   | { type: 'record-full'; root: string; databasePath: string; durationMs: number }
   | { type: 'evaluate'; root: string; databasePath: string; eligibility: AdaptiveEligibility; paths?: string[]; portable?: boolean; fullHash?: boolean; decisionOnly?: boolean }
-  | { type: 'validate'; root: string; databasePath: string; sourceDatabasePath: string; snapshot: AdaptiveSnapshot; runtimeKey: string };
+  | { type: 'validate'; root: string; databasePath: string; sourceDatabasePath: string; snapshot: AdaptiveSnapshot; runtimeKey: string; portable?: boolean };
 
 
 // Failed native close is not permission to publish over a live SQLite handle.
@@ -80,13 +79,13 @@ async function execute(job: AdaptiveReadJob): Promise<unknown> {
     const connection = reader.connection;
     try {
       const db = connection.getDb();
-      const owned = isSourceOwned(db);
-      const legacy = owned ? { eligible: false, reason: 'already-owned' } : inspectLegacySourceProvenance(db);
-      const provenanceBlocked = !owned && !legacy.eligible ? `unverified-legacy-or-custom-index:${legacy.reason}` : undefined;
+      const legacy = !job.portable && !isSourceOwned(db) ? inspectLegacySourceProvenance(db) : undefined;
+      const provenanceBlocked = legacy && !legacy.eligible ? `unverified-legacy-or-custom-index:${legacy.reason}` : undefined;
       // Catch-up still needs a complete content inventory, even if its source
       // lost rebuild eligibility. Computing a plan must not grant ownership.
       if (provenanceBlocked && !job.fullHash) return { decision: { strategy: 'incremental', reason: provenanceBlocked } };
-      const runtimeKey = adaptiveRuntimeKey(job.root, connection.getBackend());
+      // Only the publisher carries a runtime fingerprint into final validation.
+      const runtimeKey = job.portable && (job.decisionOnly || job.fullHash) ? '' : adaptiveRuntimeKey(job.root, connection.getBackend());
       const queries = new QueryBuilder(db);
       const tracked = queries.getAllFiles();
       const indexedConfig = queries.getMetadata('adaptive:index-config-v1');
@@ -99,13 +98,8 @@ async function execute(job: AdaptiveReadJob): Promise<unknown> {
         ...(provenanceBlocked ? { blockedReason: provenanceBlocked } : {}),
         upgradeRequired };
       let history: AdaptiveCostHistory = { version: 1, samples: [] };
-      if (job.portable) {
-        // The DB is the portable authority. Do not accidentally revive an old
-        // directory's JSON history after a public database was replaced.
-        history = portableCostHistory(queries.getMetadata('adaptive:cost-history-v1'));
-        history.samples = history.samples.filter(sample => sample?.runtimeKey === runtimeKey);
-      } else history = readAdaptiveHistory(job.root);
-      if (!job.fullHash && job.paths?.length && indexedConfig && !eligibility.upgradeRequired && !eligibility.configurationChanged) {
+      if (!job.portable) history = readAdaptiveHistory(job.root);
+      if (!job.portable && !job.fullHash && job.paths?.length && indexedConfig && !eligibility.upgradeRequired && !eligibility.configurationChanged) {
         const paths = [...new Set(job.paths)];
         const prior = new Map(tracked.map(file => [file.path, file]));
         const { configFingerprint: currentConfig, semanticConfigFingerprint: currentSemantic } =
@@ -126,21 +120,23 @@ async function execute(job: AdaptiveReadJob): Promise<unknown> {
         // In particular, legacy broad fingerprints omit some semantic controls.
         history = { version: 1, samples: [] };
       }
-      const decision = chooseAdaptiveStrategy(plan, history, eligibility);
+      const decision = job.portable ? chooseStructuralStrategy(plan, eligibility) : chooseAdaptiveStrategy(plan, history, eligibility);
       if (job.decisionOnly) return { decision };
       const configurationChanged = eligibility.configurationChanged === true ||
         (indexedConfig !== undefined && indexedConfig !== null && indexedConfig !== plan.snapshot.configFingerprint);
-      return { plan, decision, legacy: legacy.eligible, configurationChanged };
+      return { plan, decision, legacy: legacy?.eligible ?? false, configurationChanged };
     } finally { reader.close(); }
   }
   if (adaptiveRuntimeKey(job.root, 'node-sqlite') !== job.runtimeKey) return false;
   const candidate = openLeasedReadOnly(job.databasePath);
-  try { if (!validateRebuiltDatabase(job.databasePath, job.snapshot)) return false; }
+  try { if (!validateRebuiltDatabase(job.databasePath, job.snapshot, job.portable)) return false; }
   finally { candidate.close(); }
-  const source = openLeasedReadOnly(job.sourceDatabasePath);
-  try {
-    if (!isSourceOwned(source.connection.getDb()) && !inspectLegacySourceProvenance(source.connection.getDb()).eligible) return false;
-  } finally { source.close(); }
+  if (!job.portable) {
+    const source = openLeasedReadOnly(job.sourceDatabasePath);
+    try {
+      if (!isSourceOwned(source.connection.getDb()) && !inspectLegacySourceProvenance(source.connection.getDb()).eligible) return false;
+    } finally { source.close(); }
+  }
   return await validateAdaptiveSnapshot(job.root, job.snapshot) &&
     adaptiveRuntimeKey(job.root, 'node-sqlite') === job.runtimeKey;
 }

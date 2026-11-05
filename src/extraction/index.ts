@@ -201,6 +201,8 @@ export interface SyncResult {
   };
   /** False when file extraction or a recoverable post-processing phase is incomplete. */
   complete?: boolean;
+  /** Persisted coverage was verified complete by this sync. Older indexes can lack this proof. */
+  coverageVerified?: true;
   filesChecked: number;
   filesAdded: number;
   filesModified: number;
@@ -848,88 +850,241 @@ export async function scanDirectoryAsync(
   return withLanguageScope(() => scanDirectoryAsyncInScope(rootDir, onProgress, diagnostics, capture));
 }
 
-/** One full reconciliation's enumeration. Only reuse it under the same writer
- * admission and when no user callback can change the source between phases. */
+/** Observations from one writer admission. Scope paths are canonical watcher
+ * paths. No observation may cross a user callback that can change the source. */
 export interface SyncInventory {
   paths: string[];
+  scope?: ReadonlySet<string>;
   nativeCapture: RustScanCapture;
   diagnostics?: ReconcileDiagnostics;
   elapsedMs: number;
-  /** An unchanged file only needs a sentinel tied to its exact tracked row.
-   * Retain full identity for stat changes to bracket subsequent hash reads. */
-  fileStats?: WeakMap<FileRecord, true | fs.Stats | Error>;
+  /** A completed discovery keeps only exceptions to the unchanged stat path.
+   * Source text is released before inspecting the next file. */
+  observations?: Map<string, FileObservation>;
 }
 
-export async function scanSyncInventory(root: string, verbose = false): Promise<SyncInventory> {
+export interface SyncChanges {
+  added: string[];
+  modified: string[];
+  removed: string[];
+  changedFiles: number;
+  affectedOldNodes: number;
+  totalNodes: number;
+  changedBytes: number;
+  totalBytes: number;
+  totalFiles: number;
+  hasStatChanges: boolean;
+  needsRecovery: boolean;
+}
+
+type FileObservation = { kind: 'added' | 'modified' | 'retry'; size: number; definesMacro: boolean }
+  | { kind: 'touched'; size: number; update?: UnchangedFileStatUpdate }
+  | { kind: 'missing' | 'unavailable'; error: unknown };
+
+export async function scanSyncInventory(root: string, verbose = false, scopedPaths?: readonly string[]): Promise<SyncInventory> {
   clearCanonicalCache();
   const diagnostics = verbose ? new ReconcileDiagnostics() : undefined;
   const nativeCapture: RustScanCapture = {};
   const started = performance.now();
-  const paths = await scanDirectoryAsync(root, undefined, diagnostics?.scan, nativeCapture);
+  const scope = scopedPaths?.length ? new Set(scopedPaths) : undefined;
+  let paths: string[];
+  if (scope) {
+    // Only the checked scope is authoritative. An invalid path requires the
+    // caller to obtain a full inventory before using it for a decision.
+    for (const relative of scope) {
+      if (!relative || path.isAbsolute(relative) || relative.split(/[\\/]/).some(part => part === '..' || part === '.')) {
+        throw new Error('Invalid scoped sync path');
+      }
+    }
+    paths = [...scope].filter(file => isSourceFile(file));
+    if (diagnostics) {
+      diagnostics.scope = 'scoped';
+      diagnostics.scan.mode = 'scoped';
+      diagnostics.scan.sourceFiles = paths.length;
+    }
+  } else {
+    paths = await scanDirectoryAsync(root, undefined, diagnostics?.scan, nativeCapture);
+  }
   const elapsedMs = performance.now() - started;
   if (diagnostics) diagnostics.phases.enumerateMs = elapsedMs;
-  return { paths, nativeCapture, diagnostics, elapsedMs };
+  return { paths, scope, nativeCapture, diagnostics, elapsedMs };
 }
 
 function matchesTrackedStat(stat: { size: number; mtimeMs: number }, tracked: FileRecord): boolean {
   return stat.size === tracked.size && Math.floor(stat.mtimeMs) === Math.floor(tracked.modifiedAt);
 }
 
-/** Upper-bound the content changes visible to ordinary sync without reading
- * source bytes. A stat mismatch may only be a touch; the writer still hashes
- * it before indexing. An inaccessible file cannot certify a small scope. */
-export async function summarizeSyncCandidates(root: string, inventory: SyncInventory, tracked: readonly FileRecord[]) {
-  const started = performance.now();
-  const { diagnostics } = inventory;
-  const remaining = new Map<string, FileRecord>();
-  const addedPaths: string[] = [];
-  let pathsCount = 0, affectedOldNodes = 0, totalOldNodes = 0;
-  for (const file of tracked) {
-    remaining.set(file.path, file);
-    totalOldNodes += file.nodeCount;
+function statForReconcile(fullPath: string, diagnostics?: ReconcileDiagnostics): fs.Stats {
+  const started = diagnostics ? performance.now() : 0;
+  if (diagnostics) diagnostics.counts.statChecks++;
+  try { return fs.statSync(fullPath); }
+  finally { if (diagnostics) diagnostics.io.statMs += performance.now() - started; }
+}
+
+function unreadableSource(error: unknown): FileObservation {
+  const code = (error as NodeJS.ErrnoException | null)?.code;
+  return { kind: code === 'ENOENT' || code === 'ENOTDIR' ? 'missing' : 'unavailable', error };
+}
+
+/** Shared by ordinary reconcile and adaptive discovery. Undefined is the
+ * stat-matched fast path. Content is read once to distinguish changes and
+ * touches. A touch only carries metadata proven to bracket the bytes read. */
+function observeSyncFile(root: string, filePath: string, tracked: FileRecord | undefined,
+  nativeStat: { size: number; mtimeMs: number } | undefined, forced: boolean,
+  diagnostics?: ReconcileDiagnostics): FileObservation | undefined {
+  const recovery = hasDeclarationMacroRecoverySkipped(tracked?.errors);
+  if (recovery && diagnostics) diagnostics.counts.recoveryRetryFiles++;
+  const checkStat = tracked && !recovery && !forced;
+  if (checkStat && nativeStat) {
+    if (diagnostics) diagnostics.counts.snapshotStats++;
+    if (matchesTrackedStat(nativeStat, tracked)) {
+      if (diagnostics) diagnostics.counts.statUnchanged++;
+      return undefined;
+    }
   }
+  const fullPath = path.join(root, filePath);
+  let before: fs.Stats | undefined;
+  if (checkStat) {
+    try {
+      before = statForReconcile(fullPath, diagnostics);
+      if (!nativeStat && matchesTrackedStat(before, tracked)) {
+        if (diagnostics) diagnostics.counts.statUnchanged++;
+        return undefined;
+      }
+    } catch (error) {
+      if (diagnostics) diagnostics.counts.statErrors++;
+      return unreadableSource(error);
+    }
+  }
+
+  const started = diagnostics ? performance.now() : 0;
+  if (diagnostics) diagnostics.counts.hashReadAttempts++;
+  let bytes: Buffer;
+  try {
+    bytes = fs.readFileSync(fullPath);
+    if (diagnostics) diagnostics.counts.hashReadFiles++;
+  } catch (error) {
+    if (diagnostics) diagnostics.counts.hashReadErrors++;
+    return unreadableSource(error);
+  } finally {
+    if (diagnostics) diagnostics.io.readForHashMs += performance.now() - started;
+  }
+  const size = bytes.length;
+  const content = bytes.toString('utf8');
+  if (tracked && !forced) {
+    const hashStarted = diagnostics ? performance.now() : 0;
+    const same = tracked.contentHash === hashContent(content);
+    if (diagnostics) diagnostics.io.hashMs += performance.now() - hashStarted;
+    if (same) {
+      if (recovery) return { kind: 'retry', size, definesMacro: /^\s*#\s*define\b/m.test(content) };
+      if (diagnostics) diagnostics.counts.sameHashSkipped++;
+      try {
+        const after = statForReconcile(fullPath, diagnostics);
+        if (before?.isFile() && after.isFile() && before.dev === after.dev && before.ino === after.ino &&
+            before.size === after.size && before.mtimeMs === after.mtimeMs && before.ctimeMs === after.ctimeMs) {
+          return { kind: 'touched', size, update: { path: filePath, contentHash: tracked.contentHash,
+            previousSize: tracked.size, previousModifiedAt: tracked.modifiedAt, indexedAt: tracked.indexedAt,
+            size: before.size, modifiedAt: before.mtimeMs } };
+        }
+      } catch (error) {
+        if (diagnostics) diagnostics.counts.statErrors++;
+        logDebug('Deferring same-hash metadata refresh', { filePath, error: String(error) });
+      }
+      if (diagnostics) diagnostics.counts.sameHashStatDeferred++;
+      return { kind: 'touched', size };
+    }
+  }
+  return { kind: tracked ? 'modified' : 'added', size, definesMacro: /^\s*#\s*define\b/m.test(content) };
+}
+
+/** Snapshot of the actual source work plus the cost-policy denominators.
+ * For a scoped event, rows outside the reported scope remain in the totals.
+ * An access failure makes the decision inconclusive, never an inferred delete. */
+export async function summarizeSyncCandidates(root: string, inventory: SyncInventory, tracked: readonly FileRecord[],
+  forceReindexPaths?: ReadonlySet<string> | 'all'): Promise<SyncChanges | null> {
+  const started = performance.now();
+  const { diagnostics, scope } = inventory;
+  const remaining = new Map<string, FileRecord>();
+  const changes: SyncChanges = { added: [], modified: [], removed: [], changedFiles: 0, affectedOldNodes: 0,
+    totalNodes: 0, changedBytes: 0, totalBytes: 0, totalFiles: tracked.length, hasStatChanges: false, needsRecovery: false };
+  for (const file of tracked) {
+    if (!scope || scope.has(file.path)) remaining.set(file.path, file);
+    changes.totalNodes += file.nodeCount;
+    changes.totalBytes += file.size;
+  }
+  const observations = new Map<string, FileObservation>();
+  const remove = (prior: FileRecord) => {
+    changes.removed.push(prior.path);
+    changes.affectedOldNodes += prior.nodeCount;
+    changes.totalBytes -= prior.size;
+    changes.totalFiles--;
+  };
   try {
     let checked = 0;
     for (const relative of inventory.paths) {
       if (++checked % SYNC_RECONCILE_YIELD_INTERVAL === 0) await new Promise<void>(resolve => setImmediate(resolve));
       const prior = remaining.get(relative);
-      if (!prior) { addedPaths.push(relative); pathsCount++; continue; }
       remaining.delete(relative);
-      if (!hasDeclarationMacroRecoverySkipped(prior.errors)) {
-        const nativeStat = inventory.nativeCapture.snapshot?.stats.get(relative);
-        if (nativeStat) {
-          if (matchesTrackedStat(nativeStat, prior)) continue;
-        } else {
-          const fileStats = inventory.fileStats ??= new WeakMap();
-          const statStarted = diagnostics ? performance.now() : 0;
-          if (diagnostics) diagnostics.counts.statChecks++;
-          try {
-            const stat = fs.statSync(path.join(root, relative));
-            const unchanged = matchesTrackedStat(stat, prior);
-            fileStats.set(prior, unchanged || stat);
-            if (unchanged) continue;
-          } catch (error) {
-            const code = (error as NodeJS.ErrnoException).code;
-            if (!(error instanceof Error) || (code !== 'ENOENT' && code !== 'ENOTDIR')) return null;
-            // Git may still list an unstaged deletion. Reconcile confirms the
-            // path is absent immediately before removing the indexed record.
-            fileStats.set(prior, error);
-          } finally {
-            if (diagnostics) diagnostics.io.statMs += performance.now() - statStarted;
-          }
-        }
+      const observed = observeSyncFile(root, relative, prior, inventory.nativeCapture.snapshot?.stats.get(relative),
+        forceReindexPaths === 'all' || forceReindexPaths?.has(relative) === true, diagnostics);
+      if (!observed) continue;
+      observations.set(relative, observed);
+      switch (observed.kind) {
+        case 'unavailable': return null;
+        case 'missing':
+          if (inventory.nativeCapture.snapshot) return null;
+          if (prior) remove(prior);
+          break;
+        case 'touched':
+          changes.hasStatChanges = true;
+          changes.totalBytes += observed.size - prior!.size;
+          break;
+        case 'retry':
+          changes.needsRecovery = true;
+          changes.totalBytes += observed.size - prior!.size;
+          break;
+        case 'added':
+          changes.added.push(relative);
+          changes.totalFiles++;
+          changes.changedBytes += observed.size;
+          changes.totalBytes += observed.size;
+          break;
+        case 'modified':
+          changes.modified.push(relative);
+          changes.affectedOldNodes += prior!.nodeCount;
+          changes.changedBytes += observed.size;
+          changes.totalBytes += observed.size - prior!.size;
+          break;
       }
-      pathsCount++;
-      affectedOldNodes += prior.nodeCount;
     }
-    pathsCount += remaining.size;
-    for (const prior of remaining.values()) affectedOldNodes += prior.nodeCount;
-    return { pathsCount, affectedOldNodes, totalOldNodes, addedPaths };
+    for (const prior of remaining.values()) remove(prior);
+    changes.changedFiles = changes.added.length + changes.modified.length + changes.removed.length;
+    inventory.observations = observations;
+    return changes;
   } finally {
     const elapsed = performance.now() - started;
     inventory.elapsedMs += elapsed;
     if (diagnostics) diagnostics.phases.changeCheckMs += elapsed;
   }
+}
+
+export function finishUnchangedSyncInventory(inventory: SyncInventory, trackedCount: number,
+  onProgress?: (progress: IndexProgress) => void, onScanFallback?: (message: string) => void): SyncResult {
+  onProgress?.({ phase: 'scanning', current: 0, total: 0 });
+  if (inventory.nativeCapture.fallback && onScanFallback) {
+    try { onScanFallback(formatScanFallback(inventory.nativeCapture.fallback)); } catch { /* Diagnostics only. */ }
+  }
+  const diagnostics = inventory.diagnostics;
+  if (diagnostics) {
+    diagnostics.counts.trackedFiles = trackedCount;
+    diagnostics.counts.currentFiles = inventory.paths.length;
+    if (inventory.nativeCapture.snapshot) diagnostics.counts.snapshotPresence = trackedCount;
+    diagnostics.log(message => console.log('[sync] ' + message), inventory.elapsedMs);
+    console.log('[sync] phases reconcile=' + Math.round(inventory.elapsedMs) +
+      'ms framework=0ms macroScan=0ms workerSetup=0ms read=0ms parseWall=0ms store=0ms');
+  }
+  return { complete: true, filesChecked: inventory.paths.length, filesAdded: 0, filesModified: 0,
+    filesRemoved: 0, filesErrored: 0, nodesUpdated: 0, durationMs: inventory.elapsedMs, errors: [] };
 }
 
 async function scanDirectoryAsyncInScope(
@@ -1242,7 +1397,7 @@ export class ExtractionOrchestrator {
     this.globalMacroDefinitions = null;
   }
 
-  private invalidateMacroContext(filePath: string, content?: string): void {
+  private invalidateMacroContext(filePath: string, definesMacro = true): void {
     if (this.globalMacroNames === null) return;
     const language = EXTENSION_MAP[path.extname(filePath).toLowerCase()];
     if (language !== 'c' && language !== 'cpp' && language !== 'objc') return;
@@ -1250,8 +1405,7 @@ export class ExtractionOrchestrator {
     // macros and expanded declarations together. Ordinary consumers retain
     // warm context without another project scan. Check the old graph too:
     // deleting the last #define leaves no directive in the new source.
-    if (content === undefined || /^\s*#\s*define\b/m.test(content)
-      || this.queries.hasMacrosInFile(filePath)) {
+    if (definesMacro || this.queries.hasMacrosInFile(filePath)) {
       this.globalMacroNames = null;
       this.globalBodylessMacroNames = null;
       this.globalMacroDefinitions = null;
@@ -2722,7 +2876,11 @@ export class ExtractionOrchestrator {
   ): Promise<SyncResult> {
     const forced = new Set(forceReindexPaths);
     await initGrammars(); // Initialize WASM runtime (grammars loaded lazily below)
-    const inventory = scopedPaths?.length ? undefined : prepared?.inventory;
+    const candidate = prepared?.inventory;
+    const sameScope = scopedPaths?.length
+      ? candidate?.scope?.size === new Set(scopedPaths).size && scopedPaths.every(file => candidate.scope!.has(file))
+      : !candidate?.scope;
+    const inventory = sameScope ? candidate : undefined;
     if (!inventory) clearCanonicalCache();
     const startTime = Date.now();
     let filesChecked = 0;
@@ -2769,7 +2927,11 @@ export class ExtractionOrchestrator {
     const nativeCapture: RustScanCapture = inventory?.nativeCapture ?? {};
     let trackedFiles: FileRecord[];
     let phaseStarted = diagnostics ? performance.now() : 0;
-    if (scopedPaths && scopedPaths.length > 0) {
+    if (inventory?.scope && prepared?.tracked) {
+      currentFiles = inventory.paths;
+      trackedFiles = prepared.tracked.filter(file => inventory.scope!.has(file.path));
+      filesChecked = inventory.scope.size;
+    } else if (scopedPaths && scopedPaths.length > 0) {
       // Watcher paths are already filtered and canonicalized. Validate again
       // at this API boundary so a direct caller cannot make the pre-hash read
       // escape the project root.
@@ -2855,12 +3017,6 @@ export class ExtractionOrchestrator {
       phaseStarted = performance.now();
     }
 
-    const readStat = (fullPath: string): fs.Stats => {
-      const started = diagnostics ? performance.now() : 0;
-      if (diagnostics) diagnostics.counts.statChecks++;
-      try { return fs.statSync(fullPath); }
-      finally { if (diagnostics) diagnostics.io.statMs += performance.now() - started; }
-    };
     // Keep deletion lifecycle in one place. Scan omissions are removed first;
     // Git-listed disk deletions are discovered by the just-in-time stat below.
     // All removals still finish before queued extraction and resolution start.
@@ -3073,103 +3229,36 @@ export class ExtractionOrchestrator {
         if (++reconcileChecks % SYNC_RECONCILE_YIELD_INTERVAL === 0) {
           await new Promise<void>((resolve) => setImmediate(resolve));
         }
-        const fullPath = path.join(this.rootDir, filePath);
         const tracked = trackedMap.get(filePath);
-        const needsDeclarationMacroRecovery = hasDeclarationMacroRecoverySkipped(
-          tracked?.errors,
-        );
-        if (needsDeclarationMacroRecovery && diagnostics) diagnostics.counts.recoveryRetryFiles++;
-        let beforeReadStat: fs.Stats | undefined;
-
-        // Cheap pre-filter: an already-indexed file whose size AND mtime both match
-        // the DB is unchanged — skip it without reading or hashing. (A content
-        // change that preserves both exactly is the blind spot every mtime-based
-        // incremental tool accepts; `index --force` is the escape hatch. Git bumps
-        // mtime on every file it writes during checkout/merge, so pulls are caught.)
-        // A base-only file is intentionally exempt: unchanged source bytes do not
-        // mean its graph coverage is complete, so a later sync must retry it.
-        if (tracked && !needsDeclarationMacroRecovery && !forced.has(filePath)) {
-          const nativeStat = nativeCapture.snapshot?.stats.get(filePath);
-          if (nativeStat && diagnostics) diagnostics.counts.snapshotStats++;
-          try {
-            const observed = inventory?.fileStats?.get(tracked);
-            if (observed instanceof Error) throw observed;
-            if (observed === true || matchesTrackedStat(nativeStat ?? (beforeReadStat = observed ?? readStat(fullPath)), tracked)) {
-              if (diagnostics) diagnostics.counts.statUnchanged++;
-              continue;
+        // Reuse only an observation from this writer admission. A caller that
+        // subsequently forces a previously clean file still gets fresh bytes.
+        const saved = inventory?.observations;
+        let observation = saved?.get(filePath);
+        if (!saved || (forced.has(filePath) && observation?.kind !== 'modified')) {
+          observation = observeSyncFile(this.rootDir, filePath, tracked, nativeCapture.snapshot?.stats.get(filePath),
+            forced.has(filePath), diagnostics);
+        }
+        if (!observation) continue;
+        switch (observation.kind) {
+          case 'added':
+          case 'modified':
+          case 'retry':
+            this.invalidateMacroContext(filePath, observation.definesMacro);
+            filesToIndex.push(filePath);
+            if (observation.kind === 'added') filesAdded++;
+            else filesModified++;
+            break;
+          case 'touched':
+            if (observation.update) {
+              statUpdates.push(observation.update);
+              if (statUpdates.length >= SYNC_STAT_REFRESH_BATCH_SIZE) flushStatUpdates();
             }
-            // Rust snapshots only supply size/mtime. For a changed stat, acquire
-            // current file identity and ctime before reading; snapshot metadata
-            // alone cannot certify an unchanged-content refresh against races.
-            beforeReadStat ??= readStat(fullPath);
-          } catch (error) {
-            if (diagnostics) diagnostics.counts.statErrors++;
-            await removeIfMissing(tracked, fullPath, error);
-            logDebug('Skipping unstattable file during sync', { filePath, error: String(error) });
-            continue;
-          }
-        }
-
-        // Recovery must still read unchanged source. Do not preflight it with
-        // existsSync: denied access would look absent and erase its retry marker.
-        // New, or size/mtime changed — read + hash to confirm a real content change.
-        let content: string | undefined;
-        let readError: unknown;
-        const readStarted = diagnostics ? performance.now() : 0;
-        if (diagnostics) diagnostics.counts.hashReadAttempts++;
-        try {
-          content = fs.readFileSync(fullPath, 'utf-8');
-        } catch (error) {
-          if (diagnostics) diagnostics.counts.hashReadErrors++;
-          readError = error;
-        } finally {
-          if (diagnostics) diagnostics.io.readForHashMs += performance.now() - readStarted;
-        }
-        if (content === undefined) {
-          if (tracked && needsDeclarationMacroRecovery) await removeIfMissing(tracked, fullPath, readError);
-          logDebug('Skipping unreadable file during sync', { filePath, error: String(readError) });
-          continue;
-        }
-        if (diagnostics) diagnostics.counts.hashReadFiles++;
-        const hashStarted = diagnostics ? performance.now() : 0;
-        const contentHash = hashContent(content);
-        if (diagnostics) diagnostics.io.hashMs += performance.now() - hashStarted;
-
-        if (!tracked) {
-          this.invalidateMacroContext(filePath, content);
-          filesToIndex.push(filePath);
-          filesAdded++;
-        } else if (
-          forced.has(filePath) ||
-          needsDeclarationMacroRecovery ||
-          tracked.contentHash !== contentHash
-        ) {
-          this.invalidateMacroContext(filePath, content);
-          filesToIndex.push(filePath);
-          filesModified++;
-        } else {
-          if (diagnostics) diagnostics.counts.sameHashSkipped++;
-          // Persist only metadata that brackets the bytes just hashed. Exact
-          // timestamps (including ctime) and inode/device catch replacement and
-          // writes that restore mtime. A later write remains detectable on the
-          // next sync because we store the observed state, never a later stat.
-          let stable = false;
-          try {
-            const afterReadStat = readStat(fullPath);
-            stable = !!beforeReadStat && beforeReadStat.isFile() && afterReadStat.isFile() &&
-              beforeReadStat.dev === afterReadStat.dev && beforeReadStat.ino === afterReadStat.ino &&
-              beforeReadStat.size === afterReadStat.size && beforeReadStat.mtimeMs === afterReadStat.mtimeMs &&
-              beforeReadStat.ctimeMs === afterReadStat.ctimeMs;
-          } catch (error) {
-            if (diagnostics) diagnostics.counts.statErrors++;
-            logDebug('Deferring same-hash metadata refresh', { filePath, error: String(error) });
-          }
-          if (stable && beforeReadStat) {
-            statUpdates.push({ path: filePath, contentHash: tracked.contentHash,
-              previousSize: tracked.size, previousModifiedAt: tracked.modifiedAt, indexedAt: tracked.indexedAt,
-              size: beforeReadStat.size, modifiedAt: beforeReadStat.mtimeMs });
-            if (statUpdates.length >= SYNC_STAT_REFRESH_BATCH_SIZE) flushStatUpdates();
-          } else if (diagnostics) diagnostics.counts.sameHashStatDeferred++;
+            break;
+          case 'missing':
+          case 'unavailable':
+            if (tracked) await removeIfMissing(tracked, path.join(this.rootDir, filePath), observation.error);
+            logDebug('Skipping unavailable file during sync', { filePath, error: String(observation.error) });
+            break;
         }
       }
       flushStatUpdates();

@@ -69,18 +69,23 @@ describe('portable catch-up primitives', () => {
     const names = f.connection.getDb().prepare('SELECT name FROM nodes').all().map((row: any) => row.name);
     expect(names).toContain('alpha'); expect(names).not.toContain('stale');
   });
-  it('returns a full-hash plan for an unowned custom index without authorizing rebuild', async () => {
+  it('uses a full-hash threshold for a portable cache with historical guards and no owner marker', async () => {
     const f = await fixture();
-    f.connection.getDb().exec('CREATE TABLE user_data (value TEXT)');
+    const db = f.connection.getDb();
+    db.prepare("DELETE FROM project_metadata WHERE key='adaptive:source-owner-v1'").run();
+    expect(db.prepare("SELECT count(*) AS n FROM sqlite_master WHERE type='trigger' AND name GLOB 'adaptive_owner_*'").get().n).toBe(18);
     const stat = fs.statSync(f.file);
     fs.writeFileSync(f.file, 'export function bravo() { return 2; }\n');
     fs.utimesSync(f.file, stat.atime, stat.mtime);
-    const result = await evaluate(f.root, f.dbPath, { paths: ['not-the-changed-file.ts'] });
+    const threshold = { eligibility: { fallback: { minChangedFiles: 1 } } };
+    const result = await evaluate(f.root, f.dbPath, { paths: ['not-the-changed-file.ts'], ...threshold });
     expect(result.plan.modified).toEqual(['sample.ts']);
-    expect(result.decision.strategy).toBe('incremental');
-    expect(result.decision.reason).toContain('unverified-legacy-or-custom-index');
+    expect(result.decision).toEqual({ strategy: 'rebuild', reason: 'structural-large-change' });
+    const compatible = await evaluate(f.root, f.dbPath, { portable: false, ...threshold });
+    expect(compatible.plan.modified).toEqual(['sample.ts']);
+    expect(compatible.decision.reason).toContain('unverified-legacy-or-custom-index');
   });
-  it('uses database-local costs and ignores a stale directory history', async () => {
+  it('keeps small changes incremental regardless of matching expensive historical samples', async () => {
     const f = await fixture();
     const files = f.queries.getAllFiles();
     const common = {
@@ -100,12 +105,12 @@ describe('portable catch-up primitives', () => {
     expect(finishSourceWrite(f.connection.getDb(), write, true)).toBe(true);
     fs.writeFileSync(path.join(path.dirname(f.dbPath), 'adaptive-cost-history.json'), JSON.stringify({ version: 1, samples: [] }));
     fs.writeFileSync(f.file, 'export function bravo() { return 2; }\n');
-    expect((await evaluate(f.root, f.dbPath)).decision.reason).toBe('local-cost-estimate-favors-rebuild');
+    expect((await evaluate(f.root, f.dbPath)).decision.strategy).toBe('incremental');
     const next = beginSourceWrite(f.connection.getDb());
     f.queries.setMetadata('adaptive:cost-history-v1', JSON.stringify({ version: 1, samples: local.samples.map(sample => ({ ...sample, runtimeKey: 'another-machine' })) }));
     expect(finishSourceWrite(f.connection.getDb(), next, true)).toBe(true);
     fs.writeFileSync(path.join(path.dirname(f.dbPath), 'adaptive-cost-history.json'), JSON.stringify(local));
-    expect((await evaluate(f.root, f.dbPath)).decision.reason).toBe('insufficient-local-calibration');
+    expect((await evaluate(f.root, f.dbPath)).decision.strategy).toBe('incremental');
   });
 
 });

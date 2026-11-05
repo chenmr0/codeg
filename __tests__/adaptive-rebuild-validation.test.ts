@@ -1,16 +1,11 @@
-/** Acceptance checks against an independent fresh index. Synthetic cost history
- * is used solely to choose the rebuild branch, never as timing evidence.
- */
+/** Acceptance checks against an independent fresh index. */
 import { afterEach, describe, expect, it } from 'vitest';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { execFileSync } from 'child_process';
 import type { CodeGraph as Graph } from '../src';
-import type { AdaptiveCostHistory, AdaptiveCostSample } from '../src/sync/adaptive-plan';
 const { CodeGraph } = require('../dist') as typeof import('../src');
-const { adaptiveRuntimeKey, createAdaptivePlan, chooseAdaptiveStrategy } =
-  require('../dist/sync/adaptive-plan') as typeof import('../src/sync/adaptive-plan');
 const { DatabaseSync } = require('node:sqlite');
 
 const roots: string[] = [];
@@ -54,24 +49,24 @@ function databaseIdentity(databasePath: string): string {
     return identity;
   } finally { db.close(); }
 }
-async function artificialRebuildHistory(root: string, graph: Graph): Promise<void> {
-  const plan = await createAdaptivePlan(root, graph.getFiles(), { runtimeKey: adaptiveRuntimeKey(root, graph.getBackend()) });
-  const sample: AdaptiveCostSample = {
-    kind: 'incremental', runtimeKey: plan.runtimeKey, configFingerprint: plan.snapshot.configFingerprint, semanticConfigFingerprint: plan.snapshot.semanticConfigFingerprint,
-    totalFiles: plan.totalFiles, totalBytes: plan.totalBytes, totalNodes: plan.totalNodes,
-    durationMs: 100_000, changedFiles: plan.changedFiles, affectedOldNodes: plan.affectedOldNodes,
-    changedBytes: plan.changedBytes, addedFiles: plan.added.length, modifiedFiles: plan.modified.length,
-    removedFiles: plan.removed.length, shape: plan.shape, recordedAt: Date.now(),
-  };
-  const history: AdaptiveCostHistory = { version: 1, samples: [
-    { ...sample, kind: 'full', durationMs: 1_000 }, sample, { ...sample }, { ...sample },
-  ] };
-  expect(chooseAdaptiveStrategy(plan, history).strategy).toBe('rebuild');
-  graph.setPortableCostHistory(JSON.stringify(history));
-  await graph.whenIdle();
-}
 
 describe('adaptive rebuild final validation', () => {
+  it('validates the complete stock schema on a portable candidate without an owner marker', async () => {
+    const root = directory(); source(root);
+    const graph = keep(await CodeGraph.init(root, { index: true }));
+    const { createAdaptivePlan } = require('../dist/sync/adaptive-plan');
+    const { validateRebuiltDatabase } = require('../dist/sync/rebuild-controller');
+    const { snapshot } = await createAdaptivePlan(root, graph.getFiles(), { runtimeKey: '' });
+    const file = graph.getDatabaseFilePath();
+    const db = new DatabaseSync(file);
+    try {
+      expect(db.prepare("SELECT value FROM project_metadata WHERE key='adaptive:source-owner-v1'").get()).toBeUndefined();
+      expect(validateRebuiltDatabase(file, snapshot, true)).toBe(true);
+      db.exec('ALTER TABLE files ADD COLUMN unexpected TEXT');
+      expect(validateRebuiltDatabase(file, snapshot, true)).toBe(false);
+    } finally { db.close(); }
+  });
+
   it('matches an independent fresh-init graph and meaningful public queries', async () => {
     const originalArgv = process.execArgv;
     const nodeOptions = process.env.NODE_OPTIONS;
@@ -80,9 +75,8 @@ describe('adaptive rebuild final validation', () => {
       const root = directory(); const freshRoot = directory(); source(root);
       const writer = keep(await CodeGraph.init(root, { index: true }));
       source(root, true); source(freshRoot, true);
-      await artificialRebuildHistory(root, writer);
       const oldIdentity = databaseIdentity(writer.getDatabaseFilePath());
-      const result = await writer.sync();
+      const result = await writer.sync({ adaptiveFallback: { minChangedFiles: 1 } });
       expect(result.complete).toBe(true);
       expect(result.adaptive?.strategy).toBe('rebuild');
       expect(writer.getDatabaseFilePath()).toBe(path.join(writer.getDataDirectory(), 'codegraph.db'));
@@ -132,8 +126,7 @@ describe('adaptive rebuild final validation', () => {
     try {
       const root = directory(); source(root);
       const writer = keep(await CodeGraph.init(root, { index: true })); source(root, true);
-      await artificialRebuildHistory(root, writer);
-      const result = await writer.sync();
+      const result = await writer.sync({ adaptiveFallback: { minChangedFiles: 1 } });
       expect(result.complete).toBe(true);
       expect(result.adaptive?.strategy).toBe('rebuild');
       const identity = databaseIdentity(writer.getDatabaseFilePath());

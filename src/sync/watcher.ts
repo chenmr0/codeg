@@ -8,13 +8,17 @@
  * addon) with a per-platform strategy chosen to keep the open-descriptor /
  * kernel-watch cost BOUNDED rather than growing with the number of files:
  *
- *   - macOS / Windows: a SINGLE recursive `fs.watch(root, {recursive:true})`.
- *     libuv maps this to one FSEvents stream (macOS) / one
- *     ReadDirectoryChangesW handle (Windows), so it costs O(1) descriptors no
+ *   - macOS: a SINGLE recursive `fs.watch(root, {recursive:true})`.
+ *     libuv maps this to one FSEvents stream, so it costs O(1) descriptors no
  *     matter how large the tree. This is the fix for the macOS file-table
  *     exhaustion (#644 / #496 / #555 / #628): the previous watcher held one
  *     open fd PER WATCHED FILE on macOS (tens of thousands of REG fds), which
  *     exhausted `kern.maxfiles` and crashed unrelated processes system-wide.
+ *
+ *   - Windows: one shallow project-root watch and one recursive watch per
+ *     non-ignored top-level directory. SQLite sidecars under the index directory
+ *     would overflow a repository-wide ReadDirectoryChangesW buffer and feed
+ *     anonymous events from the sync itself back into the next sync.
  *
  *   - Linux: recursive `fs.watch` is unsupported, so we watch each (non-ignored)
  *     DIRECTORY with one inotify watch — O(directories), NOT O(files). New
@@ -42,12 +46,11 @@ import { watchDisabledReason } from './watch-policy';
 import { withoutLanguageScope } from '../extraction/language-scope';
 
 /**
- * Native recursive `fs.watch` is only reliable on macOS and Windows; on Linux
- * (and AIX) it throws `ERR_FEATURE_UNAVAILABLE_ON_PLATFORM`. We branch on this
- * to pick the recursive vs per-directory strategy.
+ * macOS uses one recursive FSEvents stream. Windows and Linux exclude the
+ * index directory before opening child watches.
  */
-function supportsRecursiveWatch(): boolean {
-  return process.platform === 'darwin' || process.platform === 'win32';
+function usesRecursiveRootWatch(): boolean {
+  return process.platform === 'darwin';
 }
 
 /**
@@ -163,8 +166,8 @@ export interface PendingFile {
  * debounced sync operations via a provided callback.
  *
  * Design goals:
- * - Bounded resource usage: O(1) descriptors on macOS/Windows (one recursive
- *   watch), O(directories) inotify watches on Linux — never O(files), which
+ * - Bounded resource usage: one watch on macOS, O(top-level directories) on
+ *   Windows, O(directories) inotify watches on Linux — never O(files), which
  *   was the system-crashing fd leak on macOS (#644/#496/#555/#628).
  * - Debounced to avoid thrashing on rapid saves
  * - Filters to supported source files by extension
@@ -173,9 +176,9 @@ export interface PendingFile {
  *   without blocking on a sync (issue #403)
  */
 export class FileWatcher {
-  /** macOS/Windows: the single recursive watcher. Null on Linux. */
+  /** macOS: the single recursive watcher. */
   private recursiveWatcher: fs.FSWatcher | null = null;
-  /** Linux: one watcher per watched directory (keyed by absolute path). */
+  /** Linux directory watches, or the shallow root and recursive Windows subtrees. */
   private dirWatchers = new Map<string, fs.FSWatcher>();
   /** Set once the per-directory watch cap is hit, so we log only once. */
   private dirCapWarned = false;
@@ -277,7 +280,7 @@ export class FileWatcher {
       if (this.inertForTests) {
         // Test-only: install no OS watcher; the seam drives events instead.
         this.inert = true;
-      } else if (supportsRecursiveWatch()) {
+      } else if (usesRecursiveRootWatch()) {
         this.startRecursive();
       } else {
         this.startPerDirectory();
@@ -296,7 +299,7 @@ export class FileWatcher {
       logDebug('File watcher started', {
         projectRoot: this.projectRoot,
         debounceMs: this.debounceMs,
-        mode: this.inertForTests ? 'inert' : supportsRecursiveWatch() ? 'recursive' : 'per-directory',
+        mode: this.inertForTests ? 'inert' : usesRecursiveRootWatch() ? 'recursive' : 'per-directory',
         watchedDirs: this.dirWatchers.size || undefined,
       });
       return true;
@@ -309,7 +312,7 @@ export class FileWatcher {
   }
 
   /**
-   * macOS/Windows: one recursive watcher for the whole tree. O(1) descriptors.
+   * macOS: one recursive watcher for the whole tree. O(1) descriptors.
    * `filename` arrives relative to the project root (with subdirectories), so
    * it maps straight to a project-relative path.
    */
@@ -318,8 +321,8 @@ export class FileWatcher {
       this.projectRoot,
       { recursive: true, persistent: true },
       (_event, filename) => {
-        if (this.stopped || filename == null) return;
-        this.handleChange(normalizePath(String(filename)));
+        if (this.stopped) return;
+        this.handleChange(filename ? normalizePath(String(filename)) : null);
       }
     );
     this.recursiveWatcher.on('error', (err: unknown) => {
@@ -347,6 +350,7 @@ export class FileWatcher {
    */
   private watchTree(dir: string, markExisting: boolean, revisit = false): void {
     if (this.dirWatchers.has(dir) && !revisit) return;
+    const recursiveChild = process.platform === 'win32' && dir !== this.projectRoot;
     if (!this.dirWatchers.has(dir)) {
       if (this.dirWatchers.size >= maxDirWatches()) {
         if (!this.dirCapWarned) {
@@ -360,15 +364,27 @@ export class FileWatcher {
 
       let w: fs.FSWatcher;
       try {
-        w = fs.watch(dir, { persistent: true }, (_event, filename) =>
-          this.handleDirEvent(dir, filename)
-        );
+        w = fs.watch(dir, { persistent: true, recursive: recursiveChild }, (event, filename) => {
+          if (this.stopped) return;
+          if (recursiveChild) {
+            const rel = filename && path.relative(this.projectRoot, path.join(dir, String(filename)));
+            this.handleChange(rel ? normalizePath(rel) : null);
+          } else this.handleDirEvent(dir, filename, event);
+        });
       } catch {
         // ENOENT / EACCES / too-many-open-files — skip this directory quietly.
         return;
       }
-      w.on('error', () => this.unwatchDir(dir));
+      w.on('error', () => {
+        if (this.dirWatchers.get(dir) === w) this.unwatchDir(dir);
+      });
       this.dirWatchers.set(dir, w);
+    }
+    if (recursiveChild) {
+      // A moved-in subtree may already contain source files before the watch
+      // was installed. One reconcile picks up the entire directory.
+      if (markExisting) this.scheduleFullScan();
+      return;
     }
 
     let entries: fs.Dirent[];
@@ -393,8 +409,12 @@ export class FileWatcher {
    * sub-directory is picked up by extending the watch tree; everything else is
    * routed through the shared change handler.
    */
-  private handleDirEvent(dir: string, filename: string | Buffer | null): void {
-    if (this.stopped || filename == null) return;
+  private handleDirEvent(dir: string, filename: string | Buffer | null, event: string): void {
+    if (this.stopped) return;
+    if (!filename) {
+      this.handleChange(null);
+      return;
+    }
     const full = path.join(dir, String(filename));
     const relative = normalizePath(path.relative(this.projectRoot, full));
     if (relative === '.git') {
@@ -404,6 +424,10 @@ export class FileWatcher {
       this.handleChange('.git/info/exclude');
       return;
     }
+    if (this.isAlwaysIgnored(relative)) return;
+    // A directory replaced at the same path needs a fresh Windows subtree
+    // handle. A queued error from the old handle cannot remove the new one.
+    if (process.platform === 'win32' && event === 'rename') this.unwatchDir(full);
 
     // A newly-created directory needs its own watch (recursive isn't available
     // on Linux). statSync is cheap and these events are rare relative to file
@@ -431,29 +455,30 @@ export class FileWatcher {
    * (one stream covers the whole repo), so the ignore check here is load-bearing
    * — it drops node_modules/dist/.git churn before any sync is scheduled.
    */
-  private handleChange(rel: string): void {
+  private handleChange(rel: string | null): void {
     withoutLanguageScope(() => this.handleChangeOutsideScope(rel));
   }
 
-  private handleChangeOutsideScope(rel: string): void {
-    if (!rel || rel === '.' || rel.startsWith('..')) return;
-    if (this.isControlFile(rel)) {
-      const ignoreChanged = rel === '.git/info/exclude' ||
+  private handleChangeOutsideScope(rel: string | null): void {
+    if (rel !== null && (!rel || rel === '.' || rel.startsWith('..'))) return;
+    // Windows can report a single named file followed by anonymous events
+    // when a write burst overflows the native change buffer. The names we
+    // received then describe only part of the changes, including ignore rules.
+    if (rel === null || this.isControlFile(rel)) {
+      const ignoreChanged = rel === null || rel === '.git/info/exclude' ||
         ['.gitignore', '.codegraphignore'].includes(path.posix.basename(rel));
       if (ignoreChanged) this.ignoreMatcher = buildDefaultIgnore(this.projectRoot);
-      this.needsFullScan = true;
-      this.fullScanRevision++;
-      this.changeRevision++;
-      if (ignoreChanged && !this.inert && !supportsRecursiveWatch()) {
+      if (ignoreChanged && !this.inert && !usesRecursiveRootWatch()) {
         for (const directory of this.dirWatchers.keys()) {
-          if (this.shouldIgnoreDir(directory)) this.unwatchDir(directory);
+          if (this.shouldIgnoreDir(directory) ||
+              (rel === null && process.platform === 'win32' && directory !== this.projectRoot)) this.unwatchDir(directory);
         }
         // Existing watched parents must be revisited: an ignore change may
         // expose a subtree for which Linux never installed an inotify watch.
         this.watchTree(this.projectRoot, false, true);
         this.watchGitControls();
       }
-      this.scheduleSync();
+      this.scheduleFullScan();
       return;
     }
     if (this.isAlwaysIgnored(rel)) return;
@@ -503,6 +528,10 @@ export class FileWatcher {
     logDebug('Non-source path removed; scheduling sync for possible directory removal', {
       path: rel,
     });
+    this.scheduleFullScan();
+  }
+
+  private scheduleFullScan(): void {
     this.needsFullScan = true;
     this.fullScanRevision++;
     this.changeRevision++;
@@ -519,16 +548,16 @@ export class FileWatcher {
    * directory watches admit info/exclude events (including atomic replacement).
    * A missing .git is discovered by the root directory watch. */
   private watchGitControls(): void {
-    if (this.inert || this.stopped || supportsRecursiveWatch()) return;
+    if (this.inert || this.stopped || usesRecursiveRootWatch()) return;
     for (const relative of ['.git', '.git/info']) {
       const directory = path.join(this.projectRoot, relative);
       if (this.controlWatchers.has(directory)) continue;
       try {
         if (!fs.lstatSync(directory).isDirectory()) continue;
         const watcher = fs.watch(directory, (_event, filename) => {
-          if (this.stopped || filename == null) return;
+          if (this.stopped) return;
           const name = String(filename);
-          if ((relative === '.git' && name === 'info') || (relative === '.git/info' && name === 'exclude')) {
+          if (!filename || (relative === '.git' && name === 'info') || (relative === '.git/info' && name === 'exclude')) {
             if (relative === '.git') {
               const info = path.join(this.projectRoot, '.git/info');
               this.controlWatchers.get(info)?.close();

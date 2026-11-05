@@ -9,7 +9,7 @@ import { indexConfigFingerprints } from '../src/sync/index-policy';
 import { getLanguageScopeKey } from '../src/extraction/language-scope';
 import type { FileRecord } from '../src/types';
 import { adaptiveConfigFingerprint, adaptiveRuntimeKey, adaptiveSampleFromFiles, chooseAdaptiveStrategy,
-  createAdaptivePlan, includeAdaptiveReindexWork, adaptiveChangeGate, canSkipAdaptiveEvaluation, canSkipScopedAdaptivePlan, hasAdaptiveCalibration, hasStructuralRebuildWork, readAdaptiveHistory, recordAdaptiveSample,
+  createAdaptivePlan, includeAdaptiveReindexWork, adaptiveChangeGate, chooseStructuralStrategy, canSkipScopedAdaptivePlan, hasAdaptiveCalibration, hasStructuralRebuildWork, readAdaptiveHistory, recordAdaptiveSample,
   validateAdaptiveSnapshot, type AdaptivePlan, type AdaptiveCostHistory, type AdaptiveCostSample } from '../src/sync/adaptive-plan';
 
 const roots: string[] = [];
@@ -35,23 +35,18 @@ function history(): AdaptiveCostHistory {
 }
 
 describe('adaptive cost decision', () => {
-  it('rules out structurally small changes across unknown runtime keys without hiding measured savings', () => {
-    const scope = { pathsCount: 1, affectedOldNodes: 1000, totalOldNodes: 40000 };
-    const measured = [1, 2, 3].map(() => sample({ changedFiles: 1, durationMs: 20000 }));
-    const full = sample({ kind: 'full', durationMs: 1000 });
-    expect(canSkipAdaptiveEvaluation(scope, { version: 1, samples: [full, ...measured] })).toBe(false);
-    expect(canSkipAdaptiveEvaluation(scope, { version: 1, samples: [full, ...measured.slice(0, 2)] })).toBe(true);
-    expect(canSkipAdaptiveEvaluation(scope, { version: 1, samples: [{ ...full, durationMs: 300000 }, ...measured] })).toBe(true);
-    expect(canSkipAdaptiveEvaluation({ ...scope, affectedOldNodes: 10000 }, { version: 1, samples: [] })).toBe(false);
-    expect(canSkipAdaptiveEvaluation({ ...scope, pathsCount: 128 }, { version: 1, samples: [] })).toBe(false);
-    const breadth = { ...scope, pathsCount: 128 };
-    const cold: AdaptiveCostHistory = { version: 1, samples: [] };
-    expect(canSkipAdaptiveEvaluation(breadth, cold, {}, 100000)).toBe(true);
-    expect(canSkipAdaptiveEvaluation(breadth, cold, {}, 512)).toBe(false);
-    expect(canSkipAdaptiveEvaluation(breadth, cold, {}, 0)).toBe(false);
-    expect(canSkipAdaptiveEvaluation(breadth, { version: 1, samples: [full, ...measured] }, {}, 100000)).toBe(false);
-    expect(canSkipAdaptiveEvaluation({ ...scope, affectedOldNodes: 0 },
-      { version: 1, samples: [full, ...measured.map(s => ({ ...s, shape: 'added-only' as const }))] })).toBe(false);
+  it('selects the managed strategy directly from confirmed work', () => {
+    const small = plan();
+    // The older generation store has enough samples to select a different strategy.
+    expect(chooseAdaptiveStrategy(small, history()).strategy).toBe('rebuild');
+    expect(chooseStructuralStrategy(small)).toEqual({ strategy: 'incremental', reason: 'below-rebuild-range' });
+    const broad = { ...small, changedFiles: 128, totalFiles: 512, changedBytes: small.totalBytes / 4 };
+    expect(chooseStructuralStrategy(broad).reason).toBe('structural-large-change');
+    expect(chooseStructuralStrategy({ ...broad, changedBytes: broad.changedBytes - 1 }).strategy).toBe('incremental');
+    const largeFile = { ...small, changedFiles: 1, affectedOldNodes: 10000, totalNodes: 40000 };
+    expect(chooseStructuralStrategy(largeFile).reason).toBe('structural-large-change');
+    expect(chooseStructuralStrategy({ ...largeFile, changedFiles: 0 }).reason).toBe('no-content-changes');
+    expect(chooseStructuralStrategy({ ...broad, totalFiles: 0, totalBytes: 0 }).reason).toBe('empty-target');
   });
 
   it('preserves published configuration digests and rereads same-stat configuration bytes', () => {
@@ -158,6 +153,29 @@ describe('read-only source plan', () => {
     expect(await validateAdaptiveSnapshot(dir, result.snapshot)).toBe(true);
     fs.appendFileSync(path.join(dir, 'a.cpp'), 'int later;');
     expect(await validateAdaptiveSnapshot(dir, result.snapshot)).toBe(false);
+  });
+  it('agrees with sync on real changes alongside macro retries, including a same-stat edit', async () => {
+    const dir = root(), fixed = new Date('2025-01-01T00:00:00Z');
+    const tracked = ['retry.cpp', 'edited.cpp', 'other.cpp'].map(name => {
+      const file = path.join(dir, name);
+      fs.writeFileSync(file, 'int before;');
+      fs.utimesSync(file, fixed, fixed);
+      const row = record(dir, name);
+      if (name !== 'other.cpp') row.errors = [{ severity: 'warning', message: 'retry', code: 'declaration_macro_recovery_skipped' }];
+      return row;
+    });
+    const edited = path.join(dir, 'edited.cpp');
+    fs.writeFileSync(edited, 'int edited;');
+    fs.utimesSync(edited, fixed, fixed);
+    fs.appendFileSync(path.join(dir, 'other.cpp'), 'int new_work;');
+    const inventory = await extraction.scanSyncInventory(dir);
+    const changes = await extraction.summarizeSyncCandidates(dir, inventory, tracked);
+    const plan = await createAdaptivePlan(dir, tracked, { runtimeKey: 'runtime' });
+    expect(changes?.modified.sort()).toEqual(['edited.cpp', 'other.cpp']);
+    expect(plan.modified.sort()).toEqual(changes!.modified);
+    expect(plan.affectedOldNodes).toBe(20);
+    expect(chooseStructuralStrategy(changes!, { fallback: { minChangedFiles: 2 } }).strategy).toBe('rebuild');
+    expect(chooseStructuralStrategy(plan, { fallback: { minChangedFiles: 2 } }).strategy).toBe('rebuild');
   });
   it('counts required same-content re-extraction without double-counting source deltas', async () => {
     const dir = root();

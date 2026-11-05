@@ -8,6 +8,7 @@ import * as crypto from 'node:crypto';
 import * as os from 'node:os';
 import { scanDirectoryAsync, hashContent } from '../extraction';
 import { EXTRACTION_VERSION } from '../extraction/extraction-version';
+import { hasDeclarationMacroRecoverySkipped } from '../extraction/diagnostics';
 import { getLanguageScopeKey } from '../extraction/language-scope';
 import { getSupportedLanguages, resolveWasmPath, type GrammarLanguage } from '../extraction/grammars';
 import { rustScanBinaryPath, automaticRustScanStatus } from '../extraction/rust-scan';
@@ -96,11 +97,14 @@ function fallbackPolicy(overrides: Partial<AdaptiveFallbackPolicy> = {}): Adapti
   }
   return policy;
 }
+type StructuralWork = Pick<AdaptivePlan, 'added' | 'removed' | 'changedFiles' | 'affectedOldNodes' |
+  'changedBytes' | 'totalFiles' | 'totalBytes' | 'totalNodes'>;
+
 /** Broad file+work coverage OR substantial old-node coverage. The latter
  * independently covers few high-impact files. Absolute minima are cost-policy
  * floors, not safety restrictions. Removed
  * files contribute old nodes; pure additions contribute target bytes. */
-export function hasStructuralRebuildWork(plan: AdaptivePlan, overrides?: Partial<AdaptiveFallbackPolicy>): boolean {
+export function hasStructuralRebuildWork(plan: StructuralWork, overrides?: Partial<AdaptiveFallbackPolicy>): boolean {
   const policy = fallbackPolicy(overrides);
   const oldFiles = plan.totalFiles - plan.added.length + plan.removed.length;
   const fileBase = Math.max(oldFiles, plan.totalFiles);
@@ -111,6 +115,16 @@ export function hasStructuralRebuildWork(plan: AdaptivePlan, overrides?: Partial
     plan.changedFiles / fileBase >= policy.minChangedFraction &&
     ((plan.totalBytes > 0 && plan.changedBytes / plan.totalBytes >= policy.minWorkFraction) ||
       (plan.totalNodes > 0 && plan.affectedOldNodes / plan.totalNodes >= policy.minWorkFraction)));
+}
+
+/** Managed databases use confirmed workload only. Cost history belongs to the older generation store. */
+export function chooseStructuralStrategy(work: StructuralWork, eligibility: AdaptiveEligibility = {}): AdaptiveDecision {
+  if (eligibility.blockedReason) return { strategy: 'incremental', reason: eligibility.blockedReason };
+  if (work.changedFiles === 0) return { strategy: 'incremental', reason: 'no-content-changes' };
+  if (!work.totalFiles || !work.totalBytes) return { strategy: 'incremental', reason: 'empty-target' };
+  return hasStructuralRebuildWork(work, eligibility.fallback)
+    ? { strategy: 'rebuild', reason: 'structural-large-change' }
+    : { strategy: 'incremental', reason: 'below-rebuild-range' };
 }
 
 let implementationFingerprint: string | undefined;
@@ -229,7 +243,9 @@ export async function createAdaptivePlan(root: string, tracked: ReadonlyArray<Fi
     if (fs.realpathSync(absolute) !== absolute) throw new Error(`Symlink source is not eligible: ${relative}`);
     const prior = old.get(relative);
     let contentHash: string;
-    if (!options.fullHash && prior && before.size === prior.size &&
+    // Ordinary sync re-reads incomplete macro extractions even with matching
+    // stat metadata. Count a recovery file only when those bytes really changed.
+    if (!options.fullHash && prior && !hasDeclarationMacroRecoverySkipped(prior.errors) && before.size === prior.size &&
         Math.floor(before.mtimeMs) === Math.floor(prior.modifiedAt)) contentHash = prior.contentHash;
     else contentHash = hashContent(fs.readFileSync(absolute, 'utf8'));
     const after = fs.statSync(absolute);
@@ -343,47 +359,6 @@ export async function hasCanonicalScope(root: string, paths: string[], prior: Ma
     try { if (fs.realpathSync(absolute) !== absolute || !fs.statSync(absolute).isFile()) return false; }
     catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT' || !prior.has(relative)) return false; }
     if ((i + 1) % 100 === 0) await new Promise<void>(resolve => setImmediate(resolve));
-  }
-  return true;
-}
-
-/** Negative-only gate for a full inventory or authoritative watcher scope. The caller must include ALL paths
- * requiring work (including policy re-extraction), or bypass this shortcut.
- * Considering every runtime/config key avoids hashing the implementation and
- * grammars just to rule out an incremental-cost estimate. */
-export function canSkipAdaptiveEvaluation(
-  candidates: { pathsCount: number; affectedOldNodes: number; totalOldNodes: number },
-  history: AdaptiveCostHistory, fallback?: Partial<AdaptiveFallbackPolicy>, totalOldFiles = 0,
-): boolean {
-  const policy = fallbackPolicy(fallback);
-  const { pathsCount, affectedOldNodes, totalOldNodes } = candidates;
-  if (!Number.isSafeInteger(pathsCount) || pathsCount < 0 || !Number.isSafeInteger(totalOldFiles) ||
-      totalOldFiles < 0 || !finite(affectedOldNodes) ||
-      !finite(totalOldNodes) || affectedOldNodes > totalOldNodes) return false;
-  if (pathsCount === 0) return true;
-  // The old file count is a lower bound on max(old, target), even when Git
-  // still lists missing files. The unverified enumeration count need not be.
-  const broadChange = pathsCount >= policy.minChangedFiles &&
-    (totalOldFiles === 0 || pathsCount / totalOldFiles >= policy.minChangedFraction);
-  if (broadChange || (affectedOldNodes >= policy.minAffectedOldNodes &&
-      totalOldNodes > 0 && affectedOldNodes / totalOldNodes >= policy.minAffectedOldNodeFraction)) return false;
-
-  const samples = history.samples.filter(validSample);
-  for (const full of samples) {
-    if (full.kind !== 'full') continue;
-    const compatible = samples.filter(sample => sample.kind === 'incremental' && sample.changedFiles > 0 &&
-      sample.runtimeKey === full.runtimeKey && sample.configFingerprint === full.configFingerprint);
-    for (const shape of new Set(compatible.map(sample => sample.shape))) {
-      const units = (s: AdaptiveCostSample) => shape === 'added-only' ? s.changedBytes : s.affectedOldNodes;
-      const measured = compatible.filter(s => s.shape === shape && units(s) > 0);
-      if (measured.length < 3 || !measured.some(s => s.changedFiles <= pathsCount)) continue;
-      if (shape !== 'added-only' && !measured.some(s => units(s) <= affectedOldNodes)) continue;
-      // chooseAdaptiveStrategy caps extrapolation at 2 * max measured units.
-      // Its minimum rate is at most the rate of that max-units observation,
-      // so even an arbitrary compatible subset cannot exceed this cost.
-      const incrementalUpper = Math.max(...measured.map(s => s.durationMs)) * MAX_WORK_EXTRAPOLATION * INCREMENTAL_COST_MARGIN;
-      if (savesEnough(incrementalUpper, full.durationMs * REBUILD_COST_MARGIN)) return false;
-    }
   }
   return true;
 }

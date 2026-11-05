@@ -24,6 +24,43 @@
  *   codegraph upgrade [version]  Update CodeGraph to the latest release
  */
 
+import { buildNode25BlockBanner, buildNodeTooOldBanner, MIN_NODE_MAJOR, needsWasmFallback } from './node-version-check';
+import { relaunchWithWasmRuntimeFlagsIfNeeded } from '../extraction/wasm-runtime-flags';
+
+// Block CodeGraph on Node.js 25.x — V8's turboshaft WASM JIT has a Zone
+// allocator bug that reliably crashes when compiling tree-sitter
+// grammars (see #54, #81, #140). The previous behaviour was a soft
+// console.warn that scrolls off-screen before the OOM crash 30 seconds
+// later, leading to a steady stream of "what is this OOM" reports.
+// Hard-exit before any WASM work; allow override via env var for users
+// who patched V8 themselves or want to test a future fix.
+const nodeVersion = process.versions.node;
+const nodeMajor = parseInt(nodeVersion.split('.')[0] ?? '0', 10);
+if (nodeMajor >= 25) {
+  process.stderr.write(buildNode25BlockBanner(nodeVersion) + '\n');
+  if (!process.env.CODEGRAPH_ALLOW_UNSAFE_NODE) {
+    process.exit(1);
+  }
+  // Override active — banner shown for visibility, continuing.
+}
+// Enforce the supported Node floor. `engines` in package.json only *warns* on
+// install (unless engine-strict), so hard-block here to actually keep users off
+// unsupported versions. Mirrors the 25+ block above. See package.json `engines`.
+if (nodeMajor < MIN_NODE_MAJOR) {
+  process.stderr.write(buildNodeTooOldBanner(nodeVersion) + '\n');
+  if (!process.env.CODEGRAPH_ALLOW_UNSAFE_NODE) {
+    process.exit(1);
+  }
+  // Override active — banner shown for visibility, continuing.
+}
+
+// Re-exec with V8's `--liftoff-only` if it isn't already set, so tree-sitter's
+// large WASM grammars never hit the turboshaft Zone OOM (`Fatal process out of
+// memory: Zone`) on Node >= 22. No-op under the bundled launcher, which already
+// passes the flag. Must run before any grammar (in the parse worker, which
+// inherits this process's flags) is compiled. See ../extraction/wasm-runtime-flags.
+relaunchWithWasmRuntimeFlagsIfNeeded(__filename);
+
 import { Command } from 'commander';
 import * as path from 'path';
 import * as fs from 'fs';
@@ -34,8 +71,6 @@ import { detectWorktreeIndexMismatch, worktreeMismatchWarning } from '../sync/wo
 import { createShimmerProgress } from '../ui/shimmer-progress';
 import { getGlyphs } from '../ui/glyphs';
 
-import { buildNode25BlockBanner, buildNodeTooOldBanner, MIN_NODE_MAJOR, needsWasmFallback } from './node-version-check';
-import { relaunchWithWasmRuntimeFlagsIfNeeded } from '../extraction/wasm-runtime-flags';
 import { EXTRACTION_VERSION } from '../extraction/extraction-version';
 import {
   DECLARATION_MACRO_RECOVERY_SKIPPED_CODE,
@@ -72,40 +107,6 @@ async function loadCodeGraph(): Promise<typeof import('../index')> {
 // eslint-disable-next-line @typescript-eslint/no-implied-eval
 const importESM = new Function('specifier', 'return import(specifier)') as
   (specifier: string) => Promise<typeof import('@clack/prompts')>;
-
-// Block CodeGraph on Node.js 25.x — V8's turboshaft WASM JIT has a Zone
-// allocator bug that reliably crashes when compiling tree-sitter
-// grammars (see #54, #81, #140). The previous behaviour was a soft
-// console.warn that scrolls off-screen before the OOM crash 30 seconds
-// later, leading to a steady stream of "what is this OOM" reports.
-// Hard-exit before any WASM work; allow override via env var for users
-// who patched V8 themselves or want to test a future fix.
-const nodeVersion = process.versions.node;
-const nodeMajor = parseInt(nodeVersion.split('.')[0] ?? '0', 10);
-if (nodeMajor >= 25) {
-  process.stderr.write(buildNode25BlockBanner(nodeVersion) + '\n');
-  if (!process.env.CODEGRAPH_ALLOW_UNSAFE_NODE) {
-    process.exit(1);
-  }
-  // Override active — banner shown for visibility, continuing.
-}
-// Enforce the supported Node floor. `engines` in package.json only *warns* on
-// install (unless engine-strict), so hard-block here to actually keep users off
-// unsupported versions. Mirrors the 25+ block above. See package.json `engines`.
-if (nodeMajor < MIN_NODE_MAJOR) {
-  process.stderr.write(buildNodeTooOldBanner(nodeVersion) + '\n');
-  if (!process.env.CODEGRAPH_ALLOW_UNSAFE_NODE) {
-    process.exit(1);
-  }
-  // Override active — banner shown for visibility, continuing.
-}
-
-// Re-exec with V8's `--liftoff-only` if it isn't already set, so tree-sitter's
-// large WASM grammars never hit the turboshaft Zone OOM (`Fatal process out of
-// memory: Zone`) on Node >= 22. No-op under the bundled launcher, which already
-// passes the flag. Must run before any grammar (in the parse worker, which
-// inherits this process's flags) is compiled. See ../extraction/wasm-runtime-flags.
-relaunchWithWasmRuntimeFlagsIfNeeded(__filename);
 
 // When node:sqlite is unavailable (Node < 22.5), eagerly initialize the
 // sql.js WASM fallback so any database open later works transparently.
@@ -861,7 +862,7 @@ program
       }
 
       const totalChanges = result.filesAdded + result.filesModified + result.filesRemoved;
-      const legacyUnverified = cg.getIndexCompleteness().legacyUnverified === true;
+      const legacyUnverified = !result.coverageVerified && cg.getIndexCompleteness().legacyUnverified === true;
 
       if (totalChanges === 0) {
         clack.log.info(result.complete === false

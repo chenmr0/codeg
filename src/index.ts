@@ -46,6 +46,7 @@ import {
   IndexResult,
   SyncResult,
   scanSyncInventory,
+  finishUnchangedSyncInventory,
   summarizeSyncCandidates,
   type SyncInventory,
   extractFromSource,
@@ -61,12 +62,12 @@ import { ContextBuilder, createContextBuilder } from './context';
 import { Mutex, canonicalFilePath } from './utils';
 import { GenerationWriterLock, resolveGeneration, createGeneration, publishGeneration, hasRebuildDiskSpace, acquireCurrentGenerationLease, acquireGenerationLease, cleanupGenerationCandidate, collectRetiredGenerations, type GenerationLease } from './sync/generation-store';
 import { installSourceOwnership, isSourceOwned, beginSourceWrite, finishSourceWrite } from './sync/source-ownership';
-import { adaptiveRuntimeKey, adaptiveConfigFingerprint, adaptiveSampleFromFiles, canSkipAdaptiveEvaluation, scopedCandidateCounts, hasCanonicalScope,
+import { adaptiveRuntimeKey, adaptiveConfigFingerprint, adaptiveSampleFromFiles, chooseStructuralStrategy, hasCanonicalScope,
   recordAdaptiveSample, type AdaptiveDecision, type AdaptivePlan, type AdaptiveFallbackPolicy } from './sync/adaptive-plan';
 import { runRebuildChild, runAdaptiveReadWorker } from './sync/rebuild-controller';
 import { PortableCoordinator, type PortableLease } from './sync/portable/protocol';
 import { createPortableFacade, prepareSmallSync, type PortableReadPin } from './sync/portable/facade';
-import { initializeIdentity, metadata as portableMetadata, setMetadata as setPortableMetadata, CATCHUP, COST_HISTORY, recordCost, portableCostHistory } from './sync/portable/metadata';
+import { initializeIdentity, metadata as portableMetadata, setMetadata as setPortableMetadata, CATCHUP, COST_HISTORY } from './sync/portable/metadata';
 import { FileWatcher, WatchOptions, PendingFile, LockUnavailableError } from './sync';
 import { SEMANTIC_CONFIG_KEY, SEMANTIC_REINDEX_PENDING, semanticConfigFingerprint, requiresSemanticReindex, indexConfigFingerprints } from './sync/index-policy';
 import { EXTRACTION_VERSION } from './extraction/extraction-version';
@@ -247,7 +248,10 @@ export class CodeGraph {
   private queries: QueryBuilder;
   private projectRoot: string;
   private orchestrator: ExtractionOrchestrator;
-  private resolver: ReferenceResolver;
+  private initializedResolver?: ReferenceResolver;
+  private get resolver(): ReferenceResolver {
+    return this.initializedResolver ??= createResolver(this.projectRoot, this.queries);
+  }
   private graphManager: GraphQueryManager;
   private traverser: GraphTraverser;
   private contextBuilder: ContextBuilder;
@@ -353,7 +357,9 @@ export class CodeGraph {
     }
     this.fileLock = new GenerationWriterLock(this.dataDir);
     this.orchestrator = new ExtractionOrchestrator(projectRoot, queries);
-    this.resolver = createResolver(projectRoot, queries);
+    // Read pins used for sync discovery and status need no framework detection.
+    // A reader that actually requests framework information initializes it on demand.
+    if (!readOnly) this.initializedResolver = createResolver(projectRoot, queries);
     this.graphManager = new GraphQueryManager(queries);
     this.traverser = new GraphTraverser(queries);
     this.contextBuilder = createContextBuilder(
@@ -425,7 +431,7 @@ export class CodeGraph {
             if (error instanceof DatabaseOpenError) db = error.connection;
             throw error;
           }
-          try { installSourceOwnership(db.getDb()); initializeIdentity(db.getDb()); }
+          try { initializeIdentity(db.getDb()); }
           finally {
             try { db.close(); }
             finally { await db.whenIdle(); idle = true; }
@@ -528,7 +534,7 @@ export class CodeGraph {
           if (error instanceof DatabaseOpenError) db = error.connection;
           throw error;
         }
-        try { installSourceOwnership(db.getDb()); initializeIdentity(db.getDb()); }
+        try { initializeIdentity(db.getDb()); }
         finally { db.close(); }
         coordinator.installInitialActive();
       } finally {
@@ -588,7 +594,7 @@ export class CodeGraph {
     const db = DatabaseConnection.initialize(file);
     let drained = false;
     try {
-      try { installSourceOwnership(db.getDb()); initializeIdentity(db.getDb()); }
+      try { initializeIdentity(db.getDb()); }
       finally { try { db.close(); } finally { await db.whenIdle(); drained = true; } }
     } catch (error) {
       // The writer owner must retain the fence if closure or background drain
@@ -606,7 +612,6 @@ export class CodeGraph {
   async acquirePortableReadAsync(): Promise<PortableReadPin> { return this.acquirePortableRead(); }
   getPortableCostHistory(): string | null { return portableMetadata(this.db.getDb(), COST_HISTORY); }
   setPortableCostHistory(history: string): void { setPortableMetadata(this.db.getDb(), COST_HISTORY, history); }
-  recordPortableFullCost(durationMs: number): void { this.recordCostSample('full', [], durationMs); }
   hasPortableCatchupWork(): boolean { return this.hasSynthesisRecoveryEvidence(); }
   /** @internal Persisted proof only; caller must fence publication and watcher revisions. */
   hasPortableCompletionProof(): boolean {
@@ -617,7 +622,7 @@ export class CodeGraph {
   }
   getPortableCatchup(): string | null { return portableMetadata(this.db.getDb(), CATCHUP); }
   setPortableCatchup(operation: string): void { setPortableMetadata(this.db.getDb(), CATCHUP, operation); }
-  clearPortableCatchup(): void { const ownership = beginSourceWrite(this.db.getDb()); this.db.getDb().prepare('DELETE FROM project_metadata WHERE key=?').run(CATCHUP); finishSourceWrite(this.db.getDb(), ownership, true); }
+  clearPortableCatchup(): void { this.db.getDb().prepare('DELETE FROM project_metadata WHERE key=?').run(CATCHUP); }
 
   private static openCurrent(root: string, forceReadOnly = false, pinnedRead = false,
     dataDirectory = getCodeGraphDir(root), writer = false, acquiredLease?: GenerationLease): CodeGraph {
@@ -838,7 +843,7 @@ export class CodeGraph {
           try { return await active.indexAllLocked(options, true); }
           finally { active.close(); this.forwardedWriter = null; }
         }
-        const ownership = this.db.getBackend() === 'node-sqlite' ? beginSourceWrite(this.db.getDb()) : null;
+        const ownership = !this.portableBound && this.db.getBackend() === 'node-sqlite' ? beginSourceWrite(this.db.getDb()) : null;
         // Persist intent before any full-index write: a crash must not make old
         // build stamps eligible for legacy compatibility again.
         this.beginFullSynthesisVerification();
@@ -1149,14 +1154,15 @@ export class CodeGraph {
           } catch { /* the returned diagnostics remain authoritative */ }
 
           if (result.success === true && result.complete === true) {
-            this.queries.setMetadata('adaptive:index-config-v1', adaptiveConfigFingerprint(this.projectRoot, this.queries.getAllFiles()));
+            const indexedPolicy = indexConfigFingerprints(this.projectRoot, this.queries.getAllFiles());
             this.queries.applyMetadataChanges({
-              [SEMANTIC_CONFIG_KEY]: semanticConfigFingerprint(this.projectRoot, this.queries.getAllFiles()),
+              'adaptive:index-config-v1': indexedPolicy.configFingerprint,
+              [SEMANTIC_CONFIG_KEY]: indexedPolicy.semanticConfigFingerprint,
               [SEMANTIC_REINDEX_PENDING]: null,
             });
           }
           finishSourceWrite(this.db.getDb(), ownership, result.success === true && result.complete === true);
-          if ((!this.shadowCandidate || this.portableBound) && result.success && result.complete) {
+          if (!this.shadowCandidate && result.success && result.complete) {
             this.recordCostSample('full', [], performance.now() - startedAt);
           }
           return result;
@@ -1209,7 +1215,7 @@ export class CodeGraph {
 
   private async indexFilesLocked(filePaths: string[]): Promise<IndexResult> {
         if (this.needsLanguageScopeReconciliation()) return this.indexAllLocked({}, true);
-        const ownership = this.db.getBackend() === 'node-sqlite' ? beginSourceWrite(this.db.getDb()) : null;
+        const ownership = !this.portableBound && this.db.getBackend() === 'node-sqlite' ? beginSourceWrite(this.db.getDb()) : null;
         const result = await this.orchestrator.indexFiles(filePaths);
         if (result.success && this.queries.getMetadata('indexed_language_scope') !== getLanguageScopeKey()) {
           this.queries.setMetadata('indexed_language_scope', getLanguageScopeKey());
@@ -1256,7 +1262,8 @@ export class CodeGraph {
     if (this.pinnedRead || this.shadowCandidate || this.db.getBackend() !== 'node-sqlite') {
       // This also covers independently cached MCP request readers. Generation
       // leases pin files, not a perpetual SQLite transaction/snapshot.
-      this.resolver.invalidateExternalCaches();
+      if (this.initializedResolver) this.initializedResolver.invalidateExternalCaches();
+      else this.queries.invalidateExternalCaches();
       return operation(this);
     }
     const admission = acquireCurrentGenerationLease(this.dataDir);
@@ -1309,7 +1316,7 @@ export class CodeGraph {
     try { this.db.close(); } catch (error) { next.close(); throw error; }
     const previousLease = this.generationLease;
     this.db = next.db; this.queries = next.queries;
-    this.orchestrator = next.orchestrator; this.resolver = next.resolver;
+    this.orchestrator = next.orchestrator; this.initializedResolver = next.initializedResolver;
     this.graphManager = next.graphManager; this.traverser = next.traverser; this.contextBuilder = next.contextBuilder;
     this.generationLease = next.generationLease; next.generationLease = undefined;
     this.readOnly = next.readOnly;
@@ -1326,15 +1333,14 @@ export class CodeGraph {
 
   private recordCostSample(kind: 'full' | 'incremental', before: FileRecord[], durationMs: number,
     verifiedPolicy?: ReturnType<typeof indexConfigFingerprints>): void {
-    if ((this.shadowCandidate && !this.portableBound) || this.db.getBackend() !== 'node-sqlite' || (!this.disposableCandidate && getCodeGraphDir(this.projectRoot) !== this.dataDir) || !isSourceOwned(this.db.getDb())) return;
+    if (this.shadowCandidate || this.db.getBackend() !== 'node-sqlite' || getCodeGraphDir(this.projectRoot) !== this.dataDir || !isSourceOwned(this.db.getDb())) return;
     try {
       const after = this.queries.getAllFiles();
       const sample = adaptiveSampleFromFiles({ kind, before, after, durationMs,
         runtimeKey: adaptiveRuntimeKey(this.projectRoot, this.db.getBackend()),
         semanticConfigFingerprint: verifiedPolicy?.semanticConfigFingerprint ?? semanticConfigFingerprint(this.projectRoot, after),
         configFingerprint: verifiedPolicy?.configFingerprint ?? adaptiveConfigFingerprint(this.projectRoot, [...before, ...after]) });
-      if (this.portableBound) recordCost(this.db.getDb(), sample);
-      else recordAdaptiveSample(this.projectRoot, sample, true);
+      recordAdaptiveSample(this.projectRoot, sample, true);
     } catch { /* Performance hints must never invalidate a successful index. */ }
   }
 
@@ -1456,9 +1462,8 @@ export class CodeGraph {
     try { return await this.syncInternal(options); } finally { this.refreshIdleFacade(); }
   }
 
-  /** @internal Called only on the raw graph under the portable writer lease.
-   * A negative gate can reuse ordinary sync evidence. Only the full planner
-   * and publisher may authorize replacement. */
+  /** @internal Classify source changes under the portable writer lease. The publisher
+   * independently validates a large change before replacing the active database. */
   async [prepareSmallSync](options: SyncOptions): Promise<((writer: CodeGraph) => Promise<SyncResult>) | SyncResult | AdaptiveDecision | null> {
     const startedAt = performance.now();
     return withLanguageScope(async () => {
@@ -1467,56 +1472,32 @@ export class CodeGraph {
       const indexedSemantic = this.queries.getMetadata(SEMANTIC_CONFIG_KEY);
       const indexedConfig = this.queries.getMetadata('adaptive:index-config-v1');
       if (!indexedConfig || !indexedSemantic) return null;
-      if (options.onAdaptiveDecision && !isSourceOwned(this.db.getDb())) return null;
       const tracked = this.queries.getAllFiles();
-      const policy = indexConfigFingerprints(this.projectRoot, tracked);
-      if (policy.configFingerprint !== indexedConfig || policy.semanticConfigFingerprint !== indexedSemantic) return null;
       const scoped = options.paths?.length ? [...new Set(options.paths)] : undefined;
-      let inventory: SyncInventory | undefined;
-      let candidates: ReturnType<typeof scopedCandidateCounts>;
-      let addedPaths: string[];
-      const history = portableCostHistory(this.getPortableCostHistory());
-      if (scoped) {
-        const prior = new Map(tracked.map(file => [file.path, file]));
-        candidates = scopedCandidateCounts(scoped, prior);
-        if (!canSkipAdaptiveEvaluation(candidates, history, options.adaptiveFallback, tracked.length) ||
-            !await hasCanonicalScope(this.projectRoot, scoped, prior)) return null;
-        addedPaths = scoped.filter(file => !prior.has(file));
-      } else {
-        inventory = await scanSyncInventory(this.projectRoot, options.verbose);
-        const full = await summarizeSyncCandidates(this.projectRoot, inventory, tracked);
-        if (!full || !canSkipAdaptiveEvaluation(full, history, options.adaptiveFallback, tracked.length)) return null;
-        candidates = full;
-        addedPaths = full.addedPaths;
-      }
+      if (scoped && !await hasCanonicalScope(this.projectRoot, scoped, new Map(tracked.map(file => [file.path, file])))) return null;
+      const inventory = await scanSyncInventory(this.projectRoot, options.verbose, scoped);
+      const changes = await summarizeSyncCandidates(this.projectRoot, inventory, tracked);
       options.signal?.throwIfAborted();
-      // The planner checks old AND newly visible source ancestors for configuration.
-      const policyFiles = addedPaths.length ? [...tracked, ...addedPaths.map(path => ({ path }))] : tracked;
-      if (addedPaths.length) {
-        const expanded = indexConfigFingerprints(this.projectRoot, policyFiles);
-        if (expanded.configFingerprint !== indexedConfig || expanded.semanticConfigFingerprint !== indexedSemantic) return null;
-      }
-      const reason = scoped ? 'scoped-small-change' : candidates.pathsCount ? 'below-rebuild-range' : 'no-content-changes';
-      // Deliver user decision callbacks after releasing the lease. They can
-      // change source/configuration, so do not carry any observations across them.
-      if (options.onAdaptiveDecision) return { strategy: 'incremental', reason };
-      this.emitAdaptiveDecision(options, { strategy: 'incremental', reason });
-      // An SDK scanning callback can create or remove sources. Keep its existing
-      // fresh scan, whereas the CLI renderer and callback-free calls reuse ours.
+      // Reconcile transient I/O failures with ordinary sync's per-file error
+      // handling. Incomplete observations cannot authorize a replacement.
+      if (!changes) return { strategy: 'incremental', reason: 'change-scope-unavailable' };
+      // Check controls in all old and newly visible source directories after the
+      // scan, so a no-op does not need a second policy pass before returning.
+      const policyFiles = changes.added.length ? [...tracked, ...changes.added.map(path => ({ path }))] : tracked;
+      const policy = indexConfigFingerprints(this.projectRoot, policyFiles);
+      if (policy.configFingerprint !== indexedConfig || policy.semanticConfigFingerprint !== indexedSemantic) return null;
+      const decision = chooseStructuralStrategy(changes, { fallback: options.adaptiveFallback });
+      if (scoped && decision.reason === 'below-rebuild-range') decision.reason = 'scoped-small-change';
+      // The publisher or an SDK decision callback can change source state.
+      // These paths revalidate rather than carrying stale observations forward.
+      if (decision.strategy === 'rebuild' || options.onAdaptiveDecision) return decision;
+      this.emitAdaptiveDecision(options, decision);
       const reusable = options.displayOnlyProgress || (!options.onProgress && !options.onScanFallback);
-      if (inventory && reusable && candidates.pathsCount === 0 && this.canFinishWithoutWriting()) {
-        // Reconcile on the pinned, query-only connection. Every source has
-        // already matched its tracked stat and no same-hash refresh is owed.
-        // Keep normal progress, fallback notices, counters and result shape.
-        const result = await this.orchestrator.sync(options.onProgress, undefined, options.verbose,
-          undefined, undefined, undefined, options.onScanFallback, undefined, undefined, { inventory, tracked });
+      const finalizeStarted = options.verbose ? performance.now() : 0;
+      if (!scoped && reusable && changes.changedFiles === 0 && !changes.hasStatChanges && !changes.needsRecovery && this.canFinishWithoutWriting()) {
+        const result = finishUnchangedSyncInventory(inventory, tracked.length, options.onProgress, options.onScanFallback);
+        result.coverageVerified = true; // canFinishWithoutWriting requires proven coverage.
         options.signal?.throwIfAborted();
-        const finalizeStarted = performance.now();
-        const after = indexConfigFingerprints(this.projectRoot, policyFiles);
-        if (after.configFingerprint !== indexedConfig || after.semanticConfigFingerprint !== indexedSemantic) {
-          // The writer will re-evaluate the new policy and persist any retry evidence.
-          return null;
-        }
         if (options.verbose) console.log(`[sync] tail-detail mode=read-only prepareAndWalMs=0ms finalizeMs=${Math.round(performance.now() - finalizeStarted)}ms`);
         result.durationMs = Math.round(performance.now() - startedAt);
         return result;
@@ -1527,7 +1508,7 @@ export class CodeGraph {
   }
 
   /** Ordinary sync must still run recovery and one-time repairs with zero
-   * changed sources. Only a complete tool-owned DB with clean evidence can
+   * changed sources. Only a complete managed DB with clean evidence can
    * finish on the reader. Leave large/outstanding WAL work to the writer. */
   private canFinishWithoutWriting(): boolean {
     const macro = this.queries.getMetadata('resolution:cpp-macro-evidence-v1');
@@ -1536,7 +1517,7 @@ export class CodeGraph {
       this.queries.getMetadata('indexed_with_version') === CodeGraphPackageVersion &&
       this.queries.getMetadata('indexed_with_extraction_version') === String(EXTRACTION_VERSION) &&
       this.db.getWalSizeBytes() < resolveWalValveMb(process.env.CODEGRAPH_WAL_VALVE_MB) * 1024 * 1024 &&
-      isSourceOwned(this.db.getDb()) && this.hasPortableCompletionProof();
+      this.hasPortableCompletionProof();
   }
 
   private async syncInternal(options: SyncOptions, inheritedLock = false, prepared?: PreparedSync): Promise<SyncResult> {
@@ -1573,7 +1554,7 @@ export class CodeGraph {
       const reextract = requiresSemanticReindex(this.queries.getMetadata(SEMANTIC_CONFIG_KEY), semanticBefore,
         this.queries.getMetadata('adaptive:index-config-v1'), configBefore, extractionChanged,
         this.queries.getMetadata(SEMANTIC_REINDEX_PENDING) !== null);
-      const ownership = this.db.getBackend() === 'node-sqlite' ? beginSourceWrite(this.db.getDb()) : null;
+      const ownership = !this.portableBound && this.db.getBackend() === 'node-sqlite' ? beginSourceWrite(this.db.getDb()) : null;
       // Configuration invalidation describes required work, not the storage strategy.
       // Inventory controls reconcile additions/removals; semantic inputs and extractor
       // upgrades replace unchanged files through the ordinary incremental writer.
@@ -2107,6 +2088,9 @@ export class CodeGraph {
           this.queries.setMetadata('index_completeness', 'complete');
         }
         const completeness = this.getIndexCompleteness();
+        // Metadata is stamped below. Let the CLI re-read an ambiguous legacy
+        // result after the stamp; a verified complete index needs no extra open.
+        if (completeness.status === 'complete' && result.complete === true) result.coverageVerified = true;
         if (completeness.status === 'incomplete') {
           result.complete = false;
           for (const diagnostic of completeness.diagnostics) {
@@ -2134,7 +2118,7 @@ export class CodeGraph {
         tailMark('finalizeMs');
         finishSourceWrite(this.db.getDb(), ownership, result.complete === true);
         // Content-only observations must not learn the cost of policy-driven same-hash re-extraction.
-        if (result.complete === true && !reextract && (result.filesAdded + result.filesModified + result.filesRemoved) > 0) {
+        if (!this.shadowCandidate && result.complete === true && !reextract && (result.filesAdded + result.filesModified + result.filesRemoved) > 0) {
           this.recordCostSample('incremental', tracked, performance.now() - syncStartedAt,
             result.filesAdded || result.filesRemoved ? undefined : verified);
         }
@@ -2427,9 +2411,10 @@ export class CodeGraph {
   isIndexStale(): boolean {
     return this.withReadView(view => {
       if (view !== this) return view.isIndexStale();
-      if (this.queries.getLastIndexedAt() == null) return false;
       const { extractionVersion } = this.getIndexBuildInfo();
-      return extractionVersion == null || extractionVersion < EXTRACTION_VERSION;
+      // A current stamp certifies freshness without MAX(indexed_at) over every file.
+      if (extractionVersion !== null && extractionVersion >= EXTRACTION_VERSION) return false;
+      return this.queries.getLastIndexedAt() !== null;
     });
   }
 

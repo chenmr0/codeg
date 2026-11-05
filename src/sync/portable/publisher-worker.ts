@@ -42,17 +42,15 @@ async function main(
     coordinator.recover();
     const read = coordinator.acquireReader();
     let evaluation: { plan?: AdaptivePlan; decision: AdaptiveDecision };
-    let history: string | null = null;
     const current = CodeGraph.openPortableRaw(root, coordinator.active, true);
     try {
-      history = current.getPortableCostHistory();
       evaluation = await runAdaptiveReadWorker({
         type: "evaluate",
         root,
         databasePath: coordinator.active,
         portable: true,
         eligibility: { fallback, upgradeRequired: current.isIndexStale() },
-      } as any);
+      });
     } finally {
       current.close();
       await current.whenIdle();
@@ -81,7 +79,6 @@ async function main(
       });
       if (!built.success || built.complete !== true)
         throw new Error("Candidate indexing incomplete; old database retained");
-      if (history) graph.setPortableCostHistory(history);
       graph.setPortableCatchup(candidate.id);
     } finally {
       graph.close();
@@ -90,6 +87,7 @@ async function main(
     const buildMs = performance.now() - started;
     const valid = await runAdaptiveReadWorker<boolean>({
       type: "validate",
+      portable: true,
       root,
       databasePath: candidate.path,
       sourceDatabasePath: coordinator.active,

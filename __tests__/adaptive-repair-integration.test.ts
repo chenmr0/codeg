@@ -98,13 +98,20 @@ it('real watcher scoped burst can trigger its own first background rebuild', asy
   let resolve!: () => void, reject!: (error: Error) => void;
   const complete = new Promise<void>((ok, fail) => { resolve = ok; reject = fail; });
   const timeout = setTimeout(() => reject(new Error('watch rebuild timeout')), 25_000);
+  let changed = 0;
   try {
-    expect(graph.watch({ debounceMs: 200, onSyncComplete: () => resolve(), onSyncError: reject })).toBe(true);
+    expect(graph.watch({ debounceMs: 200, onSyncComplete: result => {
+      changed += result.filesChanged;
+      if (changed >= 130) resolve();
+    }, onSyncError: reject })).toBe(true);
+    await graph.waitUntilWatcherReady();
     change(130); await complete;
     expect(graph.isPortableStorage()).toBe(true);
     expect(graph.getDatabaseFilePath()).toBe(path.join(getCodeGraphDir(root), 'codegraph.db'));
     expect(fs.existsSync(path.join(getCodeGraphDir(root), 'CURRENT'))).toBe(false);
-    expect(graph.searchNodes('replaced_129').length).toBeGreaterThan(0);
+    expect(graph.getNodesByName('replaced_129').length).toBeGreaterThan(0);
+    expect(graph.getNodesByName('initial_129')).toHaveLength(0);
+    expect(fs.readFileSync(path.join(getCodeGraphDir(root), '.runtime', 'adaptive-sync.log'), 'utf8')).toContain('structural-large-change');
   } finally { clearTimeout(timeout); graph.unwatch(); }
 }, 60_000);
 
@@ -126,7 +133,7 @@ it('legacy CURRENT rejected off-thread validation cleans the failed candidate on
   expect(fs.readdirSync(path.join(dataDir, 'generations')).filter(name => name.startsWith('g-'))).toEqual([initial.id]);
 }, 60_000);
 
-it('preserves an unknown custom database instead of silently replacing it for a configuration change', async () => {
+it('keeps the active portable database when a config comment creates no index work', async () => {
   const original = await fresh();
   const databasePath = original.getDatabaseFilePath();
   original.close(); await original.whenIdle();
@@ -138,7 +145,7 @@ it('preserves an unknown custom database instead of silently replacing it for a 
   fs.writeFileSync(path.join(root, '.gitignore'), '# changed configuration\n');
   const reasons: string[] = []; const result = await graph.sync({ onAdaptiveDecision: decision => reasons.push(decision.reason) });
   expect(result.adaptive).toBeUndefined();
-  expect(reasons.some(reason => reason.startsWith('unverified-legacy-or-custom-index:'))).toBe(true);
+  expect(reasons).toContain('no-content-changes');
   expect(graph.getDatabaseFilePath()).toBe(databasePath);
   const check = new DatabaseSync(databasePath, { readOnly: true });
   try { expect(check.prepare('SELECT value FROM business_data').get().value).toBe('keep-me'); }

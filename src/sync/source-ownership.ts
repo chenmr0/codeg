@@ -93,11 +93,16 @@ function guardSql(): string {
   return statements.join('\n');
 }
 
+/** A freshly built portable candidate must contain the schema from this build. */
+export function hasStockSchema(db: SqliteDatabase): boolean {
+  return schemaFingerprint(db) === expectedStockFingerprint();
+}
+
 /** Only call immediately after DatabaseConnection.initialize on a NEW database. */
 export function installSourceOwnership(db: SqliteDatabase): boolean {
   if (process.env.CODEGRAPH_FORCE_WASM) return false;
   return db.transaction(() => {
-    if (schemaFingerprint(db) !== expectedStockFingerprint()) return false;
+    if (!hasStockSchema(db)) return false;
     if ((db.prepare('SELECT count(*) AS n FROM project_metadata').get() as { n: number }).n !== 0) return false;
     for (const table of graphTables) {
       if (db.prepare(`SELECT 1 FROM ${table} LIMIT 1`).get()) return false;

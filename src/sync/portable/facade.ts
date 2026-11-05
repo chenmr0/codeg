@@ -173,12 +173,11 @@ class PortableFacade {
     if (!this.reader) {
       const lease = this.coordinator.acquireReader();
       try {
-        const revision = this.coordinator.snapshot().revision;
         this.reader = {
           graph: this.factory(true),
           lease,
           identity: randomUUID(),
-          revision,
+          revision: lease.revision,
         };
       } catch (error) {
         if (error instanceof DatabaseOpenError && error.connection.isOpen())
@@ -264,14 +263,14 @@ class PortableFacade {
         const admitted = typeof action === "function" ? action : await this.readAsync(action.prepare);
         if (typeof admitted !== "function") return admitted.result;
         signal?.throwIfAborted();
-        this.coordinator.markMutation();
+        const revision = this.coordinator.markMutation();
         lease = this.coordinator.acquireReader();
         graph = this.factory(false);
         this.activeWriter = graph;
         this.readinessGeneration++;
         this.readinessWatchRevision =
           this.watchRevisionOffset + (this.watcher?.getChangeRevision() ?? 0);
-        this.readinessRevision = this.coordinator.snapshot().revision;
+        this.readinessRevision = revision;
         this.lastReadiness = null;
         return await admitted(graph);
       } catch (error) {
@@ -428,8 +427,6 @@ class PortableFacade {
               graph.getIndexCompleteness().status === "complete" &&
               !graph.hasPortableCatchupWork()
             ) {
-              if (published)
-                graph.recordPortableFullCost(performance.now() - started);
               graph.clearPortableCatchup();
               return (
                 result ?? {

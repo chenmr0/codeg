@@ -94,6 +94,12 @@ async function saveHistory(history: AdaptiveCostHistory): Promise<void> {
 
 async function prepareRebuild(writer = graph, functionName = 'replacement_symbol') {
   fs.writeFileSync(path.join(root, 'main.cpp'), `int ${functionName}() { return 333; }\n`);
+  if (writer.isPortableStorage()) {
+    for (let i = 0; i < 127; i++) {
+      fs.writeFileSync(path.join(root, `branch-${i}.c`), `int ${functionName}_${i}(void) { return ${i}; }\n`);
+    }
+    return;
+  }
   const plan = await createAdaptivePlan(root, writer.getFiles(), {
     runtimeKey: adaptiveRuntimeKey(root, writer.getBackend()),
   });

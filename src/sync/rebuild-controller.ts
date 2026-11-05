@@ -4,7 +4,7 @@ import { fork } from 'child_process';
 import type { IndexProgress, IndexResult } from '../extraction';
 import { DatabaseConnection } from '../db';
 import type { AdaptiveSnapshot } from './adaptive-plan';
-import { isSourceOwned } from './source-ownership';
+import { hasStockSchema, isSourceOwned } from './source-ownership';
 
 /** Reject on cancellation only after the child exited, so callers may then release the root lock. */
 export async function runRebuildChild(root: string, databasePath: string, options: {
@@ -58,11 +58,11 @@ export async function runRebuildChild(root: string, databasePath: string, option
 }
 
 /** No migration, repair or database writes are permitted during validation. */
-export function validateRebuiltDatabase(databasePath: string, snapshot: AdaptiveSnapshot): boolean {
+export function validateRebuiltDatabase(databasePath: string, snapshot: AdaptiveSnapshot, portable = false): boolean {
   const connection = DatabaseConnection.openReadOnly(databasePath);
   const db = connection.getDb();
   try {
-    if (!isSourceOwned(db)) return false;
+    if (!(portable ? hasStockSchema(db) : isSourceOwned(db))) return false;
     const quick = db.prepare('PRAGMA quick_check').all() as Array<Record<string, unknown>>;
     if (quick.length !== 1 || Object.values(quick[0]!)[0] !== 'ok') return false;
     if (db.prepare('PRAGMA foreign_key_check').all().length) return false;

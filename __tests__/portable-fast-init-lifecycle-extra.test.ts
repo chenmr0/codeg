@@ -87,11 +87,9 @@ it('cancellation before publication leaves a recoverable active schema and permi
   expect(graph.searchNodes('lifecycle_symbol').length).toBeGreaterThan(0);
 }, 30000);
 
-it('preserves the initial full-cost sample after publishing the candidate', async () => {
+it('does not sample init timings for the structural policy', async () => {
   const root = fixture(), graph = await CodeGraph.init(root, { index: true }); graphs.push(graph);
-  const history = JSON.parse(graph.getPortableCostHistory()!);
-  expect(history.version).toBe(1);
-  expect(history.samples.some((sample: any) => sample.kind === 'full' && sample.durationMs > 0)).toBe(true);
+  expect(graph.getPortableCostHistory()).toBeNull();
 }, 30000);
 
 it('continues to publish and return success with explicitly incomplete coverage', async () => {

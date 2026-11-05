@@ -418,20 +418,22 @@ export class PortableCoordinator {
   markMutation(): number {
     this.revokeInitialEligibility();
     if (!this.writerHeld) throw new Error("Mutation requires writer lease");
-    if (this.journal() || this.snapshot().mode !== "idle")
+    const state = this.read();
+    if (state.journal !== null || state.mode !== "idle")
       throw new Error("Recover publication before graph mutation");
-    const revision = this.snapshot().revision + 1;
+    const revision = state.revision + 1;
     this.save("idle", revision, null);
     return revision;
   }
-  acquireReader(): PortableLease {
+  acquireReader(): PortableLease & { revision: number } {
     // Acquiring the lease FIRST closes the check/gate race: a publisher cannot
     // acquire its exclusive fence until we have either pinned idle or released.
     const lease = this.lock(this.readers, false);
     try {
-      if (this.snapshot().mode !== "idle")
+      const state = this.snapshot();
+      if (state.mode !== "idle")
         throw new PortableBusyError("Database publication is draining readers");
-      return lease;
+      return { release: lease.release, revision: state.revision };
     } catch (error) {
       lease.release();
       throw error;
@@ -455,8 +457,7 @@ export class PortableCoordinator {
     )
       throw new Error("Unsafe publication directory");
   }
-  private journal(): Journal | null {
-    const row = this.read();
+  private journal(row = this.read()): Journal | null {
     if (!row.journal) return null;
     const record = JSON.parse(row.journal) as Journal;
     this.owned(record);
@@ -488,9 +489,8 @@ export class PortableCoordinator {
     flushDirectory(this.runtime);
     this.save("idle", revision, null);
   }
-  private retryCleanup(): void {
+  private retryCleanup(current: Journal | null = this.journal()): void {
     if (!this.writerHeld) throw new Error("Cleanup requires writer lease");
-    const current = this.journal();
     let names: string[];
     try { names = fs.readdirSync(this.runtime); }
     catch { return; } // Retry transient GC directory access on the next recovery.
@@ -557,11 +557,12 @@ export class PortableCoordinator {
     const writer = this.writerHeld ? null : this.acquireWriter();
     let fence: PortableLease | null = null;
     try {
-      const record = this.journal();
+      const state = this.read();
+      const record = this.journal(state);
       if (!record) {
-        if (this.snapshot().mode !== "idle")
+        if (state.mode !== "idle")
           throw new Error("Draining state has no recovery record");
-        this.retryCleanup();
+        this.retryCleanup(null);
         return;
       }
       if (["building", "prepared", "committed"].includes(record.phase)) {
