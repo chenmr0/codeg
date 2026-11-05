@@ -3330,7 +3330,6 @@ export class ExtractionOrchestrator {
           this.syncRetryState && !this.syncRetryState.hasWork &&
           process.env.CODEGRAPH_NO_APPEND_DELTA !== '1' &&
           this.queries.getMetadata('indexed_with_extraction_version') === String(EXTRACTION_VERSION)) {
-        await loadGrammarsForLanguages(['c', 'cpp']);
         appendDelta = new AppendDeltaState(this.queries, this.syncRetryState);
       }
 
@@ -3342,10 +3341,18 @@ export class ExtractionOrchestrator {
       let globalMacroDefinitions: CppMacroDefinition[] = [];
       if (needsCppMacroContext) {
         const macroStarted = performance.now();
-        globalMacroNames = await this.ensureGlobalMacroNames(
+        const macros = this.ensureGlobalMacroNames(
           this.globalMacroNames === null ? getContextFiles() : undefined,
           verbose ? log : undefined,
         );
+        // Append comparison needs the parser later, not during macro discovery.
+        // The independent native scan can read headers while WASM initializes.
+        if (appendDelta) {
+          const [names, grammars] = await Promise.allSettled([macros, loadGrammarsForLanguages(['c', 'cpp'])]);
+          if (names.status === 'rejected') throw names.reason;
+          if (grammars.status === 'rejected') throw grammars.reason;
+          globalMacroNames = names.value;
+        } else globalMacroNames = await macros;
         globalBodylessMacroNames = this.globalBodylessMacroNames ?? new Set<string>();
         globalMacroDefinitions = this.globalMacroDefinitions ?? [];
         macroScanMs = performance.now() - macroStarted;

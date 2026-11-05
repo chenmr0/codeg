@@ -92,7 +92,8 @@ export async function* streamRustMacros(root: string, files: string[]): AsyncGen
         // Concatenate once per record, not once per pipe chunk (quadratic for
         // large generated macro tables). Decode only after UTF-8 chunks join.
         let line: string;
-        try { line = utf8.decode(Buffer.concat(parts, size)); } catch { throw new Error('response-encoding'); }
+        try { line = utf8.decode(parts.length === 1 ? piece : Buffer.concat(parts, size)); }
+        catch { throw new Error('response-encoding'); }
         parts = []; size = 0; offset = newline + 1;
         let value: unknown;
         try { value = JSON.parse(line); } catch { throw new Error('response-json'); }

@@ -3,16 +3,59 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import CodeGraph from '../src/index';
+import { DatabaseConnection, DatabaseOpenError } from '../src/db';
+import { getCodeGraphDir } from '../src/directory';
+import { PortableCoordinator, type PortableLease } from '../src/sync/portable/protocol';
 import { APPEND_DELTA_JOURNAL, AppendDeltaState } from '../src/extraction/append-delta';
 import { createDatabase, ensureSqlJsReady } from '../src/db/sqlite-adapter';
 import { QueryBuilder } from '../src/db/queries';
 import { SyncRetryState } from '../src/extraction/sync-retry-state';
 import { extractFromSource } from '../src/extraction/tree-sitter';
 
-const graphs: CodeGraph[] = [], dirs: string[] = [];
-afterEach(() => {
+const writers = new Map<CodeGraph, { reader: PortableLease; writer: PortableLease }>();
+const dirs: string[] = [];
+
+// These tests spy on the same QueryBuilder and resolver that perform the
+// extraction writes. The public facade creates a new raw graph per operation.
+async function openWriter(dir: string): Promise<CodeGraph> {
+  const coordinator = new PortableCoordinator(getCodeGraphDir(dir));
+  const writer = coordinator.acquireWriter();
+  let reader: PortableLease | undefined;
+  try {
+    coordinator.recover();
+    coordinator.markMutation();
+    reader = coordinator.acquireReader();
+    const graph = CodeGraph.openPortableRaw(dir, coordinator.active, false);
+    writers.set(graph, { reader, writer });
+    return graph;
+  } catch (error) {
+    if (error instanceof DatabaseOpenError) {
+      error.connection.close();
+      await error.connection.whenIdle();
+    }
+    reader?.release();
+    writer.release();
+    throw error;
+  }
+}
+
+async function closeWriter(graph: CodeGraph): Promise<void> {
+  const { reader, writer } = writers.get(graph)!;
+  graph.close();
+  await graph.whenIdle();
+  reader.release();
+  writer.release();
+  writers.delete(graph);
+}
+
+function storage(graph: CodeGraph) {
+  const raw = graph as unknown as { queries: QueryBuilder; db: DatabaseConnection };
+  return { q: raw.queries, db: raw.db.getDb() };
+}
+
+afterEach(async () => {
   vi.restoreAllMocks(); vi.unstubAllEnvs();
-  for (const cg of graphs.splice(0)) cg.close();
+  for (const graph of writers.keys()) await closeWriter(graph);
   for (const dir of dirs.splice(0)) fs.rmSync(dir, { recursive: true, force: true });
 });
 const base = {
@@ -22,12 +65,15 @@ const base = {
 async function fixture(files: Record<string, string> = base) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cg-append-delta-')); dirs.push(dir);
   for (const [name, source] of Object.entries(files)) fs.writeFileSync(path.join(dir, name), source);
-  let cg = CodeGraph.initSync(dir); graphs.push(cg); await cg.indexAll();
-  const q = (cg as any).queries, db = (cg as any).db.db;
+  const facade = CodeGraph.initSync(dir);
+  try { await facade.indexAll(); }
+  finally { facade.close(); await facade.whenIdle(); }
+  const cg = await openWriter(dir);
+  const { q, db } = storage(cg);
   return { dir, cg, q, db, write: (name: string, source: string) => fs.writeFileSync(path.join(dir, name), source) };
 }
 function snapshot(cg: CodeGraph) {
-  const db = (cg as any).db.db;
+  const { db } = storage(cg);
   return {
     nodes: db.prepare('SELECT id,kind,name,qualified_name,file_path,language,start_line,end_line,start_column,end_column,docstring,signature,is_declaration,is_static,return_type FROM nodes ORDER BY id').all(),
     edges: db.prepare('SELECT source,target,kind,line,col,metadata,provenance FROM edges ORDER BY source,target,kind,line,col,metadata,provenance').all(),
@@ -199,7 +245,7 @@ describe('append-only extraction delta', () => {
     const f = await fixture(), store = vi.spyOn(f.q, 'storeAppendDelta');
     if (mode === 'disabled') vi.stubEnv('CODEGRAPH_NO_APPEND_DELTA', '1');
     if (mode === 'old-version') f.q.setMetadata('indexed_with_extraction_version', '24');
-    if (mode === 'incomplete') f.q.upsertFile({ ...f.q.getFileByPath('a.cpp'), errors: [{ severity:'warning', message:'unknown' }] });
+    if (mode === 'incomplete') f.q.upsertFile({ ...f.q.getFileByPath('a.cpp')!, errors: [{ severity:'warning', message:'unknown' }] });
     f.write('a.cpp', base['a.cpp'] + append);
     await f.cg.sync(mode === 'scoped' ? { paths: ['a.cpp'] } : undefined);
     expect(store).not.toHaveBeenCalled();
@@ -233,13 +279,13 @@ describe('append-only extraction delta', () => {
     }
     await expect(f.cg.sync()).rejects.toThrow('interrupted');
     expect(f.q.getMetadataByPrefix(APPEND_DELTA_JOURNAL)).toHaveLength(1);
-    fault.mockRestore(); f.cg.close();
-    f.cg = CodeGraph.openSync(f.dir); graphs.push(f.cg);
+    fault.mockRestore(); await closeWriter(f.cg);
+    const reopened = await openWriter(f.dir);
     f.write('b.cpp', base['b.cpp'] + '\nint helper(int value) { return value; }\n');
-    await f.cg.sync();
-    expect((f.cg as any).queries.getMetadataByPrefix(APPEND_DELTA_JOURNAL)).toEqual([]);
+    await reopened.sync();
+    expect(storage(reopened).q.getMetadataByPrefix(APPEND_DELTA_JOURNAL)).toEqual([]);
     const fresh = await fixture({ ...base, 'a.cpp': base['a.cpp'] + append,
       'b.cpp': base['b.cpp'] + '\nint helper(int value) { return value; }\n' });
-    expect(snapshot(f.cg)).toEqual(snapshot(fresh.cg));
+    expect(snapshot(reopened)).toEqual(snapshot(fresh.cg));
   });
 });

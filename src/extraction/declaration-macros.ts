@@ -274,23 +274,20 @@ function definitionKey(definition: CppMacroDefinition): string {
 export function selectUnambiguousCppMacroDefinitions(
   definitions: Iterable<CppMacroDefinition>,
 ): CppMacroDefinition[] {
-  const byName = new Map<string, Map<string, CppMacroDefinition>>();
+  // Only repeated names need a spelling comparison. Once two spellings
+  // conflict, no later definition can make that name unambiguous again.
+  const byName = new Map<string, CppMacroDefinition | null>();
   for (const definition of definitions) {
-    let variants = byName.get(definition.name);
-    if (!variants) {
-      variants = new Map();
-      byName.set(definition.name, variants);
-    }
-    variants.set(definitionKey(definition), {
-      name: definition.name,
-      parameters: definition.parameters,
-      variadicParameter: definition.variadicParameter,
-      replacement: definition.replacement,
-    });
+    const prior = byName.get(definition.name);
+    if (prior === null) continue;
+    byName.set(definition.name, prior && definitionKey(prior) !== definitionKey(definition) ? null : definition);
   }
   const result: CppMacroDefinition[] = [];
-  for (const variants of byName.values()) {
-    if (variants.size === 1) result.push(variants.values().next().value!);
+  for (const definition of byName.values()) {
+    if (definition) {
+      const { name, parameters, variadicParameter, replacement } = definition;
+      result.push({ name, parameters, variadicParameter, replacement });
+    }
   }
   return result;
 }

@@ -443,16 +443,14 @@ describe('C/C++ declaration macro expansion', () => {
       fs.writeFileSync(path.join(directory, 'consumer.cpp'), 'DECLARE_RECORD(RecoveredRecord)\n');
       graph = await CodeGraph.init(directory, { silent: true });
       await graph.indexAll();
-      const rows = (graph as any).db.db.prepare(
-        "SELECT name, kind, file_path FROM nodes WHERE name IN ('RecoveredRecord', 'value')",
-      ).all() as Array<{ name: string; kind: string; file_path: string }>;
-
+      const rows = [...graph.getNodesByName('RecoveredRecord'), ...graph.getNodesByName('value')];
       expect(rows).toEqual(expect.arrayContaining([
-        expect.objectContaining({ name: 'RecoveredRecord', kind: 'struct', file_path: 'consumer.cpp' }),
-        expect.objectContaining({ name: 'value', kind: 'field', file_path: 'consumer.cpp' }),
+        expect.objectContaining({ name: 'RecoveredRecord', kind: 'struct', filePath: 'consumer.cpp' }),
+        expect.objectContaining({ name: 'value', kind: 'field', filePath: 'consumer.cpp' }),
       ]));
     } finally {
       graph?.close();
+      await graph?.whenIdle();
       fs.rmSync(directory, { recursive: true, force: true });
     }
   });

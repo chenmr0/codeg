@@ -600,8 +600,13 @@ describe('FileWatcher', () => {
   describe('CodeGraph integration', () => {
     let cg: CodeGraph;
 
-    afterEach(() => {
-      if (cg) cg.close();
+    afterEach(async () => {
+      if (cg) {
+        cg.unwatch();
+        await cg.whenIdle();
+        cg.close();
+        await cg.whenIdle();
+      }
     });
 
     it('should watch and unwatch via CodeGraph API', async () => {
