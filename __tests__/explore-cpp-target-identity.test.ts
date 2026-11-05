@@ -11,13 +11,22 @@ import type { ExploreDiagnosticReport } from '../src/upstream-explore/mcp/explor
 
 let root: string;
 const opened: CodeGraph[] = [];
+const handlers: ToolHandler[] = [];
 beforeEach(() => {
   root = fs.mkdtempSync(path.join(os.tmpdir(), 'explore-cpp-identity-'));
   vi.stubEnv('CODEGRAPH_ENABLE_EXPLORE', '1');
   vi.stubEnv('CODEGRAPH_NO_DAEMON', '1');
 });
-afterEach(() => {
-  for (const graph of opened.splice(0)) graph.close();
+afterEach(async () => {
+  for (const handler of handlers.splice(0)) {
+    handler.closeAll();
+    await handler.whenIdle();
+  }
+  for (const graph of opened.splice(0)) {
+    await graph.whenIdle();
+    graph.close();
+    await graph.whenIdle();
+  }
   fs.rmSync(root, { recursive: true, force: true });
   vi.unstubAllEnvs();
 });
@@ -194,7 +203,9 @@ describe('Explore consumes C++ identity through ranking and explicit targets', (
     expect(() => cg.getExploreQueryConnection().prepare('UPDATE nodes SET name = name').run()).toThrow(/readonly|read.only/i);
     const before = graph.getOutgoingEdges(caller.id);
     expect(before.some(e => e.target === declaration.id && e.line === callLine)).toBe(true);
-    const response = await new ToolHandler(cg).execute('explore', {
+    const handler = new ToolHandler(cg);
+    handlers.push(handler);
+    const response = await handler.execute('explore', {
       query: 'runDriver Sink::commit', maxFiles: 3,
     });
     expect(response.isError).not.toBe(true);
@@ -213,6 +224,7 @@ describe('Explore consumes C++ identity through ranking and explicit targets', (
     const sidecar = path.join(root, 'diagnostics.jsonl');
     vi.stubEnv('CODEGRAPH_EXPLORE_DEBUG', sidecar);
     const handler = new ToolHandler(cg);
+    handlers.push(handler);
     const response = await handler.execute('explore', { query: 'app::Worker::run', maxFiles: 2 });
     expect(response.isError).not.toBe(true);
     const report: ExploreDiagnosticReport = JSON.parse(fs.readFileSync(sidecar, 'utf8').trim().split('\n')[0]!);
@@ -235,7 +247,9 @@ describe('Explore consumes C++ identity through ranking and explicit targets', (
   it.each(['worker.hpp', 'worker.hpp:4', 'worker.hpp:4-5'])(
     'honors explicit header intent %s', async query => {
       const { cg } = await index(files);
-      const response = await new ToolHandler(cg).execute('explore', { query, maxFiles: 1 });
+      const handler = new ToolHandler(cg);
+      handlers.push(handler);
+      const response = await handler.execute('explore', { query, maxFiles: 1 });
       expect(response.isError).not.toBe(true);
       expect(response.content[0]!.text).toContain('**`worker.hpp`**');
       expect(response.content[0]!.text).toContain('int run(int value);');

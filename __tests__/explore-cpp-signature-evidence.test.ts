@@ -13,8 +13,12 @@ import type { ExploreDiagnosticReport } from '../src/upstream-explore/mcp/explor
 
 const roots: string[] = [];
 const opened: CodeGraph[] = [];
-afterEach(() => {
-  for (const cg of opened.splice(0)) cg.close();
+afterEach(async () => {
+  for (const cg of opened.splice(0)) {
+    await cg.whenIdle();
+    cg.close();
+    await cg.whenIdle();
+  }
   for (const root of roots.splice(0)) fs.rmSync(root, { recursive: true, force: true });
   vi.unstubAllEnvs();
   vi.restoreAllMocks();

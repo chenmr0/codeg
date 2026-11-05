@@ -98,16 +98,37 @@ export class GraphTraverser {
         return priority(a) - priority(b);
       });
 
-      // Batch-fetch neighbors we might newly enqueue in one query (was N+1 per
-      // BFS step). Already-queued/visited neighbors are already in `nodes`, so
-      // they don't need re-fetching to record an edge back to them.
-      const wantIds = adjacentEdges
-        .map((e) => (e.source === node.id ? e.target : e.source))
-        .filter((id) => !visited.has(id) && !enqueued.has(id));
-      const neighborNodes = wantIds.length > 0 ? this.queries.getNodesByIds(wantIds) : new Map();
+      // Prefetch in edge order, bounded by the remaining node budget and 64
+      // unique IDs per batch. Missing or filtered nodes leave room for later
+      // batches; remember requested IDs so parallel edges don't re-fetch them.
+      const neighborNodes = new Map<string, Node>();
+      const requested = new Set<string>();
+      let prefetchCursor = 0;
+      const fetchNextBatch = () => {
+        const remaining = opts.limit - nodes.size;
+        if (!(remaining > 0)) return;
+        const capacity = Math.min(64, Math.ceil(remaining));
+        const ids: string[] = [];
+        // Advance once through the adjacency list, retaining its stable order.
+        while (prefetchCursor < adjacentEdges.length && ids.length < capacity) {
+          const edge = adjacentEdges[prefetchCursor++]!;
+          const id = edge.source === node.id ? edge.target : edge.source;
+          if (visited.has(id) || enqueued.has(id) || requested.has(id)) continue;
+          requested.add(id);
+          ids.push(id);
+        }
+        if (ids.length === 0) return;
+        for (const [id, neighbor] of this.queries.getNodesByIds(ids)) {
+          neighborNodes.set(id, neighbor);
+        }
+      };
 
       for (const adjEdge of adjacentEdges) {
         const nextNodeId = adjEdge.source === node.id ? adjEdge.target : adjEdge.source;
+        if (!visited.has(nextNodeId) && !enqueued.has(nextNodeId) &&
+            !requested.has(nextNodeId) && nodes.size < opts.limit) {
+          fetchNextBatch();
+        }
         const nextNode = neighborNodes.get(nextNodeId) ?? nodes.get(nextNodeId);
         if (!nextNode) continue;
 
@@ -125,7 +146,8 @@ export class GraphTraverser {
           queue.push({ node: nextNode, edge: adjEdge, depth: depth + 1 });
         }
 
-        // Record every distinct edge among kept nodes. Collecting on the
+        // Keep scanning after the node budget is full: later edges can still
+        // connect kept nodes. Record every distinct edge. Collecting on the
         // adjacency scan (rather than once per dequeue) is what preserves
         // parallel edges to the same target (#1090); `nextNode` is guaranteed
         // to be in `nodes` at this point (just added, or already in-set).
