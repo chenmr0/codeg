@@ -2,6 +2,7 @@ import { fork } from "node:child_process";
 import * as path from "node:path";
 import type { SyncOptions } from "../../index";
 import type { SyncResult, IndexProgress } from "../../extraction";
+import { resolvedSyncPolicy } from "../sync-policy";
 /** The child owns writer admission from planning to publication. Cancellation
  * completes only after child exit, including all its native workers. */
 export function runPortableRebuild(
@@ -9,6 +10,8 @@ export function runPortableRebuild(
   dataDir: string,
   options: SyncOptions,
 ): Promise<SyncResult> {
+  const policy = options[resolvedSyncPolicy];
+  if (!policy?.enabled) return Promise.reject(new Error("Background rebuild requires an enabled sync policy snapshot"));
   return new Promise((resolve, reject) => {
     const child = fork(
       path.join(__dirname, "publisher-worker.js"),
@@ -76,7 +79,7 @@ export function runPortableRebuild(
       else resolve(result);
     });
     child.send({
-      fallback: options.adaptiveFallback,
+      policy,
       parentExecArgv: [...process.execArgv],
     });
     if (options.signal?.aborted) cancel();

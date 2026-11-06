@@ -1,6 +1,4 @@
-/** Real child-process publication tests. Injected history selects the branch;
- * invented timing observations are NOT performance evidence or calibration.
- */
+/** Real child-process publication tests with explicit structural thresholds. */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -8,9 +6,6 @@ import * as os from 'os';
 import type { CodeGraph as CodeGraphInstance } from '../src';
 const { CodeGraph } = require('../dist') as typeof import('../src');
 const { getCodeGraphDir } = require('../dist/directory') as typeof import('../src/directory');
-import type { AdaptiveCostHistory, AdaptiveCostSample } from '../src/sync/adaptive-plan';
-const { adaptiveRuntimeKey, createAdaptivePlan, chooseAdaptiveStrategy } =
-  require('../dist/sync/adaptive-plan') as typeof import('../src/sync/adaptive-plan');
 const { GenerationWriterLock, resolveGeneration, createGeneration, publishInitialGeneration, cleanupGenerationCandidate, drainGenerationCollections } =
   require('../dist/sync/generation-store') as typeof import('../src/sync/generation-store');
 
@@ -75,23 +70,6 @@ function storageIdentity(): string | null {
   const stat = fs.statSync(graph.getDatabaseFilePath());
   return JSON.stringify([stat.dev, stat.ino, stat.birthtimeMs]);
 }
-async function saveHistory(history: AdaptiveCostHistory): Promise<void> {
-  if (!graph.isPortableStorage()) {
-    fs.writeFileSync(path.join(graph.getDataDirectory(), 'adaptive-cost-history.json'), JSON.stringify(history)); return;
-  }
-  const coordinator = new PortableCoordinator(graph.getDataDirectory());
-  const writer = coordinator.acquireWriter(); let lease: import('../src/sync/portable/protocol').PortableLease | undefined;
-  let raw: CodeGraphInstance | undefined;
-  try {
-    coordinator.recover(); coordinator.markMutation(); lease = coordinator.acquireReader();
-    raw = CodeGraph.openPortableRaw(root, graph.getDatabaseFilePath(), false);
-    raw.setPortableCostHistory(JSON.stringify(history));
-  } finally {
-    if (raw) { raw.close(); await raw.whenIdle(); }
-    lease?.release(); writer.release();
-  }
-}
-
 async function prepareRebuild(writer = graph, functionName = 'replacement_symbol') {
   fs.writeFileSync(path.join(root, 'main.cpp'), `int ${functionName}() { return 333; }\n`);
   if (writer.isPortableStorage()) {
@@ -100,21 +78,9 @@ async function prepareRebuild(writer = graph, functionName = 'replacement_symbol
     }
     return;
   }
-  const plan = await createAdaptivePlan(root, writer.getFiles(), {
-    runtimeKey: adaptiveRuntimeKey(root, writer.getBackend()),
-  });
-  const sample: AdaptiveCostSample = {
-    kind: 'incremental', runtimeKey: plan.runtimeKey, configFingerprint: plan.snapshot.configFingerprint, semanticConfigFingerprint: plan.snapshot.semanticConfigFingerprint,
-    totalFiles: plan.totalFiles, totalBytes: plan.totalBytes, totalNodes: plan.totalNodes,
-    durationMs: 100_000, changedFiles: plan.changedFiles, affectedOldNodes: plan.affectedOldNodes,
-    changedBytes: plan.changedBytes, addedFiles: plan.added.length, modifiedFiles: plan.modified.length,
-    removedFiles: plan.removed.length, shape: plan.shape, recordedAt: Date.now(),
-  };
-  const history: AdaptiveCostHistory = { version: 1,
-    samples: [{ ...sample, kind: 'full', durationMs: 1_000 }, sample, { ...sample }, { ...sample }],
-  };
-  expect(chooseAdaptiveStrategy(plan, history).strategy).toBe('rebuild');
-  await saveHistory(history);
+  fs.writeFileSync(path.join(root, '.codegraphrc.json'), JSON.stringify({
+    sync: { adaptive: { rules: { fileScale: { minChangedFiles: 1 } } } },
+  }));
 }
 function assertRootLocked(): void {
   if (graph.isPortableStorage()) {
@@ -136,15 +102,6 @@ function names(reader: CodeGraphInstance, query: string): string[] {
 
 describe('adaptive sync real child lifecycle', () => {
   it('rescans normally after the negative-gate diagnostic callback changes source and ignores', async () => {
-    const baseline = await createAdaptivePlan(root, graph.getFiles(), { runtimeKey: adaptiveRuntimeKey(root, graph.getBackend()) });
-    const sample: AdaptiveCostSample = { kind: 'incremental', runtimeKey: baseline.runtimeKey,
-      configFingerprint: baseline.snapshot.configFingerprint, semanticConfigFingerprint: baseline.snapshot.semanticConfigFingerprint, totalFiles: baseline.totalFiles,
-      totalBytes: baseline.totalBytes, totalNodes: baseline.totalNodes, durationMs: 100_000,
-      changedFiles: 100, affectedOldNodes: 100, changedBytes: 1000,
-      addedFiles: 0, modifiedFiles: 100, removedFiles: 0, shape: 'modified-only', recordedAt: Date.now() };
-    const history: AdaptiveCostHistory = { version: 1, samples: [
-      { ...sample, kind: 'full', durationMs: 1_000 }, sample, { ...sample }, { ...sample }] };
-    await saveHistory(history);
     const reasons: string[] = [];
     const result = await graph.sync({ onAdaptiveDecision: decision => {
       reasons.push(decision.reason);

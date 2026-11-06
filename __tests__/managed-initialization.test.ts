@@ -6,7 +6,6 @@ import type { CodeGraph as Graph } from '../src';
 const { CodeGraph } = require('../dist') as typeof import('../src');
 const { getCodeGraphDir } = require('../dist/directory') as typeof import('../src/directory');
 const { resolveGeneration, collectRetiredGenerations } = require('../dist/sync/generation-store') as typeof import('../src/sync/generation-store');
-const { readAdaptiveHistory } = require('../dist/sync/adaptive-plan') as typeof import('../src/sync/adaptive-plan');
 let root: string; let argv: string[]; const graphs: Graph[] = [];
 beforeEach(() => {
   root = fs.mkdtempSync(path.join(os.tmpdir(), 'cg-managed-init-'));
@@ -25,7 +24,7 @@ it('initSync publishes storage-ready, not a complete index, and later indexes du
   expect(fs.existsSync(path.join(getCodeGraphDir(root), 'codegraph.db'))).toBe(false);
   expect(graph.getFiles()).toEqual([]);
   expect((graph as any).queries.getMetadata('index_completeness')).not.toBe('complete');
-  expect(readAdaptiveHistory(root).samples).toHaveLength(0);
+  expect(fs.existsSync(path.join(getCodeGraphDir(root), 'adaptive-cost-history.json'))).toBe(false);
   const db = (graph as any).db.getDb();
   const pragma = vi.spyOn(db, 'pragma');
   expect((await graph.indexAll()).success).toBe(true);
@@ -38,7 +37,7 @@ it('async schema-only init is managed and remains unindexed', async () => {
   expect(manifest().storageReady).toBe(true); expect(graph.getFiles()).toEqual([]);
   expect((graph as any).queries.getMetadata('index_completeness')).not.toBe('complete');
 });
-it('full init stays private throughout extraction and records a genuine full observation', async () => {
+it('full init stays private throughout extraction and does not create cost history', async () => {
   let observed = false;
   const graph = await CodeGraph.init(root, { index: true, onProgress: () => {
     observed = true;
@@ -47,7 +46,7 @@ it('full init stays private throughout extraction and records a genuine full obs
   } }); graphs.push(graph);
   expect(observed).toBe(true);
   expect((graph as any).queries.getMetadata('index_completeness')).toBe('complete');
-  expect(readAdaptiveHistory(root).samples.some(sample => sample.kind === 'full' && sample.durationMs > 0)).toBe(true);
+  expect(fs.existsSync(path.join(getCodeGraphDir(root), 'adaptive-cost-history.json'))).toBe(false);
   expect(graph.getFiles().map(file => file.path)).toEqual(['main.c']);
 }, 30_000);
 it('failed initial extraction never publishes a half index or leaves a flat database', async () => {
@@ -82,7 +81,7 @@ it('retains the initial real SQLite generation for readers then automatically co
   expect(fs.existsSync(path.dirname(first.databasePath))).toBe(false);
   expect(fs.existsSync(resolveGeneration(getCodeGraphDir(root)).databasePath)).toBe(true);
 }, 30_000);
-it('usable but incomplete initial indexing is not relabeled complete or used for calibration', async () => {
+it('usable but incomplete initial indexing is not relabeled complete or recorded as cost history', async () => {
   vi.spyOn(CodeGraph.prototype, 'indexAll').mockImplementation(async function (this: Graph) {
     (this as any).queries.setMetadata('index_completeness', 'incomplete');
     return { success: true, complete: false, errors: [] } as any;
@@ -90,7 +89,7 @@ it('usable but incomplete initial indexing is not relabeled complete or used for
   const graph = await CodeGraph.init(root, { index: true }); graphs.push(graph);
   expect(manifest()).toMatchObject({ complete: false, storageReady: true });
   expect((graph as any).queries.getMetadata('index_completeness')).toBe('incomplete');
-  expect(readAdaptiveHistory(root).samples).toEqual([]);
+  expect(fs.existsSync(path.join(getCodeGraphDir(root), 'adaptive-cost-history.json'))).toBe(false);
 });
 it('initial storage validation failure keeps CURRENT absent and reclaims the closed candidate', async () => {
   const controller = require('../dist/sync/rebuild-controller') as typeof import('../src/sync/rebuild-controller');

@@ -1,6 +1,7 @@
 /** Stable project facade; native connections belong to admitted operations, not projects. */
 import * as path from "node:path";
-import { appendAdaptiveLog } from "../adaptive-log";
+import { appendAdaptiveLog, formatAdaptiveDecision } from "../adaptive-log";
+import { resolveSyncPolicy, resolvedSyncPolicy } from "../sync-policy";
 import { randomUUID } from "node:crypto";
 import type { CodeGraph, SyncOptions, IndexDataReadiness } from "../../index";
 import { DatabaseOpenError } from "../../db";
@@ -394,7 +395,8 @@ class PortableFacade {
     let published: SyncResult | undefined;
     let fallbackReason: string | undefined;
     try {
-      options = { ...options, signal: abort.signal };
+      const policy = resolveSyncPolicy(this.root, options);
+      options = { ...options, signal: abort.signal, [resolvedSyncPolicy]: policy };
       // Durable source reconciliation is never bypassed by scoped paths/adaptive opt-out.
       const catchup = async (): Promise<SyncResult | null> =>
         this.write(async (graph) => {
@@ -413,6 +415,7 @@ class PortableFacade {
                 databasePath: graph.getDatabaseFilePath(),
                 portable: true,
                 fullHash: true,
+                policy,
                 eligibility: { upgradeRequired: graph.isIndexStale() },
               } as any,
               { signal: abort.signal },
@@ -455,19 +458,29 @@ class PortableFacade {
       while (true) {
         if (this.read((graph) => graph.getPortableCatchup())) {
           const reconciled = await catchup();
-          if (reconciled)
-            return {
+          if (reconciled) {
+            const result: SyncResult = {
               ...reconciled,
               adaptive:
                 published?.adaptive ??
                 (fallbackReason
                   ? { strategy: "incremental", reason: fallbackReason }
-                  : reconciled.adaptive),
+                  : reconciled.adaptive ?? { strategy: "incremental", reason: "publication-catchup" }),
               durationMs: performance.now() - started,
             };
+            const message = '[adaptive-sync] ' + JSON.stringify({
+              event: 'sync-complete', ...result.adaptive, complete: result.complete,
+              filesAdded: result.filesAdded, filesModified: result.filesModified,
+              filesRemoved: result.filesRemoved, at: new Date().toISOString(),
+            });
+            if (options.verbose) console.error(message);
+            appendAdaptiveLog(this.dataDir, message);
+            return result;
+          }
         }
-        if (!fallbackReason && options.adaptive !== false &&
-            process.env.CODEGRAPH_ADAPTIVE_SYNC !== "0") {
+        // Discovery and the read-only no-op path remain available even when
+        // configuration disables automatic rebuilding.
+        if (!fallbackReason) {
           let decision: AdaptiveDecision | undefined;
           if (!options.forceReindexPaths?.length) {
             const small = await this.write<SyncResult | AdaptiveDecision | null>({
@@ -490,7 +503,9 @@ class PortableFacade {
             // Another publisher may have committed while we awaited the writer.
             if (this.read(graph => graph.getPortableCatchup())) continue;
           }
-          const evaluation = decision ? { decision } : await this.readAsync((graph) =>
+          const evaluation = decision ? { decision } : !policy.enabled
+            ? { decision: { strategy: "incremental" as const, reason: policy.disabledReason ?? "disabled" } }
+            : await this.readAsync((graph) =>
             runAdaptiveReadWorker<{
               decision: AdaptiveDecision;
             }>(
@@ -501,6 +516,7 @@ class PortableFacade {
                 portable: true,
                 paths: options.paths,
                 decisionOnly: true,
+                policy,
                 eligibility: {
                   upgradeRequired: graph.isIndexStale(),
                   fallback: options.adaptiveFallback,
@@ -514,7 +530,7 @@ class PortableFacade {
           } catch {
             /* diagnostics cannot change publication */
           }
-          const message = `[adaptive-sync] ${JSON.stringify({ ...evaluation.decision, at: new Date().toISOString() })}`;
+          const message = formatAdaptiveDecision(evaluation.decision, policy);
           if (options.verbose) console.error(message);
           appendAdaptiveLog(this.dataDir, message);
           if (evaluation.decision.strategy === "rebuild") {

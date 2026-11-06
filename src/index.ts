@@ -6,7 +6,8 @@
  */
 
 import * as path from 'path';
-import { appendAdaptiveLog } from './sync/adaptive-log';
+import { appendAdaptiveLog, formatAdaptiveDecision } from './sync/adaptive-log';
+import { resolveSyncPolicy, resolvedSyncPolicy, type ResolvedSyncPolicy } from './sync/sync-policy';
 import { existsSync, statSync, realpathSync, lstatSync, openSync, fstatSync, readSync, closeSync, constants } from 'fs';
 import {
   Node,
@@ -62,8 +63,8 @@ import { ContextBuilder, createContextBuilder } from './context';
 import { Mutex, canonicalFilePath } from './utils';
 import { GenerationWriterLock, resolveGeneration, createGeneration, publishGeneration, hasRebuildDiskSpace, acquireCurrentGenerationLease, acquireGenerationLease, cleanupGenerationCandidate, collectRetiredGenerations, type GenerationLease } from './sync/generation-store';
 import { installSourceOwnership, isSourceOwned, beginSourceWrite, finishSourceWrite } from './sync/source-ownership';
-import { adaptiveRuntimeKey, adaptiveConfigFingerprint, adaptiveSampleFromFiles, chooseStructuralStrategy, hasCanonicalScope,
-  recordAdaptiveSample, type AdaptiveDecision, type AdaptivePlan, type AdaptiveFallbackPolicy } from './sync/adaptive-plan';
+import { adaptiveRuntimeKey, adaptiveConfigFingerprint, chooseStructuralStrategy, hasCanonicalScope,
+  type AdaptiveDecision, type AdaptivePlan, type AdaptiveFallbackPolicy, type AdaptiveRuleSelection } from './sync/adaptive-plan';
 import { runRebuildChild, runAdaptiveReadWorker } from './sync/rebuild-controller';
 import { PortableCoordinator, type PortableLease } from './sync/portable/protocol';
 import { createPortableFacade, prepareSmallSync, type PortableReadPin } from './sync/portable/facade';
@@ -205,12 +206,16 @@ export interface SyncOptions extends IndexOptions {
    * @internal Callers without a complete event set must leave this undefined.
    */
   paths?: string[];
-  /** Disable adaptive planning for this invocation; default is conservative automatic selection. */
+  /** Override the project setting for automatic rebuilding; false still permits normal sync. */
   adaptive?: boolean;
   /** Internal full-hash reconciliation overrides the ordinary stat shortcut. */
   forceReindexPaths?: string[];
-  /** Conservative cold-start coverage policy, not a latency guarantee. */
+  /** Per-call structural thresholds override project fields; they are not timing guarantees. */
   adaptiveFallback?: Partial<AdaptiveFallbackPolicy>;
+  /** Enable or disable each fixed rebuild rule for this invocation. */
+  adaptiveRules?: AdaptiveRuleSelection;
+  /** @internal Per-invocation policy shared by forwarded writers and child processes. */
+  [resolvedSyncPolicy]?: ResolvedSyncPolicy;
   /** Decision diagnostics; no stdout output is emitted for library/MCP callers. */
   onAdaptiveDecision?: (decision: AdaptiveDecision) => void;
 }
@@ -610,7 +615,9 @@ export class CodeGraph {
   isPortableStorage(): boolean { return this.portableBound; }
   acquirePortableRead(): PortableReadPin { throw new Error('Raw graph cannot acquire a project read pin'); }
   async acquirePortableReadAsync(): Promise<PortableReadPin> { return this.acquirePortableRead(); }
+  /** @deprecated Historical hints are retained for compatibility and never used to choose sync strategy. */
   getPortableCostHistory(): string | null { return portableMetadata(this.db.getDb(), COST_HISTORY); }
+  /** @deprecated Explicitly stored historical hints do not affect automatic decisions. */
   setPortableCostHistory(history: string): void { setPortableMetadata(this.db.getDb(), COST_HISTORY, history); }
   hasPortableCatchupWork(): boolean { return this.hasSynthesisRecoveryEvidence(); }
   /** @internal Persisted proof only; caller must fence publication and watcher revisions. */
@@ -1162,9 +1169,6 @@ export class CodeGraph {
             });
           }
           finishSourceWrite(this.db.getDb(), ownership, result.success === true && result.complete === true);
-          if (!this.shadowCandidate && result.success && result.complete) {
-            this.recordCostSample('full', [], performance.now() - startedAt);
-          }
           return result;
         } finally {
           // Restore auto-checkpointing even on error/abort so subsequent syncs
@@ -1331,22 +1335,9 @@ export class CodeGraph {
     return active;
   }
 
-  private recordCostSample(kind: 'full' | 'incremental', before: FileRecord[], durationMs: number,
-    verifiedPolicy?: ReturnType<typeof indexConfigFingerprints>): void {
-    if (this.shadowCandidate || this.db.getBackend() !== 'node-sqlite' || getCodeGraphDir(this.projectRoot) !== this.dataDir || !isSourceOwned(this.db.getDb())) return;
-    try {
-      const after = this.queries.getAllFiles();
-      const sample = adaptiveSampleFromFiles({ kind, before, after, durationMs,
-        runtimeKey: adaptiveRuntimeKey(this.projectRoot, this.db.getBackend()),
-        semanticConfigFingerprint: verifiedPolicy?.semanticConfigFingerprint ?? semanticConfigFingerprint(this.projectRoot, after),
-        configFingerprint: verifiedPolicy?.configFingerprint ?? adaptiveConfigFingerprint(this.projectRoot, [...before, ...after]) });
-      recordAdaptiveSample(this.projectRoot, sample, true);
-    } catch { /* Performance hints must never invalidate a successful index. */ }
-  }
-
   private emitAdaptiveDecision(options: SyncOptions, decision: AdaptiveDecision): void {
     try { options.onAdaptiveDecision?.(decision); } catch { /* Diagnostic callbacks cannot change publication outcome. */ }
-    const message = `[adaptive-sync] ${JSON.stringify({ ...decision, at: new Date().toISOString() })}`;
+    const message = formatAdaptiveDecision(decision, options[resolvedSyncPolicy]);
     if (options.verbose) console.error(message);
     appendAdaptiveLog(this.dataDir, message);
   }
@@ -1373,7 +1364,7 @@ export class CodeGraph {
     let expectedSourceEpoch: string | undefined;
     let initiallyOwned = false;
     try {
-      if (options.adaptive === false || process.env.CODEGRAPH_ADAPTIVE_SYNC === '0') decision.reason = 'disabled';
+      if (options.adaptive === false || !options[resolvedSyncPolicy]!.enabled) decision.reason = options[resolvedSyncPolicy]!.disabledReason ?? 'disabled';
       else if (getCodeGraphDir(this.projectRoot) !== this.dataDir) decision.reason = 'data-directory-selection-changed';
       else if (process.execArgv.some(arg => arg !== '--liftoff-only' && !/^--max[-_]old[-_]space[-_]size=\d+$/.test(arg)) || process.env.NODE_OPTIONS?.trim()) decision.reason = 'unsupported-child-runtime-options';
       else if (this.db.getBackend() !== 'node-sqlite') decision.reason = 'unsupported-sqlite-backend';
@@ -1381,7 +1372,7 @@ export class CodeGraph {
         expectedSourceEpoch = sourceEpoch();
         initiallyOwned = isSourceOwned(this.db.getDb());
         const evaluation = await runAdaptiveReadWorker<{ plan?: AdaptivePlan; decision: AdaptiveDecision }>({
-          type: 'evaluate', root: this.projectRoot, databasePath: this.db.getPath(), paths: options.paths,
+          type: 'evaluate', root: this.projectRoot, databasePath: this.db.getPath(), paths: options.paths, policy: options[resolvedSyncPolicy],
           eligibility: { configurationChanged: this.needsLanguageScopeReconciliation(), upgradeRequired: this.isIndexStale(), fallback: options.adaptiveFallback },
         }, { signal: abort.signal });
         plan = evaluation.plan; decision = evaluation.decision;
@@ -1424,10 +1415,6 @@ export class CodeGraph {
       });
       const durationMs = performance.now() - started + plan.planningMs;
       // Record the whole rebuild (planning, validation and switching), not just extraction.
-      try {
-        await runAdaptiveReadWorker<boolean>({ type: 'record-full', root: this.projectRoot,
-          databasePath: candidate.databasePath, durationMs }, { signal: abort.signal });
-      } catch { /* publication already succeeded; history is optional */ }
       this.emitAdaptiveDecision(options, { ...decision, reason: `rebuild-published:${candidate.id};buildMs=${Math.round(buildMs)};validationAndPublishMs=${Math.round(durationMs - buildMs - plan.planningMs)}` });
       return { adaptive: { strategy: 'rebuild', reason: decision.reason, generation: candidate.id, planningMs: plan.planningMs, buildMs, validationAndPublishMs: durationMs - buildMs - plan.planningMs }, complete: true, filesChecked: plan.totalFiles + plan.removed.length,
         filesAdded: plan.added.length, filesModified: plan.modified.length, filesRemoved: plan.removed.length,
@@ -1459,7 +1446,8 @@ export class CodeGraph {
    */
   async sync(options: SyncOptions = {}): Promise<SyncResult> {
     this.assertWritableFacade();
-    try { return await this.syncInternal(options); } finally { this.refreshIdleFacade(); }
+    const policy = resolveSyncPolicy(this.projectRoot, options);
+    try { return await this.syncInternal({ ...options, [resolvedSyncPolicy]: policy }); } finally { this.refreshIdleFacade(); }
   }
 
   /** @internal Classify source changes under the portable writer lease. The publisher
@@ -1486,7 +1474,11 @@ export class CodeGraph {
       const policyFiles = changes.added.length ? [...tracked, ...changes.added.map(path => ({ path }))] : tracked;
       const policy = indexConfigFingerprints(this.projectRoot, policyFiles);
       if (policy.configFingerprint !== indexedConfig || policy.semanticConfigFingerprint !== indexedSemantic) return null;
-      const decision = chooseStructuralStrategy(changes, { fallback: options.adaptiveFallback });
+      const policySnapshot = options[resolvedSyncPolicy]!;
+      const decision = chooseStructuralStrategy(changes, {
+        enabled: policySnapshot.enabled, disabledReason: policySnapshot.disabledReason,
+        fallback: policySnapshot.thresholds, rules: policySnapshot.rules,
+      });
       if (scoped && decision.reason === 'below-rebuild-range') decision.reason = 'scoped-small-change';
       // The publisher or an SDK decision callback can change source state.
       // These paths revalidate rather than carrying stale observations forward.
@@ -2117,11 +2109,6 @@ export class CodeGraph {
         }
         tailMark('finalizeMs');
         finishSourceWrite(this.db.getDb(), ownership, result.complete === true);
-        // Content-only observations must not learn the cost of policy-driven same-hash re-extraction.
-        if (!this.shadowCandidate && result.complete === true && !reextract && (result.filesAdded + result.filesModified + result.filesRemoved) > 0) {
-          this.recordCostSample('incremental', tracked, performance.now() - syncStartedAt,
-            result.filesAdded || result.filesRemoved ? undefined : verified);
-        }
         return result;
       } finally {
         this.orchestrator.setSyncRetryState();

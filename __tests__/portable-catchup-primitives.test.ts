@@ -9,6 +9,7 @@ const { ExtractionOrchestrator } = require('../dist/extraction');
 const { SEMANTIC_CONFIG_KEY, semanticConfigFingerprint } = require('../dist/sync/index-policy');
 const { EXTRACTION_VERSION } = require('../dist/extraction/extraction-version');
 const { adaptiveConfigFingerprint, adaptiveRuntimeKey } = require('../dist/sync/adaptive-plan');
+const { resolveSyncPolicy } = require('../dist/sync/sync-policy');
 const { installSourceOwnership, beginSourceWrite, finishSourceWrite } = require('../dist/sync/source-ownership');
 const roots: string[] = [];
 const connections: any[] = [];
@@ -80,12 +81,12 @@ describe('portable catch-up primitives', () => {
     const threshold = { eligibility: { fallback: { minChangedFiles: 1 } } };
     const result = await evaluate(f.root, f.dbPath, { paths: ['not-the-changed-file.ts'], ...threshold });
     expect(result.plan.modified).toEqual(['sample.ts']);
-    expect(result.decision).toEqual({ strategy: 'rebuild', reason: 'structural-large-change' });
+    expect(result.decision).toMatchObject({ strategy: 'rebuild', reason: 'structural-large-change' });
     const compatible = await evaluate(f.root, f.dbPath, { portable: false, ...threshold });
     expect(compatible.plan.modified).toEqual(['sample.ts']);
     expect(compatible.decision.reason).toContain('unverified-legacy-or-custom-index');
   });
-  it('keeps small changes incremental regardless of matching expensive historical samples', async () => {
+  it.each([true, false])('ignores historical samples and damaged history when portable=%s', async portable => {
     const f = await fixture();
     const files = f.queries.getAllFiles();
     const common = {
@@ -105,12 +106,35 @@ describe('portable catch-up primitives', () => {
     expect(finishSourceWrite(f.connection.getDb(), write, true)).toBe(true);
     fs.writeFileSync(path.join(path.dirname(f.dbPath), 'adaptive-cost-history.json'), JSON.stringify({ version: 1, samples: [] }));
     fs.writeFileSync(f.file, 'export function bravo() { return 2; }\n');
-    expect((await evaluate(f.root, f.dbPath)).decision.strategy).toBe('incremental');
+    const decision = () => evaluate(f.root, f.dbPath, { portable });
+    expect((await decision()).decision.strategy).toBe('incremental');
     const next = beginSourceWrite(f.connection.getDb());
     f.queries.setMetadata('adaptive:cost-history-v1', JSON.stringify({ version: 1, samples: local.samples.map(sample => ({ ...sample, runtimeKey: 'another-machine' })) }));
     expect(finishSourceWrite(f.connection.getDb(), next, true)).toBe(true);
     fs.writeFileSync(path.join(path.dirname(f.dbPath), 'adaptive-cost-history.json'), JSON.stringify(local));
-    expect((await evaluate(f.root, f.dbPath)).decision.strategy).toBe('incremental');
+    expect((await decision()).decision.strategy).toBe('incremental');
+    const damaged = beginSourceWrite(f.connection.getDb());
+    f.queries.setMetadata('adaptive:cost-history-v1', '{broken');
+    expect(finishSourceWrite(f.connection.getDb(), damaged, true)).toBe(true);
+    fs.writeFileSync(path.join(path.dirname(f.dbPath), 'adaptive-cost-history.json'), '{broken');
+    expect((await decision()).decision.strategy).toBe('incremental');
+    const rebuilt = await evaluate(f.root, f.dbPath, { portable, eligibility: { fallback: { minChangedFiles: 1 } } });
+    expect(rebuilt.decision).toMatchObject({ strategy: 'rebuild', reason: 'structural-large-change' });
+    expect(fs.readFileSync(path.join(path.dirname(f.dbPath), 'adaptive-cost-history.json'), 'utf8')).toBe('{broken');
+    expect(f.queries.getMetadata('adaptive:cost-history-v1')).toBe('{broken');
+  });
+
+  it.each([true, false])('uses the admitted policy snapshot across a worker boundary when portable=%s', async portable => {
+    const f = await fixture();
+    fs.writeFileSync(f.file, 'export function changed() { return 1234; }\n');
+    const policy = resolveSyncPolicy(f.root, { adaptiveFallback: { minChangedFiles: 1 } });
+    fs.writeFileSync(path.join(f.root, '.codegraphrc.json'), JSON.stringify({ sync: { adaptive: { enabled: false } } }));
+    const result = await evaluate(f.root, f.dbPath, { portable, policy, eligibility: { enabled: false } });
+    expect(result.decision).toMatchObject({ strategy: 'rebuild', reason: 'structural-large-change' });
+    const disabled = await evaluate(f.root, f.dbPath, {
+      portable, policy: resolveSyncPolicy(f.root), eligibility: { fallback: { minChangedFiles: 1 } },
+    });
+    expect(disabled.decision.strategy).toBe('incremental');
   });
 
 });

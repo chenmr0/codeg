@@ -341,6 +341,9 @@ codegraph index --force            # 强制全量重建
 codegraph affected src/foo.c       # 受改动影响的测试文件
 ```
 
+自动重建的阈值和规则可以通过项目根目录的可选 `.codegraphrc.json` 调整，CLI、MCP 和文件监听统一生效。参见[自动重建策略配置](docs/adaptive-sync.md)。
+
+
 ---
 
 ## 配置 AI 助手（MCP）

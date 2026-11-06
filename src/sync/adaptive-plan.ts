@@ -1,7 +1,4 @@
-/** Read-only planning and bounded, local empirical cost estimates for sync.
- * Estimates are heuristics, not timing guarantees or statistical confidence bounds.
- * No profile from a different machine, extraction policy or project is reused.
- */
+/** Read-only source planning and structural sync decisions. */
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as crypto from 'node:crypto';
@@ -13,29 +10,18 @@ import { getLanguageScopeKey } from '../extraction/language-scope';
 import { getSupportedLanguages, resolveWasmPath, type GrammarLanguage } from '../extraction/grammars';
 import { rustScanBinaryPath, automaticRustScanStatus } from '../extraction/rust-scan';
 import { rustMacroBinaryPath, automaticRustMacroStatus } from '../extraction/rust-macros';
-import { getCodeGraphDir } from '../directory';
 import type { FileRecord } from '../types';
 import { indexConfigFingerprints } from './index-policy';
 export { adaptiveConfigFingerprint } from './index-policy';
 
-const HISTORY_VERSION = 1;
-const MAX_SAMPLES = 24; // Per runtime/configuration bucket.
-const MAX_HISTORY_BUCKETS = 4;
-const HISTORY_FILE = 'adaptive-cost-history.json';
-const MAX_WORK_EXTRAPOLATION = 2;
-const INCREMENTAL_COST_MARGIN = 0.9;
-const REBUILD_COST_MARGIN = 1.15;
-const savesEnough = (incrementalMs: number, rebuildMs: number) =>
-  incrementalMs - rebuildMs >= 10_000 && rebuildMs <= incrementalMs * 0.8;
 const digest = (value: unknown): string => crypto.createHash('sha256').update(JSON.stringify(value)).digest('hex');
-export type AdaptiveShape = 'modified-only' | 'added-only' | 'removed-only' | 'mixed';
 export interface AdaptiveInventoryEntry {
   path: string; contentHash: string; size: number; mtimeMs: number; ctimeMs: number; ino: number;
 }
 export interface AdaptiveSnapshot {
   files: AdaptiveInventoryEntry[];
   configFingerprint: string;
-  /** Separate from the legacy cost bucket to avoid cold upgrades invalidating every source. */
+  /** Extraction and resolution inputs, tracked independently of inventory controls. */
   semanticConfigFingerprint?: string;
   contentFingerprint: string;
   /** Retain former source ancestors when checking removals. */
@@ -46,28 +32,37 @@ export interface AdaptivePlan {
   added: string[]; modified: string[]; removed: string[];
   changedFiles: number; affectedOldNodes: number; changedBytes: number;
   totalFiles: number; totalBytes: number; totalNodes: number;
-  shape: AdaptiveShape; planningMs: number;
+  planningMs: number;
   runtimeKey: string;
 }
-export interface AdaptiveCostSample {
-  kind: 'full' | 'incremental';
-  runtimeKey: string; configFingerprint: string;
-  semanticConfigFingerprint?: string;
-  totalFiles: number; totalBytes: number; totalNodes: number;
-  durationMs: number;
-  changedFiles: number; affectedOldNodes: number; changedBytes: number;
-  addedFiles: number; modifiedFiles: number; removedFiles: number;
-  shape: AdaptiveShape;
-  recordedAt: number;
+export interface AdaptiveRuleSelection {
+  fileScale?: boolean;
+  oldNodeScale?: boolean;
 }
-export interface AdaptiveCostHistory { version: 1; samples: AdaptiveCostSample[] }
+export interface AdaptiveDecisionMetrics {
+  changedFiles: number;
+  totalFiles: number;
+  oldFiles: number;
+  changedFileFraction: number;
+  affectedOldNodes: number;
+  totalOldNodes: number;
+  affectedOldNodeFraction: number;
+  changedBytes: number;
+  totalBytes: number;
+  changedByteFraction: number;
+}
 export interface AdaptiveDecision {
   strategy: 'incremental' | 'rebuild';
   reason: string;
-  estimatedIncrementalMs?: number; estimatedRebuildMs?: number;
+  /** @deprecated Structural decisions do not produce timing estimates. */
+  estimatedIncrementalMs?: number;
+  /** @deprecated Structural decisions do not produce timing estimates. */
+  estimatedRebuildMs?: number;
+  metrics?: AdaptiveDecisionMetrics;
+  matchedRule?: 'fileScale' | 'oldNodeScale' | 'both';
 }
 export interface AdaptiveEligibility {
-  /** All blockers are conservative: legacy, recovery, custom data, unsupported backend, etc. */
+  /** Storage/source restrictions that cannot be overridden by strategy configuration. */
   blockedReason?: string;
   /** Fingerprint persisted with the currently published index, if available. */
   configFingerprint?: string;
@@ -76,6 +71,9 @@ export interface AdaptiveEligibility {
   upgradeRequired?: boolean;
   /** Explicit coverage policy, not a claim of optimal measured cost. */
   fallback?: Partial<AdaptiveFallbackPolicy>;
+  rules?: AdaptiveRuleSelection;
+  enabled?: boolean;
+  disabledReason?: string;
 }
 export interface AdaptiveFallbackPolicy {
   minChangedFiles: number;
@@ -90,8 +88,8 @@ export const DEFAULT_ADAPTIVE_FALLBACK: Readonly<AdaptiveFallbackPolicy> = Objec
 });
 function fallbackPolicy(overrides: Partial<AdaptiveFallbackPolicy> = {}): AdaptiveFallbackPolicy {
   const policy = { ...DEFAULT_ADAPTIVE_FALLBACK, ...overrides };
-  if (!Number.isInteger(policy.minChangedFiles) || policy.minChangedFiles < 1 ||
-    !Number.isInteger(policy.minAffectedOldNodes) || policy.minAffectedOldNodes < 1 ||
+  if (!Number.isSafeInteger(policy.minChangedFiles) || policy.minChangedFiles < 1 ||
+    !Number.isSafeInteger(policy.minAffectedOldNodes) || policy.minAffectedOldNodes < 1 ||
     ![policy.minChangedFraction, policy.minWorkFraction, policy.minAffectedOldNodeFraction].every(value => Number.isFinite(value) && value > 0 && value <= 1)) {
     throw new Error('Invalid adaptive fallback policy');
   }
@@ -100,31 +98,48 @@ function fallbackPolicy(overrides: Partial<AdaptiveFallbackPolicy> = {}): Adapti
 type StructuralWork = Pick<AdaptivePlan, 'added' | 'removed' | 'changedFiles' | 'affectedOldNodes' |
   'changedBytes' | 'totalFiles' | 'totalBytes' | 'totalNodes'>;
 
-/** Broad file+work coverage OR substantial old-node coverage. The latter
- * independently covers few high-impact files. Absolute minima are cost-policy
- * floors, not safety restrictions. Removed
- * files contribute old nodes; pure additions contribute target bytes. */
-export function hasStructuralRebuildWork(plan: StructuralWork, overrides?: Partial<AdaptiveFallbackPolicy>): boolean {
+function structuralRules(work: StructuralWork, overrides?: Partial<AdaptiveFallbackPolicy>, rules: AdaptiveRuleSelection = {}) {
   const policy = fallbackPolicy(overrides);
-  const oldFiles = plan.totalFiles - plan.added.length + plan.removed.length;
-  const fileBase = Math.max(oldFiles, plan.totalFiles);
-  const highImpact = plan.changedFiles > 0 && plan.totalNodes > 0 &&
-    plan.affectedOldNodes >= policy.minAffectedOldNodes &&
-    plan.affectedOldNodes / plan.totalNodes >= policy.minAffectedOldNodeFraction;
-  return highImpact || (plan.changedFiles >= policy.minChangedFiles && fileBase > 0 &&
-    plan.changedFiles / fileBase >= policy.minChangedFraction &&
-    ((plan.totalBytes > 0 && plan.changedBytes / plan.totalBytes >= policy.minWorkFraction) ||
-      (plan.totalNodes > 0 && plan.affectedOldNodes / plan.totalNodes >= policy.minWorkFraction)));
+  const oldFiles = work.totalFiles - work.added.length + work.removed.length;
+  const fileBase = Math.max(oldFiles, work.totalFiles);
+  const metrics: AdaptiveDecisionMetrics = {
+    changedFiles: work.changedFiles, totalFiles: work.totalFiles, oldFiles,
+    changedFileFraction: fileBase > 0 ? work.changedFiles / fileBase : 0,
+    affectedOldNodes: work.affectedOldNodes, totalOldNodes: work.totalNodes,
+    affectedOldNodeFraction: work.totalNodes > 0 ? work.affectedOldNodes / work.totalNodes : 0,
+    changedBytes: work.changedBytes, totalBytes: work.totalBytes,
+    changedByteFraction: work.totalBytes > 0 ? work.changedBytes / work.totalBytes : 0,
+  };
+  const oldNodeScale = rules.oldNodeScale !== false && work.changedFiles > 0 &&
+    work.affectedOldNodes >= policy.minAffectedOldNodes &&
+    metrics.affectedOldNodeFraction >= policy.minAffectedOldNodeFraction;
+  const fileScale = rules.fileScale !== false && work.changedFiles >= policy.minChangedFiles &&
+    metrics.changedFileFraction >= policy.minChangedFraction &&
+    (metrics.changedByteFraction >= policy.minWorkFraction ||
+      metrics.affectedOldNodeFraction >= policy.minWorkFraction);
+  return { metrics, fileScale, oldNodeScale };
 }
 
-/** Managed databases use confirmed workload only. Cost history belongs to the older generation store. */
+/** Broad file/work coverage or substantial old-node coverage. Removed files
+ * contribute old nodes; additions contribute their current source bytes. */
+export function hasStructuralRebuildWork(work: StructuralWork, overrides?: Partial<AdaptiveFallbackPolicy>,
+  rules?: AdaptiveRuleSelection): boolean {
+  const matched = structuralRules(work, overrides, rules);
+  return matched.fileScale || matched.oldNodeScale;
+}
+
+/** One policy applies to both the portable and generation-based stores. */
 export function chooseStructuralStrategy(work: StructuralWork, eligibility: AdaptiveEligibility = {}): AdaptiveDecision {
-  if (eligibility.blockedReason) return { strategy: 'incremental', reason: eligibility.blockedReason };
-  if (work.changedFiles === 0) return { strategy: 'incremental', reason: 'no-content-changes' };
-  if (!work.totalFiles || !work.totalBytes) return { strategy: 'incremental', reason: 'empty-target' };
-  return hasStructuralRebuildWork(work, eligibility.fallback)
-    ? { strategy: 'rebuild', reason: 'structural-large-change' }
-    : { strategy: 'incremental', reason: 'below-rebuild-range' };
+  const { metrics, fileScale, oldNodeScale } = structuralRules(work, eligibility.fallback, eligibility.rules);
+  const incremental = (reason: string): AdaptiveDecision => ({ strategy: 'incremental', reason, metrics });
+  if (eligibility.blockedReason) return incremental(eligibility.blockedReason);
+  if (work.changedFiles === 0) return incremental('no-content-changes');
+  if (eligibility.enabled === false) return incremental(eligibility.disabledReason ?? 'disabled');
+  if (eligibility.rules?.fileScale === false && eligibility.rules.oldNodeScale === false) return incremental('rules-disabled');
+  if (!work.totalFiles || !work.totalBytes) return incremental('empty-target');
+  if (!fileScale && !oldNodeScale) return incremental('below-rebuild-range');
+  const matchedRule = fileScale ? (oldNodeScale ? 'both' : 'fileScale') : 'oldNodeScale';
+  return { strategy: 'rebuild', reason: 'structural-large-change', metrics, matchedRule };
 }
 
 let implementationFingerprint: string | undefined;
@@ -181,13 +196,6 @@ export function adaptiveRuntimeKey(root: string, backend: string): string {
     memory: os.totalmem(), execArgv: process.execArgv, nodeOptions: process.env.NODE_OPTIONS ?? '', env });
 }
 
-function shape(added: number, modified: number, removed: number): AdaptiveShape {
-  if (added && !modified && !removed) return 'added-only';
-  if (removed && !added && !modified) return 'removed-only';
-  if (modified && !added && !removed) return 'modified-only';
-  return 'mixed';
-}
-
 /** Count policy-required extraction even when source hashes are unchanged.
  * Preserve the source snapshot: policy work does not pretend that file contents
  * changed, and publication still validates their actual bytes and controls. */
@@ -208,7 +216,7 @@ export function includeAdaptiveReindexWork(plan: AdaptivePlan, tracked: Readonly
   const updated = [...modified].sort();
   return { ...plan, modified: updated,
     changedFiles: plan.added.length + updated.length + plan.removed.length,
-    affectedOldNodes, changedBytes, shape: shape(plan.added.length, updated.length, plan.removed.length) };
+    affectedOldNodes, changedBytes };
 }
 
 /** The ordinary plan uses the same size/mtime shortcut as sync. Publication rehashes all source. */
@@ -274,7 +282,7 @@ export async function createAdaptivePlan(root: string, tracked: ReadonlyArray<Fi
     contentFingerprint: digest([configFingerprint, files.map(file => [file.path, file.contentHash])]) };
   return { snapshot, added, modified, removed, changedFiles: added.length + modified.length + removed.length,
     affectedOldNodes, changedBytes, totalFiles: files.length, totalBytes: files.reduce((n, file) => n + file.size, 0),
-    totalNodes: tracked.reduce((n, file) => n + file.nodeCount, 0), shape: shape(added.length, modified.length, removed.length),
+    totalNodes: tracked.reduce((n, file) => n + file.nodeCount, 0),
     planningMs: performance.now() - started, runtimeKey: options.runtimeKey };
 }
 
@@ -288,66 +296,12 @@ export async function validateAdaptiveSnapshot(root: string, snapshot: AdaptiveS
       after.snapshot.semanticConfigFingerprint === snapshot.semanticConfigFingerprint);
 }
 
-const finite = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value) && value >= 0;
-function validSample(value: unknown): value is AdaptiveCostSample {
-  if (!value || typeof value !== 'object') return false;
-  const sample = value as AdaptiveCostSample;
-  return ['full', 'incremental'].includes(sample.kind) && typeof sample.runtimeKey === 'string' &&
-    typeof sample.configFingerprint === 'string' &&
-    (sample.semanticConfigFingerprint === undefined || typeof sample.semanticConfigFingerprint === 'string') && ['modified-only', 'added-only', 'removed-only', 'mixed'].includes(sample.shape) &&
-    [sample.totalFiles, sample.totalBytes, sample.totalNodes, sample.durationMs, sample.changedFiles,
-      sample.affectedOldNodes, sample.changedBytes, sample.addedFiles, sample.modifiedFiles, sample.removedFiles, sample.recordedAt].every(finite) && sample.durationMs > 0;
-}
-export function readAdaptiveHistory(root: string): AdaptiveCostHistory {
-  try {
-    const filename = path.join(getCodeGraphDir(root), HISTORY_FILE);
-    if (fs.statSync(filename).size > 256 * 1024) return { version: HISTORY_VERSION, samples: [] };
-    const history = JSON.parse(fs.readFileSync(filename, 'utf8')) as AdaptiveCostHistory;
-    if (history.version !== HISTORY_VERSION || !Array.isArray(history.samples) || !history.samples.every(validSample)) {
-      return { version: HISTORY_VERSION, samples: [] };
-    }
-    return { version: HISTORY_VERSION, samples: history.samples.slice(-(MAX_SAMPLES * MAX_HISTORY_BUCKETS)) };
-  } catch { return { version: HISTORY_VERSION, samples: [] }; }
-}
-/** Caller must hold the project writer lock; this file is a performance hint, never correctness authority. */
-export function recordAdaptiveSample(root: string, sample: Omit<AdaptiveCostSample, 'recordedAt'>,
-  complete: boolean): void {
-  if (!complete) return;
-  const recorded = { ...sample, recordedAt: Date.now() };
-  if (!validSample(recorded)) return;
-  const history = readAdaptiveHistory(root);
-  // Keep independent, bounded LRU buckets: a branch/configuration switch must
-  // not destroy another configuration's full baseline. Never mix their costs.
-  const buckets = new Map<string, AdaptiveCostSample[]>();
-  for (const observation of [...history.samples, recorded]) {
-    const key = JSON.stringify([observation.runtimeKey, observation.configFingerprint]);
-    const bucket = buckets.get(key) ?? [];
-    bucket.push(observation);
-    buckets.delete(key);
-    buckets.set(key, bucket);
-  }
-  history.samples = [...buckets.values()].slice(-MAX_HISTORY_BUCKETS).flatMap(bucket => [
-    ...bucket.filter(previous => previous.kind === 'full').slice(-4),
-    ...bucket.filter(previous => previous.kind === 'incremental').slice(-(MAX_SAMPLES - 4)),
-  ]);
-  const target = path.join(getCodeGraphDir(root), HISTORY_FILE);
-  const temporary = `${target}.${process.pid}.${crypto.randomUUID()}.tmp`;
-  try {
-    fs.writeFileSync(temporary, JSON.stringify(history), { flag: 'wx', mode: 0o600 });
-    fs.renameSync(temporary, target);
-  } finally { try { fs.unlinkSync(temporary); } catch { /* rename already consumed it */ } }
-}
-export function hasAdaptiveCalibration(history: AdaptiveCostHistory, runtimeKey: string): boolean {
-  const matching = history.samples.filter(sample => sample.runtimeKey === runtimeKey);
-  return matching.some(sample => sample.kind === 'full') && matching.filter(sample => sample.kind === 'incremental' && sample.changedFiles > 0).length >= 3;
-}
-
 /** The indexed rows use canonical paths. Verify that assumption before using
  * this upper bound to skip a wider scan for authoritative watcher events. */
 export function scopedCandidateCounts(paths: string[], prior: Map<string, FileRecord>) {
   let totalOldNodes = 0;
   for (const file of prior.values()) totalOldNodes += file.nodeCount;
-  return { pathsCount: paths.length, totalOldNodes,
+  return { pathsCount: paths.length, totalOldFiles: prior.size, totalOldNodes,
     affectedOldNodes: paths.reduce((n, file) => n + (prior.get(file)?.nodeCount ?? 0), 0) };
 }
 
@@ -363,155 +317,22 @@ export async function hasCanonicalScope(root: string, paths: string[], prior: Ma
   return true;
 }
 
-/** Negative-only shortcut for an authoritative, complete set of scoped paths.
- * Caller must verify the published configuration against current controls first;
- * pathsCount includes adds/removes and affectedOldNodes upper-bounds the old
- * nodes in every supplied path. No cached inventory is passed to ordinary sync.
- * False means evaluate normally, not permission to rebuild. */
+/** Skip a full source plan only if even the complete reported scope cannot
+ * satisfy either enabled rule. The caller verifies source paths and policy.
+ * Old file count is a lower bound on max(old, target), including additions. */
 export function canSkipScopedAdaptivePlan(
-  scope: { pathsCount: number; affectedOldNodes: number; totalOldNodes: number },
-  history: AdaptiveCostHistory, runtimeKey: string, currentConfigFingerprint: string,
+  scope: { pathsCount: number; affectedOldNodes: number; totalOldNodes: number; totalOldFiles: number },
   eligibility: AdaptiveEligibility = {},
 ): boolean {
-  if (eligibility.configurationChanged || eligibility.upgradeRequired || eligibility.blockedReason ||
-    !runtimeKey || !currentConfigFingerprint ||
-    (eligibility.configFingerprint !== undefined && eligibility.configFingerprint !== currentConfigFingerprint)) return false;
-  if (!Number.isInteger(scope.pathsCount) || scope.pathsCount < 0 ||
-    !finite(scope.affectedOldNodes) || !finite(scope.totalOldNodes) || scope.affectedOldNodes > scope.totalOldNodes) return false;
-  const valid = history.samples.filter(validSample);
-  const matchingRuntime = valid.filter(sample => sample.runtimeKey === runtimeKey);
-  const matching = matchingRuntime.filter(sample => sample.configFingerprint === currentConfigFingerprint);
-  // A new identity may require a baseline even for tiny edits. In particular,
-  // old full observations must not be hidden by new incremental-only records.
-  if (valid.length > 0 && matching.length === 0) return false;
-  if (!matching.some(sample => sample.kind === 'full') &&
-    matchingRuntime.some(sample => sample.kind === 'full' && sample.configFingerprint !== currentConfigFingerprint)) return false;
+  if (eligibility.configurationChanged || eligibility.upgradeRequired || eligibility.blockedReason) return false;
+  const { pathsCount, affectedOldNodes, totalOldNodes, totalOldFiles } = scope;
+  if (![pathsCount, affectedOldNodes, totalOldNodes, totalOldFiles].every(value => Number.isSafeInteger(value) && value >= 0) ||
+      affectedOldNodes > totalOldNodes) return false;
+  if (pathsCount === 0 || eligibility.enabled === false) return true;
   const policy = fallbackPolicy(eligibility.fallback);
-  const changedCounts = matching.filter(sample => sample.kind === 'incremental' && sample.changedFiles > 0)
-    .map(sample => sample.changedFiles);
-  const minimum = Math.min(policy.minChangedFiles, ...changedCounts);
-  const nodeMinimum = Math.max(policy.minAffectedOldNodes, scope.totalOldNodes * policy.minAffectedOldNodeFraction);
-  return scope.pathsCount < minimum && scope.affectedOldNodes < nodeMinimum;
-}
-
-/** Cheap negative-only gate. Never authorizes rebuilding or supplies cached scan
- * data to ordinary sync: that path must rescan after its recovery/callbacks.
- * Caller must first verify current configuration identity; configuration or
- * upgrade changes bypass this gate. The minimum across ALL runtime-matched samples cannot exceed the minimum
- * of the compatible subset used by chooseAdaptiveStrategy. Stat mismatches
- * upper-bound changes discoverable by that planner's same stat shortcut
- * (not size/mtime-preserving edits); errors make this gate inconclusive.
- */
-export async function adaptiveChangeGate(root: string, tracked: ReadonlyArray<FileRecord>,
-  history: AdaptiveCostHistory, runtimeKey: string, eligibility: AdaptiveEligibility = {}): Promise<{ belowRange: boolean; candidates: number; minimum: number }> {
-  const samples = history.samples.filter(sample => validSample(sample) && sample.kind === 'incremental' &&
-    sample.runtimeKey === runtimeKey && sample.changedFiles > 0);
-  const policy = fallbackPolicy(eligibility.fallback);
-  const minimum = samples.length ? Math.min(policy.minChangedFiles, ...samples.map(sample => sample.changedFiles)) : 0;
-  if (eligibility.configurationChanged || eligibility.upgradeRequired) return { belowRange: false, candidates: 0, minimum };
-  if (!minimum) return { belowRange: false, candidates: 0, minimum };
-  // Enumerate even when only modifications were measured: unobserved additions
-  // may now qualify for structural fallback. The old tracked-only shortcut
-  // would silently hide precisely those first large branch changes.
-  for (const prior of tracked) {
-    if (!path.resolve(root, prior.path).startsWith(path.resolve(root) + path.sep)) throw new Error('Tracked source path escapes root');
-  }
-  const old = new Map(tracked.map(file => [file.path, file]));
-  const nodeMinimum = Math.max(policy.minAffectedOldNodes,
-    tracked.reduce((n, file) => n + file.nodeCount, 0) * policy.minAffectedOldNodeFraction);
-  const visible = await scanDirectoryAsync(root);
-  let candidates = 0, candidateNodes = 0;
-  for (let i = 0; i < visible.length; i++) {
-    const relative = visible[i]!;
-    const absolute = path.resolve(root, relative);
-    if (!absolute.startsWith(path.resolve(root) + path.sep)) throw new Error('Adaptive source path escapes root');
-    const prior = old.get(relative);
-    const stat = fs.statSync(absolute); // Any access/race error aborts the gate, never claims unchanged.
-    if (!prior || stat.size !== prior.size || Math.floor(stat.mtimeMs) !== Math.floor(prior.modifiedAt)) {
-      candidates++; candidateNodes += prior?.nodeCount ?? 0;
-    }
-    old.delete(relative);
-    if (candidates >= minimum || candidateNodes >= nodeMinimum) return { belowRange: false, candidates, minimum };
-    if ((i + 1) % 100 === 0) await new Promise<void>(resolve => setImmediate(resolve));
-  }
-  candidates += old.size; // Includes removed or newly ignored tracked files.
-  candidateNodes += [...old.values()].reduce((n, file) => n + file.nodeCount, 0);
-  return { belowRange: candidates < minimum && candidateNodes < nodeMinimum, candidates, minimum };
-}
-
-export function chooseAdaptiveStrategy(plan: AdaptivePlan, history: AdaptiveCostHistory,
-  eligibility: AdaptiveEligibility = {}): AdaptiveDecision {
-  const incremental = (reason: string): AdaptiveDecision => ({ strategy: 'incremental', reason });
-  if (eligibility.blockedReason) return incremental(eligibility.blockedReason);
-  const rebuild = (reason: string): AdaptiveDecision => ({ strategy: 'rebuild', reason });
-  if (!plan.totalFiles || !plan.totalBytes) return incremental('empty-target');
-  // Policy/version differences determine required work upstream, not the storage
-  // strategy. The plan must include unchanged files requiring re-extraction.
-  // Foreign runtime/configuration observations are simply unusable calibration:
-  // without applicable history the same structural fallback applies.
-  if (plan.changedFiles === 0) return incremental('no-content-changes');
-  const fallback = (): AdaptiveDecision | undefined => hasStructuralRebuildWork(plan, eligibility.fallback)
-    ? rebuild('structural-large-change') : undefined;
-  const samples = history.samples.filter(sample => validSample(sample) && sample.runtimeKey === plan.runtimeKey &&
-    sample.configFingerprint === plan.snapshot.configFingerprint &&
-    (plan.snapshot.semanticConfigFingerprint === undefined || sample.semanticConfigFingerprint === plan.snapshot.semanticConfigFingerprint));
-  const within = (value: number, reference: number): boolean => reference > 0 && value >= reference * 0.8 && value <= reference * 1.2;
-  const full = samples.filter(sample => sample.kind === 'full' && within(plan.totalBytes, sample.totalBytes) && within(plan.totalFiles, sample.totalFiles));
-  // A branch switch can mix adds/removes/modifications. Only compare with
-  // observed mixes having a similar composition, not arbitrary changed-file %.
-  const matchingMix = (sample: AdaptiveCostSample): boolean => plan.shape !== 'mixed' ||
-    [[plan.added.length, sample.addedFiles], [plan.modified.length, sample.modifiedFiles],
-      [plan.removed.length, sample.removedFiles]].every(([current, prior]) =>
-      Math.abs(current! / plan.changedFiles - prior! / sample.changedFiles) <= 0.05);
-  const measured = samples.filter(sample => sample.kind === 'incremental' && sample.shape === plan.shape &&
-    within(plan.totalFiles, sample.totalFiles) && within(plan.totalBytes, sample.totalBytes) && sample.changedFiles > 0 && matchingMix(sample));
-  if (!full.length || measured.length < 3) return fallback() ?? incremental('insufficient-local-calibration');
-  const work = (entry: Pick<AdaptiveCostSample, 'affectedOldNodes' | 'changedBytes'>): number =>
-    plan.shape === 'added-only' ? entry.changedBytes : entry.affectedOldNodes;
-  const useful = measured.filter(sample => work(sample) > 0);
-  const units = work(plan);
-  if (useful.length < 3 || units === 0) return fallback() ?? incremental('insufficient-measured-work');
-  const maxUnits = Math.max(...useful.map(work)), minUnits = Math.min(...useful.map(work));
-  const minFiles = Math.min(...useful.map(sample => sample.changedFiles));
-  if (units < minUnits || plan.changedFiles < minFiles) {
-    return fallback() ?? incremental('outside-calibrated-work-range');
-  }
-  // These modest margins combine with the separate 20%/10s savings gate.
-  // They are engineering guardrails, not measured confidence intervals.
-  // Do not extrapolate without bound, or reverse an already favorable decision
-  // solely because work/file breadth grew. Cap estimated work at the former
-  // supported edge; never divide it by the growing changed-file count.
-  const estimatedUnits = Math.min(units, maxUnits * MAX_WORK_EXTRAPOLATION);
-  const estimatedIncrementalMs = Math.min(...useful.map(sample => sample.durationMs / work(sample))) * estimatedUnits * INCREMENTAL_COST_MARGIN;
-  const estimatedRebuildMs = Math.max(...full.map(sample => sample.durationMs * Math.max(1, plan.totalBytes / sample.totalBytes))) * REBUILD_COST_MARGIN;
-  const beneficial = savesEnough(estimatedIncrementalMs, estimatedRebuildMs);
-  return { strategy: beneficial ? 'rebuild' : 'incremental', reason: beneficial ? 'local-cost-estimate-favors-rebuild' : 'insufficient-estimated-savings',
-    estimatedIncrementalMs, estimatedRebuildMs };
-}
-
-/** Build an observation from ordinary operations without an extra source scan. */
-export function adaptiveSampleFromFiles(input: {
-  kind: 'full' | 'incremental'; runtimeKey: string; configFingerprint: string;
-  semanticConfigFingerprint?: string;
-  before: ReadonlyArray<FileRecord>; after: ReadonlyArray<FileRecord>;
-  /** Accepted for callers' convenience; reindexed unchanged importers are NOT primary work units. */
-  changedFilePaths?: ReadonlyArray<string>; durationMs: number;
-}): Omit<AdaptiveCostSample, 'recordedAt'> {
-  const before = new Map(input.before.map(file => [file.path, file]));
-  const after = new Map(input.after.map(file => [file.path, file]));
-  let added = 0, modified = 0, removed = 0, affectedOldNodes = 0, changedBytes = 0;
-  for (const file of input.after) {
-    const old = before.get(file.path);
-    if (!old) { added++; changedBytes += file.size; }
-    else if (old.contentHash !== file.contentHash) {
-      modified++; affectedOldNodes += old.nodeCount; changedBytes += file.size;
-    }
-  }
-  for (const file of input.before) if (!after.has(file.path)) { removed++; affectedOldNodes += file.nodeCount; }
-  return { kind: input.kind, runtimeKey: input.runtimeKey, configFingerprint: input.configFingerprint,
-    ...(input.semanticConfigFingerprint === undefined ? {} : { semanticConfigFingerprint: input.semanticConfigFingerprint }),
-    totalFiles: input.after.length, totalBytes: input.after.reduce((n, file) => n + file.size, 0),
-    totalNodes: input.before.reduce((n, file) => n + file.nodeCount, 0), durationMs: input.durationMs,
-    changedFiles: added + modified + removed, affectedOldNodes, changedBytes,
-    addedFiles: added, modifiedFiles: modified, removedFiles: removed, shape: shape(added, modified, removed) };
+  const possibleFileScale = eligibility.rules?.fileScale !== false && pathsCount >= policy.minChangedFiles &&
+    (totalOldFiles === 0 || pathsCount / totalOldFiles >= policy.minChangedFraction);
+  const possibleOldNodeScale = eligibility.rules?.oldNodeScale !== false && affectedOldNodes >= policy.minAffectedOldNodes &&
+    totalOldNodes > 0 && affectedOldNodes / totalOldNodes >= policy.minAffectedOldNodeFraction;
+  return !possibleFileScale && !possibleOldNodeScale;
 }

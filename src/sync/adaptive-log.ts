@@ -1,6 +1,12 @@
 /** Local diagnostics are disposable, never part of the portable database. */
 import * as path from 'node:path';
 import { appendFileSync, existsSync, lstatSync, mkdirSync, renameSync } from 'node:fs';
+import type { AdaptiveDecision } from './adaptive-plan';
+import type { ResolvedSyncPolicy } from './sync-policy';
+
+export function formatAdaptiveDecision(decision: AdaptiveDecision, policy?: ResolvedSyncPolicy): string {
+  return '[adaptive-sync] ' + JSON.stringify({ ...decision, policy, at: new Date().toISOString() });
+}
 
 export function appendAdaptiveLog(dataDirectory: string, message: string): void {
   try {

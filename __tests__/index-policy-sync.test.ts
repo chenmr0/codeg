@@ -107,11 +107,11 @@ it('a new ordinary source directory does not invalidate the semantic configurati
 });
 it('does not train ordinary incremental costs with a mixed semantic re-extraction workload', async () => {
   await graph.indexAll();
-  const record = vi.spyOn(graph as any, 'recordCostSample');
+  const historical = graph.getPortableCostHistory();
   fs.writeFileSync(path.join(root, 'tsconfig.json'), '{"compilerOptions":{"baseUrl":"."}}');
   fs.writeFileSync(path.join(root, 'main.c'), 'int changed(void) { return 77; }\n');
   expect((await graph.sync({ adaptive: false })).complete).toBe(true);
-  expect(record).not.toHaveBeenCalled();
+  expect(graph.getPortableCostHistory()).toBe(historical);
 });
 it('explicit indexAll also re-extracts same-content sources after semantic configuration changes', async () => {
   await graph.indexAll();

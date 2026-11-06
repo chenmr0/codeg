@@ -9,17 +9,19 @@ import { runAdaptiveReadWorker } from "../rebuild-controller";
 import type {
   AdaptivePlan,
   AdaptiveDecision,
-  AdaptiveFallbackPolicy,
 } from "../adaptive-plan";
+import type { ResolvedSyncPolicy } from "../sync-policy";
 import type { SyncResult } from "../../extraction";
 const delay = (ms: number) =>
   new Promise<void>((resolve) => setTimeout(resolve, ms));
 async function main(
-  fallback: Partial<AdaptiveFallbackPolicy> | undefined,
+  policy: ResolvedSyncPolicy,
 ): Promise<void> {
   const [root, dataDir] = process.argv.slice(2);
   if (!root || !dataDir || !process.send)
     throw new Error("Publisher requires root, data directory and IPC");
+  if (!policy?.enabled)
+    throw new Error("Publisher requires an enabled sync policy snapshot");
   const coordinator = new PortableCoordinator(dataDir);
   let writer;
   const deadline = performance.now() + 30 * 60 * 1000;
@@ -49,7 +51,8 @@ async function main(
         root,
         databasePath: coordinator.active,
         portable: true,
-        eligibility: { fallback, upgradeRequired: current.isIndexStale() },
+        policy,
+        eligibility: { upgradeRequired: current.isIndexStale() },
       });
     } finally {
       current.close();
@@ -146,11 +149,11 @@ process.once("disconnect", parentDisconnected);
 process.once(
   "message",
   (message: {
-    fallback?: Partial<AdaptiveFallbackPolicy>;
+    policy: ResolvedSyncPolicy;
     parentExecArgv: string[];
   }) => {
     process.execArgv = message.parentExecArgv;
-    void main(message.fallback)
+    void main(message.policy)
       .catch(async (error) => {
         process.exitCode = 1;
         await new Promise<void>((resolve) => {

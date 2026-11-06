@@ -70,6 +70,9 @@ const MAX_RETRY_BACKOFF_MS = 30_000;
 
 /** Above this event-set size a full reconcile is safer and comparably cheap. */
 const SCOPED_SYNC_MAX_PENDING = 500;
+// Keep this filename aligned with sync-policy.ts without loading policy and
+// extraction dependencies while the watcher module is being initialized.
+const SYNC_POLICY_FILE = '.codegraphrc.json';
 // Keep aligned with adaptiveConfigFingerprint's root controls. Ignore files
 // also affect ancestor policy and are relevant at any project depth.
 const ROOT_CONTROL_FILES = new Set(['.gitignore', '.codegraphignore', '.git/info/exclude',
@@ -417,6 +420,7 @@ export class FileWatcher {
     }
     const full = path.join(dir, String(filename));
     const relative = normalizePath(path.relative(this.projectRoot, full));
+    if (relative === SYNC_POLICY_FILE) return;
     if (relative === '.git') {
       for (const watcher of this.controlWatchers.values()) watcher.close();
       this.controlWatchers.clear();
@@ -461,6 +465,9 @@ export class FileWatcher {
 
   private handleChangeOutsideScope(rel: string | null): void {
     if (rel !== null && (!rel || rel === '.' || rel.startsWith('..'))) return;
+    // Strategy controls are read by the next sync. In particular, deleting the
+    // file must not be mistaken for a removed directory requiring a full scan.
+    if (rel === SYNC_POLICY_FILE) return;
     // Windows can report a single named file followed by anonymous events
     // when a write burst overflows the native change buffer. The names we
     // received then describe only part of the changes, including ignore rules.
