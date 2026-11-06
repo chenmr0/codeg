@@ -14,6 +14,7 @@ import * as path from 'node:path';
 import { cppDeclaratorRegex as buildDeclaratorRegex, lastDeclarationBefore } from './cpp-receiver-index';
 import { cppCallableSignatureKey, filterCppCallCandidates, isCppCallArityAllowed } from './cpp-call-admission';
 import { filterCppBindingCandidates } from './cpp-binding-evidence';
+import { cppRecoveredCallerOwner, cppFieldReceiverType } from './cpp-receiver-lookup';
 import { maskCStyleCommentsAndLiterals } from '../extraction/grammars';
 
 /**
@@ -609,7 +610,7 @@ const CPP_NON_TYPE_TOKENS = new Set([
   'sizeof', 'alignof', 'typeid', 'and', 'or', 'not', 'xor',
 ]);
 
-function normalizeCppTypeName(typeName: string): string | null {
+function normalizeCppTypeName(typeName: string, preserveGlobal = false): string | null {
   const normalized = typeName
     .replace(/\b(const|volatile|mutable|typename|class|struct)\b/g, ' ')
     .replace(/[&*]+/g, ' ')
@@ -623,7 +624,7 @@ function normalizeCppTypeName(typeName: string): string | null {
   if (CPP_NON_TYPE_TOKENS.has(last)) return null;
   // Namespace qualification is evidence, while a dependent template receiver
   // is not the same type as the template's unqualified primary spelling.
-  return /^(?:::)?[A-Za-z_]\w*(?:::[A-Za-z_]\w*)*$/.test(normalized) ? normalized.replace(/^::/, '') : null;
+  return /^(?:::)?[A-Za-z_]\w*(?:::[A-Za-z_]\w*)*$/.test(normalized) ? preserveGlobal ? normalized : normalized.replace(/^::/, '') : null;
 }
 
 // Large sources use compact declaration evidence. Small sources and external
@@ -678,11 +679,21 @@ function inferCppReceiverType(
   }
 
   // A same-named field in a neighbouring class/header is not receiver evidence.
-  const owner = caller?.kind === 'method' ? cppOwner(caller) : '';
+  let owner = caller?.kind === 'method' ? cppOwner(caller) : '';
   if (!owner) return null;
-  const fields = filterCppBindingCandidates(context.getNodesByName(receiverName).filter(n =>
-    sameLanguageFamily(n.language, ref.language) && n.kind === 'field' && cppOwner(n) === owner), ref, context);
-  const types = fields.map(n => normalizeCppTypeName(n.signature?.match(declaratorRegex)?.[1] ?? ''));
+  const namedFields = context.getNodesByName(receiverName).filter(n =>
+    sameLanguageFamily(n.language, ref.language) && n.kind === 'field');
+  if (!namedFields.some(n => cppOwner(n) === owner)) owner = cppRecoveredCallerOwner(caller!, context) ?? owner;
+  if (!owner) return null;
+  const fields = filterCppBindingCandidates(namedFields.filter(n => cppOwner(n) === owner), ref, context);
+  const types = fields.map(n => {
+    const signature = n.signature ?? '', declaration = declaratorRegex.exec(signature);
+    const global = declaration && signature.slice(0, declaration.index).trimEnd().endsWith('::');
+    const type = normalizeCppTypeName((global ? '::' : '') + (declaration?.[1] ?? ''), true);
+    if (!type) return null;
+    const qualified = cppFieldReceiverType(n, type, context);
+    return qualified === undefined ? (!type.includes('::') ? type : null) : qualified;
+  });
   return types.length && !types.includes(null) && new Set(types).size === 1 ? types[0]! : null;
 }
 

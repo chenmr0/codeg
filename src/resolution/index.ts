@@ -27,6 +27,7 @@ import {
   isCppCallTargetAllowed,
 } from './name-matcher';
 import { clearCppBindingEvidence, isCppBindingTargetAllowed } from './cpp-binding-evidence';
+import { clearCppReceiverLookup } from './cpp-receiver-lookup';
 import { resolveViaImport, resolveJvmImport, extractImportMappings, extractReExports, loadCppIncludeDirs, clearImportMappingCache, isPhpIncludePathRef } from './import-resolver';
 import { detectFrameworks, isFrameworkEnabled } from './frameworks';
 import { getLanguageScopeKey, isLanguageEnabled } from '../extraction/language-scope';
@@ -431,6 +432,7 @@ export class ReferenceResolver {
 
   clearCaches(): void {
     clearCppBindingEvidence(this.context);
+    clearCppReceiverLookup(this.context);
     this.nodeCache.clear();
     this.fileCache.clear();
     this.textCache.clear();

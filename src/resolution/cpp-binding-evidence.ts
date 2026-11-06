@@ -1,6 +1,7 @@
 import * as path from 'node:path';
 import type { Node } from '../types';
 import { maskCStyleCommentsAndLiterals } from '../extraction/grammars';
+import { CCppSourceScope } from '../extraction/c-cpp-source-scope';
 import { cppParameterKey } from './cpp-signature';
 import { CppIncludeDirectory, normalizeCppIndexedPath as fileKey } from './cpp-include-directory';
 import type { CppIncludeChoices } from './cpp-include-directory';
@@ -12,7 +13,7 @@ type StorageLinkage = 'internal' | 'external' | 'unknown';
 type Condition = boolean | null;
 type Dialect = 'c' | 'cpp';
 interface Include { line: number; name?: string; quoted: boolean; active: Condition }
-interface Scope { namespace: string; anonymous: boolean; ordinary: boolean; linkage: Dialect | null }
+interface Scope { namespace: string; anonymous: boolean; ordinary: boolean; namespaceScope: boolean; linkage: Dialect | null }
 interface ScopePoint { offset: number; scope: Scope }
 interface Source {
   text: string; code: string; starts: number[]; active: Condition[];
@@ -28,6 +29,9 @@ interface Cache {
   declarations: EvidenceCache<Declaration | null>; reach: EvidenceCache<Reachable>;
   includeChoices: EvidenceCache<CppIncludeChoices>;
   includeDirectory: CppIncludeDirectory;
+  namespaceUsings: EvidenceCache<CppNamespaceUsing[] | null>;
+  namespaceScopes: EvidenceCache<{ scope: CCppSourceScope; bytes: number }>;
+  namespaceDeclarations: EvidenceCache<string | null>;
 }
 const caches = new WeakMap<ResolutionContext, Cache>();
 const MAX_SOURCE_LENGTH = 4 * 1024 * 1024;
@@ -91,6 +95,10 @@ function cacheFor(context: ResolutionContext): Cache {
       includeChoices: new EvidenceCache(128, 2 * 1024 * 1024, choices => 64
         + choices.files.reduce((bytes, file) => bytes + 32 + file.length * 2, 0)),
       includeDirectory: new CppIncludeDirectory(() => context.getAllFiles()),
+      namespaceUsings: new EvidenceCache(128, 2 * 1024 * 1024, entries => 64
+        + (entries?.reduce((bytes, entry) => bytes + 96 + (entry.scope.length + entry.target.length) * 2, 0) ?? 0)),
+      namespaceScopes: new EvidenceCache(32, 16 * 1024 * 1024, entry => entry.bytes),
+      namespaceDeclarations: new EvidenceCache(512, 128 * 1024, name => 16 + (name?.length ?? 0) * 2),
     };
     caches.set(context, cache);
   }
@@ -130,6 +138,12 @@ function sourceFor(file: string, language: Dialect, context: ResolutionContext):
     cache.text.set(file, text);
   }
   if (text == null || text.length > MAX_SOURCE_LENGTH) { cache.sources.set(key, null); return null; }
+  const result = parseBindingSource(text, language);
+  cache.sources.set(key, result);
+  return result;
+}
+
+function parseBindingSource(text: string, language: Dialect): Source {
   const masked = maskCStyleCommentsAndLiterals(text);
   const lines = masked.split('\n'), original = text.split('\n');
   const active: Condition[] = [], starts: number[] = [], includes: Include[] = [];
@@ -176,7 +190,7 @@ function sourceFor(file: string, language: Dialect, context: ResolutionContext):
   }
   const code = lines.join('\n');
   const scopes: ScopePoint[] = [{ offset: 0,
-    scope: { namespace: '', anonymous: false, ordinary: true, linkage: language } }];
+    scope: { namespace: '', anonymous: false, ordinary: true, namespaceScope: true, linkage: language } }];
   const parents: Scope[] = [];
   let scope = scopes[0]!.scope, boundary = 0, line = 0, uncertainScope = false;
   for (let i = 0; i < code.length; i++) {
@@ -192,21 +206,22 @@ function sourceFor(file: string, language: Dialect, context: ResolutionContext):
         namespace: namespace?.[1] ? [scope.namespace, namespace[1]].filter(Boolean).join('::') : scope.namespace,
         anonymous: scope.anonymous || (!!namespace && !namespace[1]),
         ordinary: scope.ordinary && (!!namespace || !!linkage) && !uncertainScope,
+        // Structural context is separate from conditional trust: a header guard
+        // does not turn a namespace-level macro into a class constructor.
+        namespaceScope: scope.namespaceScope && (!!namespace || !!linkage),
         linkage: linkage ? linkage[1] === 'C' ? 'c' : 'cpp' : scope.linkage,
       };
       scopes.push({ offset: i + 1, scope });
       boundary = i + 1;
     } else if (code[i] === '}') {
-      scope = parents.pop() ?? { namespace: '', anonymous: false, ordinary: false, linkage: null };
+      scope = parents.pop() ?? { namespace: '', anonymous: false, ordinary: false, namespaceScope: false, linkage: null };
       if (uncertainScope) scope = { ...scope, ordinary: false, linkage: null };
       scopes.push({ offset: i + 1, scope });
       boundary = i + 1;
     } else if (code[i] === ';') boundary = i + 1;
     else if (code[i] === '\n' && /^\s*#/.test(original[line - 1] ?? '')) boundary = i + 1;
   }
-  const result = { text, code, starts, active, includes, scopes };
-  cache.sources.set(key, result);
-  return result;
+  return { text, code, starts, active, includes, scopes };
 }
 
 function scopeAt(source: Source, offset: number): Scope {
@@ -551,4 +566,166 @@ export function filterCppBindingCandidates(nodes: Node[], ref: UnresolvedRef, co
         && sameEntity(node, decl, other, witness, context);
     });
   });
+}
+
+interface CppNamespaceUsing { offset: number; scope: string; target: string; active: Condition }
+export interface CppNamespaceLookup {
+  namespace: string;
+  active: Condition;
+  usings: Array<{ scope: string; target: string }>;
+  uncertainUsing: boolean;
+}
+
+/** Positive file reachability, independent of language name lookup. */
+export function isCppFileDefinitelyVisible(file: string,
+  ref: Pick<UnresolvedRef, 'filePath' | 'line' | 'language'>, context: ResolutionContext): boolean {
+  const normalized = fileKey(file);
+  const root = fileKey(ref.filePath);
+  if (normalized === root) return true;
+  const source = sourceFor(root, dialect(root, ref.language === 'c' ? 'c' : 'cpp'), context);
+  // Earlier includes can fill the recursive traversal budget before a later
+  // direct include is visited. Its own unconditional relative spelling is
+  // independent positive evidence and needs no transitive expansion.
+  if (source?.includes.some(include => include.quoted && include.active === true
+    && include.line < ref.line && include.name !== undefined
+    && fileKey(path.posix.join(path.posix.dirname(root), include.name)) === normalized
+    && context.fileExists(normalized))) return true;
+  return reachable(ref, context).definite.has(normalized);
+}
+
+/** Neither source scope scanner expands macros. An unexplained bare token or
+ * call outside a proven executable body can open/close a namespace, so agreeing
+ * scanner states alone cannot disprove an indexed QName across that prefix.
+ */
+function hasUnexplainedScopeMacro(source: Source, syntax: CCppSourceScope): boolean {
+  const forms = [
+    { pattern: /(?:^|(?<=[;{}]))\s*([A-Za-z_]\w*)\s*(?:\([^;{}]*\))?\s*;/g, namespaceOnly: false },
+    { pattern: /^[ \t]*([A-Za-z_]\w*)[ \t]*(?:\([^;{}]*\))?[ \t]*$/gm, namespaceOnly: false },
+    // A macro may provide only `namespace name`, with a source-written brace.
+    // Normal functions have a return type; bare constructor heads are legal in
+    // class scope and must not be mistaken for namespace-opening macros.
+    { pattern: /(?:^|(?<=[;{}]))\s*([A-Za-z_]\w*)\s*(?:\([^;{}]*\))?\s*\{/g, namespaceOnly: true },
+  ];
+  for (const { pattern, namespaceOnly } of forms) {
+    for (const match of source.code.matchAll(pattern)) {
+      const name = match[1]!;
+      // These language keywords are declaration/statement syntax, including a
+      // built-in return type placed on the line before its function declarator.
+      if (/^(?:static_assert|asm|void|bool|char|char8_t|char16_t|char32_t|wchar_t|short|int|long|signed|unsigned|float|double|auto|namespace|extern|class|struct|union|enum)$/.test(name)) continue;
+      const at = match.index! + match[0].indexOf(name);
+      if (namespaceOnly && !scopeAt(source, at).namespaceScope) continue;
+      if (!syntax.isExecutable(at)) return true;
+    }
+  }
+  return false;
+}
+
+/** Verify one namespace declaration's source-written full name. A missing or
+ * untrustworthy anchor leaves the indexed name uncertain, never disproves it.
+ * The caller bounds the number of nodes; this bounds per-node source parsing.
+ */
+export function cppSourceNamespaceName(node: Node, context: ResolutionContext): string | null {
+  const cache = cacheFor(context), key = `${node.id}:${node.startLine}:${node.startColumn}`;
+  if (cache.namespaceDeclarations.has(key)) return cache.namespaceDeclarations.get(key)!;
+  const text = context.readFile(node.filePath);
+  if (text === null) { cache.namespaceDeclarations.set(key, null); return null; }
+  // Only the prefix ending at this exact opening determines its written QName.
+  // A huge unrelated suffix must not consume the bounded evidence budget.
+  const prefix = text.slice(0, 256 * 1024);
+  const starts = [0];
+  for (let i = 0; i < prefix.length; i++) if (prefix[i] === '\n') starts.push(i + 1);
+  const offset = sourceOffsetAt({ text: prefix, starts }, node.startLine, node.startColumn);
+  let result: string | null = null;
+  if (offset !== null) {
+    const code = maskCStyleCommentsAndLiterals(prefix);
+    let namespace: string | undefined, opening: number | undefined;
+    // Namespace nodes start at the keyword; older recovery nodes can instead
+    // start at the name. Both cases are exact locations, without forward search.
+    const header = /^(?:inline\s+)?namespace\s+([A-Za-z_]\w*(?:::\w+)*)\s*\{/.exec(code.slice(offset));
+    if (header && (header[1] === node.name || header[1]!.endsWith('::' + node.name))) {
+      namespace = header[1]; opening = offset + header[0].length - 1;
+    } else if (/^[A-Za-z_]\w*$/.test(node.name) && code.slice(offset, offset + node.name.length) === node.name) {
+      const start = Math.max(code.lastIndexOf(';', offset - 1), code.lastIndexOf('{', offset - 1),
+        code.lastIndexOf('}', offset - 1), offset - 4096) + 1;
+      const before = /^(?:inline\s+)?namespace(?:\s+([A-Za-z_]\w*(?:::\w+)*)\s*::)?$/.exec(code.slice(start, offset).trim());
+      const tail = /^\s*\{/.exec(code.slice(offset + node.name.length));
+      if (before && tail) {
+        namespace = [before[1], node.name].filter(Boolean).join('::');
+        opening = offset + node.name.length + tail[0].length - 1;
+      }
+    }
+    if (namespace && opening !== undefined) {
+      const source = parseBindingSource(prefix.slice(0, opening + 1), dialect(node.filePath, 'cpp'));
+      const syntax = new CCppSourceScope(source.text);
+      const parent = syntax.namespaceAt(offset);
+      const fullName = [parent, namespace].filter(Boolean).join('::');
+      // Inspect the forward state at the source-written opening, not a closing
+      // brace later in the file. Independent scope scans must agree, including
+      // joins of conditional namespace openings preceding the anchor.
+      if (conditionAt(source, offset) !== false && !scopeAt(source, offset).anonymous
+        && !hasUnexplainedScopeMacro(source, syntax)
+        && parent === scopeAt(source, offset).namespace
+        && syntax.namespaceAt(opening + 1) === fullName) result = fullName;
+    }
+  }
+  cache.namespaceDeclarations.set(key, result);
+  return result;
+}
+
+function sourceOffsetAt(source: Pick<Source, 'text' | 'starts'>, line: number, byteColumn: number): number | null {
+  const start = source.starts[line - 1];
+  if (start === undefined || byteColumn < 0) return null;
+  const end = source.starts[line] ?? source.text.length;
+  let column = 0, bytes = 0;
+  for (const token of source.text.slice(start, end)) {
+    if (bytes >= byteColumn) break;
+    bytes += Buffer.byteLength(token, 'utf8'); column += token.length;
+  }
+  return bytes === byteColumn ? start + column : null;
+}
+
+function namespaceSyntax(source: Source, file: string, context: ResolutionContext): CCppSourceScope {
+  const cache = cacheFor(context), key = fileKey(file);
+  let entry = cache.namespaceScopes.get(key);
+  if (!entry) {
+    entry = { scope: new CCppSourceScope(source.text), bytes: source.text.length * 8 + 4096 };
+    cache.namespaceScopes.set(key, entry);
+  }
+  return entry.scope;
+}
+
+/** Only source-written, namespace-scope directives can qualify an out-of-line
+ * owner. Local directives and inactive branches cannot escape their scope.
+ */
+export function cppNamespaceLookupAt(ref: Pick<UnresolvedRef, 'filePath' | 'line' | 'column' | 'language'>,
+  context: ResolutionContext): CppNamespaceLookup | null {
+  const language = dialect(ref.filePath, ref.language === 'c' ? 'c' : 'cpp');
+  const source = sourceFor(ref.filePath, language, context);
+  const lineStart = source?.starts[ref.line - 1];
+  if (!source || lineStart === undefined || source.active[ref.line - 1] === false) return null;
+  const at = sourceOffsetAt(source, ref.line, ref.column);
+  if (at === null) return null;
+  const scope = scopeAt(source, at);
+  if (scope.anonymous) return null;
+  const cache = cacheFor(context), key = `${language}:${fileKey(ref.filePath)}`;
+  // The binding scope scanner marks ordinary=false for class bodies as well
+  // as uncertain branches. Independently check its namespace against the
+  // existing branch-merging scanner instead of treating both as uncertainty.
+  if (namespaceSyntax(source, ref.filePath, context).namespaceAt(at) !== scope.namespace) return null;
+  let directives = cache.namespaceUsings.get(key);
+  if (directives === undefined) {
+    directives = [];
+    for (const match of source.code.matchAll(/\busing\s+namespace\s+((?:::)?[A-Za-z_]\w*(?:\s*::\s*[A-Za-z_]\w*)*)\s*;/g)) {
+      const start = match.index!, enclosing = scopeAt(source, start), active = conditionAt(source, start);
+      if (active === false || enclosing.anonymous || !enclosing.ordinary) continue;
+      if (directives.length >= 128 || match[1]!.length > 1024) { directives = null; break; }
+      directives.push({ offset: start, scope: enclosing.namespace, target: match[1]!.replace(/\s+/g, ''), active });
+    }
+    cache.namespaceUsings.set(key, directives);
+  }
+  if (directives === null) return null;
+  const visible = directives.filter(d => d.offset < at && (!d.scope
+    || scope.namespace === d.scope || scope.namespace.startsWith(d.scope + '::')));
+  return { namespace: scope.namespace, active: source.active[ref.line - 1] ?? null, usings: visible.filter(d => d.active === true)
+    .map(({ scope, target }) => ({ scope, target })), uncertainUsing: visible.some(d => d.active === null) };
 }

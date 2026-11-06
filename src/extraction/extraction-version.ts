@@ -26,4 +26,6 @@
 // v41: C/C++ binding admission uses source visibility, receiver ownership and
 // call-arity evidence. Reindex to replace previously successful wrong edges;
 // retrying unresolved references alone cannot repair retained resolutions.
-export const EXTRACTION_VERSION = 41;
+// v42: Recover C++ out-of-line owners through visible declarations and resolve
+// relative field types in their declaration scope before inherited lookup.
+export const EXTRACTION_VERSION = 42;
