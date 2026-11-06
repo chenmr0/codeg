@@ -2,6 +2,8 @@ import * as path from 'node:path';
 import type { Node } from '../types';
 import { maskCStyleCommentsAndLiterals } from '../extraction/grammars';
 import { cppParameterKey } from './cpp-signature';
+import { CppIncludeDirectory, normalizeCppIndexedPath as fileKey } from './cpp-include-directory';
+import type { CppIncludeChoices } from './cpp-include-directory';
 import type { ResolutionContext, UnresolvedRef } from './types';
 
 /** Unknown is deliberately distinct from both a positive witness and a veto. */
@@ -17,7 +19,6 @@ interface Source {
   includes: Include[]; scopes: ScopePoint[];
 }
 interface Reachable { definite: Set<string>; possible: Set<string>; open: boolean }
-interface IncludeChoices { files: string[]; complete: boolean }
 interface Declaration {
   source: Source; offset: number; prefix: string; text: string; scope: Scope;
   active: Condition; linkage: Dialect | null;
@@ -25,7 +26,8 @@ interface Declaration {
 interface Cache {
   text: EvidenceCache<string | null>; sources: EvidenceCache<Source | null>;
   declarations: EvidenceCache<Declaration | null>; reach: EvidenceCache<Reachable>;
-  includeChoices: EvidenceCache<IncludeChoices>;
+  includeChoices: EvidenceCache<CppIncludeChoices>;
+  includeDirectory: CppIncludeDirectory;
 }
 const caches = new WeakMap<ResolutionContext, Cache>();
 const MAX_SOURCE_LENGTH = 4 * 1024 * 1024;
@@ -88,13 +90,13 @@ function cacheFor(context: ResolutionContext): Cache {
         + [...reach.definite, ...reach.possible].reduce((bytes, file) => bytes + 48 + file.length * 2, 0)),
       includeChoices: new EvidenceCache(128, 2 * 1024 * 1024, choices => 64
         + choices.files.reduce((bytes, file) => bytes + 32 + file.length * 2, 0)),
+      includeDirectory: new CppIncludeDirectory(() => context.getAllFiles()),
     };
     caches.set(context, cache);
   }
   return cache;
 }
 
-function fileKey(file: string): string { return path.posix.normalize(file.replace(/\\/g, '/')); }
 function cpp(ref: UnresolvedRef): boolean { return ref.language === 'c' || ref.language === 'cpp'; }
 function relevant(node: Node): boolean {
   return (node.language === 'c' || node.language === 'cpp')
@@ -288,13 +290,7 @@ function reachable(ref: Pick<UnresolvedRef, 'filePath' | 'line' | 'language'>, c
       else {
         let matches = cache.includeChoices.get(include.name);
         if (!matches) {
-          matches = { files: [], complete: true };
-          for (const indexedFile of context.getAllFiles()) {
-            const candidate = fileKey(indexedFile);
-            if (candidate !== include.name && !candidate.endsWith(`/${include.name}`)) continue;
-            if (matches.files.length >= MAX_INCLUDE_FILES) { matches.complete = false; break; }
-            matches.files.push(candidate);
-          }
+          matches = cache.includeDirectory.find(include.name, MAX_INCLUDE_FILES);
           cache.includeChoices.set(include.name, matches);
         }
         choices = matches.files;
