@@ -30,6 +30,8 @@ export interface SqliteDatabase {
   transaction<T>(fn: (...args: any[]) => T): (...args: any[]) => T;
   close(): void;
   readonly open: boolean;
+  /** Unknown backends must not cache results across a possible rollback. */
+  readonly inTransaction?: boolean;
 }
 
 /**
@@ -60,6 +62,12 @@ class NodeSqliteAdapter implements SqliteDatabase {
 
   get open(): boolean {
     return this._db.isOpen;
+  }
+
+  get inTransaction(): boolean | undefined {
+    // Covers raw BEGIN/SAVEPOINT as well as transaction(), without guessing
+    // from the helper's nesting depth. Older Node/sql.js remain conservative.
+    return typeof this._db.isTransaction === 'boolean' ? this._db.isTransaction : undefined;
   }
 
   prepare(sql: string): SqliteStatement {

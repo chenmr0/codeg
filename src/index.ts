@@ -254,6 +254,11 @@ export class CodeGraph {
   private static failedPortableInitializations = new Map<PortableLease, DatabaseConnection>();
   private static failedPortableBuilds = new Map<PortableLease, CodeGraph | DatabaseConnection>();
   private db: DatabaseConnection;
+  /** @internal Query boundary for upstream Explore; the caller never closes this handle. */
+  getExploreQueryConnection(): import('./db/sqlite-adapter').SqliteDatabase {
+    return this.db.getDb();
+  }
+
   private queries: QueryBuilder;
   private projectRoot: string;
   private orchestrator: ExtractionOrchestrator;
