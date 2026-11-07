@@ -1,5 +1,7 @@
 # OceanBase 第三阶段续测 · Claude Code 交接
 
+**异机执行从[远端数据还原与启动说明](./2026-11-08-phase3-remote-start.md)开始。** 通过下载、分片、数据库和源码检查后，再按本文四步执行。
+
 2026-11-08。请从产品提交 `7e37003d` 开始，先诊断剩余慢批次，根据结果决定是否修一处通用性能问题。通过下面的建库条件后，用新目录建立候选索引，最后回答两个问题：哪些历史错绑得到了纠正，这些关系变化是否改善了 Explore 返回的关键源码和查询耗时。
 
 **原始第三阶段文档**在本仓库 `docs/plans/2026-11-04-explore-graph-quality-and-cost-audit.md` 第 289 行起，标题为「第三阶段：真实 OceanBase 双新库验证」。首次冻结提交为 `f2c69c56bdc141fe75a25a7a7b0f032762b002b2`。后续请把执行状态、所用提交、报告路径及停机原因追加到同一计划的新执行分支。 [原始计划永久链接](https://github.com/chenmr0/codeg/blob/f2c69c56bdc141fe75a25a7a7b0f032762b002b2/docs/plans/2026-11-04-explore-graph-quality-and-cost-audit.md#L289) · [含后续诊断和修复的计划](./2026-11-04-explore-graph-quality-and-cost-audit.md)
@@ -8,12 +10,12 @@
 
 | 用途 | 分支 / 提交 | 使用方法 |
 | --- | --- | --- |
-| 交接文档 | `codex/phase3-claude-handoff-20261108` | 本分支只增加本文件。产品运行时按下两行的 SHA 取值 |
+| 交接与数据清单 | `codex/phase3-claude-handoff-20261108` | 本分支提供交接文档、下载与校验工具。产品运行时按下两行的 SHA 取值 |
 | 当前产品 | `codex/explore-include-directory-20261106` · `7e37003d5e1829d69251c706c4e23d85e6d62962` | 含目录优化 `ed190ed8` 和合法成员绑定修复，提取版本 42。若需修改产品，从此 SHA 新建独立工作树和分支，单独提交性能补丁 |
 | 内部参照 | `codex/explore-bounded-prefetch-20261105` · `c6b509d3557b7485a9fee14dbfc5980258205beb` | 已完成全仓索引，提取版本 40。用于吞吐和完整图对照 |
 | 旧停机候选 | `751e3293ef0a7aba90d2d5e10185ad4661982d4f` | 提取版本 41，引用解析上报到 35,000 条时中止。保留现场，以它的一致副本重放冻结输入 |
 
-本机 PowerShell 可以先运行以下只读检查。下文路径均相对于这里的变量。Git 分支提供计划和产品代码，实验原始数据与驱动保存在本机 `artifacts`。换机器执行时，先取得相应文件并核对清单。
+以下 PowerShell 路径描述原实验机，供核对历史回执。异机请按远端启动说明将 `$A`、`$S`、源码、实验图及两个运行时映射到实际还原目录，在新的实验目录写入本机的合同和回执。
 
 ```powershell
 $Repo = 'D:\python_code\codegraph'

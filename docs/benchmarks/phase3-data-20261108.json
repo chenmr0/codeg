@@ -1,0 +1,366 @@
+{
+  "version": 1,
+  "releaseBaseUrl": "https://github.com/chenmr0/codeg/releases/download/phase3-oceanbase-data-20261108",
+  "product": "7e37003d5e1829d69251c706c4e23d85e6d62962",
+  "baseline": "c6b509d3557b7485a9fee14dbfc5980258205beb",
+  "groups": [
+    {
+      "id": "support-inventory",
+      "encoding": "gzip",
+      "target": "artifacts/phase3-support-inventory.json",
+      "raw_bytes": 1005215,
+      "raw_sha256": "4b666878d7a6a19eaba787a220a747458b9a587682219ca94a49c6a53f6e3f01",
+      "compressed_bytes": 188202,
+      "compressed_sha256": "4db47ffec5125d0ad69ca28f46ce1d34f3954c5d681ae3c56857a7fd5d90b634",
+      "parts": [
+        {
+          "name": "cg3-support-inventory.gz",
+          "bytes": 188202,
+          "sha256": "4db47ffec5125d0ad69ca28f46ce1d34f3954c5d681ae3c56857a7fd5d90b634"
+        }
+      ]
+    },
+    {
+      "id": "support",
+      "encoding": "tar+gzip",
+      "target": ".",
+      "raw_sha256": "d8948797c7c5d7e3fe8aac058ad5d9fcc80ed77c1a35584f7de28afc610b71b0",
+      "raw_bytes": 419143680,
+      "compressed_sha256": "1480393322200c98bf7d3905864be00ce6b1c7d801b8a5bfeb31890a63b0694a",
+      "compressed_bytes": 42878718,
+      "parts": [
+        {
+          "name": "cg3-support.tar.gz.part0001",
+          "bytes": 33554432,
+          "sha256": "bb46ecd593ebd2b3de63609318d10ec347458b94cc4c9030923e7ea29260b51c"
+        },
+        {
+          "name": "cg3-support.tar.gz.part0002",
+          "bytes": 9324286,
+          "sha256": "cfc1f84b81fdca2e0765e3b7ba94924c0da6f5fd5e49eada709d3c1186ec9401"
+        }
+      ]
+    },
+    {
+      "id": "complete",
+      "encoding": "gzip",
+      "target": "artifacts/explore-include-directory-20261106/replay/evidence/complete/codegraph.db",
+      "raw_bytes": 3653169152,
+      "raw_sha256": "9ffd162817bb6d4f8615b79889b08381caea06a433dc578565d21bc7348fb5d0",
+      "compressed_bytes": 685234488,
+      "compressed_sha256": "18b5403ff5f8600304a48d583bd8f9a5298e178006fed4ce5e976ee03c5f5ef0",
+      "parts": [
+        {
+          "name": "cg3-complete.gz.part0001",
+          "bytes": 33554432,
+          "sha256": "20c437ab0247dd6169d350b539ff02c465c6ebe9073a7bf8bb88c43d9f351e9a"
+        },
+        {
+          "name": "cg3-complete.gz.part0002",
+          "bytes": 33554432,
+          "sha256": "8c31057f547254dc1dcac00f04ea3ff7f929ccc03771efa6845ea51dfe83c266"
+        },
+        {
+          "name": "cg3-complete.gz.part0003",
+          "bytes": 33554432,
+          "sha256": "d86087eb2dcc78e5bbbd60a089c13a038b48c3d773956565c682991e1bd3beca"
+        },
+        {
+          "name": "cg3-complete.gz.part0004",
+          "bytes": 33554432,
+          "sha256": "280ebd2b366f56fc328362f63111fc465f1f0e688692c5d20b6b422234411e9e"
+        },
+        {
+          "name": "cg3-complete.gz.part0005",
+          "bytes": 33554432,
+          "sha256": "7f758ae0e2ba37adebb6b74736ba7de082a6892dbcdcddda0905b1e6b156ee0e"
+        },
+        {
+          "name": "cg3-complete.gz.part0006",
+          "bytes": 33554432,
+          "sha256": "32fee51f68117d4496cdca4cc9308549e5bcd9e8a2c03d4ab526d96d3c087200"
+        },
+        {
+          "name": "cg3-complete.gz.part0007",
+          "bytes": 33554432,
+          "sha256": "fa262495110bae6a6770e69f9054bbb655af648584f44fa1b42691a7ee3fde5d"
+        },
+        {
+          "name": "cg3-complete.gz.part0008",
+          "bytes": 33554432,
+          "sha256": "08401345be249e3ed7afb26222cf8e03406b28772663181e3c5967cba9df3a08"
+        },
+        {
+          "name": "cg3-complete.gz.part0009",
+          "bytes": 33554432,
+          "sha256": "0f05aeac95afc7767181f62bcc9da1cbad5a110cadb9e02c030600a52d7e1e85"
+        },
+        {
+          "name": "cg3-complete.gz.part0010",
+          "bytes": 33554432,
+          "sha256": "10f18a7bf62b96659b53e0c5643e34f0955f2c60d0afb7f0d2067101f9edb8a3"
+        },
+        {
+          "name": "cg3-complete.gz.part0011",
+          "bytes": 33554432,
+          "sha256": "fd4a5c20e12dc35acaee96f4094dee78e26519879cb215fa8ef3b99136507694"
+        },
+        {
+          "name": "cg3-complete.gz.part0012",
+          "bytes": 33554432,
+          "sha256": "585e29b7bed6728f8a717f89c2011fe63503b07e7e62318c106e803a1c6516e4"
+        },
+        {
+          "name": "cg3-complete.gz.part0013",
+          "bytes": 33554432,
+          "sha256": "567acb32bd69c0288bd4b2ec0348ac43e529c2d03e07214d26ee46e13b065314"
+        },
+        {
+          "name": "cg3-complete.gz.part0014",
+          "bytes": 33554432,
+          "sha256": "2a9b769670dc6dd47374b515d395cda625e816c02d4f37d2b255855c6fd4ec1f"
+        },
+        {
+          "name": "cg3-complete.gz.part0015",
+          "bytes": 33554432,
+          "sha256": "0dc23773509305fc04d03524ece74ffe37d3ec84e68cb21b83ced63b1c93af38"
+        },
+        {
+          "name": "cg3-complete.gz.part0016",
+          "bytes": 33554432,
+          "sha256": "759dc40eda3f41cbee865a4ad35092f7dc7f21ab557b0945c4fb0af8b4c8b8b2"
+        },
+        {
+          "name": "cg3-complete.gz.part0017",
+          "bytes": 33554432,
+          "sha256": "9d0131c50a1d911059f89f7e8f0cb6273b090a6b99c570047c06ae32584304af"
+        },
+        {
+          "name": "cg3-complete.gz.part0018",
+          "bytes": 33554432,
+          "sha256": "b64b40146b8c19d022bce521fe71e6aa5cfe5baf6547aaf01643a40f80c5a60c"
+        },
+        {
+          "name": "cg3-complete.gz.part0019",
+          "bytes": 33554432,
+          "sha256": "fc2d6ae6d1e7c4cec0289844296fbf70538487a79300e6d13e4b81764b9a4a61"
+        },
+        {
+          "name": "cg3-complete.gz.part0020",
+          "bytes": 33554432,
+          "sha256": "a42bfd06d7e0e52102ec8dae682301705d533f327aa8a2ac15d24d071d41c9b2"
+        },
+        {
+          "name": "cg3-complete.gz.part0021",
+          "bytes": 14145848,
+          "sha256": "a1208b2ce94129d9ab4bf08352264e1fc174484364cc3baa75068bfd0ca006f7"
+        }
+      ]
+    },
+    {
+      "id": "frontier-main",
+      "encoding": "gzip",
+      "target": "artifacts/explore-include-directory-20261106/replay/evidence/frontier/codegraph.db",
+      "raw_bytes": 2944172032,
+      "raw_sha256": "298e2699ad5eb452c0ad63bb12768a86f5d949437faa009e0ea70fdc8a7b3da9",
+      "compressed_bytes": 513126547,
+      "compressed_sha256": "5509dd4a245885d0e9fe25d790542ea99be9c4ec2bfab5b8c9231fb0c87b90b4",
+      "parts": [
+        {
+          "name": "cg3-frontier-main.gz.part0001",
+          "bytes": 33554432,
+          "sha256": "004a5082b3760836fe5a385ddd5533cd3d662055e8b1328cad3299cca20b9368"
+        },
+        {
+          "name": "cg3-frontier-main.gz.part0002",
+          "bytes": 33554432,
+          "sha256": "23afe8b72cf6b0946083ddb9c35fc8178537c538ff36a8fb04235b214309cdb2"
+        },
+        {
+          "name": "cg3-frontier-main.gz.part0003",
+          "bytes": 33554432,
+          "sha256": "eadb3918889a628839acad131b4a442ad38cf193b6c4cef47c00ee4ace9f96c1"
+        },
+        {
+          "name": "cg3-frontier-main.gz.part0004",
+          "bytes": 33554432,
+          "sha256": "8eba521f567bc059c25d8a7fef44ae3ac50b98f793ed4a2b8700da39647a687d"
+        },
+        {
+          "name": "cg3-frontier-main.gz.part0005",
+          "bytes": 33554432,
+          "sha256": "62d0b44b3d129f5a9f880caf43a5480fd27b9454451f0c6279165d5cd350d450"
+        },
+        {
+          "name": "cg3-frontier-main.gz.part0006",
+          "bytes": 33554432,
+          "sha256": "ead7132e39b35ac06ce5a096ff30f1510056e60dff10443df52b2866d2a067fe"
+        },
+        {
+          "name": "cg3-frontier-main.gz.part0007",
+          "bytes": 33554432,
+          "sha256": "56924051fbf1e75e3707c656161afc00996c55d2c1e4ce1a00747b1ab8e1ae84"
+        },
+        {
+          "name": "cg3-frontier-main.gz.part0008",
+          "bytes": 33554432,
+          "sha256": "0e50575246810801a617fad85839fe84433dda457da51dd643605dddd0712ee4"
+        },
+        {
+          "name": "cg3-frontier-main.gz.part0009",
+          "bytes": 33554432,
+          "sha256": "b8cbf2f3cbcd948062e97981ee04a9009a053c550e00c7f73141db04d6f26e12"
+        },
+        {
+          "name": "cg3-frontier-main.gz.part0010",
+          "bytes": 33554432,
+          "sha256": "4936e104fa960c4ad77ee99f16ac2ed6bca46dbbbaabee7d21a193f83910a15d"
+        },
+        {
+          "name": "cg3-frontier-main.gz.part0011",
+          "bytes": 33554432,
+          "sha256": "029bb0092c45ba853089770ef69ee3e4f3a51cf4dc16d6e6b425f1b051bc51a4"
+        },
+        {
+          "name": "cg3-frontier-main.gz.part0012",
+          "bytes": 33554432,
+          "sha256": "988b6804ac7b119d32682a2a5508113b7bd063c360d57bc78360d0a570c5ef3c"
+        },
+        {
+          "name": "cg3-frontier-main.gz.part0013",
+          "bytes": 33554432,
+          "sha256": "58bf113fabd67516ae320a8d7fa0f7cc9c274bec45797f14bf7ddc55840db4d8"
+        },
+        {
+          "name": "cg3-frontier-main.gz.part0014",
+          "bytes": 33554432,
+          "sha256": "bbd1a53a26abac10519c83e809f3be32ef4024fb1e30e071a45363fc09051939"
+        },
+        {
+          "name": "cg3-frontier-main.gz.part0015",
+          "bytes": 33554432,
+          "sha256": "06e30b9c47c3481de1c41f73b69a08a798e4136bd8d28f162b45a2ff74b68c59"
+        },
+        {
+          "name": "cg3-frontier-main.gz.part0016",
+          "bytes": 9810067,
+          "sha256": "b52507a61a241b89a2ffdbf55045b8e8940d5ed3ba531698df820e0f4ad5e000"
+        }
+      ]
+    },
+    {
+      "id": "frontier-wal",
+      "encoding": "gzip",
+      "target": "artifacts/explore-include-directory-20261106/replay/evidence/frontier/codegraph.db-wal",
+      "raw_bytes": 35642152,
+      "raw_sha256": "01b7eb682cef6a25695b48f781e58408c89e9e4e8e808907652c82a8f1a5b202",
+      "compressed_bytes": 7501690,
+      "compressed_sha256": "1691e14d119e68c6a4cffee93ee7503d9fd6d361e4c42290bc60e2a228329b01",
+      "parts": [
+        {
+          "name": "cg3-frontier-wal.gz.part0001",
+          "bytes": 7501690,
+          "sha256": "1691e14d119e68c6a4cffee93ee7503d9fd6d361e4c42290bc60e2a228329b01"
+        }
+      ]
+    },
+    {
+      "id": "source",
+      "encoding": "tar+gzip",
+      "target": "source/oceanbase",
+      "raw_bytes": 707502080,
+      "raw_sha256": "8dea6e69f7a89030114d9d76b0bd843a351974960a79cb602bc20de066e5974d",
+      "compressed_bytes": 104412397,
+      "compressed_sha256": "67a83bb36767f692fbd8ad8a7644687014d815f42a49a58925b6a50f32a803bb",
+      "parts": [
+        {
+          "name": "cg3-source.gz.part0001",
+          "bytes": 33554432,
+          "sha256": "f56ab8297a036e3af90e18deaac4970d198055d802d3b193c4282e897325dcc7"
+        },
+        {
+          "name": "cg3-source.gz.part0002",
+          "bytes": 33554432,
+          "sha256": "8eefee06c7671a2e030685bf72d6c422199e5ef863b41fb0f3dfc765757f1e0c"
+        },
+        {
+          "name": "cg3-source.gz.part0003",
+          "bytes": 33554432,
+          "sha256": "345c3a48706efad210cbcc6a9035a25260ab6f479bdd0c40c7d3331344fdf433"
+        },
+        {
+          "name": "cg3-source.gz.part0004",
+          "bytes": 3749101,
+          "sha256": "dd46980926f6b653a6e0c7ba98c51c653afafe210bae10d211415eda523e3700"
+        }
+      ],
+      "member_count": 16317,
+      "member_bytes": 694894451,
+      "source_manifest_sha256": "aef26edd9382b48aa524e24d111752701baa400099eac1da24232364562c6ac9"
+    },
+    {
+      "id": "portable",
+      "encoding": "tar+gzip",
+      "target": "baseline-portable",
+      "raw_bytes": 30720,
+      "raw_sha256": "954c668212570c5baeb1f158002a8a58be6ea3d9c3024f5a11aaa091e4e3faac",
+      "compressed_bytes": 443,
+      "compressed_sha256": "cacdc94dc3383bf145de8b2b57c4cccb1decb86b6adc4afb508ffeb7da8325f2",
+      "parts": [
+        {
+          "name": "cg3-portable.gz.part0001",
+          "bytes": 443,
+          "sha256": "cacdc94dc3383bf145de8b2b57c4cccb1decb86b6adc4afb508ffeb7da8325f2"
+        }
+      ],
+      "member_count": 3,
+      "members": [
+        {
+          "path": "gate.sqlite",
+          "bytes": 8192,
+          "sha256": "060ccbb9708628bb12b342aecdaa2bea446145008275950fcafb3c7cad5b123d"
+        },
+        {
+          "path": "readers.sqlite",
+          "bytes": 8192,
+          "sha256": "7a1f5cf67d3181b7344e4c170aa5e36dee2aeb466df811d70865774b90c0b160"
+        },
+        {
+          "path": "writer.sqlite",
+          "bytes": 8192,
+          "sha256": "7a1f5cf67d3181b7344e4c170aa5e36dee2aeb466df811d70865774b90c0b160"
+        }
+      ]
+    },
+    {
+      "id": "stopped-shm",
+      "encoding": "gzip",
+      "target": "forensics/stopped/codegraph.db-shm",
+      "raw_bytes": 3211264,
+      "raw_sha256": "0423a237606707e4cf6df1d46562b816f1d16802ec46cc734ae2660924f15dd4",
+      "compressed_bytes": 1552863,
+      "compressed_sha256": "e0691db6d74539423a23caf5aabf716efda8f740c5c696077f3e5980d81b8212",
+      "parts": [
+        {
+          "name": "cg3-stopped-shm.gz",
+          "bytes": 1552863,
+          "sha256": "e0691db6d74539423a23caf5aabf716efda8f740c5c696077f3e5980d81b8212"
+        }
+      ]
+    }
+  ],
+  "sourceManifest": {
+    "path": "artifacts/explore-graph-quality-audit-20261104/freeze/source-manifest-historical.json",
+    "root": "source/oceanbase",
+    "count": 16317,
+    "bytes": 694894451,
+    "sha256": "aef26edd9382b48aa524e24d111752701baa400099eac1da24232364562c6ac9"
+  },
+  "supportFilesManifest": {
+    "path": "artifacts/phase3-support-inventory.json",
+    "root": ".",
+    "count": 3955,
+    "bytes": 412978511,
+    "sha256": "4b666878d7a6a19eaba787a220a747458b9a587682219ca94a49c6a53f6e3f01"
+  }
+}
