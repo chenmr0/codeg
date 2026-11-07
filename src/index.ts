@@ -66,9 +66,11 @@ import { installSourceOwnership, isSourceOwned, beginSourceWrite, finishSourceWr
 import { adaptiveRuntimeKey, adaptiveConfigFingerprint, chooseStructuralStrategy, hasCanonicalScope,
   type AdaptiveDecision, type AdaptivePlan, type AdaptiveFallbackPolicy, type AdaptiveRuleSelection } from './sync/adaptive-plan';
 import { runRebuildChild, runAdaptiveReadWorker } from './sync/rebuild-controller';
+import { reconcilePublishedSource, publicationContext, type VerifiedPublicationContext } from './sync/publication-catchup';
+import { isMacroSource, macroContextFingerprint } from './extraction/macro-scan';
 import { PortableCoordinator, type PortableLease } from './sync/portable/protocol';
 import { createPortableFacade, prepareSmallSync, type PortableReadPin } from './sync/portable/facade';
-import { initializeIdentity, metadata as portableMetadata, setMetadata as setPortableMetadata, CATCHUP, COST_HISTORY } from './sync/portable/metadata';
+import { initializeIdentity, metadata as portableMetadata, setMetadata as setPortableMetadata, CATCHUP, PUBLICATION_MACROS, PUBLICATION_FRAMEWORKS, COST_HISTORY } from './sync/portable/metadata';
 import { FileWatcher, WatchOptions, PendingFile, LockUnavailableError } from './sync';
 import { SEMANTIC_CONFIG_KEY, SEMANTIC_REINDEX_PENDING, semanticConfigFingerprint, requiresSemanticReindex, indexConfigFingerprints } from './sync/index-policy';
 import { EXTRACTION_VERSION } from './extraction/extraction-version';
@@ -197,6 +199,8 @@ export interface IndexOptions {
 
 /** Options for incremental synchronization. */
 export interface SyncOptions extends IndexOptions {
+  /** @internal Parser inputs verified against the post-publication source inventory. */
+  [publicationContext]?: VerifiedPublicationContext;
   /** @internal The CLI renderer only displays progress and scan notices; SDK callbacks may edit source. */
   displayOnlyProgress?: boolean;
   /** Optional native fallback notice sink. Library/MCP/watch callers stay silent by default. */
@@ -628,8 +632,19 @@ export class CodeGraph {
       !this.getPortableCatchup() && !this.hasPortableCatchupWork();
   }
   getPortableCatchup(): string | null { return portableMetadata(this.db.getDb(), CATCHUP); }
-  setPortableCatchup(operation: string): void { setPortableMetadata(this.db.getDb(), CATCHUP, operation); }
-  clearPortableCatchup(): void { this.db.getDb().prepare('DELETE FROM project_metadata WHERE key=?').run(CATCHUP); }
+  setPortableCatchup(operation: string): void { this.updatePublicationCatchup(operation); }
+  clearPortableCatchup(): void { this.updatePublicationCatchup(null); }
+
+  private updatePublicationCatchup(operation: string | null): void {
+    const db = this.db.getDb();
+    db.transaction(() => {
+      // Legacy ownership triggers guard metadata too. Keep the marker change and its ownership proof atomic.
+      const ownership = this.portableBound ? null : beginSourceWrite(db);
+      if (operation === null) db.prepare('DELETE FROM project_metadata WHERE key IN (?, ?, ?)').run(CATCHUP, PUBLICATION_MACROS, PUBLICATION_FRAMEWORKS);
+      else setPortableMetadata(db, CATCHUP, operation);
+      finishSourceWrite(db, ownership, true);
+    })();
+  }
 
   private static openCurrent(root: string, forceReadOnly = false, pinnedRead = false,
     dataDirectory = getCodeGraphDir(root), writer = false, acquiredLease?: GenerationLease): CodeGraph {
@@ -826,16 +841,28 @@ export class CodeGraph {
    * Uses a mutex to prevent concurrent indexing operations.
    */
   async indexAll(options: IndexOptions = {}): Promise<IndexResult> {
+    return this.runFullIndex(options, false);
+  }
+
+  /** @internal Build a private database that will be reconciled after publication. */
+  async indexRebuildCandidate(options: IndexOptions): Promise<IndexResult> {
+    if (!this.shadowCandidate || (this.portableBound && !this.disposableCandidate)) {
+      throw new Error('Rebuild indexing requires a private candidate');
+    }
+    return this.runFullIndex(options, true);
+  }
+
+  private async runFullIndex(options: IndexOptions, rebuild: boolean): Promise<IndexResult> {
     this.assertWritableFacade();
     const startedAt = performance.now();
     const result = await withLanguageScope(() => this.indexMutex.withLock(() =>
-      this.trackDataReadiness(() => this.indexAllLocked(options))));
+      this.trackDataReadiness(() => this.indexAllLocked(options, false, rebuild))));
     result.durationMs = performance.now() - startedAt;
     return result;
   }
 
   /** The caller holds indexMutex; scope migration can also reuse its file lock. */
-  private async indexAllLocked(options: IndexOptions, fileLockHeld = false): Promise<IndexResult> {
+  private async indexAllLocked(options: IndexOptions, fileLockHeld = false, rebuild = false): Promise<IndexResult> {
     const startedAt = performance.now();
     const result = await (async () => {
       try {
@@ -858,6 +885,8 @@ export class CodeGraph {
         const extractionChanged = this.isIndexStale();
         const policyFiles = this.queries.getAllFiles();
         const semanticBefore = semanticConfigFingerprint(this.projectRoot, policyFiles);
+        let candidateSemantic: string | undefined, candidateMacros: string | undefined;
+        let candidateFrameworks: string[] | undefined;
         const semanticChanged = requiresSemanticReindex(this.queries.getMetadata(SEMANTIC_CONFIG_KEY),
           semanticBefore, this.queries.getMetadata('adaptive:index-config-v1'),
           adaptiveConfigFingerprint(this.projectRoot, policyFiles), extractionChanged,
@@ -970,7 +999,19 @@ export class CodeGraph {
                     useWorker: this.db.getBackend() === 'node-sqlite',
                   }
                 : null,
-              { force: scopeChanged || extractionChanged || semanticChanged, reconcile: scopeChanged || extractionChanged || semanticChanged },
+              {
+                force: scopeChanged || extractionChanged || semanticChanged,
+                reconcile: scopeChanged || extractionChanged || semanticChanged,
+                rebuild: rebuild ? {
+                  onInventory: paths => {
+                    // A new database has no tracked paths yet. Include controls in the
+                    // actual source directories before extraction starts using them.
+                    candidateSemantic = semanticConfigFingerprint(this.projectRoot, paths.map(path => ({ path })));
+                  },
+                  onMacroContext: context => { candidateMacros = macroContextFingerprint(context); },
+                  onFrameworks: names => { candidateFrameworks = names; },
+                } : undefined,
+              },
             );
           } finally {
             try {
@@ -1093,7 +1134,8 @@ export class CodeGraph {
           if (!needsResolution) {
             result.errors.push(...this.getIndexCompleteness().diagnostics);
           }
-          if (semanticConfigFingerprint(this.projectRoot, policyFiles) !== semanticBefore) {
+          const semanticDrift = semanticConfigFingerprint(this.projectRoot, policyFiles) !== semanticBefore;
+          if (semanticDrift && !rebuild) {
             this.queries.setMetadata(SEMANTIC_REINDEX_PENDING, semanticBefore);
             result.errors.push({ severity: 'error', code: 'index_configuration_changed',
               message: 'Semantic configuration changed during indexing; retry to reconcile the new policy.' });
@@ -1162,10 +1204,16 @@ export class CodeGraph {
 
           if (result.success === true && result.complete === true) {
             const indexedPolicy = indexConfigFingerprints(this.projectRoot, this.queries.getAllFiles());
+            const indexedSemantic = candidateSemantic ?? indexedPolicy.semanticConfigFingerprint;
             this.queries.applyMetadataChanges({
               'adaptive:index-config-v1': indexedPolicy.configFingerprint,
-              [SEMANTIC_CONFIG_KEY]: indexedPolicy.semanticConfigFingerprint,
-              [SEMANTIC_REINDEX_PENDING]: null,
+              [SEMANTIC_CONFIG_KEY]: indexedSemantic,
+              ...(candidateMacros ? { [PUBLICATION_MACROS]: candidateMacros } : {}),
+              ...(candidateFrameworks ? { [PUBLICATION_FRAMEWORKS]: JSON.stringify(candidateFrameworks) } : {}),
+              // Keep the build usable. Catch-up must re-extract even if the
+              // configuration switches back before the new database is opened.
+              [SEMANTIC_REINDEX_PENDING]: rebuild && (semanticDrift || indexedSemantic !== indexedPolicy.semanticConfigFingerprint)
+                ? indexedSemantic : null,
             });
           }
           finishSourceWrite(this.db.getDb(), ownership, result.success === true && result.complete === true);
@@ -1349,7 +1397,19 @@ export class CodeGraph {
     const cancel = (): void => abort.abort();
     options.signal?.addEventListener('abort', cancel, { once: true });
     if (options.signal?.aborted) abort.abort();
-    try { return await this.tryAdaptiveRebuildActive(options, abort); }
+    try {
+      const pending = this.getPortableCatchup();
+      const published = pending ? undefined : await this.tryAdaptiveRebuildActive(options, abort);
+      if (!pending && !published) return null;
+      // CURRENT can change at publication. Pin a writer for the published generation
+      // and keep the root writer lock until its final verification and marker removal.
+      const active = this.openCurrentWriter();
+      this.forwardedWriter = active;
+      try {
+        return await reconcilePublishedSource(active, { ...options, signal: abort.signal },
+          next => active.syncInternal(next, 'catchup'), published ?? undefined);
+      } finally { active.close(); this.forwardedWriter = null; }
+    }
     finally { options.signal?.removeEventListener('abort', cancel); this.activeBuild = null; this.releaseGenerationLeaseWhenIdle(); }
   }
 
@@ -1398,18 +1458,18 @@ export class CodeGraph {
       this.fileLock.assertHeld();
       await publishGeneration(this.dataDir, candidate, { lock: this.fileLock, expectedPreviousId: prior.id,
         success: built.success, complete: built.complete,
-        // Both graph validation and final full source hashing are off-thread.
-        // The writer lock excludes supported writers until the tiny publication.
+        // Validate this candidate and the authority to replace the active DB.
+        // Source and indexing configuration drift are reconciled on the published generation.
         validate: () => !abort.signal.aborted && !this.closed,
         sourceUnchanged: async () => {
           // data_version detects other-connection commits; total_changes also
           // detects SDK code mutating this exact connection during the await.
           // These cheap guards are not a substitute for the worker's legacy
           // provenance/graph validation or the cooperative writer protocol.
-          const unchanged = await runAdaptiveReadWorker<boolean>({ type: 'validate', root: this.projectRoot,
+          const valid = await runAdaptiveReadWorker<boolean>({ type: 'validate', root: this.projectRoot,
             databasePath: candidate.databasePath, sourceDatabasePath: this.db.getPath(),
-            snapshot: plan!.snapshot, runtimeKey: plan!.runtimeKey }, { signal: abort.signal });
-          return unchanged && !abort.signal.aborted && !this.closed && sourceEpoch() === expectedSourceEpoch &&
+            runtimeKey: plan!.runtimeKey }, { signal: abort.signal });
+          return valid && !abort.signal.aborted && !this.closed && sourceEpoch() === expectedSourceEpoch &&
             (!initiallyOwned || isSourceOwned(this.db.getDb())) && adaptiveRuntimeKey(this.projectRoot, this.db.getBackend()) === plan!.runtimeKey;
         },
       });
@@ -1495,7 +1555,7 @@ export class CodeGraph {
         return result;
       }
       const prepared = { startedAt, tracked, inventory: reusable ? inventory : undefined, policyFiles, policy };
-      return writer => writer.syncInternal({ ...options, adaptive: false }, false, prepared);
+      return writer => writer.syncInternal({ ...options, adaptive: false }, undefined, prepared);
     });
   }
 
@@ -1512,14 +1572,14 @@ export class CodeGraph {
       this.hasPortableCompletionProof();
   }
 
-  private async syncInternal(options: SyncOptions, inheritedLock = false, prepared?: PreparedSync): Promise<SyncResult> {
+  private async syncInternal(options: SyncOptions, heldBy?: 'forwarder' | 'catchup', prepared?: PreparedSync): Promise<SyncResult> {
     if (this.closed) throw new Error('CodeGraph is closed');
     options.signal?.throwIfAborted();
     const syncStartedAt = prepared?.startedAt ?? performance.now();
     let acquiredWriteLock = false;
     const result = await withLanguageScope(() => this.indexMutex.withLock(() => this.trackDataReadiness(async () => {
       try {
-        if (!inheritedLock) this.fileLock.acquire();
+        if (!heldBy) this.fileLock.acquire();
         acquiredWriteLock = true;
       } catch {
         return { filesChecked: 0, filesAdded: 0, filesModified: 0, filesRemoved: 0, nodesUpdated: 0, durationMs: 0 };
@@ -1529,13 +1589,13 @@ export class CodeGraph {
         let active: CodeGraph | undefined;
         try {
           active = this.openCurrentWriter(); this.forwardedWriter = active;
-          return await active.syncInternal(options, true);
-        } finally { active?.close(); this.forwardedWriter = null; this.fileLock.release(); }
+          return await active.syncInternal(options, 'forwarder');
+        } finally { active?.close(); this.forwardedWriter = null; }
       }
-      try {
+      if (heldBy !== 'catchup') {
         const rebuilt = await this.tryAdaptiveRebuild(options);
-        if (rebuilt) { this.fileLock.release(); return rebuilt; }
-      } catch (error) { this.fileLock.release(); throw error; }
+        if (rebuilt) return rebuilt;
+      }
       const tracked = prepared?.tracked ?? this.queries.getAllFiles();
       const policyFiles = prepared?.policyFiles ?? tracked;
       const scopeChanged = this.needsLanguageScopeReconciliation();
@@ -1543,17 +1603,23 @@ export class CodeGraph {
       const { configFingerprint: configBefore, semanticConfigFingerprint: semanticBefore } =
         prepared?.policy ?? indexConfigFingerprints(this.projectRoot, policyFiles);
       const configChanged = this.queries.getMetadata('adaptive:index-config-v1') !== configBefore;
-      const reextract = requiresSemanticReindex(this.queries.getMetadata(SEMANTIC_CONFIG_KEY), semanticBefore,
+      const { macros: verifiedMacros, frameworks } = options[publicationContext] ?? {};
+      const semanticChanged = frameworks?.changed === true || requiresSemanticReindex(this.queries.getMetadata(SEMANTIC_CONFIG_KEY), semanticBefore,
         this.queries.getMetadata('adaptive:index-config-v1'), configBefore, extractionChanged,
         this.queries.getMetadata(SEMANTIC_REINDEX_PENDING) !== null);
+      const reextract = semanticChanged || verifiedMacros?.changed === true;
       const ownership = !this.portableBound && this.db.getBackend() === 'node-sqlite' ? beginSourceWrite(this.db.getDb()) : null;
       // Configuration invalidation describes required work, not the storage strategy.
       // Inventory controls reconcile additions/removals; semantic inputs and extractor
       // upgrades replace unchanged files through the ordinary incremental writer.
       if (scopeChanged || configChanged || reextract) {
+        // A changed macro context affects every C-family parser. An interrupted
+        // refresh leaves semantic pending, so its retry covers the entire index.
+        const reextractFiles = verifiedMacros?.changed && !scopeChanged && !semanticChanged
+          ? tracked.filter(file => isMacroSource(file.path)) : tracked;
         options = { ...options, paths: undefined,
           forceReindexPaths: reextract ? [...new Set([
-            ...(options.forceReindexPaths ?? []), ...tracked.map(file => file.path),
+            ...(options.forceReindexPaths ?? []), ...reextractFiles.map(file => file.path),
           ])] : options.forceReindexPaths };
         this.orchestrator.resetLanguageScopeCaches();
         this.resolver.resetProjectConfiguration();
@@ -1653,7 +1719,8 @@ export class CodeGraph {
           walValve ? { hardCapBytes: walValve.hardCapBytes,
             getWalSizeBytes: () => this.db.getWalSizeBytes() } : undefined,
           options.forceReindexPaths,
-          { inventory: prepared?.inventory, tracked: (options.displayOnlyProgress || !options.onProgress) ? tracked : undefined },
+          { inventory: prepared?.inventory, tracked: (options.displayOnlyProgress || !options.onProgress) ? tracked : undefined,
+            macros: verifiedMacros?.context, frameworks: frameworks?.names },
         );
         // Old unstamped edges need source re-extraction, even if their caller
         // was unchanged (or was stored before a later target replacement).
@@ -2100,6 +2167,8 @@ export class CodeGraph {
             indexed_with_extraction_version: String(EXTRACTION_VERSION),
             [SEMANTIC_CONFIG_KEY]: semanticBefore,
             [SEMANTIC_REINDEX_PENDING]: null,
+            ...(verifiedMacros ? { [PUBLICATION_MACROS]: verifiedMacros.fingerprint } : {}),
+            ...(frameworks ? { [PUBLICATION_FRAMEWORKS]: JSON.stringify(frameworks.names) } : {}),
             'adaptive:index-config-v1': result.filesAdded || result.filesRemoved
               ? adaptiveConfigFingerprint(this.projectRoot, this.queries.getAllFiles()) : configBefore,
           };
@@ -2132,7 +2201,6 @@ export class CodeGraph {
           } catch {
             // The connection may already be closing after a failed sync.
           } finally {
-            this.fileLock.release();
             if (options.verbose && tailCheckpoint !== 0) {
               tailMark('cleanupMs');
               console.log('[sync] tail-detail ' + Object.entries(tailTimings)
@@ -2141,7 +2209,7 @@ export class CodeGraph {
           }
         }
       }
-      } finally { this.fileLock.release(); }
+      } finally { if (!heldBy) this.fileLock.release(); }
     }, options.paths)));
     // The extraction result excludes reference resolution, maintenance and
     // lock cleanup. Report elapsed time only after all sync work has finished.

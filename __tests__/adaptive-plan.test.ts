@@ -10,7 +10,7 @@ import { getLanguageScopeKey } from '../src/extraction/language-scope';
 import type { FileRecord } from '../src/types';
 import { adaptiveConfigFingerprint, adaptiveRuntimeKey,
   createAdaptivePlan, includeAdaptiveReindexWork, chooseStructuralStrategy, canSkipScopedAdaptivePlan, hasStructuralRebuildWork,
-  validateAdaptiveSnapshot, type AdaptivePlan } from '../src/sync/adaptive-plan';
+  type AdaptivePlan } from '../src/sync/adaptive-plan';
 
 const roots: string[] = [];
 function root(): string { const value = fs.mkdtempSync(path.join(os.tmpdir(), 'cg-adaptive-plan-')); roots.push(value); return value; }
@@ -21,7 +21,7 @@ function record(base: string, relative: string): FileRecord {
 }
 afterEach(() => { for (const dir of roots.splice(0)) fs.rmSync(dir, { recursive: true, force: true }); });
 function plan(): AdaptivePlan {
-  return { runtimeKey: 'runtime', snapshot: { files: [], configSourcePaths: [], configFingerprint: 'config', contentFingerprint: 'content' },
+  return { runtimeKey: 'runtime', snapshot: { files: [], configFingerprint: 'config', semanticConfigFingerprint: 'semantic' },
     added: [], modified: ['one'], removed: [], changedFiles: 120, affectedOldNodes: 1200, changedBytes: 12000,
     totalFiles: 1000, totalBytes: 100000, totalNodes: 10000, planningMs: 0 };
 }
@@ -49,7 +49,7 @@ describe('configuration fingerprints', () => {
     expect(changed.semanticConfigFingerprint).not.toBe(fingerprints.semanticConfigFingerprint);
   });
 
-  it('counts a Git-listed missing source as a removal and rejects its reappearance at validation', async () => {
+  it('counts a Git-listed missing source as a removal and catches its reappearance on the next inventory', async () => {
     const dir = root(), source = path.join(dir, 'removed.cpp');
     fs.writeFileSync(source, 'int original;');
     const tracked = [record(dir, 'removed.cpp')];
@@ -58,9 +58,9 @@ describe('configuration fingerprints', () => {
     try {
       const result = await createAdaptivePlan(dir, tracked, { runtimeKey: 'runtime' });
       expect(result.removed).toEqual(['removed.cpp']);
-      expect(await validateAdaptiveSnapshot(dir, result.snapshot)).toBe(true);
       fs.writeFileSync(source, 'int returned;');
-      expect(await validateAdaptiveSnapshot(dir, result.snapshot)).toBe(false);
+      const after = await createAdaptivePlan(dir, [], { runtimeKey: 'runtime', fullHash: true });
+      expect(after.added).toEqual(['removed.cpp']);
     } finally { scan.mockRestore(); }
   });
 });
@@ -80,9 +80,6 @@ describe('read-only source plan', () => {
     expect(result.affectedOldNodes).toBe(20);
     expect(JSON.stringify(before)).toBe(original);
     expect(fs.existsSync(getCodeGraphDir(dir))).toBe(false);
-    expect(await validateAdaptiveSnapshot(dir, result.snapshot)).toBe(true);
-    fs.appendFileSync(path.join(dir, 'a.cpp'), 'int later;');
-    expect(await validateAdaptiveSnapshot(dir, result.snapshot)).toBe(false);
   });
   it('agrees with sync on real changes alongside macro retries, including a same-stat edit', async () => {
     const dir = root(), fixed = new Date('2025-01-01T00:00:00Z');
@@ -129,13 +126,13 @@ describe('read-only source plan', () => {
     const dir = root(); fs.writeFileSync(path.join(dir, 'a.cpp'), 'int a;');
     await expect(createAdaptivePlan(dir, [{ ...record(dir, 'a.cpp'), path: '../outside.cpp' }], { runtimeKey: 'runtime' })).rejects.toThrow('escapes root');
   });
-  it('full validation catches preserved-size/mtime source changes', async () => {
+  it('full-hash catch-up catches preserved-size/mtime source changes', async () => {
     const dir = root(); fs.writeFileSync(path.join(dir, 'a.cpp'), 'int alpha;\n');
     const original = record(dir, 'a.cpp');
-    const result = await createAdaptivePlan(dir, [original], { runtimeKey: 'runtime' });
     fs.writeFileSync(path.join(dir, 'a.cpp'), 'int bravo;\n');
     fs.utimesSync(path.join(dir, 'a.cpp'), new Date(original.modifiedAt), new Date(original.modifiedAt));
-    expect(await validateAdaptiveSnapshot(dir, result.snapshot)).toBe(false);
+    const result = await createAdaptivePlan(dir, [original], { runtimeKey: 'runtime', fullHash: true });
+    expect(result.modified).toEqual(['a.cpp']);
   });
   it('retains removed source ancestors for config verification', async () => {
     const dir = root(); fs.mkdirSync(path.join(dir, 'sub'));
@@ -143,9 +140,9 @@ describe('read-only source plan', () => {
     fs.writeFileSync(path.join(dir, 'sub', 'gone.cpp'), 'int gone;\n');
     const original = record(dir, 'sub/gone.cpp'); fs.unlinkSync(path.join(dir, 'sub', 'gone.cpp'));
     const result = await createAdaptivePlan(dir, [original], { runtimeKey: 'runtime' });
-    expect(await validateAdaptiveSnapshot(dir, result.snapshot)).toBe(true);
     fs.appendFileSync(path.join(dir, 'sub', '.gitignore'), '*.cpp\n');
-    expect(await validateAdaptiveSnapshot(dir, result.snapshot)).toBe(false);
+    const after = await createAdaptivePlan(dir, [original], { runtimeKey: 'runtime' });
+    expect(after.snapshot.configFingerprint).not.toBe(result.snapshot.configFingerprint);
   });
   it('ignores absent controls in new source directories but detects a new real ignore file', () => {
     const dir = root();
@@ -155,13 +152,14 @@ describe('read-only source plan', () => {
     fs.writeFileSync(path.join(dir, 'new-sub', '.gitignore'), '*.h');
     expect(adaptiveConfigFingerprint(dir, [{ path: 'a.cpp' }, { path: 'new-sub/b.cpp' }])).not.toBe(before);
   });
-  it('fences semantic controls that the legacy configuration fingerprint omits', async () => {
+  it('detects semantic controls that the legacy configuration fingerprint omits', async () => {
     const dir = root(); fs.writeFileSync(path.join(dir, 'a.cpp'), 'int a;');
     fs.mkdirSync(path.join(dir, 'build'));
     const before = await createAdaptivePlan(dir, [record(dir, 'a.cpp')], { runtimeKey: 'runtime' });
     fs.writeFileSync(path.join(dir, 'build', 'compile_commands.json'), '[]');
     expect(adaptiveConfigFingerprint(dir, [{ path: 'a.cpp' }])).toBe(before.snapshot.configFingerprint);
-    expect(await validateAdaptiveSnapshot(dir, before.snapshot)).toBe(false);
+    const after = await createAdaptivePlan(dir, [record(dir, 'a.cpp')], { runtimeKey: 'runtime' });
+    expect(after.snapshot.semanticConfigFingerprint).not.toBe(before.snapshot.semanticConfigFingerprint);
   });
   it('detects root and nested configuration changes', () => {
     const dir = root(); fs.mkdirSync(path.join(dir, 'sub'));

@@ -125,7 +125,7 @@ it('legacy CURRENT rejected off-thread validation cleans the failed candidate on
     const result = await run(job, options);
     return (job.type === 'validate' ? false : result) as any;
   });
-  await expect(graph.sync()).rejects.toThrow(/Source changed/);
+  await expect(graph.sync()).rejects.toThrow(/Publication validation/);
   const dataDir = getCodeGraphDir(root);
   expect(resolveGeneration(dataDir).id).toBe(initial.id);
   expect(graph.searchNodes('initial_0').length).toBeGreaterThan(0);

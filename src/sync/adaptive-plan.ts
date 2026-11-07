@@ -16,16 +16,13 @@ export { adaptiveConfigFingerprint } from './index-policy';
 
 const digest = (value: unknown): string => crypto.createHash('sha256').update(JSON.stringify(value)).digest('hex');
 export interface AdaptiveInventoryEntry {
-  path: string; contentHash: string; size: number; mtimeMs: number; ctimeMs: number; ino: number;
+  path: string; size: number;
 }
 export interface AdaptiveSnapshot {
   files: AdaptiveInventoryEntry[];
   configFingerprint: string;
   /** Extraction and resolution inputs, tracked independently of inventory controls. */
-  semanticConfigFingerprint?: string;
-  contentFingerprint: string;
-  /** Retain former source ancestors when checking removals. */
-  configSourcePaths: string[];
+  semanticConfigFingerprint: string;
 }
 export interface AdaptivePlan {
   snapshot: AdaptiveSnapshot;
@@ -196,9 +193,7 @@ export function adaptiveRuntimeKey(root: string, backend: string): string {
     memory: os.totalmem(), execArgv: process.execArgv, nodeOptions: process.env.NODE_OPTIONS ?? '', env });
 }
 
-/** Count policy-required extraction even when source hashes are unchanged.
- * Preserve the source snapshot: policy work does not pretend that file contents
- * changed, and publication still validates their actual bytes and controls. */
+/** Count policy-required extraction even when source hashes are unchanged. */
 export function includeAdaptiveReindexWork(plan: AdaptivePlan, tracked: ReadonlyArray<FileRecord>,
   paths: ReadonlyArray<string>): AdaptivePlan {
   const old = new Map(tracked.map(file => [file.path, file]));
@@ -219,9 +214,9 @@ export function includeAdaptiveReindexWork(plan: AdaptivePlan, tracked: Readonly
     affectedOldNodes, changedBytes };
 }
 
-/** The ordinary plan uses the same size/mtime shortcut as sync. Publication rehashes all source. */
+/** Ordinary planning uses sync's size/mtime shortcut. Post-publication catch-up hashes every source. */
 export async function createAdaptivePlan(root: string, tracked: ReadonlyArray<FileRecord>,
-  options: { runtimeKey: string; fullHash?: boolean; configSourcePaths?: string[] } ): Promise<AdaptivePlan> {
+  options: { runtimeKey: string; fullHash?: boolean; observeContent?: (relative: string, content: string) => void } ): Promise<AdaptivePlan> {
   const started = performance.now();
   for (const file of tracked) {
     if (!path.resolve(root, file.path).startsWith(path.resolve(root) + path.sep)) {
@@ -255,12 +250,16 @@ export async function createAdaptivePlan(root: string, tracked: ReadonlyArray<Fi
     // stat metadata. Count a recovery file only when those bytes really changed.
     if (!options.fullHash && prior && !hasDeclarationMacroRecoverySkipped(prior.errors) && before.size === prior.size &&
         Math.floor(before.mtimeMs) === Math.floor(prior.modifiedAt)) contentHash = prior.contentHash;
-    else contentHash = hashContent(fs.readFileSync(absolute, 'utf8'));
+    else {
+      const content = fs.readFileSync(absolute, 'utf8');
+      contentHash = hashContent(content);
+      options.observeContent?.(relative, content);
+    }
     const after = fs.statSync(absolute);
     if (before.size !== after.size || before.mtimeMs !== after.mtimeMs || before.ctimeMs !== after.ctimeMs || before.ino !== after.ino) {
       throw new Error(`Source changed during adaptive planning: ${relative}`);
     }
-    files.push({ path: relative, contentHash, size: after.size, mtimeMs: after.mtimeMs, ctimeMs: after.ctimeMs, ino: after.ino });
+    files.push({ path: relative, size: after.size });
     if (!prior) { added.push(relative); changedBytes += after.size; }
     else if (prior.contentHash !== contentHash) {
       modified.push(relative); affectedOldNodes += prior.nodeCount; changedBytes += after.size;
@@ -276,24 +275,11 @@ export async function createAdaptivePlan(root: string, tracked: ReadonlyArray<Fi
     catch (error) { if (!['ENOENT', 'ENOTDIR'].includes((error as NodeJS.ErrnoException).code ?? '')) throw error; }
     affectedOldNodes += previous.nodeCount;
   }
-  const configSourcePaths = [...new Set([...tracked.map(file => file.path), ...files.map(file => file.path), ...(options.configSourcePaths ?? [])])].sort();
-  const { configFingerprint, semanticConfigFingerprint } = indexConfigFingerprints(root, configSourcePaths.map(path => ({ path })));
-  const snapshot = { files, configFingerprint, configSourcePaths, semanticConfigFingerprint,
-    contentFingerprint: digest([configFingerprint, files.map(file => [file.path, file.contentHash])]) };
+  const snapshot = { files, ...indexConfigFingerprints(root, [...tracked, ...files]) };
   return { snapshot, added, modified, removed, changedFiles: added.length + modified.length + removed.length,
     affectedOldNodes, changedBytes, totalFiles: files.length, totalBytes: files.reduce((n, file) => n + file.size, 0),
     totalNodes: tracked.reduce((n, file) => n + file.nodeCount, 0),
     planningMs: performance.now() - started, runtimeKey: options.runtimeKey };
-}
-
-/** Finite validation catches observed edits; it is not an immutable filesystem snapshot. */
-export async function validateAdaptiveSnapshot(root: string, snapshot: AdaptiveSnapshot): Promise<boolean> {
-  const tracked: FileRecord[] = snapshot.files.map(file => ({ path: file.path, contentHash: file.contentHash,
-    size: file.size, modifiedAt: file.mtimeMs, indexedAt: 0, nodeCount: 0, language: 'unknown' }));
-  const after = await createAdaptivePlan(root, tracked, { runtimeKey: '', fullHash: true, configSourcePaths: snapshot.configSourcePaths });
-  return after.snapshot.contentFingerprint === snapshot.contentFingerprint &&
-    (snapshot.semanticConfigFingerprint === undefined ||
-      after.snapshot.semanticConfigFingerprint === snapshot.semanticConfigFingerprint);
 }
 
 /** The indexed rows use canonical paths. Verify that assumption before using

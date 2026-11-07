@@ -6,7 +6,7 @@ import { Worker } from 'node:worker_threads';
 const { DatabaseConnection } = require('../dist/db');
 const { QueryBuilder } = require('../dist/db/queries');
 const { ExtractionOrchestrator } = require('../dist/extraction');
-const { SEMANTIC_CONFIG_KEY, semanticConfigFingerprint } = require('../dist/sync/index-policy');
+const { SEMANTIC_CONFIG_KEY, SEMANTIC_REINDEX_PENDING, semanticConfigFingerprint } = require('../dist/sync/index-policy');
 const { EXTRACTION_VERSION } = require('../dist/extraction/extraction-version');
 const { adaptiveConfigFingerprint, adaptiveRuntimeKey } = require('../dist/sync/adaptive-plan');
 const { resolveSyncPolicy } = require('../dist/sync/sync-policy');
@@ -50,6 +50,15 @@ function evaluate(root: string, databasePath: string, extra: Record<string, unkn
   });
 }
 describe('portable catch-up primitives', () => {
+  it('keeps semantic reconciliation pending for an empty worktree', async () => {
+    const f = await fixture();
+    fs.unlinkSync(f.file);
+    f.queries.deleteFile('sample.ts');
+    f.queries.setMetadata(SEMANTIC_REINDEX_PENDING, 'configuration changed during the build');
+    const result = await evaluate(f.root, f.dbPath);
+    expect(result.plan.changedFiles).toBe(0);
+    expect(result.configurationChanged).toBe(true);
+  });
   it('forces equal-stat content changes through reconciliation', async () => {
     const f = await fixture();
     const stat = fs.statSync(f.file);

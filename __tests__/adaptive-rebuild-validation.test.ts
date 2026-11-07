@@ -54,16 +54,28 @@ describe('adaptive rebuild final validation', () => {
   it('validates the complete stock schema on a portable candidate without an owner marker', async () => {
     const root = directory(); source(root);
     const graph = keep(await CodeGraph.init(root, { index: true }));
-    const { createAdaptivePlan } = require('../dist/sync/adaptive-plan');
     const { validateRebuiltDatabase } = require('../dist/sync/rebuild-controller');
-    const { snapshot } = await createAdaptivePlan(root, graph.getFiles(), { runtimeKey: '' });
     const file = graph.getDatabaseFilePath();
     const db = new DatabaseSync(file);
     try {
       expect(db.prepare("SELECT value FROM project_metadata WHERE key='adaptive:source-owner-v1'").get()).toBeUndefined();
-      expect(validateRebuiltDatabase(file, snapshot, true)).toBe(true);
+      expect(validateRebuiltDatabase(db, 'candidate', true)).toBe(false);
+      const { CATCHUP, setMetadata } = require('../dist/sync/portable/metadata');
+      setMetadata(db, CATCHUP, 'candidate');
+      expect(validateRebuiltDatabase(db, 'candidate', true)).toBe(true);
+      expect(validateRebuiltDatabase(db, 'another-candidate', true)).toBe(false);
+      // Validation still rejects a damaged file index without consulting the worktree.
+      db.exec('SAVEPOINT damaged');
+      db.prepare("UPDATE files SET content_hash = 'broken' WHERE path='main.cpp'").run();
+      expect(validateRebuiltDatabase(db, 'candidate', true)).toBe(false);
+      db.exec('ROLLBACK TO damaged');
+      db.prepare('UPDATE files SET errors = ? WHERE path = ?').run(
+        JSON.stringify([{ severity: 'error', code: 'parse_error' }]), 'main.cpp',
+      );
+      expect(validateRebuiltDatabase(db, 'candidate', true)).toBe(false);
+      db.exec('ROLLBACK TO damaged; RELEASE damaged');
       db.exec('ALTER TABLE files ADD COLUMN unexpected TEXT');
-      expect(validateRebuiltDatabase(file, snapshot, true)).toBe(false);
+      expect(validateRebuiltDatabase(db, 'candidate', true)).toBe(false);
     } finally { db.close(); }
   });
 

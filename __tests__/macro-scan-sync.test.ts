@@ -5,7 +5,6 @@ import * as path from 'path';
 import CodeGraph from '../src';
 import { initGrammars, loadGrammarsForLanguages } from '../src/extraction/grammars';
 import { rustMacroBinaryPath } from '../src/extraction/rust-macros';
-import type { QueryBuilder } from '../src/db/queries';
 
 const binary = rustMacroBinaryPath();
 describe.skipIf(!fs.existsSync(binary))('macro scanner sync graph parity', () => {
@@ -30,12 +29,11 @@ describe.skipIf(!fs.existsSync(binary))('macro scanner sync graph parity', () =>
         await cg.indexAll();
         const sync = async () => { cg.close(); cg = CodeGraph.openSync(root); return cg.sync({ verbose: true }); };
         const snapshot = () => {
-          const queries = (cg as unknown as { queries: QueryBuilder }).queries;
-          const nodes = queries.getAllNodes();
+          const nodes = cg.getFiles().flatMap(file => cg.getNodesInFile(file.path));
           return { nodes: nodes.map(n => ({ kind: n.kind, name: n.name, qualifiedName: n.qualifiedName, filePath: n.filePath,
             language: n.language, startLine: n.startLine, endLine: n.endLine,
             startColumn: n.startColumn, endColumn: n.endColumn, signature: n.signature })).sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))),
-            edges: nodes.flatMap(n => queries.getOutgoingEdges(n.id)).map(({ id: _id, ...edge }) => edge)
+            edges: nodes.flatMap(n => cg.getOutgoingEdges(n.id)).map(({ id: _id, ...edge }) => edge)
               .sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))) };
         };
         write('src/mixed.h', '#include "defs.h"\nDECL(recovered)\n' + Array.from({ length: 25 }, (_, i) => `#define SPEC_${i} \\\n /*中文*/ {1, 2, 3},\n`).join(''));

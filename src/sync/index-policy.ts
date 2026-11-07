@@ -38,25 +38,27 @@ function fingerprints(root: string, files: SourceFiles, broad: boolean, semantic
     }
   }
   const base = path.resolve(root);
-  const read = (relative: string, semanticOnly: boolean): string | null => {
+  const read = (relative: string): string | null => {
     const absolute = path.resolve(base, relative);
     if (!absolute.startsWith(base + path.sep)) throw new Error('Index policy path escapes root');
     try {
       // On the common missing-file path, avoid allocating an Error and its stack
       // for each control. lstat keeps dangling links on the normal read path.
-      if (!fs.lstatSync(absolute, { throwIfNoEntry: false })) return null;
+      const stat = fs.lstatSync(absolute, { throwIfNoEntry: false });
+      if (!stat || stat.isDirectory()) return null;
       return crypto.createHash('sha256').update(fs.readFileSync(absolute)).digest('hex');
     }
     catch (error) {
       const code = (error as NodeJS.ErrnoException).code;
-      if (code === 'ENOENT' || (semanticOnly && code === 'ENOTDIR')) return null;
+      // A branch switch can replace a tracked directory with a regular file.
+      if (code === 'ENOENT' || code === 'ENOTDIR' || code === 'EISDIR') return null;
       throw error;
     }
   };
   const controls = new Set([...(broad ? inventoryControls : []), ...(semantic ? semanticControls : [])]);
   for (const name of controls) {
     const inventoryInput = broad && inventoryControls.includes(name);
-    const hash = read(name, !inventoryInput);
+    const hash = read(name);
     if (inventoryInput) inventory.push([name, hash]);
     if (semantic && semanticControls.includes(name) && hash !== null) policy.push([name, hash]);
   }
@@ -66,7 +68,7 @@ function fingerprints(root: string, files: SourceFiles, broad: boolean, semantic
     for (const name of nestedControls) {
       const relative = `${dir}/${name}`;
       const inventoryInput = name.startsWith('.');
-      const hash = read(relative, !inventoryInput);
+      const hash = read(relative);
       if (hash !== null) (inventoryInput ? inventory : policy).push([relative, hash]);
     }
   }

@@ -36,7 +36,7 @@ import { orderedParallelMap, type WeightedInput, type OrderedPipelineMetrics } f
 import { estimateExtractionBytes, resolveParseBufferBudget } from './extraction-size';
 import { memoryBudgetBytes } from '../resolution/memory-budget';
 import type { CppMacroDefinition } from './declaration-macros';
-import { buildMacroContext, formatMacroScanMetrics } from './macro-scan';
+import { buildMacroContext, formatMacroScanMetrics, isMacroSource, type ParserMacroContext } from './macro-scan';
 import { isRetryableParseWorkerError } from './wasm-errors';
 import {
   StoreWriter,
@@ -167,9 +167,25 @@ export interface IndexProgress {
   status?: 'running' | 'complete' | 'failed';
 }
 
-/**
- * Result of an indexing operation
- */
+interface FullIndexOptions {
+  force?: boolean;
+  reconcile?: boolean;
+  /** A private rebuild will reconcile inventory changes after publication. */
+  rebuild?: {
+    onInventory: (paths: readonly string[]) => void;
+    onMacroContext: (context: ParserMacroContext) => void;
+    onFrameworks: (names: string[]) => void;
+  };
+}
+
+interface PreparedExtraction {
+  inventory?: SyncInventory;
+  tracked?: FileRecord[];
+  macros?: ParserMacroContext;
+  frameworks?: string[];
+}
+
+/** Result of an indexing operation. */
 export interface IndexResult {
   /** True when a valid, queryable index was produced, even if coverage is incomplete. */
   success: boolean;
@@ -1418,8 +1434,7 @@ export class ExtractionOrchestrator {
    * the DB hasn't been populated yet, but detect() only uses readFile,
    * fileExists, and getAllFiles, so that's fine.
    */
-  private buildDetectionContext(files: string[]): ResolutionContext {
-    const rootDir = this.rootDir;
+  private static buildDetectionContext(rootDir: string, files: string[]): ResolutionContext {
     return {
       getNodesInFile: () => [],
       getNodesByName: () => [],
@@ -1468,6 +1483,11 @@ export class ExtractionOrchestrator {
     };
   }
 
+  /** Use the same project probes for extraction and verification of a private rebuild. */
+  static detectProjectFrameworks(root: string, files: string[], onError: (framework: string, error: unknown) => void): string[] {
+    return detectFrameworks(this.buildDetectionContext(root, files), onError).map(resolver => resolver.name);
+  }
+
   /**
    * Detect frameworks on demand using the current scanned files (or a fresh
    * scan if none are provided). Cached on the orchestrator so repeat calls
@@ -1476,9 +1496,8 @@ export class ExtractionOrchestrator {
   private ensureDetectedFrameworks(files?: string[]): string[] {
     if (this.detectedFrameworkNames !== null) return this.detectedFrameworkNames;
     const fileList = files ?? scanDirectory(this.rootDir);
-    const context = this.buildDetectionContext(fileList);
     this.frameworkDetectionErrors = [];
-    this.detectedFrameworkNames = detectFrameworks(context, (framework, error) => {
+    this.detectedFrameworkNames = ExtractionOrchestrator.detectProjectFrameworks(this.rootDir, fileList, (framework, error) => {
       this.frameworkDetectionErrors.push({
         severity: 'error',
         code: 'framework_detection_failed',
@@ -1486,7 +1505,7 @@ export class ExtractionOrchestrator {
           `${error instanceof Error ? error.message : String(error)}. ` +
           `The index may be incomplete.`,
       });
-    }).map((r) => r.name);
+    });
     return this.detectedFrameworkNames;
   }
 
@@ -1506,17 +1525,17 @@ export class ExtractionOrchestrator {
    * Cached on the orchestrator for the lifetime of the run. Call with
    * the scanned file list to avoid re-scanning the directory.
    */
-  private async ensureGlobalMacroNames(files?: string[], log?: (message: string) => void): Promise<Set<string>> {
+  private async ensureGlobalMacroNames(files?: string[], log?: (message: string) => void,
+    onBuilt?: (context: ParserMacroContext) => void): Promise<Set<string>> {
     if (this.globalMacroNames !== null) return this.globalMacroNames;
 
     const fileList = files ?? scanDirectory(this.rootDir);
     // Filter to C/C++/ObjC files — only these have the preprocessor and
     // the macro-misparse-as-function problem.
-    const cLikeFiles = fileList.filter((f) => {
-      const ext = f.slice(f.lastIndexOf('.')).toLowerCase();
-      const lang = EXTENSION_MAP[ext];
-      return lang === 'c' || lang === 'cpp' || lang === 'objc';
-    });
+    const cLikeFiles = fileList.filter(isMacroSource);
+    // Match the sorted post-publication inventory. Equivalent repeated definitions
+    // retain the last spelling encountered by the project macro scanner.
+    if (onBuilt) cLikeFiles.sort();
 
     const context = await buildMacroContext(this.rootDir, cLikeFiles);
     log?.(`macro-detail ${formatMacroScanMetrics(context.metrics)} names=${context.names.size} ` +
@@ -1524,6 +1543,7 @@ export class ExtractionOrchestrator {
     this.globalMacroNames = context.names;
     this.globalBodylessMacroNames = context.bodyless;
     this.globalMacroDefinitions = context.definitions;
+    if (cLikeFiles.length) onBuilt?.(context);
     return context.names;
   }
 
@@ -1550,7 +1570,7 @@ export class ExtractionOrchestrator {
       fastInit: boolean;
       useWorker: boolean;
     } | null,
-    options?: { force?: boolean; reconcile?: boolean },
+    options?: FullIndexOptions,
   ): Promise<IndexResult> {
     return withLanguageScope(() => this.indexAllInScope(onProgress, signal, verbose, walBackpressure, storeWriterOpts, options));
   }
@@ -1561,7 +1581,7 @@ export class ExtractionOrchestrator {
     verbose?: boolean,
     walBackpressure?: () => Promise<void> | null,
     storeWriterOpts?: { dbPath: string; fastInit: boolean; useWorker: boolean } | null,
-    options?: { force?: boolean; reconcile?: boolean },
+    options?: FullIndexOptions,
   ): Promise<IndexResult> {
     await initGrammars();
     // A fresh full index must not reuse a stale canonical-path cache from a
@@ -1601,6 +1621,7 @@ export class ExtractionOrchestrator {
       });
     });
     const scanMs = performance.now() - scanStarted;
+    options?.rebuild?.onInventory(files);
 
     // Detect frameworks once per indexAll run using the scanned file list.
     // Names are passed to each parse call so framework-specific extractors
@@ -1609,7 +1630,9 @@ export class ExtractionOrchestrator {
     // between runs is picked up without restarting the process.
     const frameworkDetectionStarted = performance.now();
     this.detectedFrameworkNames = null;
-    const frameworkNames = this.ensureDetectedFrameworks(files);
+    // A few probes inspect a bounded prefix. Give them the same order used by full-hash catch-up.
+    const frameworkNames = this.ensureDetectedFrameworks(options?.rebuild ? [...files].sort() : files);
+    options?.rebuild?.onFrameworks(frameworkNames);
     errors.push(...this.frameworkDetectionErrors);
     const frameworkDetectionMs = performance.now() - frameworkDetectionStarted;
 
@@ -1621,7 +1644,7 @@ export class ExtractionOrchestrator {
     this.globalMacroNames = null;
     this.globalBodylessMacroNames = null;
     this.globalMacroDefinitions = null;
-    const globalMacroNames = await this.ensureGlobalMacroNames(files, verbose ? log : undefined);
+    const globalMacroNames = await this.ensureGlobalMacroNames(files, verbose ? log : undefined, options?.rebuild?.onMacroContext);
     const globalBodylessMacroNames = this.globalBodylessMacroNames!;
     const globalMacroDefinitions = this.globalMacroDefinitions!;
     const macroScanMs = performance.now() - macroScanStarted;
@@ -1981,12 +2004,15 @@ export class ExtractionOrchestrator {
         const batch = await Promise.all(files.slice(i, i + FILE_IO_BATCH_SIZE).map(async (filePath): Promise<FileInput> => {
           const started = performance.now();
           try {
-            const fullPath = validatePathWithinRoot(rootDir, filePath);
+            const fullPath = validatePathWithinRoot(rootDir, filePath, !!options?.rebuild);
             if (!fullPath) {
               logWarn('Path traversal blocked in batch reader', { filePath });
               throw new Error('Path traversal blocked');
             }
             const stats = await fsp.stat(fullPath);
+            if (options?.rebuild && stats.isDirectory()) {
+              return { filePath, fullPath: null, stats, error: null };
+            }
             return { filePath, fullPath, stats, error: null };
           } catch (error) {
             return { filePath, fullPath: null, stats: null, error: error as Error };
@@ -2054,6 +2080,11 @@ export class ExtractionOrchestrator {
 
           if (error || content === null || stats === null) {
             processed++;
+            if (options?.rebuild && (stats?.isDirectory() || unreadableSource(error).kind === 'missing' ||
+                (error as NodeJS.ErrnoException | null)?.code === 'EISDIR')) {
+              filesSkipped++;
+              continue;
+            }
             filesErrored++;
             errors.push({
               message: `Failed to read file: ${error instanceof Error ? error.message : String(error)}`,
@@ -2855,7 +2886,7 @@ export class ExtractionOrchestrator {
     removalBatch?: RemovalBatchOptions,
     /** Verified catch-up paths must bypass both stat and same-hash shortcuts. */
     forceReindexPaths?: string[],
-    prepared?: { inventory?: SyncInventory; tracked?: FileRecord[] },
+    prepared?: PreparedExtraction,
   ): Promise<SyncResult> {
     return withLanguageScope(() => this.syncInScope(onProgress, scopedPaths, verbose, replaceFileStore, afterWrite, beforeNodeWrite, onScanFallback, removalBatch, forceReindexPaths, prepared));
   }
@@ -2872,7 +2903,7 @@ export class ExtractionOrchestrator {
     removalBatch?: RemovalBatchOptions,
     /** Verified catch-up paths must bypass both stat and same-hash shortcuts. */
     forceReindexPaths?: string[],
-    prepared?: { inventory?: SyncInventory; tracked?: FileRecord[] },
+    prepared?: PreparedExtraction,
   ): Promise<SyncResult> {
     const forced = new Set(forceReindexPaths);
     await initGrammars(); // Initialize WASM runtime (grammars loaded lazily below)
@@ -3317,6 +3348,10 @@ export class ExtractionOrchestrator {
       }
 
       const frameworkStarted = performance.now();
+      if (prepared?.frameworks) {
+        this.detectedFrameworkNames = prepared.frameworks;
+        this.frameworkDetectionErrors = [];
+      }
       const frameworkNames = this.ensureDetectedFrameworks(
         this.detectedFrameworkNames === null ? getContextFiles() : undefined,
       );
@@ -3341,6 +3376,11 @@ export class ExtractionOrchestrator {
       let globalMacroDefinitions: CppMacroDefinition[] = [];
       if (needsCppMacroContext) {
         const macroStarted = performance.now();
+        if (prepared?.macros) {
+          this.globalMacroNames = prepared.macros.names;
+          this.globalBodylessMacroNames = prepared.macros.bodyless;
+          this.globalMacroDefinitions = prepared.macros.definitions;
+        }
         const macros = this.ensureGlobalMacroNames(
           this.globalMacroNames === null ? getContextFiles() : undefined,
           verbose ? log : undefined,

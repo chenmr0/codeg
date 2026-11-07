@@ -2,8 +2,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { fork } from 'child_process';
 import type { IndexProgress, IndexResult } from '../extraction';
-import { DatabaseConnection } from '../db';
-import type { AdaptiveSnapshot } from './adaptive-plan';
+import type { SqliteDatabase } from '../db';
+import { CATCHUP, metadata } from './portable/metadata';
 import { hasStockSchema, isSourceOwned } from './source-ownership';
 
 /** Reject on cancellation only after the child exited, so callers may then release the root lock. */
@@ -57,32 +57,26 @@ export async function runRebuildChild(root: string, databasePath: string, option
   } finally { fs.closeSync(out); if (err !== undefined) fs.closeSync(err); }
 }
 
-/** No migration, repair or database writes are permitted during validation. */
-export function validateRebuiltDatabase(databasePath: string, snapshot: AdaptiveSnapshot, portable = false): boolean {
-  const connection = DatabaseConnection.openReadOnly(databasePath);
-  const db = connection.getDb();
-  try {
-    if (!(portable ? hasStockSchema(db) : isSourceOwned(db))) return false;
-    const quick = db.prepare('PRAGMA quick_check').all() as Array<Record<string, unknown>>;
-    if (quick.length !== 1 || Object.values(quick[0]!)[0] !== 'ok') return false;
-    if (db.prepare('PRAGMA foreign_key_check').all().length) return false;
-    const completeness = db.prepare("SELECT value FROM project_metadata WHERE key = 'index_completeness'").get() as { value: string } | undefined;
-    if (completeness?.value !== 'complete') return false;
-    const files = db.prepare('SELECT path, content_hash AS hash, errors FROM files').all() as Array<{path: string; hash: string; errors: string | null}>;
-    if (files.length !== snapshot.files.length) return false;
-    const expected = new Map(snapshot.files.map(file => [file.path, file.contentHash]));
-    for (const file of files) {
-      if (expected.get(file.path) !== file.hash) return false;
-      if (file.errors) {
-        let diagnostics: unknown;
-        try { diagnostics = JSON.parse(file.errors); } catch { return false; }
-        if (!Array.isArray(diagnostics) || diagnostics.some(diagnostic => !diagnostic ||
-          diagnostic.code !== 'skipped_macro_data_header' || diagnostic.severity !== 'warning')) return false;
-      }
+/** Validate the private index itself. Its recorded files are the baseline for source catch-up. */
+export function validateRebuiltDatabase(db: SqliteDatabase, candidateId: string, portable = false): boolean {
+  if (!(portable ? hasStockSchema(db) : isSourceOwned(db))) return false;
+  if (metadata(db, CATCHUP) !== candidateId || metadata(db, 'index_completeness') !== 'complete') return false;
+  const quick = db.prepare('PRAGMA quick_check').all() as Array<Record<string, unknown>>;
+  if (quick.length !== 1 || Object.values(quick[0]!)[0] !== 'ok') return false;
+  if (db.prepare('PRAGMA foreign_key_check').get()) return false;
+  for (const file of db.prepare('SELECT path, content_hash AS hash, errors FROM files').iterate()) {
+    if (typeof file.path !== 'string' || path.isAbsolute(file.path) || file.path.includes('\\') ||
+        file.path.includes('\0') || file.path.split('/').some((part: string) => !part || part === '.' || part === '..') ||
+        typeof file.hash !== 'string' || !/^[0-9a-f]{64}$/.test(file.hash)) return false;
+    if (file.errors) {
+      let diagnostics: unknown;
+      try { diagnostics = JSON.parse(file.errors); } catch { return false; }
+      if (!Array.isArray(diagnostics) || diagnostics.some(diagnostic => !diagnostic ||
+        diagnostic.code !== 'skipped_macro_data_header' || diagnostic.severity !== 'warning')) return false;
     }
-    const objects = new Set((db.prepare("SELECT name FROM sqlite_master WHERE type IN ('index','trigger','table')").all() as Array<{name:string}>).map(row => row.name));
-    return ['nodes_fts', 'nodes_ai', 'nodes_ad', 'nodes_au', 'idx_edges_identity', 'idx_nodes_name', 'idx_nodes_kind', 'idx_unresolved_status'].every(name => objects.has(name));
-  } finally { connection.close(); }
+  }
+  const objects = new Set((db.prepare("SELECT name FROM sqlite_master WHERE type IN ('index','trigger','table')").all() as Array<{name:string}>).map(row => row.name));
+  return ['nodes_fts', 'nodes_ai', 'nodes_ad', 'nodes_au', 'idx_edges_identity', 'idx_nodes_name', 'idx_nodes_kind', 'idx_unresolved_status'].every(name => objects.has(name));
 }
 
 /** Wait for worker exit on every path: validation cannot outlive writer ownership. */

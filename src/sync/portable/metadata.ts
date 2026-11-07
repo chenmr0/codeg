@@ -3,6 +3,8 @@ import { randomUUID } from "node:crypto";
 import type { SqliteDatabase as Database } from "../../db/sqlite-adapter";
 export const DATABASE_ID = "portable:database-id-v1";
 export const CATCHUP = "portable:source-catchup-v1";
+export const PUBLICATION_MACROS = "rebuild:cpp-macro-context-v1";
+export const PUBLICATION_FRAMEWORKS = "rebuild:frameworks-v1";
 export const COST_HISTORY = "adaptive:cost-history-v1";
 export function metadata(db: Database, key: string): string | null {
   return (

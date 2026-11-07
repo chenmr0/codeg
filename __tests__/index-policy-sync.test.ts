@@ -72,6 +72,28 @@ it('a build-directory compilation database is a semantic input even when CMake i
   expect((await graph.sync({ adaptive: false })).filesModified).toBe(1);
   expect(queries().getMetadata(SEMANTIC_CONFIG_KEY)).not.toBe(before);
 });
+
+it('keeps a nested configuration change pending on a usable private rebuild', async () => {
+  fs.mkdirSync(path.join(root, 'lib'));
+  fs.writeFileSync(path.join(root, 'lib/main.c'), 'int nested(void) { return 1; }\n');
+  const manifest = path.join(root, 'lib/package.json');
+  fs.writeFileSync(manifest, '{"name":"first"}');
+  const stage = path.join(getCodeGraphDir(root), '.runtime', 'portable', 'nested-policy-test');
+  fs.mkdirSync(stage);
+  const candidate = await CodeGraph.createPortableCandidate(root, path.join(stage, 'candidate.db'));
+  let changed = false;
+  try {
+    const result = await candidate.indexRebuildCandidate({ onProgress(progress) {
+      if (!changed && progress.phase === 'parsing') {
+        fs.writeFileSync(manifest, '{"name":"later"}');
+        changed = true;
+      }
+    } });
+    expect(changed).toBe(true);
+    expect(result).toMatchObject({ success: true, complete: true });
+    expect((candidate as any).queries.getMetadata(SEMANTIC_REINDEX_PENDING)).toBeTruthy();
+  } finally { candidate.close(); await candidate.whenIdle(); }
+});
 it.each(['sync', 'indexAll'] as const)('retries semantic work via %s after partial B writes even if configuration is restored to A', async (operation) => {
   fs.writeFileSync(path.join(root, 'a.ts'), 'export function target() { return 1; }\n');
   fs.writeFileSync(path.join(root, 'b.ts'), 'export function target() { return 2; }\n');

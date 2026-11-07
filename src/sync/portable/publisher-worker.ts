@@ -75,7 +75,7 @@ async function main(
     const graph = await CodeGraph.createPortableCandidate(root, candidate.path);
     let built;
     try {
-      built = await graph.indexAll({
+      built = await graph.indexRebuildCandidate({
         onProgress: (progress) => {
           if (process.connected) process.send?.({ type: "progress", progress });
         },
@@ -94,12 +94,11 @@ async function main(
       root,
       databasePath: candidate.path,
       sourceDatabasePath: coordinator.active,
-      snapshot: plan.snapshot,
       runtimeKey: plan.runtimeKey,
     });
     if (!valid)
       throw new Error(
-        "Source or configuration changed during candidate construction; old database retained",
+        "Candidate database or indexing runtime failed validation; old database retained",
       );
     const publication = await coordinator.publish(candidate);
     const result: SyncResult = {

@@ -18,7 +18,8 @@ import {
 } from "../watcher";
 import { Mutex } from "../../utils";
 import { runAdaptiveReadWorker } from "../rebuild-controller";
-import type { AdaptivePlan, AdaptiveDecision } from "../adaptive-plan";
+import type { AdaptiveDecision } from "../adaptive-plan";
+import { reconcilePublishedSource } from "../publication-catchup";
 import { runPortableRebuild } from "./publisher-client";
 import type { SyncResult } from "../../extraction";
 import { withLanguageScope } from "../../extraction/language-scope";
@@ -397,67 +398,15 @@ class PortableFacade {
     try {
       const policy = resolveSyncPolicy(this.root, options);
       options = { ...options, signal: abort.signal, [resolvedSyncPolicy]: policy };
-      // Durable source reconciliation is never bypassed by scoped paths/adaptive opt-out.
-      const catchup = async (): Promise<SyncResult | null> =>
-        this.write(async (graph) => {
-          if (!graph.getPortableCatchup()) return null;
-          let result = published;
-          while (true) {
-            abort.signal.throwIfAborted();
-            const evaluation = await runAdaptiveReadWorker<{
-              plan?: AdaptivePlan;
-              decision: AdaptiveDecision;
-              configurationChanged?: boolean;
-            }>(
-              {
-                type: "evaluate",
-                root: this.root,
-                databasePath: graph.getDatabaseFilePath(),
-                portable: true,
-                fullHash: true,
-                policy,
-                eligibility: { upgradeRequired: graph.isIndexStale() },
-              } as any,
-              { signal: abort.signal },
-            );
-            if (!evaluation.plan)
-              throw new Error(
-                "Pending source reconciliation could not inspect the complete source inventory",
-              );
-            if (
-              evaluation.plan.changedFiles === 0 &&
-              !evaluation.configurationChanged && !graph.isIndexStale() &&
-              graph.getIndexCompleteness().status === "complete" &&
-              !graph.hasPortableCatchupWork()
-            ) {
-              graph.clearPortableCatchup();
-              return (
-                result ?? {
-                  complete: true,
-                  filesChecked: evaluation.plan.totalFiles,
-                  filesAdded: 0,
-                  filesModified: 0,
-                  filesRemoved: 0,
-                  nodesUpdated: 0,
-                  durationMs: performance.now() - started,
-                }
-              );
-            }
-            result = await graph.sync({
-              ...options,
-              adaptive: false,
-              paths: undefined,
-              forceReindexPaths: evaluation.plan.modified,
-            });
-            if (result.complete !== true)
-              throw new Error(
-                "Post-publication source reconciliation incomplete; pending marker retained",
-              );
-          }
-        }, abort.signal);
+      const catchup = () => this.write(graph => graph.getPortableCatchup()
+        ? reconcilePublishedSource(graph, options, next => graph.sync(next), published)
+        : null, abort.signal);
       while (true) {
-        if (this.read((graph) => graph.getPortableCatchup())) {
-          const reconciled = await catchup();
+        const pending = this.read((graph) => graph.getPortableCatchup());
+        if (pending || published) {
+          // Another writer may have verified our publication before we read the marker,
+          // or while we waited for the writer lease. Our successful rebuild still counts.
+          const reconciled = (pending ? await catchup() : null) ?? published;
           if (reconciled) {
             const result: SyncResult = {
               ...reconciled,

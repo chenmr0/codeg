@@ -12,10 +12,11 @@ async function main(): Promise<void> {
   const graph = await CodeGraph.createShadow(root, databasePath);
   let result;
   try {
-    result = await graph.indexAll({ onProgress: progress => {
+    result = await graph.indexRebuildCandidate({ onProgress: progress => {
       if (process.connected) process.send?.({ type: 'progress', progress });
     } });
-  } finally { graph.close(); }
+    if (result.success && result.complete) graph.setPortableCatchup(path.basename(path.dirname(databasePath)));
+  } finally { graph.close(); await graph.whenIdle(); }
   writeFileSync(path.join(path.dirname(databasePath), 'build-result.json'), JSON.stringify(result));
   await new Promise<void>((resolve, reject) => {
     process.send?.({ type: 'result', result }, error => error ? reject(error) : resolve());

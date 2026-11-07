@@ -161,6 +161,7 @@ export interface GenerationPublicationOptions {
   success: boolean;
   complete: boolean;
   validate: () => boolean | Promise<boolean>;
+  /** Final candidate, runtime and source database checks before replacing CURRENT. */
   sourceUnchanged: () => boolean | Promise<boolean>;
 }
 /** Error after rename means new generation is visible, not a rolled-back build. */
@@ -196,7 +197,7 @@ export async function publishGeneration(
   let published = false;
   try {
     exclusiveJson(temporary, manifest);
-    if (await options.sourceUnchanged() !== true) throw new Error('Source changed while building; retaining old generation');
+    if (await options.sourceUnchanged() !== true) throw new Error('Publication validation failed; retaining old generation');
     withLifecycleGate(root, gate => {
       const lease = acquireLifecycleLease(gate, candidate.id);
       lease.release();

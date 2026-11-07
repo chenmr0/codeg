@@ -7,17 +7,20 @@ import { DatabaseConnection, DatabaseOpenError } from '../db';
 import { PortableCoordinator, type PortableLease } from './portable/protocol';
 import { QueryBuilder } from '../db/queries';
 import { adaptiveRuntimeKey, createAdaptivePlan, chooseStructuralStrategy, includeAdaptiveReindexWork, scopedCandidateCounts, hasCanonicalScope,
-  validateAdaptiveSnapshot, canSkipScopedAdaptivePlan, type AdaptiveEligibility, type AdaptiveSnapshot } from './adaptive-plan';
+  canSkipScopedAdaptivePlan, type AdaptiveEligibility } from './adaptive-plan';
 import type { ResolvedSyncPolicy } from './sync-policy';
 import { validateRebuiltDatabase } from './rebuild-controller';
 import { isSourceOwned, inspectLegacySourceProvenance } from './source-ownership';
 import { EXTRACTION_VERSION } from '../extraction/extraction-version';
 import { SEMANTIC_CONFIG_KEY, SEMANTIC_REINDEX_PENDING, requiresSemanticReindex, indexConfigFingerprints } from './index-policy';
+import { PUBLICATION_MACROS, PUBLICATION_FRAMEWORKS } from './portable/metadata';
+import { ExtractionOrchestrator } from '../extraction';
+import { isMacroSource, MacroContextBuilder, macroContextFingerprint, scanMacroContribution } from '../extraction/macro-scan';
 
 export type AdaptiveReadJob =
   | { type: 'validate-initial'; root: string; databasePath: string }
-  | { type: 'evaluate'; root: string; databasePath: string; eligibility: AdaptiveEligibility; policy?: ResolvedSyncPolicy; paths?: string[]; portable?: boolean; fullHash?: boolean; decisionOnly?: boolean }
-  | { type: 'validate'; root: string; databasePath: string; sourceDatabasePath: string; snapshot: AdaptiveSnapshot; runtimeKey: string; portable?: boolean };
+  | { type: 'evaluate'; root: string; databasePath: string; eligibility: AdaptiveEligibility; policy?: ResolvedSyncPolicy; paths?: string[]; portable?: boolean; fullHash?: boolean; repairPending?: boolean; decisionOnly?: boolean }
+  | { type: 'validate'; root: string; databasePath: string; sourceDatabasePath: string; runtimeKey: string; portable?: boolean };
 
 
 // Failed native close is not permission to publish over a live SQLite handle.
@@ -99,10 +102,17 @@ async function execute(job: AdaptiveReadJob): Promise<unknown> {
           return { decision: { strategy: 'incremental', reason: 'scoped-small-change' } };
         }
       }
-      let plan = await createAdaptivePlan(job.root, tracked, { runtimeKey: '', fullHash: job.fullHash });
-      const semantic = plan.snapshot.semanticConfigFingerprint!;
-      if (requiresSemanticReindex(indexedSemantic, semantic, indexedConfig,
-        plan.snapshot.configFingerprint, upgradeRequired, semanticPending)) {
+      const indexedMacros = job.fullHash ? queries.getMetadata(PUBLICATION_MACROS) : null;
+      const macroBuilder = indexedMacros === null ? null : new MacroContextBuilder();
+      let plan = await createAdaptivePlan(job.root, tracked, { runtimeKey: '', fullHash: job.fullHash,
+        observeContent: macroBuilder ? (relative, content) => {
+          if (isMacroSource(relative) && /#\s*define\b/.test(content)) macroBuilder.add(scanMacroContribution(content));
+        } : undefined,
+      });
+      const semantic = plan.snapshot.semanticConfigFingerprint;
+      const reextract = requiresSemanticReindex(indexedSemantic, semantic, indexedConfig,
+        plan.snapshot.configFingerprint, upgradeRequired, semanticPending);
+      if (reextract) {
         plan = includeAdaptiveReindexWork(plan, tracked, tracked.map(file => file.path));
       }
       const decision = chooseStructuralStrategy(plan, eligibility);
@@ -115,13 +125,32 @@ async function execute(job: AdaptiveReadJob): Promise<unknown> {
         plan.planningMs += performance.now() - started;
       }
       const configurationChanged = eligibility.configurationChanged === true ||
-        (indexedConfig !== undefined && indexedConfig !== null && indexedConfig !== plan.snapshot.configFingerprint);
-      return { plan, decision, legacy: legacy?.eligible ?? false, configurationChanged };
+        (job.fullHash && reextract) ||
+        ((job.fullHash || indexedConfig != null) && indexedConfig !== plan.snapshot.configFingerprint);
+      const indexedFrameworks = job.fullHash ? queries.getMetadata(PUBLICATION_FRAMEWORKS) : null;
+      let frameworks: { names: string[]; changed: boolean } | undefined;
+      if (indexedFrameworks !== null) {
+        const names = ExtractionOrchestrator.detectProjectFrameworks(job.root, plan.snapshot.files.map(file => file.path),
+          (framework, error) => { throw new Error(`Verification of framework '${framework}' failed: ${error}`); });
+        frameworks = { names, changed: JSON.stringify(names) !== indexedFrameworks };
+      }
+      if (macroBuilder) {
+        const context = macroBuilder.finish();
+        const fingerprint = macroContextFingerprint(context);
+        const changed = fingerprint !== indexedMacros;
+        if (changed || frameworks?.changed || configurationChanged || plan.changedFiles || job.repairPending) {
+          // The writer uses the exact context checked against this inventory. A clean pass
+          // returns no macro data across the worker boundary.
+          return { plan, decision, configurationChanged, frameworks, macros: { context, fingerprint, changed } };
+        }
+      }
+      return { plan, decision, legacy: legacy?.eligible ?? false, configurationChanged, frameworks };
     } finally { reader.close(); }
   }
   if (adaptiveRuntimeKey(job.root, 'node-sqlite') !== job.runtimeKey) return false;
   const candidate = openLeasedReadOnly(job.databasePath);
-  try { if (!validateRebuiltDatabase(job.databasePath, job.snapshot, job.portable)) return false; }
+  const candidateId = path.basename(path.dirname(job.databasePath));
+  try { if (!validateRebuiltDatabase(candidate.connection.getDb(), candidateId, job.portable)) return false; }
   finally { candidate.close(); }
   if (!job.portable) {
     const source = openLeasedReadOnly(job.sourceDatabasePath);
@@ -129,8 +158,7 @@ async function execute(job: AdaptiveReadJob): Promise<unknown> {
       if (!isSourceOwned(source.connection.getDb()) && !inspectLegacySourceProvenance(source.connection.getDb()).eligible) return false;
     } finally { source.close(); }
   }
-  return await validateAdaptiveSnapshot(job.root, job.snapshot) &&
-    adaptiveRuntimeKey(job.root, 'node-sqlite') === job.runtimeKey;
+  return adaptiveRuntimeKey(job.root, 'node-sqlite') === job.runtimeKey;
 }
 
 if (!parentPort) throw new Error('Adaptive validation requires a worker parent');

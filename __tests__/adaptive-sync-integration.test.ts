@@ -251,21 +251,68 @@ describe('adaptive sync real child lifecycle', () => {
     await assertRootReleased();
   }, 60_000);
 
-  it('rejects an inconsistent candidate and safely falls back without replacing the active file', async () => {
+  it.each(['[portable]', '[legacy]'])('%s publishes a usable candidate when source changes during construction', async () => {
     await prepareRebuild();
     let changed = false;
     const result = await graph.sync({ onProgress: () => {
-      assertRootLocked();
-      if (!changed) { changed = true; fs.writeFileSync(path.join(root, 'main.cpp'), 'int concurrently_edited_symbol() { return 55555; }\n'); }
+      if (!changed) {
+        assertRootLocked();
+        changed = true;
+        fs.writeFileSync(path.join(root, 'main.cpp'), 'int concurrently_edited_symbol() { return 55555; }\n');
+      }
     } });
     expect(changed).toBe(true);
     expect(result.complete).toBe(true);
-    expect(result.adaptive?.strategy).toBe('incremental');
-    expect(result.adaptive?.reason).toMatch(/rebuild-fallback:.*Source (?:or configuration )?changed/s);
-    expect(storageIdentity()).toBe(initialGeneration);
+    expect(result.adaptive?.strategy, result.adaptive?.reason).toBe('rebuild');
+    expect(storageIdentity()).not.toBe(initialGeneration);
     expect(names(graph, 'concurrently_edited_symbol')).toContain('concurrently_edited_symbol');
     expect(names(graph, 'replacement_symbol')).not.toContain('replacement_symbol');
     expect(names(graph, 'original_symbol')).not.toContain('original_symbol');
+    await assertRootReleased();
+  }, 60_000);
+
+  it('reports the published rebuild when another portable writer completes its catch-up first', async () => {
+    await prepareRebuild();
+    const publisher = require('../dist/sync/portable/publisher-client') as typeof import('../src/sync/portable/publisher-client');
+    const publish = publisher.runPortableRebuild;
+    vi.spyOn(publisher, 'runPortableRebuild').mockImplementationOnce(async (...args) => {
+      const result = await publish(...args);
+      const other = CodeGraph.openSync(root);
+      try {
+        expect(other.getPortableCatchup()).toBeTruthy();
+        expect((await other.sync({ adaptive: false })).complete).toBe(true);
+        expect(other.getPortableCatchup()).toBeNull();
+      } finally { other.close(); await other.whenIdle(); }
+      return result;
+    });
+    const result = await graph.sync();
+    expect(result.adaptive?.strategy, result.adaptive?.reason).toBe('rebuild');
+    expect(storageIdentity()).not.toBe(initialGeneration);
+    await assertRootReleased();
+  }, 60_000);
+
+  it('[legacy] resumes published source reconciliation on the next scoped sync after cancellation', async () => {
+    await prepareRebuild();
+    const controller = new AbortController();
+    await expect(graph.sync({ signal: controller.signal, onAdaptiveDecision: decision => {
+      if (decision.reason.startsWith('rebuild-published:')) {
+        fs.renameSync(path.join(root, 'other.cpp'), path.join(root, 'late.cpp'));
+        fs.writeFileSync(path.join(root, 'late.cpp'), 'int renamed_after_publish() { return 8; }\n');
+        controller.abort();
+      }
+    } })).rejects.toThrow(/aborted|cancel/i);
+    const published = storageIdentity();
+    expect(published).not.toBe(initialGeneration);
+    expect(graph.getPortableCatchup()).toBeTruthy();
+    graph.close(); await graph.whenIdle();
+    graph = CodeGraph.openSync(root);
+    const result = await graph.sync({ adaptive: false, paths: ['main.cpp'] });
+    expect(result.complete).toBe(true);
+    expect(storageIdentity()).toBe(published);
+    expect(graph.getPortableCatchup()).toBeNull();
+    expect(graph.getFiles().map(file => file.path).sort()).toEqual(['late.cpp', 'main.cpp']);
+    expect(names(graph, 'renamed_after_publish')).toContain('renamed_after_publish');
+    expect(names(graph, 'untouched_symbol')).not.toContain('untouched_symbol');
     await assertRootReleased();
   }, 60_000);
 
@@ -296,7 +343,7 @@ describe('adaptive sync real child lifecycle', () => {
       if (job.type === 'validate') abort.abort();
       return result as any;
     });
-    await expect(graph.sync({ signal: abort.signal })).rejects.toThrow(/Source changed|cancelled/);
+    await expect(graph.sync({ signal: abort.signal })).rejects.toThrow(/Publication validation|cancelled/);
     expect(storageIdentity()).toBe(initialGeneration);
     await assertRootReleased();
   }, 60_000);
@@ -316,7 +363,7 @@ describe('adaptive sync real child lifecycle', () => {
       return result as any;
     });
     try {
-      await expect(graph.sync()).rejects.toThrow(/Source changed/);
+      await expect(graph.sync()).rejects.toThrow(/Publication validation/);
       expect(storageIdentity()).toBe(initialGeneration);
       expect(names(graph, 'original_symbol')).toContain('original_symbol');
       await assertRootReleased();

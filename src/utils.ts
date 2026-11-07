@@ -97,7 +97,7 @@ function isWithinDir(child: string, parent: string): boolean {
  * @returns The resolved absolute path (realpath when it exists), or null if it
  *   escapes the root
  */
-export function validatePathWithinRoot(projectRoot: string, filePath: string): string | null {
+export function validatePathWithinRoot(projectRoot: string, filePath: string, requireExisting = false): string | null {
   const resolved = path.resolve(projectRoot, filePath);
   const normalizedRoot = path.resolve(projectRoot);
 
@@ -113,6 +113,9 @@ export function validatePathWithinRoot(projectRoot: string, filePath: string): s
     const realResolved = fs.realpathSync(resolved);
     return isWithinDir(realResolved, realRoot) ? realResolved : null;
   } catch (err) {
+    // An inventory reader needs the original errno to distinguish a removed
+    // file (or parent directory) from an inaccessible path.
+    if (requireExisting) throw err;
     // ENOENT: the path doesn't exist yet (a file about to be written, or an
     // index entry for a since-deleted file) — no symlink to follow, and the
     // lexical check already passed, so allow the lexical path. Any other

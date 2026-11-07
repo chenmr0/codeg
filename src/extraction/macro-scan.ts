@@ -1,7 +1,9 @@
 /** Stateless project macro context. The TS scanner remains the parity oracle. */
 import * as fsp from 'fs/promises';
 import { performance } from 'perf_hooks';
+import { createHash } from 'node:crypto';
 import { validatePathWithinRoot } from '../utils';
+import { EXTENSION_MAP } from './grammars';
 import { scanCppMacroDefinitions, selectUnambiguousCppMacroDefinitions, type CppMacroDefinition } from './declaration-macros';
 import { automaticRustMacroStatus, rustMacroMode, streamRustMacros } from './rust-macros';
 
@@ -16,9 +18,46 @@ export interface MacroScanMetrics {
   bodylessMs: number; definitionsMs: number; mergeMs: number;
   nativeWallMs: number; nativeReadSumMs: number; nativeScanSumMs: number; totalMs: number;
 }
-export interface MacroContext {
+export interface ParserMacroContext {
   names: Set<string>; bodyless: Set<string>; definitions: CppMacroDefinition[];
+}
+export interface MacroContext extends ParserMacroContext {
   metrics: MacroScanMetrics;
+}
+
+export function isMacroSource(file: string): boolean {
+  const language = EXTENSION_MAP[file.slice(file.lastIndexOf('.')).toLowerCase()];
+  return language === 'c' || language === 'cpp' || language === 'objc';
+}
+
+/** The parser looks up macro names and definitions independently of their insertion order. */
+export function macroContextFingerprint({ names, bodyless, definitions }: ParserMacroContext): string {
+  const hash = createHash('sha256');
+  // Macro names are ASCII identifiers. JSON escapes line breaks in definitions,
+  // so a record separator cannot collide with source text.
+  for (const name of [...names].sort()) hash.update('name:' + name + '\n');
+  for (const name of [...bodyless].sort()) hash.update('bodyless:' + name + '\n');
+  for (const definition of [...definitions].sort((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0)) {
+    hash.update(JSON.stringify([definition.name, definition.parameters, definition.variadicParameter ?? null, definition.replacement]));
+    hash.update('\n');
+  }
+  return hash.digest('hex');
+}
+
+export class MacroContextBuilder {
+  private names = new Set<string>();
+  private bodyless = new Set<string>();
+  private definitions: CppMacroDefinition[] = [];
+
+  add(part: MacroContribution): void {
+    for (const name of part.names) this.names.add(name);
+    for (const name of part.bodyless) this.bodyless.add(name);
+    for (const definition of part.definitions) this.definitions.push(definition);
+  }
+
+  finish(): ParserMacroContext {
+    return { names: this.names, bodyless: this.bodyless, definitions: selectUnambiguousCppMacroDefinitions(this.definitions) };
+  }
 }
 
 /**
@@ -63,14 +102,10 @@ function emptyMetrics(files: number): MacroScanMetrics {
 export async function buildMacroContext(root: string, files: string[]): Promise<MacroContext> {
   const started = performance.now();
   let metrics = emptyMetrics(files.length);
-  let names = new Set<string>(), bodyless = new Set<string>();
-  let definitions: CppMacroDefinition[] = [];
+  let builder = new MacroContextBuilder();
   const add = (part: MacroContribution): void => {
     const t = performance.now();
-    for (const name of part.names) names.add(name);
-    for (const name of part.bodyless) bodyless.add(name);
-    // Avoid argument-count limits on generated macro-heavy sources.
-    for (const definition of part.definitions) definitions.push(definition);
+    builder.add(part);
     metrics.mergeMs += performance.now() - t;
   };
   const read = async (file: string): Promise<string | null> => {
@@ -122,15 +157,15 @@ export async function buildMacroContext(root: string, files: string[]): Promise<
       const reason = error instanceof Error && /^[a-z-]+$/.test(error.message) ? error.message : 'native-error';
       // Never retain a partial native context after a crash or malformed stream.
       metrics = { ...emptyMetrics(files.length), mode: 'fallback', reason, nativeWallMs };
-      names = new Set(); bodyless = new Set(); definitions = [];
+      builder = new MacroContextBuilder();
       await baseline();
     }
   } else await baseline();
   const mergeStarted = performance.now();
-  const selected = selectUnambiguousCppMacroDefinitions(definitions);
+  const context = builder.finish();
   metrics.mergeMs += performance.now() - mergeStarted;
   metrics.totalMs = performance.now() - started;
-  return { names, bodyless, definitions: selected, metrics };
+  return { ...context, metrics };
 }
 
 export function formatMacroScanMetrics(m: MacroScanMetrics): string {
