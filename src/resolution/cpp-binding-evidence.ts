@@ -531,16 +531,17 @@ function targetEvidence(node: Node, ref: UnresolvedRef, context: ResolutionConte
     const files = reachable(ref, context);
     if (!files.possible.has(fileKey(node.filePath)) && !files.open) return 'forbidden';
   }
-  if (decl?.scope.ordinary && visible !== 'allowed') {
+  // Only simple function pairs can establish the conflicting-linkage veto.
+  // Reject impossible witnesses before reading/parsing their declarations.
+  if (node.kind === 'function' && decl?.scope.ordinary && visible !== 'allowed' && simpleTypePrefix(decl.prefix)) {
     for (const other of context.getNodesByName(node.name)) {
-      if (other.id === node.id || !relevant(other)) continue;
+      if (other.id === node.id || other.kind !== 'function' || !relevant(other)) continue;
       const witness = declaration(other, ref.language as Dialect, context);
       if (!witness?.scope.ordinary || visibility(other, witness, ref, context) !== 'allowed'
         || witness.scope.namespace !== decl.scope.namespace) continue;
       // A C-linkage declaration and a C++-linkage function cannot be the same
       // entity. Bare-name C declaration/definition synthesis is not evidence.
-      if (node.kind === 'function' && other.kind === 'function'
-        && simpleTypePrefix(decl.prefix) && simpleTypePrefix(witness.prefix)) {
+      if (simpleTypePrefix(witness.prefix)) {
         const candidateKey = bindingParameterKey(node), witnessKey = bindingParameterKey(other);
         if (candidateKey === null || witnessKey === null || candidateKey !== witnessKey) continue;
         const candidateLinkage = languageLinkage(node, decl, context), witnessLinkage = languageLinkage(other, witness, context);
