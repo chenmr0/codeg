@@ -141,7 +141,11 @@ function condition(expression: string, language: Dialect): Condition {
   return null;
 }
 
-function sourceFor(file: string, language: Dialect, context: ResolutionContext): Source | null {
+function sourceFor(file: string, language: Dialect, context: ResolutionContext): Source | null;
+function sourceFor(file: string, language: Dialect, context: ResolutionContext,
+  required: (text: string) => boolean): Source | null | false;
+function sourceFor(file: string, language: Dialect, context: ResolutionContext,
+  required?: (text: string) => boolean): Source | null | false {
   file = fileKey(file);
   const cache = cacheFor(context), key = `${language}:${file}`;
   if (cache.sources.has(key)) return cache.sources.get(key)!;
@@ -151,6 +155,9 @@ function sourceFor(file: string, language: Dialect, context: ResolutionContext):
     cache.text.set(file, text);
   }
   if (text == null || text.length > MAX_SOURCE_LENGTH) { cache.sources.set(key, null); return null; }
+  // A failed necessary condition skips only this parse, not future requests.
+  // It is neither missing-source uncertainty nor positive binding evidence.
+  if (required && !required(text)) return false;
   const result = parseBindingSource(text, language);
   cache.sources.set(key, result);
   return result;
@@ -457,9 +464,15 @@ function storageLinkage(node: Node, decl: Declaration | null, context: Resolutio
     const prior = reachable({ filePath: node.filePath, line: node.startLine, language: node.language }, context);
     let uncertain = prior.open;
     const previous = new RegExp(`\\bstatic\\s+[^;{}=]*\\b${node.name}\\s*\\(`, 'g');
+    const ordinaryName = /^[A-Za-z_]\w*$/.test(node.name);
+    // Masking comments/literals, directives and inactive code only blanks text;
+    // it cannot create either literal. Keep regex-shaped names on the old path:
+    // their alternations can bypass even the regex's leading static condition.
+    const required = (text: string): boolean => !ordinaryName || text.includes('static') && text.includes(node.name);
     for (const file of prior.possible) {
       const source = file === fileKey(node.filePath) ? decl.source
-        : sourceFor(file, node.language === 'c' ? 'c' : 'cpp', context);
+        : sourceFor(file, node.language === 'c' ? 'c' : 'cpp', context, required);
+      if (source === false) continue;
       if (!source) { uncertain = true; continue; }
       const code = file === fileKey(node.filePath) ? source.code.slice(0, decl.offset) : source.code;
       previous.lastIndex = 0;
