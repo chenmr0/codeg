@@ -1,0 +1,31 @@
+{
+  "start": "2026-11-08T00:25:17.205953+00:00",
+  "end": "2026-11-08T00:31:01.269142+00:00",
+  "tag": "phase3-oceanbase-data-20261108",
+  "product": "7e37003d5e1829d69251c706c4e23d85e6d62962",
+  "restoreToolCommit": "ae92a5815147f875fe7331eeb496f5db10eeecd6",
+  "anonymousHttp": true,
+  "publicManifest": {
+    "status": 200,
+    "finalHost": "release-assets.githubusercontent.com",
+    "bytes": 13741,
+    "sha256": "abd2c865152d405abe4e2e940eecf06913d1035cc6aa6d7865b7187f44bd960e"
+  },
+  "publicRestoreTool": {
+    "status": 200,
+    "finalHost": "raw.githubusercontent.com",
+    "bytes": 14278,
+    "sha256": "e7591e66e2e268480d7f3cfcd4c9432679369c40b5f4185485b017d8e4cf85f4"
+  },
+  "assetCount": 48,
+  "downloadedParts": 47,
+  "compressedPartBytes": 1354895348,
+  "sourceFiles": 16317,
+  "supportFiles": 3955,
+  "restoredDatabaseSha256": {
+    "complete": "9ffd162817bb6d4f8615b79889b08381caea06a433dc578565d21bc7348fb5d0",
+    "frontier-main": "298e2699ad5eb452c0ad63bb12768a86f5d949437faa009e0ea70fdc8a7b3da9",
+    "frontier-wal": "01b7eb682cef6a25695b48f781e58408c89e9e4e8e808907652c82a8f1a5b202"
+  },
+  "exitCode": 0
+}

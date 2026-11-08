@@ -2,7 +2,9 @@
 
 下列命令在 Claude Code 所在机器执行。交接分支为 `codex/phase3-claude-handoff-20261108`，产品候选为 `7e37003d5e1829d69251c706c4e23d85e6d62962`，内部基线为 `c6b509d3557b7485a9fee14dbfc5980258205beb`。[四步交接和停止条件](./2026-11-08-phase3-claude-code-handoff.md) · [原始第三阶段计划](https://github.com/chenmr0/codeg/blob/f2c69c56bdc141fe75a25a7a7b0f032762b002b2/docs/plans/2026-11-04-explore-graph-quality-and-cost-audit.md#L289)
 
-**数据包已在原机器生成，公开上传待明确授权。** 当前 Git 分支提供校验清单和工具。以下在线恢复步骤在数据附件发布后可用。有访问控制的镜像也可以按原文件名提供分片，使用同一份清单校验。
+**数据包已公开发布，可以从空目录在线还原。** GitHub 上共有 47 个分片和 1 份校验清单。清单 SHA256 为 `abd2c865152d405abe4e2e940eecf06913d1035cc6aa6d7865b7187f44bd960e`。分发标签指向产品提交 `7e37003d`，启动说明和恢复工具位于上面的交接分支。[数据及全部附件](https://github.com/chenmr0/codeg/releases/tag/phase3-oceanbase-data-20261108)
+
+2026-11-08 已从公开地址匿名取得清单、恢复脚本及全部分片，并在空目录完成还原。两份主库和 WAL 的 SHA256 与冻结值一致，16,317 个源码文件及 3,955 个运行时和支持文件逐项校验通过，恢复程序退出码为 0。[公开下载与还原回执](../benchmarks/phase3-data-public-verification-20261108.json)
 
 ## 获取代码和数据
 
