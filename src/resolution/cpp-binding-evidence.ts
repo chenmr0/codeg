@@ -16,8 +16,10 @@ interface Include { line: number; name?: string; quoted: boolean; active: Condit
 interface Scope { namespace: string; anonymous: boolean; ordinary: boolean; namespaceScope: boolean; linkage: Dialect | null }
 interface ScopePoint { offset: number; scope: Scope }
 interface Source {
-  text: string; code: string; starts: number[]; active: Condition[];
-  includes: Include[]; scopes: ScopePoint[];
+  readonly text: string; readonly code: string;
+  readonly starts: readonly number[]; readonly active: readonly Condition[];
+  readonly includes: readonly Readonly<Include>[];
+  readonly scopes: readonly { readonly offset: number; readonly scope: Readonly<Scope> }[];
 }
 interface Reachable { definite: Set<string>; possible: Set<string>; open: boolean }
 interface Declaration {
@@ -70,10 +72,21 @@ class EvidenceCache<T> {
   }
 }
 
+// Sources are immutable snapshots after parseBindingSource returns. Reuse only
+// their scalar weight, not admission evidence or cache entries. Every declaration
+// still pays the full source weight, including when an entry is too large to keep.
+// Invalidation/reparsing creates a new Source; weak keys do not extend its lifetime.
+const sourceWeights = new WeakMap<Source, number>();
+
 function sourceWeight(source: Source | null): number {
-  return source ? 128 + source.text.length * 4 + source.starts.length * 24
+  if (!source) return 8;
+  const cached = sourceWeights.get(source);
+  if (cached !== undefined) return cached;
+  const bytes = 128 + source.text.length * 4 + source.starts.length * 24
     + source.includes.reduce((bytes, include) => bytes + 96 + (include.name?.length ?? 0) * 2, 0)
-    + source.scopes.reduce((bytes, point) => bytes + 160 + point.scope.namespace.length * 2, 0) : 8;
+    + source.scopes.reduce((bytes, point) => bytes + 160 + point.scope.namespace.length * 2, 0);
+  sourceWeights.set(source, bytes);
+  return bytes;
 }
 
 /** Call when the resolver's source/node snapshot changes, including included files. */
