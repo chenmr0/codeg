@@ -349,41 +349,72 @@ function cppUniqueMethod(matches: Node[]): Node | null {
   return matches.find(n => !n.isDeclaration) ?? matches[0]!;
 }
 
+/**
+ * Share receiver/owner evidence only within one synchronous candidate filter.
+ * Laziness preserves the arity and exact-qualified short circuits. In particular,
+ * an unknown receiver or an empty method set is reused too, but never survives
+ * this invocation (another reference or resolution epoch must recompute it).
+ */
+function createCppCallTargetPredicate(ref: UnresolvedRef, context: ResolutionContext): (candidate: Node) => boolean {
+  let allowedMethods: Set<string> | undefined;
+  let owner: string | undefined;
+  let explicitThis: boolean | undefined;
+  let hasDirectMethods: boolean | undefined;
+  const methodsOnType = (type: string, method: string): Set<string> => {
+    if (allowedMethods === undefined) {
+      allowedMethods = new Set(type ? cppMethodsOnType(type, method, ref, context).map(n => n.id) : []);
+    }
+    return allowedMethods;
+  };
+  return candidate => {
+    if ((ref.language !== 'cpp' && ref.language !== 'c') || ref.referenceKind !== 'calls') return true;
+    if (!isCppCallArityAllowed(candidate, ref, context)) return false;
+    // C structure fields can contain callbacks; they are not C++ methods.
+    if (ref.language !== 'cpp') return true;
+    const dotted = /^(.+)\.([A-Za-z_]\w*)$/.exec(ref.referenceName);
+    if (dotted) {
+      if (allowedMethods === undefined) {
+        const receiver = dotted[1]!, method = dotted[2]!;
+        const chain = /^(.*)\(\)$/.exec(receiver);
+        const type = receiver === 'this' ? cppCallerOwner(ref, context)
+          : chain ? resolveCppCallResultType(chain[1]!, ref, context) : inferCppReceiverType(receiver, ref, context);
+        methodsOnType(type ?? '', method);
+      }
+      return allowedMethods!.has(candidate.id);
+    }
+    const qualified = /^(?:::)?(.+)::([A-Za-z_]\w*)$/.exec(ref.referenceName);
+    if (qualified) {
+      const want = ref.referenceName.replace(/^::/, '');
+      if (candidate.qualifiedName === want || candidate.qualifiedName.endsWith('::' + want)) return true;
+      return candidate.kind === 'method' && methodsOnType(qualified[1]!, qualified[2]!).has(candidate.id);
+    }
+    if (!/^\w+$/.test(ref.referenceName)) return true;
+    owner ??= cppCallerOwner(ref, context);
+    if (explicitThis === undefined) {
+      const line = context.getFileLines?.(ref.filePath)?.[ref.line - 1];
+      explicitThis = !!line && (/^this\s*->/.test(line.slice(ref.column)) || /\bthis\s*->\s*$/.test(line.slice(0, ref.column)));
+    }
+    if (candidate.kind === 'method') return !!owner && methodsOnType(owner, ref.referenceName).has(candidate.id);
+    if (explicitThis) return false;
+    // A declared member hides a same-named free function, including when none of
+    // the member overloads accepts this arity. Other bare free helpers survive.
+    if (!owner) return true;
+    hasDirectMethods ??= cppDirectMethods(owner, ref.referenceName, ref, context).length > 0;
+    return !hasDirectMethods;
+  };
+}
+
 /** The receiver/owner is authoritative even for a target selected by another strategy. */
 export function isCppCallTargetAllowed(candidate: Node, ref: UnresolvedRef, context: ResolutionContext): boolean {
-  if ((ref.language !== 'cpp' && ref.language !== 'c') || ref.referenceKind !== 'calls') return true;
-  if (!isCppCallArityAllowed(candidate, ref, context)) return false;
-  // C structure fields can contain callbacks; they are not C++ methods.
-  if (ref.language !== 'cpp') return true;
-  const dotted = /^(.+)\.([A-Za-z_]\w*)$/.exec(ref.referenceName);
-  if (dotted) {
-    const receiver = dotted[1]!, method = dotted[2]!;
-    const chain = /^(.*)\(\)$/.exec(receiver);
-    const type = receiver === 'this' ? cppCallerOwner(ref, context)
-      : chain ? resolveCppCallResultType(chain[1]!, ref, context) : inferCppReceiverType(receiver, ref, context);
-    return !!type && cppMethodsOnType(type, method, ref, context).some(n => n.id === candidate.id);
-  }
-  const qualified = /^(?:::)?(.+)::([A-Za-z_]\w*)$/.exec(ref.referenceName);
-  if (qualified) {
-    const want = ref.referenceName.replace(/^::/, '');
-    if (candidate.qualifiedName === want || candidate.qualifiedName.endsWith('::' + want)) return true;
-    return candidate.kind === 'method' && cppMethodsOnType(qualified[1]!, qualified[2]!, ref, context).some(n => n.id === candidate.id);
-  }
-  if (!/^\w+$/.test(ref.referenceName)) return true;
-  const owner = cppCallerOwner(ref, context);
-  const line = context.getFileLines?.(ref.filePath)?.[ref.line - 1];
-  const explicitThis = !!line && (/^this\s*->/.test(line.slice(ref.column)) || /\bthis\s*->\s*$/.test(line.slice(0, ref.column)));
-  if (candidate.kind === 'method') return !!owner && cppMethodsOnType(owner, ref.referenceName, ref, context).some(n => n.id === candidate.id);
-  if (explicitThis) return false;
-  // A declared member hides a same-named free function, including when none of
-  // the member overloads accepts this arity. Other bare free helpers survive.
-  return !owner || !cppDirectMethods(owner, ref.referenceName, ref, context).length;
+  // Independent final admission deliberately gets fresh evidence, not the set
+  // used while a name-matching strategy filtered its candidates.
+  return createCppCallTargetPredicate(ref, context)(candidate);
 }
 
 /** Bare identifiers cannot name unrelated class members, even in the same file. */
 function applyCppMemberScopeGate(candidates: Node[], ref: UnresolvedRef, context: ResolutionContext): Node[] {
   if (ref.language === 'cpp' && ref.referenceKind === 'calls') {
-    return candidates.filter(candidate => isCppCallTargetAllowed(candidate, ref, context));
+    return candidates.filter(createCppCallTargetPredicate(ref, context));
   }
   if ((ref.language !== 'c' && ref.language !== 'cpp') || !/^\w+$/.test(ref.referenceName)
     || !candidates.some(n => (n.kind === 'field' || n.kind === 'method') && n.filePath !== ref.filePath)) return candidates;
