@@ -154,6 +154,47 @@ function sourceAt(ref: UnresolvedRef, context: ResolutionContext): {args:string[
   return null;
 }
 
+/** Read only the header of a source-spelled macro. Line splices disappear
+ * before tokenization. The opening parenthesis must immediately follow the
+ * name. An intervening comment counts as whitespace. */
+function isFunctionLikeMacro(signature: string, name: string): boolean {
+  let offset = 0;
+  const next = (): string => {
+    while (signature[offset] === '\\') {
+      if (signature.startsWith('\\\n', offset)) offset += 2;
+      else if (signature.startsWith('\\\r\n', offset)) offset += 3;
+      else break;
+    }
+    return signature.charAt(offset++);
+  };
+  let ch = next();
+  const consume = (word: string): boolean => {
+    for (let i = 0; i < word.length; i++) {
+      if (ch !== word[i]) return false;
+      ch = next();
+    }
+    return true;
+  };
+  const skipTrivia = (): boolean => {
+    for (;;) {
+      while (ch && ' \t\v\f'.includes(ch)) ch = next();
+      if (ch !== '/') return true;
+      if (!consume('/*')) return false;
+      let previous = '';
+      while (ch && !(previous === '*' && ch === '/')) {
+        previous = ch;
+        ch = next();
+      }
+      if (!ch) return false;
+      ch = next();
+    }
+  };
+
+  if (!skipTrivia() || !consume('#') || !skipTrivia() || !consume('define')) return false;
+  if (!ch || !' \t\v\f/'.includes(ch)) return false;
+  return skipTrivia() && consume(name) && ch === '(';
+}
+
 function hasPossibleMacroExpansion(ts: string[], context: ResolutionContext): boolean {
   // Source-spelled components are not expanded evidence, including members
   // after :: (and even keyword-like macro names used as scalar arguments).
@@ -161,9 +202,7 @@ function hasPossibleMacroExpansion(ts: string[], context: ResolutionContext): bo
   // definitions we cannot prove the active #define/#undef/include environment.
   return ts.some((token,index)=>identifier(token) && context.getNodesByName(token).some(node=>{
     if(node.kind!=='macro') return false;
-    const escaped=token.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
-    const functionLike=new RegExp(`^\\s*#\\s*define\\s+${escaped}\\(`).test(node.signature ?? '');
-    return !functionLike || ts[index+1]==='(';
+    return ts[index+1]==='(' || !isFunctionLikeMacro(node.signature ?? '', token);
   }));
 }
 

@@ -478,15 +478,22 @@ describe('pure-macro data header fast path', () => {
   });
 
   it.each(['\n', '\r\n'])('masks block comments only in short continued macros of a mixed C file (%j)', (newline) => {
-    const lines = ['#define SCALE 1 /* keep this single-line macro comment */', 'static const char *label = "/* quoted */";'];
+    // A ~50 KB mixed file with eight short defines previously exceeded the
+    // 30-second worker budget. Guard the parser input before timing extraction.
+    const lines = [
+      '/* ' + 'source comment '.repeat(2160) + '*/',
+      '#define SCALE 1 /* keep this single-line macro comment */',
+      'static const char *label = "/* quoted */";',
+    ];
     const tables = Array.from({ length: 7 }, (_, i) => 'TABLE_' + i);
     for (const [i, name] of tables.entries()) {
       const headerComment = i < 2 ? ' /* row header */' : '';
-      lines.push(
-        '#define ' + name + headerComment + ' \\',
-        '  { 1, /* row value */ 2, 0 }, \\',
-        '  { 3, /* row tail */ 4, 50 }',
-      );
+      lines.push('#define ' + name + headerComment + ' \\');
+      for (let row = 0; row < 36; row++) {
+        const values = Array.from({ length: 15 }, (_, col) => row + col).join(', ');
+        lines.push('  { ' + values + (row === 0 ? ' /* row value */' : '') + ' }, \\');
+      }
+      lines.push('  { 3, /* row tail */ 4, 50 }');
     }
     lines.push('/* keep outside the macros */', 'int live;', '');
     const src = lines.join(newline);
@@ -494,6 +501,7 @@ describe('pure-macro data header fast path', () => {
     const r = extractWithExpectedParseSource(src, expected, 'config.c');
 
     expect(r.errors).toEqual([]);
+    expect(r.durationMs).toBeLessThan(2000);
     expect(macroNames(r).map((n) => n.name)).toEqual(['SCALE', ...tables]);
     expect(macroNames(r).find((n) => n.name === 'TABLE_0')?.signature)
       .toBe(src.slice(src.indexOf('#define TABLE_0'), src.indexOf('#define TABLE_1')));
@@ -532,12 +540,104 @@ describe('pure-macro data header fast path', () => {
   ] as const)('masks a continued macro body after %s', (_label, directive) => {
     const lines = [...directive, 'int after;', ''];
     const src = lines.join('\n');
-    const expected = src.replace('/* mask */', ' '.repeat('/* mask */'.length));
+    const expected = src.replace(/\/\*[\s\S]*?\*\//g, comment => comment.replace(/[^\n]/g, ' '));
     const r = extractWithExpectedParseSource(src, expected, 'table.c');
     expect(macroNames(r).map((n) => n.name)).toEqual(['TABLE']);
     expect(r.nodes.find((n) => n.name === 'after')).toMatchObject({
       kind: 'variable', startLine: directive.length + 1,
     });
+  });
+
+  it.each([
+    [20, '\n', false],
+    [25, '\r\n', true],
+  ] as const)('recovers complete macros with physical newlines inside a replacement-list comment (%i)', (count, newline, blankLine) => {
+    const names = Array.from({ length: count }, (_, i) => 'M' + i);
+    const directives = names.map(name => [
+      '#define ' + name + ' \\',
+      '   {1, /* abc',
+      ...(blankLine ? [''] : []),
+      '  tail */ 2, 8}, \\',
+      '   {3, 4, 5}',
+      '',
+    ].join(newline));
+    const before = 'int before_;' + newline;
+    const src = before + directives.join('') + 'int after_;' + newline + 'int expanded[][3] = { M0 };' + newline;
+    const result = extractFromSource('tables.c', src, 'c');
+    expect(result.errors).toEqual([]);
+    const macros = macroNames(result);
+    expect(macros.map(x => x.name)).toEqual(names);
+    expect(macros.map(x => x.signature)).toEqual(directives);
+    const linesPerDefine = blankLine ? 5 : 4;
+    expect(macros.map(x => [x.startLine, x.endLine, x.endColumn])).toEqual(names.map((_, i) =>
+      [2 + i * linesPerDefine, 2 + (i + 1) * linesPerDefine, 0]));
+    expect(result.nodes.find(x => x.name === 'after_')).toMatchObject({
+      kind: 'variable', startLine: 2 + count * linesPerDefine, startColumn: 4,
+    });
+  });
+
+  it('keeps multiline comments as token separators and keeps the next parse independent', () => {
+    // No backslash splices. The comment after OBJ keeps it object-like even
+    // though its replacement starts with an opening parenthesis.
+    const src = [
+      'int before;',
+      '#define OBJ/* 中😀',
+      '',
+      ' */(x) { 1, /* a',
+      ' b */ 2 }',
+      'void f(void) {',
+      '#define LOCAL(x) x + /* first',
+      'second */ 1',
+      '}',
+      '#define LAST { 3, /* last',
+      ' */ 4 }',
+    ].join('\n');
+    const parser = getParser('c')!;
+    const parse = parser.parse.bind(parser);
+    const types: string[] = [];
+    const guard = vi.spyOn(parser, 'parse').mockImplementation((...args) => {
+      const tree = parse(...args);
+      if (tree) types.push(...tree.rootNode.descendantsOfType(['preproc_def', 'preproc_function_def'])
+        .map(n => n.type));
+      return tree;
+    });
+    try {
+      const result = extractFromSource('mixed.c', src, 'c');
+      expect(macroNames(result).map(n => n.name)).toEqual(['OBJ', 'LOCAL', 'LAST']);
+      expect(macroNames(result).map(n => n.signature)).toEqual([
+        src.slice(src.indexOf('#define OBJ'), src.indexOf('void f')),
+        src.slice(src.indexOf('#define LOCAL'), src.indexOf('\n}') + 1),
+        src.slice(src.indexOf('#define LAST')),
+      ]);
+      expect(types.slice(0, 3)).toEqual(['preproc_def', 'preproc_function_def', 'preproc_def']);
+    } finally {
+      guard.mockRestore();
+    }
+    const next = extractFromSource('next.c', 'int x;\nint y;\nint z;\n', 'c');
+    expect(next.nodes.filter(n => n.kind === 'variable').map(n => n.name)).toEqual(['x', 'y', 'z']);
+  });
+
+  it('keeps complete multiline-comment definitions on the pure data fast path', () => {
+    const definitions = Array.from({ length: 20 }, (_, i) =>
+      '#define T' + i + ' {1, /* abc\n\n tail */ 2, 3}\n');
+    const result = extractFromSource('only-tables.h', definitions.join(''), 'c');
+    expect(skipped(result)).toBe(true);
+    expect(macroNames(result).map(m => m.signature)).toEqual(definitions);
+    expect(macroNames(result).at(-1)).toMatchObject({ name: 'T19', startLine: 58, endLine: 61, endColumn: 0 });
+  });
+
+  it.each(['EMPTY', 'EMPTY_FN(x)', 'VALUE 123'])('a multiline comment at the end of %s does not consume the next declaration', (head) => {
+    const signature = '#define ' + head + ' /* note\n\n end */  \\\n  \n';
+    const r = extractFromSource('tail.c', signature + 'int last;\n', 'c');
+    expect(r.nodes.find(n => n.kind === 'macro')?.signature).toBe(signature);
+    expect(r.nodes.find(n => n.name === 'last')).toMatchObject({ kind: 'variable', startLine: 5 });
+  });
+
+  it('does not hide a following define when the comment terminator is split across a splice', () => {
+    const src = genSimpleMacros(20) + '#define A {1, /* note\n*\\\n/ 2}\n#define VISIBLE 3\n';
+    const r = extractFromSource('data.h', src, 'c');
+    expect(macroNames(r).find(n => n.name === 'VISIBLE')?.signature).toContain('#define VISIBLE 3');
+    expect(macroNames(r).find(n => n.name === 'A')?.signature).toBe('#define A {1, /* note\n*\\\n/ 2}\n');
   });
 
   it.each([

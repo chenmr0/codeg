@@ -4,7 +4,7 @@
  * Handles parsing source code and extracting structural information.
  */
 
-import { Node as SyntaxNode, Tree, Parser as WasmParser } from 'web-tree-sitter';
+import { Node as SyntaxNode, Tree, Parser as WasmParser, type ParseOptions, type Range as ParseRange } from 'web-tree-sitter';
 import * as path from 'path';
 import {
   Language,
@@ -1123,8 +1123,11 @@ export class TreeSitterExtractor {
       }
 
       // Keep C data macros intact in the tree used for symbol extraction.
+      let parseOptions: ParseOptions | undefined;
       if (this.language === 'c') {
-        this.source = blankDefineBodyComments(this.source);
+        const excluded: SourceRange[] = [];
+        this.source = blankDefineBodyComments(this.source, excluded);
+        if (excluded.length) parseOptions = { includedRanges: complementParseRanges(this.source, excluded) };
       }
 
       const primaryParseStarted = performance.now();
@@ -1137,7 +1140,7 @@ export class TreeSitterExtractor {
       const preParse = this.extractor?.preParse;
       if (preParse && this.extractor?.preParseStrategy === 'on-error') {
         const baseSource = this.source;
-        const rawTree = parser.parse(baseSource) ?? null;
+        const rawTree = parser.parse(baseSource, undefined, parseOptions) ?? null;
         if (!rawTree) throw new Error('Parser returned null tree');
         this.tree = rawTree;
 
@@ -1218,7 +1221,7 @@ export class TreeSitterExtractor {
           let bestDamage = originalDamage;
           let bestSource = baseSource;
           for (const candidate of candidates) {
-            const candidateTree = parser.parse(candidate.parseSource) ?? null;
+            const candidateTree = parser.parse(candidate.parseSource, undefined, parseOptions) ?? null;
             if (!candidateTree) continue;
             const candidateDamage = measureParseDamage(
               candidateTree.rootNode,
@@ -1256,7 +1259,7 @@ export class TreeSitterExtractor {
             this.globalBodylessMacroNames ?? undefined,
           );
         }
-        this.tree = parser.parse(this.source) ?? null;
+        this.tree = parser.parse(this.source, undefined, parseOptions) ?? null;
       }
       if (!this.tree) {
         throw new Error('Parser returned null tree');
@@ -8653,7 +8656,7 @@ export class TreeSitterExtractor {
  * and files with an oversized directive also mask single-line definitions.
  * Keep physical source offsets and backslash-newline pairs intact.
  */
-function blankDefineBodyComments(source: string): string {
+function blankDefineBodyComments(source: string, excluded: SourceRange[]): string {
   if (!source.includes('/*') && !/\/\\\r?\n/.test(source)) return source;
 
   const OVERSIZED_DEFINE_CODE_UNITS = 8192;
@@ -8677,11 +8680,44 @@ function blankDefineBodyComments(source: string): string {
     continuesDefine = belongsToDefine && /\\[ \t]*\r?$/.test(raw);
   }
 
+  let out = '';
+  let retained = 0;
+  visitCommentedDefines(source, (_start, directiveEnd, continued, comments) => {
+    const spansLines = comments.some(comment => comment.multiline);
+    if (!maskAllDefines && !continued && !spansLines) return;
+    const last = comments[comments.length - 1]!;
+    const hasTrailingComment = spansLines &&
+      /^[ \t\v\f\r\n]*$/.test(source.slice(last.end, directiveEnd).replace(/\\\r?\n/g, ''));
+    for (const range of comments) {
+      // A whitespace-only body can make tree-sitter take the next declaration
+      // as the replacement. The two delimiter slashes form a terminal //
+      // in the parser view, covering exactly the remaining directive trivia.
+      if (range === last && hasTrailingComment) {
+        excluded.push({ start: range.start + 1, end: range.end - 1 });
+        continue;
+      }
+      const { start, end, multiline } = range;
+      const comment = source.slice(start, end);
+      out += source.slice(retained, start) + comment.replace(/[^\\\r\n]|\\(?!\r?\n)/g, ' ');
+      retained = end;
+      // Exposing the comment's internal newlines would end the directive.
+      // Skip its interior in the parser, retaining a separating space at
+      // each delimiter and the original coordinates on both sides.
+      if (multiline) excluded.push({ start: start + 1, end: end - 1 });
+    }
+  });
+  return retained ? out + source.slice(retained) : source;
+}
+
+/** Report closed block comments in each actual #define, with physical offsets
+ * through its terminating newline (or EOF). */
+function visitCommentedDefines(source: string, visit: (start: number, end: number, continued: boolean,
+  comments: readonly (SourceRange & { multiline: boolean })[]) => void): void {
   // C splices lines before tokenizing. Walk that logical spelling so a
   // continued // comment, a split delimiter or a quoted "/*" stays one token.
   const splices = /\\\r?\n/g;
   let nextSplice = splices.exec(source);
-  if (!maskAllDefines && !nextSplice) return source;
+  if (!nextSplice && !source.includes('define')) return;
   const logical = nextSplice ? source.replace(/\\\r?\n/g, '') : source;
   let removed = 0;
   const rawOffset = (offset: number): number => {
@@ -8694,23 +8730,16 @@ function blankDefineBodyComments(source: string): string {
     return offset + removed;
   };
 
-  let out = '';
-  let retained = 0;
   let atLineStart = true;
   let directiveHash = -1;
-  let inDefine = false;
+  let defineStart = -1;
   let firstSplice = Infinity;
-  const comments: SourceRange[] = [];
+  const comments: (SourceRange & { multiline: boolean })[] = [];
   const finishDirective = (end: number): void => {
-    if (maskAllDefines || firstSplice <= end) {
-      for (const { start, end: close } of comments) {
-        const comment = source.slice(start, close);
-        out += source.slice(retained, start) + comment.replace(/[^\\\r\n]|\\(?!\r?\n)/g, ' ');
-        retained = close;
-      }
-    }
+    if (comments.length) visit(defineStart, rawOffset(end) + (end < logical.length ? 1 : 0),
+      firstSplice <= end, comments);
     comments.length = 0;
-    inDefine = false;
+    defineStart = -1;
   };
 
   // Consume identifiers and preprocessing numbers as tokens. An apostrophe
@@ -8719,7 +8748,7 @@ function blankDefineBodyComments(source: string): string {
   for (let i = 0; i < logical.length;) {
     const c = logical[i]!;
     if (c === '\n') {
-      if (inDefine) finishDirective(i);
+      if (defineStart >= 0) finishDirective(i);
       atLineStart = true;
       directiveHash = -1;
       i++;
@@ -8738,11 +8767,11 @@ function blankDefineBodyComments(source: string): string {
       const close = logical.indexOf('*/', i + 2);
       if (close < 0) break;
       const end = close + 2;
-      // Keep comments containing unspliced newlines: erasing their delimiters
-      // would expose a newline and prematurely end the define. Its actual
-      // end (and first splice) may still lie after such a comment.
-      if (inDefine && !logical.slice(i, end).includes('\n')) {
-        comments.push({ start: rawOffset(i), end: rawOffset(end) });
+      if (defineStart >= 0) {
+        // The closing slash itself, so a splice immediately AFTER the comment
+        // stays outside the excluded range.
+        comments.push({ start: rawOffset(i), end: rawOffset(close + 1) + 1,
+          multiline: logical.slice(i, end).includes('\n') });
       }
       i = end;
       continue;
@@ -8756,9 +8785,8 @@ function blankDefineBodyComments(source: string): string {
     wordOrNumber.lastIndex = i;
     if (wordOrNumber.test(logical)) {
       if (directiveHash >= 0 && logical.slice(i, wordOrNumber.lastIndex) === 'define') {
-        rawOffset(directiveHash);
+        defineStart = rawOffset(directiveHash);
         firstSplice = nextSplice ? nextSplice.index - removed : Infinity;
-        inDefine = true;
       }
       directiveHash = -1;
       i = wordOrNumber.lastIndex;
@@ -8778,8 +8806,51 @@ function blankDefineBodyComments(source: string): string {
     i++;
   }
 
-  if (inDefine) finishDirective(logical.length);
-  return retained ? out + source.slice(retained) : source;
+  if (defineStart >= 0) finishDirective(logical.length);
+}
+
+/** Construct tree-sitter ranges in physical coordinates. Both offsets and
+ * columns use the UTF-16 units expected by web-tree-sitter. */
+function complementParseRanges(source: string, excluded: SourceRange[]): ParseRange[] {
+  let newline = source.indexOf('\n');
+  let row = 0;
+  let lineStart = 0;
+  const pointAt = (offset: number) => {
+    // Endpoints arrive in source order, so each physical newline is read once.
+    while (newline !== -1 && newline < offset) {
+      row++;
+      lineStart = newline + 1;
+      newline = source.indexOf('\n', lineStart);
+    }
+    return { row, column: offset - lineStart };
+  };
+  const ranges: ParseRange[] = [];
+  let startIndex = 0;
+  for (const gap of excluded) {
+    ranges.push({ startIndex, startPosition: pointAt(startIndex),
+      endIndex: gap.start, endPosition: pointAt(gap.start) });
+    startIndex = gap.end;
+  }
+  ranges.push({ startIndex, startPosition: pointAt(startIndex),
+    endIndex: source.length, endPosition: pointAt(source.length) });
+  return ranges;
+}
+
+/** Cheap screen for the pure-data path, whose common case has thousands of
+ * single-line comments. The lexer verifies any candidate, including strings
+ * and delimiters formed across splices. */
+function mayHaveMultilineBlockComment(source: string): boolean {
+  if (/\/\\\r?\n/.test(source)) return true;
+  let open = source.indexOf('/*');
+  while (open >= 0) {
+    const close = source.indexOf('*/', open + 2);
+    if (close < 0) return source.indexOf('\n', open) >= 0;
+    if (source.slice(open, close).includes('\n')) return true;
+    // Reconsider both possible overlapping starts: a delimiter seen in a
+    // string or line comment need not be the terminator of a real comment.
+    open = source.indexOf('/*', close - 1);
+  }
+  return false;
 }
 
 /**
@@ -8816,6 +8887,9 @@ function isPureMacroDataHeader(source: string): boolean {
   }
   if (preCount < 20) return false;
 
+  // The physical-line mask used by this shortcut cannot recognize comment
+  // delimiters joined by line splicing. Such files need the C lexical pass.
+  if (/(?:\/(?:\\\r?\n)+[*/]|\*(?:\\\r?\n)+\/)/.test(source)) return false;
   const masked = maskCStyleCommentsAndLiterals(source);
   // The mask is code-unit length-preserving, so raw and masked split into
   // the same line count and any masked index addresses raw identically.
@@ -8933,6 +9007,14 @@ function extractMacrosByRegex(
   // always begins at the directive's physical line start.
   const masked = maskCStyleCommentsAndLiterals(source);
   const re = /^[ \t]*#[ \t]*define[ \t]+([A-Za-z_]\w*)/gm;
+  // A newline inside a block comment is not the end of the definition.
+  // Keep the pure-data path and recover its complete source signature.
+  const multilineEnds = new Map<number, number>();
+  if (mayHaveMultilineBlockComment(source)) {
+    visitCommentedDefines(source, (start, end, _continued, comments) => {
+      if (comments.some(comment => comment.multiline)) multilineEnds.set(start, end);
+    });
+  }
   let m: RegExpExecArray | null;
   // exec() advances monotonically (the pattern always consumes at least one
   // character, so there is no zero-width match to worry about): count newlines
@@ -8953,10 +9035,11 @@ function extractMacrosByRegex(
     const startColumn = m[0]!.length - name.length;
     const lineEnd = masked.indexOf('\n', m.index);
     const lineEndIdx = lineEnd === -1 ? masked.length : lineEnd;
-    const signature = source
-      .slice(m.index, lineEndIdx)
-      .replace(/\\\s*$/, '')
-      .trimEnd();
+    const multilineEnd = multilineEnds.get(m.index + m[0].indexOf('#'));
+    const signature = multilineEnd === undefined
+      ? source.slice(m.index, lineEndIdx).replace(/\\\s*$/, '').trimEnd()
+      : source.slice(m.index, multilineEnd);
+    const lastNewline = signature.lastIndexOf('\n');
     const id = generateNodeId(filePath, 'macro', name, line);
     nodes.push({
       id,
@@ -8966,9 +9049,9 @@ function extractMacrosByRegex(
       filePath,
       language,
       startLine: line,
-      endLine: line,
+      endLine: multilineEnd === undefined ? line : line + (signature.match(/\n/g)?.length ?? 0),
       startColumn,
-      endColumn: startColumn + name.length,
+      endColumn: lastNewline < 0 ? startColumn + name.length : signature.length - lastNewline - 1,
       isExported: true,
       signature,
       updatedAt: Date.now(),

@@ -26,4 +26,6 @@
 // v44: Refresh continued C macros and following declarations. Both this
 // branch's v36 indexes and the original fix's v43 indexes must refresh when
 // switching to this branch's extraction behavior.
-export const EXTRACTION_VERSION = 44;
+// v45: Restore C macros with multiline replacement-list comments and refresh
+// C++ overload edges affected by comments in source-spelled macro signatures.
+export const EXTRACTION_VERSION = 45;
