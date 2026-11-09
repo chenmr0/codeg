@@ -70,7 +70,7 @@ const skipped = (r: ReturnType<typeof extractFromSource>) =>
 
 /** Assert the first parser input before entering a potentially pathological
  * synchronous parse. A missing F transform must fail, not hang the suite. */
-function extractWithExpectedParseSource(source: string, expected: string) {
+function extractWithExpectedParseSource(source: string, expected: string, filePath = 'specmodedef.h') {
   const parser = getParser('c')!;
   const parse = parser.parse.bind(parser);
   const guard = vi.spyOn(parser, 'parse').mockImplementation((...args) => {
@@ -80,7 +80,7 @@ function extractWithExpectedParseSource(source: string, expected: string) {
     return parse(...args);
   });
   try {
-    const result = extractFromSource('specmodedef.h', source, 'c');
+    const result = extractFromSource(filePath, source, 'c');
     expect(guard).toHaveBeenCalled();
     // Compare as a boolean to avoid printing a huge fixture on failure.
     expect(guard.mock.calls[0]?.[0] === expected).toBe(true);
@@ -477,6 +477,69 @@ describe('pure-macro data header fast path', () => {
     expect(m100?.signature).toBe('#define M100 "text; /* weird */"');
   });
 
+  it.each(['\n', '\r\n'])('masks block comments only in short continued macros of a mixed C file (%j)', (newline) => {
+    const lines = ['#define SCALE 1 /* keep this single-line macro comment */', 'static const char *label = "/* quoted */";'];
+    const tables = Array.from({ length: 7 }, (_, i) => 'TABLE_' + i);
+    for (const [i, name] of tables.entries()) {
+      const headerComment = i < 2 ? ' /* row header */' : '';
+      lines.push(
+        '#define ' + name + headerComment + ' \\',
+        '  { 1, /* row value */ 2, 0 }, \\',
+        '  { 3, /* row tail */ 4, 50 }',
+      );
+    }
+    lines.push('/* keep outside the macros */', 'int live;', '');
+    const src = lines.join(newline);
+    const expected = src.replace(/\/\* row \w+ \*\//g, (comment) => ' '.repeat(comment.length));
+    const r = extractWithExpectedParseSource(src, expected, 'config.c');
+
+    expect(r.errors).toEqual([]);
+    expect(macroNames(r).map((n) => n.name)).toEqual(['SCALE', ...tables]);
+    expect(macroNames(r).find((n) => n.name === 'TABLE_0')?.signature)
+      .toBe(src.slice(src.indexOf('#define TABLE_0'), src.indexOf('#define TABLE_1')));
+    expect(r.nodes.find((n) => n.name === 'live')).toMatchObject({
+      kind: 'variable',
+      startLine: lines.indexOf('int live;') + 1,
+    });
+  });
+
+  it.each(['\n', '\r\n'])('preserves splices inside macro comments and ignores directives hidden by // (%j)', (newline) => {
+    const lines = [
+      '// ignore this example \\',
+      '#define HIDDEN /* keep this */ \\',
+      '  /* also untouched */ 0',
+      '\t#\tdefine TABLE \\',
+      '\t/* crop \\',
+      'second half */ \\',
+      '\t{ /* later */ 2 }',
+      'int after;',
+      '',
+    ];
+    const src = lines.join(newline);
+    const expected = src.replace(/\/\* crop |second half \*\/|\/\* later \*\//g,
+      (part) => ' '.repeat(part.length));
+    const r = extractWithExpectedParseSource(src, expected, 'spliced.c');
+    expect(macroNames(r).map((n) => n.name)).toEqual(['TABLE']);
+    expect(macroNames(r)[0]?.signature).toBe(src.slice(src.indexOf('#\tdefine'), src.indexOf('int after;')));
+    expect(r.nodes.find((n) => n.name === 'after')).toMatchObject({ kind: 'variable', startLine: 8 });
+  });
+
+  it.each([
+    ['an unspliced comment before the first splice',
+      ['#define TABLE /* keep this', '   header comment */ \\', '  { 1, /* mask */ 2 }']],
+    ['a C23 digit separator next to a character literal',
+      ['#define TABLE \\', "  { u8'1', 1'000 /* mask */ }"]],
+  ] as const)('masks a continued macro body after %s', (_label, directive) => {
+    const lines = [...directive, 'int after;', ''];
+    const src = lines.join('\n');
+    const expected = src.replace('/* mask */', ' '.repeat('/* mask */'.length));
+    const r = extractWithExpectedParseSource(src, expected, 'table.c');
+    expect(macroNames(r).map((n) => n.name)).toEqual(['TABLE']);
+    expect(r.nodes.find((n) => n.name === 'after')).toMatchObject({
+      kind: 'variable', startLine: directive.length + 1,
+    });
+  });
+
   it.each([
     ['LF', 20, false, '\n'],
     ['LF with a following small macro', 20, true, '\n'],
@@ -537,6 +600,7 @@ describe('pure-macro data header fast path', () => {
     ['LF at EOF', '\n', 8192, true],
     ['CRLF at EOF', '\r\n', 8192, true],
   ] as const)('counts the final non-continued macro body line: %s', (_label, newline, size, atEof) => {
+    const singleLineComment = '/* independent */';
     const header = '#define TABLE \\';
     const comment = '/* table row */';
     const continued = `  ${comment} \\`;
@@ -547,11 +611,13 @@ describe('pure-macro data header fast path', () => {
     // Threshold units exclude line terminators. Almost all of the size is
     // in the final line, which intentionally has NO trailing backslash.
     expect(header.length + continued.length + tail.length).toBe(size);
-    const src = [header, continued, tail, ...(atEof ? [] : ['int live;', ''])].join(newline);
-    const expected = size >= 8192 ? src.replace(comment, ' '.repeat(comment.length)) : src;
+    const src = ['#define SMALL 1 ' + singleLineComment, header, continued, tail, ...(atEof ? [] : ['int live;', ''])].join(newline);
+    // Only the oversized directive qualifies the whole file, including SMALL.
+    let expected = src.replace(comment, ' '.repeat(comment.length));
+    if (size >= 8192) expected = expected.replace(singleLineComment, ' '.repeat(singleLineComment.length));
     const r = extractWithExpectedParseSource(src, expected);
     expect(skipped(r)).toBe(false);
-    expect(macroNames(r).map((n) => n.name)).toEqual(['TABLE']);
+    expect(macroNames(r).map((n) => n.name)).toEqual(['SMALL', 'TABLE']);
     if (!atEof) expect(r.nodes.some((n) => n.name === 'live')).toBe(true);
   });
 
@@ -566,7 +632,7 @@ describe('pure-macro data header fast path', () => {
 
   it('does not add together separate sub-threshold macros', () => {
     const src = ['FIRST', 'SECOND'].map((name) =>
-      `#define ${name} \\\n  /* keep */ ${' '.repeat(5000)}1\n`,
+      `#define ${name} /* keep */ ${' '.repeat(5000)}1\n`,
     ).join('') + 'int live;\n';
     expect(src.length).toBeGreaterThan(8192);
     const r = extractWithExpectedParseSource(src, src);

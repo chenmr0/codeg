@@ -1122,13 +1122,7 @@ export class TreeSitterExtractor {
         this.xMacroConstructs = xmacro.constructs;
       }
 
-      // Controlled plan F (C only): a define-dense header that did NOT take
-      // the pure-macro fast path (mixed macro table + real declarations)
-      // blanked the block comments inside its #define bodies before parsing —
-      // they are what drives tree-sitter-c into the O(n²) error recovery that
-      // times out syncs and collapses the tree. Length-preserving, so node
-      // offsets stay valid; comments outside directives are untouched. See
-      // blankDefineBodyComments for the full rationale and semantics.
+      // Keep C data macros intact in the tree used for symbol extraction.
       if (this.language === 'c') {
         this.source = blankDefineBodyComments(this.source);
       }
@@ -3280,7 +3274,10 @@ export class TreeSitterExtractor {
     const name = getNodeText(nameNode, this.source);
     if (!name) return;
 
-    const signature = this.source.substring(node.startIndex, node.endIndex);
+    // C macro comments may be masked in the parser input. Its offsets still
+    // address the complete, source-spelled definition used for display.
+    const signatureSource = this.language === 'c' ? this.originalSource : this.source;
+    const signature = signatureSource.substring(node.startIndex, node.endIndex);
 
     this.createNode('macro', name, node, {
       signature,
@@ -8650,207 +8647,139 @@ export class TreeSitterExtractor {
  * CODEGRAPH_FORCE_PARSE=1 forces the normal parse path.
  */
 /**
- * Controlled plan F: blank block comments that live INSIDE `#define`
- * directives (the directive's own logical line, including its spliced
- * continuation lines) before the parse, for C files the pure-macro fast path
- * did not take (mixed headers: data macros plus real declarations). Macro
- * bodies carrying inline block comments drive tree-sitter-c into ~O(n²)
- * error recovery and the tree collapses (measured: a 105KB mixed header
- * parsed 17.3s and kept 3 of 100+ macros; after blanking, milliseconds and
- * everything kept). A comment is equivalent to whitespace in real cpp
- * semantics, so the transform cannot change what directives mean — only what
- * tree-sitter's approximate preprocessor scanner sees.
- *
- * A SINGLE character-level scan over the original source keeps one global
- * lexical state (block comments, string/char literals, logical-line starts,
- * splicing). Line-by-line classification was tried and wrongly blanked the
- * closing `*\/` of a comment opened OUTSIDE a directive — destroying the
- * comment boundary and swallowing every symbol after it. Now a comment is
- * blanked only when it OPENS while the scanner is genuinely inside a #define
- * logical line; comments opened elsewhere — even when they close on a
- * directive-shaped line — are left byte-for-byte alone.
- *
- * Continuation follows real cpp splicing (GCC initial processing): a backslash
- * continues the logical line only when it IMMEDIATELY precedes the newline —
- * a backslash-then-comment line ending is NOT a continuation, because
- * splicing happens before comments are removed. Blank a comment does not
- * change any continuation decision; it only removes comment content that the
- * scanner mishandles. A comment opened inside a directive that spans lines
- * kills the directive (its opening line had no immediately-preceding-newline
- * backslash), so the in-directive state is dropped at the comment's close.
- * `#define` inside comments or string literals is never a directive.
- *
- * Comments outside directives (real code) are never touched. Macro signatures
- * lose their in-body comments on this path — `originalSource` still holds the
- * full bytes. Returns the input string unchanged when the file has no
- * define-dense directive-body comments.
+ * Inline block comments in continued data macros can collapse the C parse
+ * tree, making symbol extraction expensive and losing subsequent macros.
+ * Mask comments in those directives even in small files. Define-dense files
+ * and files with an oversized directive also mask single-line definitions.
+ * Keep physical source offsets and backslash-newline pairs intact.
  */
 function blankDefineBodyComments(source: string): string {
-  // Same cheap pre-filter as the fast path, widened for single-table files:
-  // a header can hold ONE giant data macro instead of many — measured, a
-  // single ~11KB backslash-continued body (extern "C" + lint pragmas around
-  // it) parses for 17.5s with a collapsed tree, and blanking its in-body
-  // comments restores milliseconds. Qualify when the file has >= 20 #define
-  // lines OR any single #define directive (its own line plus its continued
-  // lines) reaches the size threshold. Continuation is judged loosely here
-  // (trailing blanks after the backslash allowed): the pre-filter may only
-  // over-trigger, and a triggered scan that finds nothing returns the source
-  // unchanged.
-  // Count UTF-16 code units excluding line terminators, not UTF-8 bytes.
+  if (!source.includes('/*') && !/\/\\\r?\n/.test(source)) return source;
+
   const OVERSIZED_DEFINE_CODE_UNITS = 8192;
   let defineLines = 0;
   let continuesDefine = false;
   let directiveSize = 0;
-  let hasOversizedDefine = false;
+  let maskAllDefines = false;
   for (const raw of source.split(/\r?\n/)) {
     const isDefineLine = /^\s*#\s*define\b/.test(raw);
     if (isDefineLine) defineLines++;
-    // Membership comes from the PREVIOUS line's continuation. Include the
-    // final body line even when it has no backslash, and never accumulate
-    // unrelated rows after a completed directive. A define-looking line in
-    // a continued body also must not reset that body's size.
     const belongsToDefine: boolean = continuesDefine || isDefineLine;
     directiveSize = continuesDefine
       ? directiveSize + raw.length
       : isDefineLine ? raw.length : 0;
-    if (belongsToDefine && directiveSize >= OVERSIZED_DEFINE_CODE_UNITS) {
-      hasOversizedDefine = true;
+    if (defineLines >= 20 || directiveSize >= OVERSIZED_DEFINE_CODE_UNITS) {
+      maskAllDefines = true;
+      break;
     }
+    // Keep the historical, permissive size estimate, including the final
+    // body line. The lexer below uses only actual splices for masking.
     continuesDefine = belongsToDefine && /\\[ \t]*\r?$/.test(raw);
-    // Qualification is file-wide: a subsequent small #define cannot undo
-    // it. No further pre-filter work is needed once either gate is met.
-    if (defineLines >= 20 || hasOversizedDefine) break;
   }
-  if (defineLines < 20 && !hasOversizedDefine) return source;
 
-  let out = '';
-  let codeStart = 0;
-  let i = 0;
-  let inDefine = false;          // scanner is inside a #define logical line
-  let atLogicalLineStart = true;  // scanner is at a (spliced) logical-line head
-  let inBlockComment = false;     // a block comment is open (opened ANYWHERE)
-  let commentStart = -1;
-  let commentOpenedInDefine = false;
-  let commentSpannedLines = false;
-  let literal: string | null = null;
-  let changed = false;
-
-  const appendMasked = (start: number, end: number): void => {
-    out += source.slice(codeStart, start);
-    out += source.slice(start, end).replace(/[^\r\n]/g, ' ');
-    codeStart = end;
-    changed = true;
+  // C splices lines before tokenizing. Walk that logical spelling so a
+  // continued // comment, a split delimiter or a quoted "/*" stays one token.
+  const splices = /\\\r?\n/g;
+  let nextSplice = splices.exec(source);
+  if (!maskAllDefines && !nextSplice) return source;
+  const logical = nextSplice ? source.replace(/\\\r?\n/g, '') : source;
+  let removed = 0;
+  const rawOffset = (offset: number): number => {
+    // Callers walk forwards. Consume each splice once when mapping a
+    // directive start or a masked comment back to physical source offsets.
+    while (nextSplice && nextSplice.index - removed <= offset) {
+      removed += nextSplice[0].length;
+      nextSplice = splices.exec(source);
+    }
+    return offset + removed;
   };
 
-  while (i < source.length) {
-    const c = source[i]!;
-
-    if (inBlockComment) {
-      if (c === '*' && source[i + 1] === '/') {
-        const end = i + 2;
-        if (commentOpenedInDefine) {
-          appendMasked(commentStart, end);
-          // A directive-body comment that spans lines means the opening line
-          // had no splicing backslash at its end — the directive died there.
-          if (commentSpannedLines) inDefine = false;
-        }
-        inBlockComment = false;
-        commentOpenedInDefine = false;
-        commentSpannedLines = false;
-        i = end;
-        continue;
+  let out = '';
+  let retained = 0;
+  let atLineStart = true;
+  let directiveHash = -1;
+  let inDefine = false;
+  let firstSplice = Infinity;
+  const comments: SourceRange[] = [];
+  const finishDirective = (end: number): void => {
+    if (maskAllDefines || firstSplice <= end) {
+      for (const { start, end: close } of comments) {
+        const comment = source.slice(start, close);
+        out += source.slice(retained, start) + comment.replace(/[^\\\r\n]|\\(?!\r?\n)/g, ' ');
+        retained = close;
       }
-      if (c === '\n') commentSpannedLines = true;
-      i++;
-      continue;
     }
+    comments.length = 0;
+    inDefine = false;
+  };
 
-    if (atLogicalLineStart && !inDefine) {
-      // Detect a directive at the logical-line head: blanks, `#`, blanks,
-      // `define`, word boundary. Comments and literals never reach here —
-      // their content is consumed by the states below — so a `#define` inside
-      // a comment or string cannot start a directive.
-      let j = i;
-      while (source[j] === ' ' || source[j] === '\t' || source[j] === '\r') j++;
-      if (source[j] === '#') {
-        let k = j + 1;
-        while (source[k] === ' ' || source[k] === '\t') k++;
-        if (
-          source.startsWith('define', k) &&
-          !/[A-Za-z0-9_]/.test(source[k + 6] ?? '')
-        ) {
-          inDefine = true;
-        }
-      }
-      atLogicalLineStart = false;
-      continue; // rescan the same offset in normal token mode
-    }
-
-    if (literal !== null) {
-      if (c === '\\') {
-        i += 2;
-        continue;
-      }
-      if (c === literal) literal = null;
-      else if (c === '\n') literal = null; // literals do not span lines
-      i++;
-      continue;
-    }
-
-    if (c === '"' || c === "'") {
-      literal = c;
-      i++;
-      continue;
-    }
-
-    if (c === '/' && source[i + 1] === '/') {
-      // Line comment: skip to end of line, keep verbatim (line comments are
-      // not part of the observed pathology).
-      const nl = source.indexOf('\n', i);
-      i = nl === -1 ? source.length : nl;
-      continue;
-    }
-
-    if (c === '/' && source[i + 1] === '*') {
-      inBlockComment = true;
-      commentStart = i;
-      commentOpenedInDefine = inDefine; // capture the state AT OPEN time
-      commentSpannedLines = false;
-      i += 2;
-      continue;
-    }
-
-    if (c === '\\') {
-      // Real cpp splicing: the backslash must immediately precede the
-      // newline. Anything between the backslash and the newline — including a
-      // comment — breaks the continuation, and the logical line ends at the
-      // upcoming newline.
-      if (source[i + 1] === '\n') {
-        i += 2;
-        continue; // logical line continues (inDefine stays)
-      }
-      if (source[i + 1] === '\r' && source[i + 2] === '\n') {
-        i += 3;
-        continue;
-      }
-      i++;
-      continue;
-    }
-
+  // Consume identifiers and preprocessing numbers as tokens. An apostrophe
+  // inside a C23 number (1'000, 0xF'F) does not start a character literal.
+  const wordOrNumber = /[A-Za-z_$\u0080-\uFFFF][\w$\u0080-\uFFFF]*|(?:\d|\.\d)(?:[eEpP][+-]|[\w.]|'[\w])*/y;
+  for (let i = 0; i < logical.length;) {
+    const c = logical[i]!;
     if (c === '\n') {
-      // Physical line end without a splicing backslash: logical line over.
-      inDefine = false;
-      atLogicalLineStart = true;
+      if (inDefine) finishDirective(i);
+      atLineStart = true;
+      directiveHash = -1;
       i++;
       continue;
     }
-
+    if (c === ' ' || c === '\t' || c === '\r' || c === '\v' || c === '\f' || (i === 0 && c === '\uFEFF')) {
+      i++;
+      continue;
+    }
+    if (logical.startsWith('//', i)) {
+      const newline = logical.indexOf('\n', i + 2);
+      i = newline < 0 ? logical.length : newline;
+      continue;
+    }
+    if (logical.startsWith('/*', i)) {
+      const close = logical.indexOf('*/', i + 2);
+      if (close < 0) break;
+      const end = close + 2;
+      // Keep comments containing unspliced newlines: erasing their delimiters
+      // would expose a newline and prematurely end the define. Its actual
+      // end (and first splice) may still lie after such a comment.
+      if (inDefine && !logical.slice(i, end).includes('\n')) {
+        comments.push({ start: rawOffset(i), end: rawOffset(end) });
+      }
+      i = end;
+      continue;
+    }
+    if (atLineStart && c === '#') {
+      atLineStart = false;
+      directiveHash = i++;
+      continue;
+    }
+    atLineStart = false;
+    wordOrNumber.lastIndex = i;
+    if (wordOrNumber.test(logical)) {
+      if (directiveHash >= 0 && logical.slice(i, wordOrNumber.lastIndex) === 'define') {
+        rawOffset(directiveHash);
+        firstSplice = nextSplice ? nextSplice.index - removed : Infinity;
+        inDefine = true;
+      }
+      directiveHash = -1;
+      i = wordOrNumber.lastIndex;
+      continue;
+    }
+    directiveHash = -1;
+    if (c === '"' || c === "'") {
+      const quote = c;
+      i++;
+      while (i < logical.length && logical[i] !== '\n') {
+        const ch = logical[i++]!;
+        if (ch === quote) break;
+        if (ch === '\\') i++;
+      }
+      continue;
+    }
     i++;
   }
 
-  if (!changed) return source;
-  out += source.slice(codeStart);
-  return out;
+  if (inDefine) finishDirective(logical.length);
+  return retained ? out + source.slice(retained) : source;
 }
 
 /**
