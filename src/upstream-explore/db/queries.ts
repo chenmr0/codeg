@@ -402,7 +402,11 @@ export class QueryBuilder {
     getDistinctNodeNamesFirst?: SqliteStatement;
     getDistinctNodeNamesAfter?: SqliteStatement;
     getDominantFile?: SqliteStatement;
+    getNodeAndEdgeCount?: SqliteStatement;
     getDominantFileSourceFirst?: SqliteStatement;
+    dominantFilePlan?: SqliteStatement;
+    dominantFilePaths?: SqliteStatement;
+    dominantFileCount?: SqliteStatement;
     getChangeStamp?: SqliteStatement;
     getTopRouteFile?: SqliteStatement;
     getRoutingManifest?: SqliteStatement;
@@ -1352,6 +1356,67 @@ export class QueryBuilder {
   }
 
   private computeDominantFileCandidates(): Array<{ file_path: string; edge_count: number }> {
+    // The per-file counts and any tie-break query must see one graph, even
+    // when an external sync commits between files. A read-only savepoint also
+    // composes with a caller's BEGIN or SAVEPOINT.
+    this.db.exec('SAVEPOINT explore_dominant_counts');
+    try {
+      const rows = this.fileLocalDominantCounts() ?? this.sourceFirstDominantCounts();
+      if (!rows.some((row, i) => i > 0 && row.edge_count === rows[i - 1]!.edge_count)) return rows.slice(0, 20);
+      // The original ORDER BY has no secondary key. Only it can reproduce its
+      // observed tie order, including a tie across the 20/21 boundary.
+      this.stmts.getDominantFile ??= this.db.prepare(`
+        SELECT n.file_path AS file_path, COUNT(*) AS edge_count
+        FROM edges e
+        JOIN nodes n ON e.source = n.id
+        JOIN nodes m ON e.target = m.id
+        WHERE n.file_path = m.file_path
+        GROUP BY n.file_path
+        ORDER BY edge_count DESC
+        LIMIT 20
+      `);
+      return this.stmts.getDominantFile.all() as Array<{ file_path: string; edge_count: number }>;
+    } finally {
+      this.db.exec('RELEASE explore_dominant_counts');
+    }
+  }
+
+  private fileLocalDominantCounts(): Array<{ file_path: string; edge_count: number }> | undefined {
+    // With fewer edges than nodes, file membership sets and per-file queries
+    // can cost more than the target lookups they replace. This only selects
+    // a counting plan; both plans count the same graph.
+    const size = this.getNodeAndEdgeCount();
+    if (size.edges < size.nodes) return undefined;
+    const sql = `
+      WITH members(id) AS (SELECT id FROM nodes WHERE file_path = CAST(@fileKey AS TEXT))
+      SELECT COUNT(*) AS edge_count
+      FROM members n CROSS JOIN edges e ON e.source = n.id
+      WHERE (e.target IN (SELECT id FROM members)) IS TRUE
+    `;
+    // IS TRUE keeps IN a membership test: probing the edge index for every
+    // (source, possible target) pair would be quadratic in a large file.
+    // Without indexed probes, repeating the statement for each file could
+    // scan the whole graph repeatedly. Keep the set-based join in that case.
+    this.stmts.dominantFilePlan ??= this.db.prepare('EXPLAIN QUERY PLAN ' + sql);
+    const plan = this.stmts.dominantFilePlan.all({ fileKey: Buffer.alloc(0) }) as Array<{ detail: string }>;
+    const indexedMembers = plan.some(row => /^SEARCH (?:TABLE )?nodes USING (?:COVERING )?INDEX .+ \(file_path=\?\)$/.test(row.detail));
+    const indexedEdges = plan.some(row => /^SEARCH (?:TABLE edges AS )?e USING (?:COVERING )?INDEX .+ \(source=\?\)$/.test(row.detail));
+    if (!indexedMembers || !indexedEdges) return undefined;
+
+    const count = this.stmts.dominantFileCount ??= this.db.prepare(sql);
+    // Return the same TEXT value as the old query, but bind the original
+    // bytes for the lookup (some drivers truncate TEXT reads at NUL).
+    const files = this.stmts.dominantFilePaths ??= this.db.prepare(`SELECT file_path, CAST(file_path AS BLOB) AS path_key
+      FROM nodes WHERE file_path IS NOT NULL GROUP BY file_path`);
+    const rows: Array<{ file_path: string; edge_count: number }> = [];
+    for (const { file_path, path_key } of files.all()) {
+      const { edge_count } = count.get({ fileKey: path_key });
+      if (edge_count > 0) rows.push({ file_path, edge_count });
+    }
+    return rows.sort((a, b) => b.edge_count - a.edge_count).slice(0, 21);
+  }
+
+  private sourceFirstDominantCounts(): Array<{ file_path: string; edge_count: number }> {
     if (!this.stmts.getDominantFileSourceFirst) {
       // Pull top 20 candidates; we then filter out test/generated files
       // in code (regex-grade matching that SQL LIKE can't express). The
@@ -1379,26 +1444,7 @@ export class QueryBuilder {
         LIMIT 21
       `);
     }
-    const rows = this.stmts.getDominantFileSourceFirst.all() as Array<{ file_path: string; edge_count: number }>;
-    // The original ORDER BY deliberately has no secondary key. A join-plan
-    // change can reorder equal counts or choose different files at LIMIT 20.
-    // Preserve its observed result by using the exact original query whenever
-    // such a tie could affect the returned candidates. For distinct counts,
-    // the first 20 are uniquely ranked and need no second graph scan.
-    if (!rows.some((row, i) => i > 0 && row.edge_count === rows[i - 1]!.edge_count)) return rows.slice(0, 20);
-    if (!this.stmts.getDominantFile) {
-      this.stmts.getDominantFile = this.db.prepare(`
-        SELECT n.file_path AS file_path, COUNT(*) AS edge_count
-        FROM edges e
-        JOIN nodes n ON e.source = n.id
-        JOIN nodes m ON e.target = m.id
-        WHERE n.file_path = m.file_path
-        GROUP BY n.file_path
-        ORDER BY edge_count DESC
-        LIMIT 20
-      `);
-    }
-    return this.stmts.getDominantFile.all() as Array<{ file_path: string; edge_count: number }>;
+    return this.stmts.getDominantFileSourceFirst.all() as Array<{ file_path: string; edge_count: number }>;
   }
 
   /**
@@ -4325,9 +4371,10 @@ export class QueryBuilder {
    * the edge count (resolution + synthesizer edges were invisible).
    */
   getNodeAndEdgeCount(): { nodes: number; edges: number } {
-    return this.db
-      .prepare('SELECT (SELECT COUNT(*) FROM nodes) AS nodes, (SELECT COUNT(*) FROM edges) AS edges')
-      .get() as { nodes: number; edges: number };
+    this.stmts.getNodeAndEdgeCount ??= this.db.prepare(
+      'SELECT (SELECT COUNT(*) FROM nodes) AS nodes, (SELECT COUNT(*) FROM edges) AS edges'
+    );
+    return this.stmts.getNodeAndEdgeCount.get() as { nodes: number; edges: number };
   }
 
   /**

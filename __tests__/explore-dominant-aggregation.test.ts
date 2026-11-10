@@ -93,6 +93,81 @@ describe('dominant file aggregation preserves the original edge-count contract',
     expect(f.queries.getDominantFile()).toEqual({ filePath: 'src/small.ts', edgeCount: 20, nextEdgeCount: 0 });
   });
 
+  it('counts distinct file keys even when the TEXT reader truncates an embedded NUL', () => {
+    const f = fixture();
+    for (const [id, file, edges] of [['a', '目录\0a', 32], ['b', '目录\0b', 23]] as const) {
+      f.addNode(id, file);
+      for (let i = 0; i < edges; i++) f.addEdge(id, id);
+    }
+    f.addEdge('a', 'b');
+    const expected = f.original();
+    expect(expected.map(r => r.edge_count)).toEqual([32, 23]);
+    expect(f.raw()).toEqual(expected);
+  });
+
+  it('uses the single join on sparse graphs instead of probing every file', () => {
+    const f = fixture();
+    for (let i = 0; i < 100; i++) f.addNode('node' + i, 'file' + i);
+    f.addEdge('node0', 'node0');
+    const prepare = vi.spyOn(f.db, 'prepare');
+    expect(f.raw()).toEqual(f.original());
+    expect(prepare.mock.calls.some(([sql]) => sql.includes('WITH members'))).toBe(false);
+  });
+
+  it('uses one read snapshot for all files across an external WAL commit', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cg-dominant-snapshot-')); roots.push(root);
+    const dbPath = path.join(root, 'graph.db');
+    const f = fixture(true, createDatabase(dbPath).db);
+    f.db.pragma('journal_mode=WAL');
+    f.addNode('a', 'first'); f.addNode('b', 'second');
+    f.addEdge('a', 'a'); f.addEdge('b', 'b');
+    const before = f.original();
+    const writer = createDatabase(dbPath).db; connections.push(writer);
+    const prepare = f.db.prepare.bind(f.db);
+    let wrote = false;
+    vi.spyOn(f.db, 'prepare').mockImplementation(sql => {
+      const statement = prepare(sql);
+      if (sql.trimStart().startsWith('WITH members')) {
+        const get = statement.get.bind(statement);
+        statement.get = (...args) => {
+          const row = get(...args);
+          if (!wrote) {
+            writer.exec("INSERT INTO edges(source,target) VALUES ('b','b')");
+            wrote = true;
+          }
+          return row;
+        };
+      }
+      return statement;
+    });
+    expect(f.raw()).toEqual(before); // Includes the original SQL tie-break.
+    expect(wrote).toBe(true);
+    expect(f.raw()).toEqual(f.original());
+    expect(f.raw()[0]!.edge_count).toBe(2);
+  });
+
+  it('releases its own read savepoint on failure and leaves the caller transaction usable', () => {
+    const f = fixture();
+    f.addNode('n', 'file'); f.addEdge('n', 'n');
+    const prepare = f.db.prepare.bind(f.db);
+    const spy = vi.spyOn(f.db, 'prepare').mockImplementation(sql => {
+      const statement = prepare(sql);
+      if (sql.trimStart().startsWith('WITH members')) {
+        vi.spyOn(statement, 'get').mockImplementationOnce(() => { throw new Error('count interrupted'); });
+      }
+      return statement;
+    });
+    f.db.exec('BEGIN');
+    expect(f.raw).toThrow('count interrupted');
+    expect(f.db.inTransaction).toBe(true);
+    expect(() => f.db.exec('RELEASE explore_dominant_counts')).toThrow(/no such savepoint/i);
+    spy.mockRestore();
+    f.addEdge('n', 'n');
+    expect(f.raw()[0]!.edge_count).toBe(2);
+    f.db.exec('ROLLBACK');
+    expect(f.raw()[0]!.edge_count).toBe(1);
+  });
+
   it.each(['inside', 'boundary', 'after'] as const)('only falls back for ties that can affect the top 20 (%s)', location => {
     const f = fixture();
     const counts = Array.from({ length: 25 }, (_, i) => 70 - i);
@@ -105,10 +180,10 @@ describe('dominant file aggregation preserves the original edge-count contract',
     const expected = f.original();
     const prepare = vi.spyOn(f.db, 'prepare');
     expect(f.raw()).toEqual(expected);
-    const aggregateSql = prepare.mock.calls.map(([sql]) => sql).filter(sql => /COUNT\(\*\) AS edge_count/.test(sql));
+    const aggregateSql = prepare.mock.calls.map(([sql]) => sql).filter(sql => !sql.startsWith('EXPLAIN') && /COUNT\(\*\) AS edge_count/.test(sql));
     expect(aggregateSql).toHaveLength(location === 'after' ? 1 : 2);
     expect(aggregateSql[0]).toMatch(/CROSS JOIN/);
-    expect(aggregateSql[0]).toMatch(/LIMIT 21/);
+    expect(aggregateSql[0]).toContain('WITH members');
     if (location !== 'after') expect(aggregateSql[1]!.replace(/\s+/g, ' ').trim()).toBe(ORIGINAL.replace(/\s+/g, ' ').trim());
   });
 
@@ -179,8 +254,8 @@ describe('dominant file aggregation preserves the original edge-count contract',
     }
     const prepare = vi.spyOn(f.db, 'prepare');
     expect(f.raw()).toEqual(f.original());
-    const fastSql = prepare.mock.calls.find(([sql]) => /CROSS JOIN edges/.test(sql))![0];
-    const plan = f.db.prepare(`EXPLAIN QUERY PLAN ${fastSql}`).all() as Array<{ detail: string }>;
+    const fastSql = prepare.mock.calls.find(([sql]) => !sql.startsWith('EXPLAIN') && /CROSS JOIN edges/.test(sql))![0];
+    const plan = f.db.prepare(`EXPLAIN QUERY PLAN ${fastSql}`).all(...(fastSql.includes('@fileKey') ? [{ fileKey: Buffer.alloc(0) }] : [])) as Array<{ detail: string }>;
     expect(plan.map(row => row.detail)).toEqual(expect.arrayContaining([
       expect.stringMatching(/SEARCH (?:TABLE edges AS )?e USING COVERING INDEX idx_edges_identity \(source=\?\)/),
     ]));

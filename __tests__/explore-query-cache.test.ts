@@ -45,14 +45,15 @@ async function fixture(body = 'export function loadOrder() { return saveOrder();
 
 function observe(db: SqliteDatabase) {
   const counts = { dominant: 0, nodePreparations: 0 };
+  const exec = db.exec.bind(db);
+  vi.spyOn(db, 'exec').mockImplementation(sql => {
+    if (sql === 'SAVEPOINT explore_dominant_counts') counts.dominant++;
+    return exec(sql);
+  });
   const prepare = db.prepare.bind(db);
   vi.spyOn(db, 'prepare').mockImplementation(sql => {
     const stmt = prepare(sql);
     if (sql === 'SELECT * FROM nodes WHERE id = ?') counts.nodePreparations++;
-    if (/GROUP BY n\.file_path/.test(sql) && /COUNT\(\*\) AS edge_count/.test(sql)) {
-      const all = stmt.all.bind(stmt);
-      stmt.all = (...args) => { counts.dominant++; return all(...args); };
-    }
     return stmt;
   });
   return counts;
