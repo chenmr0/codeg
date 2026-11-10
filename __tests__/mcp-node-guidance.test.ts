@@ -142,7 +142,7 @@ describe('MCP codegraph_node context-budget guidance', () => {
     const permissions = getCodeGraphPermissions();
     expect(permissions).toContain('mcp__codegraph__context');
     expect(permissions).toContain('mcp__codegraph__text_search');
-    expect(permissions).not.toContain('mcp__codegraph__explore');
+    expect(permissions).toContain('mcp__codegraph__explore');
     expect(permissions.some((permission) => permission.startsWith('mcp__codegraph__codegraph_'))).toBe(false);
   });
 

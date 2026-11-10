@@ -3,11 +3,10 @@
  * exposed MCP tool surface without touching the client config. Inert when unset.
  * Filtering happens in ListTools (getTools) and is enforced again on execute().
  *
- * codegraph_explore is disabled by default; set CODEGRAPH_ENABLE_EXPLORE=1 to
- * include it in the surface.
+ * Explore is available by default and can be explicitly disabled.
  */
 import { describe, it, expect, afterEach } from 'vitest';
-import { ToolHandler } from '../src/mcp/tools';
+import { getStaticTools, ToolHandler } from '../src/mcp/tools';
 
 const ENV = 'CODEGRAPH_MCP_TOOLS';
 const EXPLORE_ENV = 'CODEGRAPH_ENABLE_EXPLORE';
@@ -24,12 +23,12 @@ describe('CODEGRAPH_MCP_TOOLS allowlist', () => {
 
   const listed = () => new ToolHandler(null).getTools().map(t => t.name).sort();
 
-  // --- explore disabled by default (CODEGRAPH_ENABLE_EXPLORE unset) ---
-
-  it('does not expose codegraph_explore by default', () => {
+  it('lists explore by default in static and dynamic discovery', () => {
     delete process.env[ENV];
+    delete process.env[EXPLORE_ENV];
     const all = listed();
-    expect(all).not.toContain('explore');
+    expect(all).toContain('explore');
+    expect(getStaticTools().map(t => t.name).sort()).toEqual(all);
     expect(all).toContain('context');
     expect(all).toContain('text_search');
     expect(all.every((name) => !name.startsWith('codegraph_'))).toBe(true);
@@ -42,6 +41,14 @@ describe('CODEGRAPH_MCP_TOOLS allowlist', () => {
     const all = listed();
     expect(all).toContain('explore');
     expect(all.length).toBeGreaterThanOrEqual(8);
+  });
+
+  it.each(['0', 'false'])('honors the explicit Explore opt-out %s even when allowlisted', async value => {
+    process.env[EXPLORE_ENV] = value;
+    process.env[ENV] = 'explore,node';
+    expect(listed()).toEqual(['node']);
+    expect(getStaticTools().map(t => t.name)).toEqual(['node']);
+    expect((await new ToolHandler(null).execute('explore', {})).content[0].text).toMatch(/disabled/);
   });
 
   it('filters ListTools to the allowlisted short names', () => {
@@ -61,9 +68,10 @@ describe('CODEGRAPH_MCP_TOOLS allowlist', () => {
     expect(listed()).toEqual(['search']);
   });
 
-  it('treats an empty/whitespace value as unset (full surface, explore disabled by default)', () => {
+  it('treats a whitespace allowlist as unset', () => {
     process.env[ENV] = '   ';
-    expect(listed().length).toBeGreaterThanOrEqual(7);
+    delete process.env[EXPLORE_ENV];
+    expect(listed()).toContain('explore');
   });
 
   it('rejects a disabled tool on execute (defense in depth)', async () => {

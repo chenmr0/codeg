@@ -7,6 +7,7 @@ outline → symbol sequence or replace Read with whole-file/window-by-window dum
 
 ## Routing
 
+- To trace a feature across several symbols, use \`explore\` when listed.
 - Known directory, unknown file → \`codegraph_files(path=...)\`.
 - Exact symbol and location → \`codegraph_node(symbol=..., file=..., line=...,
   includeCode=true, includeRelations=false)\`.

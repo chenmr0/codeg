@@ -12,6 +12,7 @@ export const CODEGRAPH_INSTRUCTIONS_BLOCK = `${CODEGRAPH_SECTION_START}
 ## codegraph 源码探索协议
 优先使用 codegraph 获取完成任务所需的**最小充分上下文**，不要把 \`Read\` 原样替换成整文件或连续文件窗口。本节为仓库专用规则；与通用工具说明冲突时，以本节为准。
 ### 1. 按已知信息直接选择入口
+需要跨符号跟踪功能或调用路径时，可用 MCP 工具 \`explore\`，在 query 中带上已知的模块、路径或符号。
 不要执行固定的“目录 → 大纲 → 符号”流水线：
 - 已知目录、不知道文件：\`codegraph_files(path=<目录>)\`。
 - 已知文件、不知道符号：\`codegraph_node(file=<文件>, symbolsOnly=true, outlineQuery=<可选名称片段>, outlineLimit<=30)\`。

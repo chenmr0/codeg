@@ -14,6 +14,7 @@
  *   codegraph sync [path]        Sync changes since last index
  *   codegraph status [path]      Show index status
  *   codegraph query <search>     Search for symbols
+ *   codegraph explore <query>    Explore related symbols and source
  *   codegraph files [options]    Show project file structure
  *   codegraph context <task>     Build context for a task
  *   codegraph callers <symbol>   Find what calls a function/method
@@ -1176,6 +1177,57 @@ program
     }
   });
 
+program
+  .command('explore [query...]')
+  .description('Explore related symbols, call paths, and source code')
+  .option('--query-file <file>', 'Read the query from a UTF-8 document instead of positional text')
+  .option('-p, --path <path>', 'Project path')
+  .option('--max-files <number>', 'Maximum files to return (1–20; default depends on project size)')
+  .action(async (words: string[], options: { path?: string; maxFiles?: string; queryFile?: string }) => {
+    try {
+      if (options.queryFile !== undefined && words.length > 0) {
+        throw new Error('Use either query text or --query-file, not both');
+      }
+      if (options.queryFile === undefined && words.length === 0) {
+        throw new Error('Provide query text or --query-file <file>');
+      }
+      let query = words.join(' ');
+      if (options.queryFile !== undefined) {
+        const { readBoundedSource } = await import('../upstream-explore/file-limits');
+        const { bytes } = await readBoundedSource(options.queryFile);
+        if (bytes === null) throw new Error('Document exceeds the Explore query length limit');
+        query = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+        if (!query.trim()) throw new Error('--query-file must contain query text');
+      }
+      const maxFiles = options.maxFiles === undefined ? undefined : Number(options.maxFiles);
+      if (maxFiles !== undefined && (!Number.isInteger(maxFiles) || maxFiles < 1 || maxFiles > 20)) {
+        throw new Error('--max-files must be an integer from 1 to 20');
+      }
+      const projectPath = resolveProjectPath(options.path);
+      if (!isQueryProject(projectPath)) throw new Error(`CodeGraph not initialized in ${projectPath}. Run "codegraph init" first.`);
+
+      const { default: CodeGraph } = await loadCodeGraph();
+      const { createUpstreamExploreGraph } = await import('../mcp/upstream-explore-adapter');
+      const { ToolHandler: Explore } = await import('../upstream-explore/mcp/tools');
+      const graph = await openQueryGraph(CodeGraph, projectPath);
+      try {
+        const result = await new Explore(createUpstreamExploreGraph(graph), {
+          names: { explore: 'codegraph explore', node: 'codegraph node' },
+          served: new Set(['explore', 'node']),
+        }).execute('codegraph_explore', { query, maxFiles });
+        const text = result.content.map(item => item.text).join('\n');
+        if (result.isError) throw new Error(text);
+        console.log(text);
+      } finally {
+        graph.close();
+        await graph.whenIdle();
+      }
+    } catch (err) {
+      error(`Explore failed: ${err instanceof Error ? err.message : String(err)}`);
+      process.exitCode = 1;
+    }
+  });
+
 /**
  * codegraph files [path]
  */
@@ -1425,7 +1477,7 @@ program
 }
 `));
         console.error('Available tools:');
-        console.error(chalk.cyan('  codegraph_explore') + '   - Primary: source of the relevant symbols for any question');
+        console.error(chalk.cyan('  explore') + '             - Explore related symbols, source, and call paths');
         console.error(chalk.cyan('  codegraph_search') + '    - Search for code symbols');
         console.error(chalk.cyan('  codegraph_callers') + '   - Find callers of a symbol');
         console.error(chalk.cyan('  codegraph_callees') + '   - Find what a symbol calls');

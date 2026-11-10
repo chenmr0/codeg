@@ -162,12 +162,12 @@ const MAX_INPUT_LENGTH = 10_000;
 const MAX_PATH_LENGTH = 4_096;
 
 /**
- * Whether `codegraph_explore` is enabled. Default OFF.
- * Set `CODEGRAPH_ENABLE_EXPLORE=1` (or `true`) to re-enable the explore tool.
+ * Explore is exposed by default. Explicit settings retain the original
+ * semantics: only 1 and true enable the tool.
  */
 function isExploreEnabled(): boolean {
   const v = process.env.CODEGRAPH_ENABLE_EXPLORE;
-  return v === '1' || v === 'true';
+  return v === undefined || v === '1' || v === 'true';
 }
 
 /**

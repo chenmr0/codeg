@@ -370,7 +370,9 @@ AI 助手默认可用的 **7 个 MCP 工具**：
 - `codegraph_files` — 索引化的文件结构
 - `codegraph_status` — 索引健康度与统计
 
-> 另有一个 `codegraph_explore`（一次调用批量取多个符号源码并串调用路径）**默认关闭**，需要时设环境变量 `CODEGRAPH_ENABLE_EXPLORE=1` 重启 MCP 服务器即可开放。完整用法见 **[用户手册](docs/manual/README.md)**。
+> Explore 默认可用。命令行运行 `codegraph explore "AuthService loginUser" --max-files 5`，MCP 调用工具 `explore`，可以一次查看相关符号、调用路径和源码。若需关闭 MCP 中的 Explore，设置 `CODEGRAPH_ENABLE_EXPLORE=0` 后重启服务。若配置了 `CODEGRAPH_MCP_TOOLS` 白名单，请在其中加入 `explore`。
+
+要用整篇需求检索已建索引的项目，运行 `codegraph explore --query-file "需求.md" --path "项目目录" --max-files 12`。文档使用 UTF-8 编码，与文本参数共用 10,000 个 UTF-16 单元的查询上限。
 
 `codegraph_search` 默认严格区分大小写并精确匹配，保留精确源码兜底。需要大小写纠正、模糊建议及错误 owner 恢复时，在 MCP 配置的 `env` 中设置 `CODEGRAPH_SEARCH_FUZZY=1` 并重启服务；不增加工具调用参数。CLI 的 `codegraph query` 也默认精确匹配，只有传 `--fuzzy` 才启用模糊搜索。
 

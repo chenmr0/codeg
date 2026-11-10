@@ -15,6 +15,8 @@
 | `codegraph sync [path]` | 增量同步 |
 | `codegraph status [path]` | 查看索引统计 |
 | `codegraph query <关键词>` | 按名称搜索符号 |
+| `codegraph explore "<查询>"` | 查看相关符号、调用路径和源码，可用 `--path` 指定项目、`--max-files` 限制文件数 |
+| `codegraph explore --query-file "需求.md"` | 使用 UTF-8 文档全文查询，文件路径相对于当前工作目录 |
 | `codegraph node [符号]` | 读整文件 / 读符号详情+调用链 |
 | `codegraph callers <符号>` | 谁调用了它 |
 | `codegraph callees <符号>` | 它调用了谁 |
@@ -133,6 +135,8 @@ codegraph unlock            # 进程异常退出留下锁时用
 ```
 
 ## 四、查询类
+
+`explore` 的文本参数和 `--query-file` 二选一。文件可放在索引仓库之外，支持 UTF-8（含 BOM），保留正文换行；`--path` 只指定要检索的项目。
 
 ### `codegraph status` —— 索引统计
 

@@ -242,8 +242,7 @@ export function writePermissionsEntry(loc: Location, autoAllow = true): WriteRes
   const allow: unknown[] = permissions.allow ?? [];
   const next = allow.filter(
     (perm: unknown) => typeof perm !== 'string' ||
-      (!perm.startsWith('mcp__codegraph_wx__') && (!autoAllow ||
-        (perm !== 'mcp__codegraph__explore' && !perm.startsWith('mcp__codegraph__codegraph_')))),
+      (!perm.startsWith('mcp__codegraph_wx__') && (!autoAllow || !perm.startsWith('mcp__codegraph__codegraph_'))),
   );
   for (const perm of autoAllow ? getCodeGraphPermissions() : []) {
     if (!next.includes(perm)) next.push(perm);

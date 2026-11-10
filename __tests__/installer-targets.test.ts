@@ -97,7 +97,7 @@ describe('Installer targets — contract', () => {
 
   for (const id of ['claude', 'codeagent'] as const) {
     for (const location of ['global', 'local'] as const) {
-      it(id + '/' + location + ': removes obsolete explore grants only with autoAllow and preserves unrelated permissions', () => {
+      it(id + '/' + location + ': retains the current explore grant with autoAllow and removes obsolete prefixed grants', () => {
         const target = getTarget(id)!;
         const settingsFile = path.join(location === 'global' ? tmpHome : tmpCwd,
           id === 'claude' ? '.claude' : '.cac', 'settings.json');
@@ -117,7 +117,7 @@ describe('Installer targets — contract', () => {
         expect(fs.readFileSync(settingsFile, 'utf8')).toBe(original);
         target.install(location, { autoAllow: true });
         const after = JSON.parse(fs.readFileSync(settingsFile, 'utf8'));
-        expect(after.permissions.allow).not.toContain('mcp__codegraph__explore');
+        expect(after.permissions.allow).toContain('mcp__codegraph__explore');
         expect(after.permissions.allow).not.toContain('mcp__codegraph__codegraph_explore');
         expect(after.permissions.allow).toContain('mcp__codegraph__search');
         expect(after.permissions.allow).toContain('mcp__other__explore');

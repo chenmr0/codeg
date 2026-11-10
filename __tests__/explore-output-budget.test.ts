@@ -145,7 +145,7 @@ describe('codegraph_explore output respects the adaptive budget', () => {
   const exploreOriginal = process.env[EXPLORE_ENV];
 
   beforeAll(async () => {
-    // codegraph_explore is disabled by default — re-enable for these tests.
+    // Pin the tool surface independently of the invoking environment.
     process.env[EXPLORE_ENV] = '1';
     testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'codegraph-explore-budget-'));
     const srcDir = path.join(testDir, 'src');
@@ -181,10 +181,14 @@ describe('codegraph_explore output respects the adaptive budget', () => {
     handler = new ToolHandler(cg);
   });
 
-  afterAll(() => {
+  afterAll(async () => {
     if (exploreOriginal === undefined) delete process.env[EXPLORE_ENV];
     else process.env[EXPLORE_ENV] = exploreOriginal;
-    if (cg) cg.destroy();
+    handler?.closeAll();
+    if (cg) {
+      cg.close();
+      await cg.whenIdle();
+    }
     if (testDir && fs.existsSync(testDir)) {
       fs.rmSync(testDir, { recursive: true, force: true });
     }

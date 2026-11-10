@@ -3,7 +3,7 @@
  * Native backend only; this does not claim daemon or Windows/WASM validation.
  */
 import { afterEach, expect, it } from 'vitest';
-import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
+import { execFileSync, spawn, spawnSync, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { once } from 'node:events';
 import * as readline from 'node:readline';
 import * as fs from 'node:fs';
@@ -13,10 +13,19 @@ import { pathToFileURL } from 'node:url';
 import CodeGraph from '../src';
 
 const roots: string[] = [], children: ChildProcessWithoutNullStreams[] = [];
-function client(root: string, toolNames = 'explore,node,search,context') {
+function defaultEnvironment(): NodeJS.ProcessEnv {
+  const env = { ...process.env };
+  delete env.CODEGRAPH_ENABLE_EXPLORE;
+  delete env.CODEGRAPH_MCP_TOOLS;
+  return env;
+}
+
+function client(root: string, toolNames?: string) {
+  const env = defaultEnvironment();
+  if (toolNames !== undefined) env.CODEGRAPH_MCP_TOOLS = toolNames;
   const child = spawn(process.execPath, [path.resolve(__dirname, '../dist/bin/codegraph.js'), 'serve', '--mcp'], {
     cwd: root, stdio: ['pipe', 'pipe', 'pipe'],
-    env: { ...process.env, CODEGRAPH_NO_DAEMON: '1', CODEGRAPH_ENABLE_EXPLORE: '1', CODEGRAPH_MCP_TOOLS: toolNames },
+    env: { ...env, CODEGRAPH_NO_DAEMON: '1' },
   });
   children.push(child);
   let stderr = '', nextId = 1;
@@ -44,18 +53,54 @@ function client(root: string, toolNames = 'explore,node,search,context') {
 afterEach(async () => {
   for (const child of children.splice(0)) {
     if (child.exitCode !== null || child.signalCode !== null) continue;
-    const exited = once(child, 'exit'); child.kill('SIGTERM');
+    const exited = once(child, 'exit'); child.stdin.end();
     const timer = setTimeout(() => child.kill('SIGKILL'), 5000);
     try { await exited; } finally { clearTimeout(timer); }
   }
   for (const root of roots.splice(0)) fs.rmSync(root, { recursive: true, force: true });
 });
 
+it('accepts either positional text or a UTF-8 query file relative to the invoking directory', async () => {
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'cg-query-file-')); roots.push(cwd);
+  const root = path.join(cwd, 'project'); fs.mkdirSync(root);
+  fs.writeFileSync(path.join(root, 'entry.ts'), 'export function documentEntry() { return 85213; }\n');
+  const graph = CodeGraph.initSync(root);
+  try { await graph.indexAll(); } finally { graph.close(); await graph.whenIdle(); }
+  const cli = path.resolve(__dirname, '../dist/bin/codegraph.js');
+  const run = (...args: string[]) => spawnSync(process.execPath, [cli, 'explore', '--path', root, ...args], {
+    cwd, env: defaultEnvironment(), timeout: 30000, encoding: 'utf8',
+  });
+  const file = '需求 AR.md';
+  const text = '# 需求\r\n请定位 "documentEntry" 的返回值。\r\n';
+  fs.writeFileSync(path.join(cwd, file), '\uFEFF' + text);
+  const direct = run('--', text), fromFile = run('--query-file', file);
+  expect(direct.status).toBe(0); expect(direct.stdout).toContain('return 85213;');
+  expect(fromFile.status).toBe(0); expect(fromFile.stdout).toBe(direct.stdout);
+  function rejects(pattern: RegExp, ...args: string[]) {
+    const result = run(...args);
+    expect(result.status).toBe(1); expect(result.stderr).toMatch(pattern);
+  }
+  rejects(/provide query text/i);
+  rejects(/not both/, '--query-file', file, 'extra');
+  rejects(/ENOENT/, '--query-file', 'missing.md');
+  fs.writeFileSync(path.join(cwd, file), ' \n');
+  rejects(/must contain query text/, '--query-file', file);
+  fs.writeFileSync(path.join(cwd, file), Buffer.from([0xff]));
+  rejects(/utf-?8/i, '--query-file', file);
+  fs.writeFileSync(path.join(cwd, file), '字'.repeat(10001));
+  rejects(/maximum length of 10000/, '--query-file', file);
+}, 90000);
+
 it('serves Explore schema and natural-language source over real MCP, without cross-session suppression', async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cg-explore-wire-')); roots.push(root);
   fs.writeFileSync(path.join(root, 'wire.ts'), 'export function wireAcceptanceLeaf() { return 71493; }\nexport function wireAcceptanceEntry() { return wireAcceptanceLeaf(); }\n');
   const graph = CodeGraph.initSync(root);
   try { await graph.indexAll(); } finally { graph.close(); await graph.whenIdle(); }
+  const cli = execFileSync(process.execPath, [path.resolve(__dirname, '../dist/bin/codegraph.js'),
+    'explore', 'wireAcceptanceEntry', 'wireAcceptanceLeaf', '--path', root, '--max-files', '2'],
+    { encoding: 'utf8', env: defaultEnvironment(), timeout: 30000 });
+  expect(cli).toContain('return 71493;');
+  expect(cli).toContain('wireAcceptanceLeaf()');
   // Different processes are different real sessions. Calls are sequential, not a performance benchmark.
   for (let session = 0; session < 2; session++) {
     const rpc = client(root); await rpc.initialize();
