@@ -57,6 +57,12 @@ function isLowValueFile(filePath: string, generated?: ReadonlySet<string>): bool
 
 const SQLITE_PARAM_CHUNK_SIZE = 500;
 
+// SQLite LIKE folds ASCII letters. Unicode case mapping can change the
+// spelling (or length) of an otherwise literal sequence.
+function likeLiteralRuns(text: string): string[] {
+  return text.replace(/[A-Z]+/g, ascii => ascii.toLowerCase()).match(/[\p{L}\p{M}\p{N}]+/gu) ?? [];
+}
+
 /**
  * A SQL predicate: is the node aliased `alias` a member an INTERFACE declares?
  *
@@ -2123,18 +2129,15 @@ export class QueryBuilder {
   private searchNodesLike(query: string, options: SearchOptions, filters?: FieldFilters): SearchResult[] {
     const { kinds, languages, limit = 100, offset = 0 } = options;
 
-    // This runs when FTS found nothing, and a word FTS can't find is usually
-    // in no name at all: most words of a pasted log or document. Each scan
-    // read every node, about 120 ms on a 560k-node index (#2620). A word of
-    // ASCII letters and digits can only match inside a name, or inside one
-    // run of such characters in a qualified name, and lowercasing keeps those
-    // runs whole, so when neither lowercased list holds it there is nothing
-    // to find. Any other word is scanned as before.
-    if (/^[A-Za-z0-9]+$/.test(query)) {
-      const runs = this.memoizedRead('qualifiedNameRuns', () => this.readQualifiedNameRuns());
-      if (runs !== null) {
-        const word = query.toLowerCase();
-        if (!this.fuzzyNames().lowered.includes(word) && !runs.includes(word)) return [];
+    // Each literal run must occur in a name or qualified name for any of
+    // the LIKE patterns below to match. SQLite still evaluates wildcards,
+    // filters, scoring and ties for every possible hit. A NUL can terminate
+    // SQLite's pattern before a later run, so leave it entirely to SQL.
+    if (!query.includes('\0')) {
+      const required = likeLiteralRuns(query);
+      if (required.length) {
+        const runs = this.memoizedRead('likeLiteralRuns', () => this.readLikeLiteralRuns());
+        if (runs !== null && required.some(part => !runs.includes(part))) return [];
       }
     }
 
@@ -4445,13 +4448,17 @@ export class QueryBuilder {
     return this.memoizedRead('fuzzyNames', read) ?? read();
   }
 
-  private readQualifiedNameRuns(): string {
+  private readLikeLiteralRuns(): string {
     const runs = new Set<string>();
-    const rows = this.db.prepare('SELECT CAST(name AS BLOB) AS name_blob FROM (SELECT DISTINCT qualified_name AS name FROM nodes)').all() as Array<{ name_blob: Uint8Array }>;
+    // Each DISTINCT can scan its covering index. One statement sees both
+    // fields at the same revision. BLOB transport preserves embedded NULs.
+    const rows = this.db.prepare(`
+      SELECT CAST(name AS BLOB) AS name_blob FROM (SELECT DISTINCT name FROM nodes)
+      UNION ALL
+      SELECT CAST(qualified_name AS BLOB) FROM (SELECT DISTINCT qualified_name FROM nodes WHERE qualified_name IS NOT NULL)
+    `).iterate() as Iterable<{ name_blob: Uint8Array }>;
     for (const row of rows) {
-      for (const run of Buffer.from(row.name_blob).toString('utf8').toLowerCase().split(/[^a-z0-9]+/)) {
-        if (run) runs.add(run);
-      }
+      for (const run of likeLiteralRuns(Buffer.from(row.name_blob).toString('utf8'))) runs.add(run);
     }
     return [...runs].join('\n');
   }
