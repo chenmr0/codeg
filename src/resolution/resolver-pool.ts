@@ -158,7 +158,11 @@ export class ResolverPool {
     size: number
   ) {
     for (let i = 0; i < size; i++) {
-      const worker = new Worker(workerScript, { env: languageScopeWorkerEnv() });
+      const worker = new Worker(workerScript, {
+        env: languageScopeWorkerEnv(),
+        // Limit V8's young generation, not total worker RSS or SQLite caches.
+        resourceLimits: { maxYoungGenerationSizeMb: 48 },
+      });
       let readyResolve!: () => void;
       let readyReject!: (error: Error) => void;
       const ready = new Promise<void>((resolve, reject) => {

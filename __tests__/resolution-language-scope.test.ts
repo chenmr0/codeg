@@ -150,12 +150,13 @@ describe('resolution language scope', () => {
     const { directory } = graph();
     const workerPath = path.join(directory, 'scope-worker.cjs');
     fs.writeFileSync(workerPath, `
-      const { parentPort } = require('node:worker_threads');
+      const { parentPort, resourceLimits } = require('node:worker_threads');
       parentPort.on('message', message => {
         if (message.type === 'open') parentPort.postMessage({ type: 'ready' });
         if (message.type === 'resolve') parentPort.postMessage({
           type: 'result', id: message.id, result: {
-            resolved: [], deferredChain: [], byMethod: {},
+            resolved: [], deferredChain: [],
+            byMethod: { youngGenerationMb: resourceLimits.maxYoungGenerationSizeMb },
             unresolved: [{ ...message.refs[0], referenceName: process.env.CODEGRAPH_ALL_LANGUAGES }],
           },
         });
@@ -177,6 +178,7 @@ describe('resolution language scope', () => {
           line: 1, column: 0, filePath: 'source.cpp', language: 'cpp',
         }]);
         expect(result.unresolved[0]?.referenceName).toBe(captured);
+        expect(result.byMethod.youngGenerationMb).toBe(48);
       } finally {
         await pool.destroy();
       }
