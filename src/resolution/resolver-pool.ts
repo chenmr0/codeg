@@ -35,7 +35,7 @@ interface Waiter {
   timer: ReturnType<typeof setTimeout>;
 }
 
-const MAX_AUTOMATIC_WORKERS = 6;
+const MAX_AUTOMATIC_WORKERS = 4;
 const MAX_EXPLICIT_WORKERS = 16;
 const MIN_PARALLEL_BATCH = 1_000;
 const RESOLUTION_CHUNK_SIZE = 500;

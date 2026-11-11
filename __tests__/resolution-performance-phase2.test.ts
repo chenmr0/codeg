@@ -351,7 +351,7 @@ describe('phase 2 resolver pool policy', () => {
       availableMemoryBytes: 64 * 1024 ** 3,
       databaseSizeBytes: 1024 ** 3,
     });
-    expect(automatic).toBe(6);
+    expect(automatic).toBe(4);
 
     expect(
       resolveResolverPoolSize({
@@ -369,6 +369,40 @@ describe('phase 2 resolver pool policy', () => {
         databaseSizeBytes: 1024 ** 3,
       })
     ).toBe(16);
+  });
+
+  it.each([
+    [3, 64, 2],
+    [4, 64, 3],
+    [16, 5, 2],
+    [16, 7, 3],
+    [16, 64, 4],
+  ])('retains CPU/memory downscaling (%i CPUs, %i GiB)', (cpus, memoryGiB, expected) => {
+    expect(resolveResolverPoolSize({
+      availableParallelism: cpus,
+      availableMemoryBytes: memoryGiB * 1024 ** 3,
+      databaseSizeBytes: 15 * 1024 ** 3,
+    })).toBe(expected);
+  });
+
+  it.each([['1', 1], ['4', 4], ['6', 6], ['16', 16], ['99', 16], ['0', null], ['-1', null]])(
+    'preserves explicit override %s independently of automatic limits', (explicit, expected) => {
+      expect(resolveResolverPoolSize({
+        explicit,
+        availableParallelism: 2,
+        availableMemoryBytes: 256 * 1024 ** 2,
+        databaseSizeBytes: 15 * 1024 ** 3,
+      })).toBe(expected);
+    },
+  );
+
+  it.each(['', 'invalid'])('falls back to automatic sizing for %j', (explicit) => {
+    expect(resolveResolverPoolSize({
+      explicit,
+      availableParallelism: 16,
+      availableMemoryBytes: 64 * 1024 ** 3,
+      databaseSizeBytes: 15 * 1024 ** 3,
+    })).toBe(4);
   });
 
   it('uses a conservative default threshold with an explicit override', () => {
