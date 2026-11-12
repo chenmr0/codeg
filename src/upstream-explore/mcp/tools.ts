@@ -1801,6 +1801,8 @@ function isLowValue(p: string): boolean {
 }
 
 export interface ExploreToolSurface {
+  /** Hide document queries in presentation only; search and diagnostics stay intact. */
+  echoQuery?: boolean;
   /** Actual MCP names. Applied only while generating guidance, never to source. */
   names?: Partial<Record<'explore' | 'node', string>>;
   served?: ReadonlySet<string>;
@@ -2411,7 +2413,8 @@ export class ToolHandler {
         try { unseen = named.length > 0 ? cg.getUnseenNames(named) : []; } catch { /* never fail an explore call */ }
         if (unseen.length > 0) explanation += `\n\n${notInIndexNote(unseen, false)}`;
       }
-      const empty = `No relevant code found for "${query}"${missNote}${explanation}`;
+      const queryLabel = this.surface.echoQuery === false ? '' : ` for "${query}"`;
+      const empty = `No relevant code found${queryLabel}${missNote}${explanation}`;
       diag?.finishEmpty('no relevant code found — empty subgraph');
       // Still an explore call, so it is still recorded: an empty answer spends a
       // call against the tier budget even though it emits no source.
@@ -2932,7 +2935,7 @@ export class ToolHandler {
 
     // Step 3: Build relationship map
     const lines: string[] = [
-      `**Exploration: ${query}**`,
+      this.surface.echoQuery === false ? '**Exploration**' : `**Exploration: ${query}**`,
       '',
       // Curated summary — filled in after the source loop (see below). We do NOT
       // report `subgraph.nodes.size` / `fileGroups.size` here: that's the raw

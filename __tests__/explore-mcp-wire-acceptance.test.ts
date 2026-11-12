@@ -75,7 +75,29 @@ it('accepts either positional text or a UTF-8 query file relative to the invokin
   fs.writeFileSync(path.join(cwd, file), '\uFEFF' + text);
   const direct = run('--', text), fromFile = run('--query-file', file);
   expect(direct.status).toBe(0); expect(direct.stdout).toContain('return 85213;');
-  expect(fromFile.status).toBe(0); expect(fromFile.stdout).toBe(direct.stdout);
+  expect(fromFile.status).toBe(0);
+  expect(fromFile.stdout).toMatch(/^\*\*Exploration\*\*/);
+  expect(fromFile.stdout).not.toContain('# 需求');
+  expect(fromFile.stdout).toContain('return 85213;');
+  // Only the presentation heading differs. Do not strip user source globally.
+  expect(fromFile.stdout).toBe(direct.stdout.replace(/^\*\*Exploration: [\s\S]*?\*\*/, '**Exploration**'));
+
+  const unmatched = '这个需求没有任何对应实现，也没有可匹配的源码词汇。';
+  fs.writeFileSync(path.join(cwd, file), unmatched);
+  const empty = run('--query-file', file);
+  expect(empty.status).toBe(0);
+  expect(empty.stdout).toContain('No relevant code found');
+  expect(empty.stdout).not.toContain(unmatched);
+  expect(run('--', unmatched).stdout).toContain(unmatched);
+  // A document containing an explicit source range must still pin that range.
+  fs.writeFileSync(path.join(cwd, file), 'entry.ts:1-1');
+  const located = run('--query-file', file);
+  expect(located.status).toBe(0);
+  expect(located.stdout).toContain('return 85213;');
+  expect(located.stdout).toContain('file pinned from the query');
+  expect(located.stdout).not.toContain('Exploration: entry.ts:1-1');
+  // Restore the original multiline UTF-8 input for argument validation.
+  fs.writeFileSync(path.join(cwd, file), text);
   function rejects(pattern: RegExp, ...args: string[]) {
     const result = run(...args);
     expect(result.status).toBe(1); expect(result.stderr).toMatch(pattern);
@@ -114,6 +136,7 @@ it('serves Explore schema and natural-language source over real MCP, without cro
     expect(JSON.stringify(result)).not.toMatch(/_cgExploreEmission|_cgAnswerFiles|_cgExploreSession/);
     const text = result.content.map((item: any) => item.text ?? '').join('\n');
     expect(text).toContain('return 71493;'); expect(text).toContain('wireAcceptanceLeaf()');
+    expect(text).toContain('**Exploration: 解释 wireAcceptanceEntry 如何调用 wireAcceptanceLeaf**');
     expect(text.length).toBeLessThanOrEqual(25000);
     const invalid = await rpc.request('tools/call', { name: 'explore', arguments: { query: '' } });
     expect(invalid.isError).toBe(true);

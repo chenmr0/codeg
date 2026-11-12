@@ -1259,6 +1259,7 @@ program
       try {
         const result = await new Explore(createUpstreamExploreGraph(graph), {
           names: { explore: 'codegraph explore', node: 'codegraph node' },
+          echoQuery: options.queryFile === undefined,
           served: new Set(['explore', 'node']),
         }).execute('codegraph_explore', { query, maxFiles });
         const text = result.content.map(item => item.text).join('\n');
