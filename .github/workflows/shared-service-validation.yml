@@ -1,3 +1,4 @@
+# Re-trigger Linux validation after repository Actions were re-enabled.
 name: Temporary shared MCP Linux validation
 
 on:
