@@ -1166,7 +1166,9 @@ export class CodeGraph {
           // A version change forces replacement even for unchanged source.
           // Do not retire the old stamp after a partial/aborted rebuild: its
           // next full index must retry every file, not certify mixed content.
-          if (scopeApplied && !hasDeclarationMacroRecoverySkip && (result.filesIndexed > 0 || extractionChanged)) {
+          // A base-only macro fallback did apply this extractor to every file.
+          // Its durable file diagnostic, not a stale global stamp, owns retry.
+          if (scopeApplied && (result.filesIndexed > 0 || extractionChanged)) {
             this.queries.applyMetadataChanges({
               indexed_with_version: CodeGraphPackageVersion,
               indexed_with_extraction_version: String(EXTRACTION_VERSION),
@@ -1207,7 +1209,12 @@ export class CodeGraph {
             );
           } catch { /* the returned diagnostics remain authoritative */ }
 
-          if (result.success === true && result.complete === true) {
+          // Applied policy and complete coverage are independent. File-scoped
+          // macro recovery and synthesis have durable retry evidence of their
+          // own; neither should turn an unchanged sync into a global refresh.
+          // scopeApplied still excludes aborts, whole-file failures, semantic
+          // drift and unfinished required resolution/framework work.
+          if (scopeApplied) {
             const indexedPolicy = indexConfigFingerprints(this.projectRoot, this.queries.getAllFiles());
             const indexedSemantic = candidateSemantic ?? indexedPolicy.semanticConfigFingerprint;
             this.queries.applyMetadataChanges({

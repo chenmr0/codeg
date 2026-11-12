@@ -496,10 +496,10 @@ class PortableFacade {
               abort.signal.throwIfAborted();
               // Only fall back after child exit AND successful fenced recovery.
               // If publication committed, the next loop must honor its DB marker.
+              // A discarded private candidate did not change the active index:
+              // do not invent publication catch-up work on that database.
               await this.write((graph) => {
                 graph.getStats();
-                if (!graph.getPortableCatchup())
-                  graph.setPortableCatchup(randomUUID());
               }, abort.signal);
               fallbackReason = `rebuild-fallback: ${error instanceof Error ? error.message : String(error)}`;
             }
