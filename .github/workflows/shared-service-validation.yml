@@ -1,0 +1,122 @@
+name: Temporary shared MCP Linux validation
+
+on:
+  push:
+    branches: [feat/shared-mcp-service-20261112]
+    paths:
+      - '.github/workflows/shared-service-validation.yml'
+      - 'src/**'
+      - '__tests__/**'
+      - 'scripts/examples/shared_mcp_client.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: shared-service-validation-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  linux:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.22.1'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install and build
+        run: |
+          npm ci
+          npm run build
+          python -m pip install 'mcp>=1,<2'
+      - name: Real shared service and identity tests
+        run: |
+          node --liftoff-only node_modules/vitest/vitest.mjs run \
+            __tests__/shared-service.test.ts \
+            __tests__/shared-service-probe.test.ts \
+            --maxWorkers=1 --fileParallelism=false --reporter=verbose
+      - name: Existing MCP behavior regression
+        if: ${{ !cancelled() }}
+        run: |
+          node --liftoff-only node_modules/vitest/vitest.mjs run \
+            __tests__/mcp-daemon.test.ts \
+            __tests__/mcp-initialize.test.ts \
+            __tests__/mcp-roots.test.ts \
+            __tests__/daemon-client-liveness.test.ts \
+            __tests__/daemon-handshake-buffering.test.ts \
+            --maxWorkers=1 --fileParallelism=false --reporter=verbose
+      - name: Python SDK concurrent calls and reconnect
+        if: ${{ !cancelled() }}
+        env:
+          CODEGRAPH_NO_WATCH: '1'
+        run: |
+          python - <<'PY'
+          import asyncio, json, os, pathlib, subprocess, tempfile
+          from mcp import ClientSession, StdioServerParameters
+          from mcp.client.stdio import stdio_client
+
+          repo = pathlib.Path.cwd()
+          cli = str(repo / "dist/bin/codegraph.js")
+          node = subprocess.check_output(["which", "node"], text=True).strip()
+          def command(root, *args):
+              p = subprocess.run([node, cli, *args], cwd=root, text=True,
+                                 capture_output=True, timeout=60)
+              if p.returncode:
+                  raise RuntimeError(f"{args}: exit={p.returncode}\n{p.stdout}\n{p.stderr}")
+              return p.stdout
+          def service_status(root):
+              return json.loads(command(root, "service", "status", "--path", root, "--json"))
+
+          async def exercise(root, initial):
+              params = StdioServerParameters(command=node,
+                  args=[cli, "serve", "--mcp", "--path", root, "--shared-required"])
+              async with stdio_client(params) as (ar, aw):
+                  async with ClientSession(ar, aw) as agent:
+                      await agent.initialize()
+                      async def short_client():
+                          async with stdio_client(params) as (r, w):
+                              async with ClientSession(r, w) as client:
+                                  await client.initialize()
+                                  result = await client.call_tool("search", {"query": "sharedMarker"})
+                                  assert not result.isError, result
+                                  assert "sharedMarker" in result.model_dump_json(), result
+                      results = await asyncio.gather(
+                          agent.call_tool("status", {}), short_client(), short_client())
+                      assert not results[0].isError, results[0]
+                      assert service_status(root)["pid"] == initial["pid"]
+                      # The long-lived protocol client remains usable after the scripts exit.
+                      assert not (await agent.call_tool("status", {})).isError
+              # All stdio clients have now exited; explicit service must remain alive.
+              await asyncio.sleep(1)
+              assert service_status(root)["pid"] == initial["pid"]
+              await short_client()
+              assert service_status(root)["pid"] == initial["pid"]
+
+          with tempfile.TemporaryDirectory(prefix="cg-sdk-") as root:
+              pathlib.Path(root, "example.ts").write_text(
+                  "export function sharedMarker() { return 42; }\n")
+              command(root, "init")
+              try:
+                  initial = json.loads(command(root, "service", "start", "--path", root,
+                                               "--json", "--no-watch"))
+                  assert initial["mode"] == "persistent", initial
+                  asyncio.run(asyncio.wait_for(exercise(root, initial), timeout=90))
+                  # Also execute the shipped standalone SDK example without modifying it.
+                  wrapper = pathlib.Path(root, "codegraph")
+                  wrapper.write_text(f'#!/bin/sh\nexec "{node}" "{cli}" "$@"\n')
+                  wrapper.chmod(0o755)
+                  subprocess.run(["python", str(repo / "scripts/examples/shared_mcp_client.py"),
+                                  root, "--command", str(wrapper)], check=True, timeout=30)
+                  assert service_status(root)["pid"] == initial["pid"]
+                  print("PASS: concurrent protocol/SDK clients, real tools/call, same service PID, exit survival and reconnect")
+              finally:
+                  command(root, "service", "stop", "--path", root, "--json")
+              assert not service_status(root)["running"]
+          PY
