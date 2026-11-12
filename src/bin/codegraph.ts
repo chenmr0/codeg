@@ -683,7 +683,7 @@ program
  */
 program
   .command('uninit [path]')
-  .description('Remove CodeGraph from a project (deletes .codegraph/ directory)')
+  .description('Remove CodeGraph index data from a project (preserves term-mappings.json)')
   .option('-f, --force', 'Skip confirmation prompt')
   .action(async (pathArg: string | undefined, options: { force?: boolean }) => {
     const projectPath = resolveProjectPath(pathArg);
@@ -700,7 +700,7 @@ program
         const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
         const answer = await new Promise<string>((resolve) => {
           rl.question(
-            chalk.yellow(`${getGlyphs().warn} This will permanently delete all CodeGraph data. Continue? (y/N) `),
+            chalk.yellow(`${getGlyphs().warn} This will permanently delete CodeGraph index data; term-mappings.json will be preserved. Continue? (y/N) `),
             resolve
           );
         });
@@ -725,7 +725,7 @@ program
         }
       } catch { /* non-fatal */ }
 
-      success(`Removed CodeGraph from ${projectPath}`);
+      success(`Removed CodeGraph index data from ${projectPath}; term-mappings.json is preserved if present`);
     } catch (err) {
       error(`Failed to uninitialize: ${err instanceof Error ? err.message : String(err)}`);
       process.exit(1);
@@ -897,6 +897,52 @@ program
         error(`Failed to sync: ${err instanceof Error ? err.message : String(err)}`);
       }
       process.exit(1);
+    }
+  });
+
+/** Maintainer-only query hints validation; never runs init or sync. */
+program
+  .command('mappings')
+  .description('Manage project terminology mappings')
+  .command('check')
+  .description('Validate mapped symbols against the current index (read-only)')
+  .option('-p, --path <path>', 'Project path')
+  .option('-j, --json', 'Output as JSON')
+  .option('--check-source', 'Also scan for source changes since indexing')
+  .action(async (options: { path?: string; json?: boolean; checkSource?: boolean }) => {
+    const { checkTermMappings, formatMappingsCheck } = await import('../cli/term-mappings-check');
+    let cg: import('../index').default | undefined;
+    let dataDir = getCodeGraphDir(path.resolve(options.path || process.cwd()));
+    try {
+      const projectPath = resolveProjectPath(options.path);
+      dataDir = getCodeGraphDir(projectPath);
+      const { loadTermMappings } = await import('../term-mappings');
+      const config = loadTermMappings(dataDir);
+      if (!config.exists || config.errors.length > 0) {
+        const preliminary = checkTermMappings(dataDir);
+        console.log(options.json ? JSON.stringify(preliminary, null, 2) : formatMappingsCheck(preliminary));
+        process.exitCode = preliminary.exitCode;
+        return;
+      }
+      if (isQueryProject(projectPath)) {
+        const { default: CodeGraph } = await loadCodeGraph();
+        cg = await openQueryGraph(CodeGraph, projectPath);
+        dataDir = cg.getDataDirectory();
+      }
+      const report = checkTermMappings(dataDir, cg, {
+        checkSource: options.checkSource,
+        worktreeMismatch: !!detectWorktreeIndexMismatch(path.resolve(options.path || process.cwd()), projectPath),
+      });
+      console.log(options.json ? JSON.stringify(report, null, 2) : formatMappingsCheck(report));
+      process.exitCode = report.exitCode;
+    } catch (err) {
+      const report = checkTermMappings(dataDir, undefined, {
+        unavailableReason: err instanceof Error ? err.message : String(err),
+      });
+      console.log(options.json ? JSON.stringify(report, null, 2) : formatMappingsCheck(report));
+      process.exitCode = 2;
+    } finally {
+      if (cg) { cg.close(); await cg.whenIdle(); }
     }
   });
 

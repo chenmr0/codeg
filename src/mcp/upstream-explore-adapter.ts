@@ -7,6 +7,7 @@ import { loadDeprioritizePatterns } from '../upstream-explore/project-config';
 import { detectGeneratedFile } from '../upstream-explore/extraction/generated-detection';
 import { ExploreSourceSnapshots } from './explore-source';
 import ignore from 'ignore';
+import { loadTermMappings, matchTermMappingSymbols, getTermMappingSymbolMatches } from '../term-mappings';
 import * as path from 'path';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import type { SqliteStatement } from '../upstream-explore/db/sqlite-adapter';
@@ -158,8 +159,29 @@ export function createUpstreamExploreGraph(cg: CodeGraph): ExploreGraph {
       return matcher.ignores(rel.split(path.sep).join('/'));
     } catch { return false; }
   });
+  const api = createExploreGraphApi(cg.getProjectRoot(), queries, () => ensureVocabulary(db, queries));
   return {
-    ...createExploreGraphApi(cg.getProjectRoot(), queries, () => ensureVocabulary(db, queries)),
+    ...api,
+    findRelevantContext: (query, options) => {
+      let mappedSeedNodes: NonNullable<typeof options>['mappedSeedNodes'] = [];
+      try {
+        const names = matchTermMappingSymbols(loadTermMappings(cg.getDataDirectory()), query);
+        // Resolve a bounded set of IDs, not lower-case fuzzy names. Do not cache
+        // nodes across index generations or let optional config break Explore.
+        const seen = new Set<string>();
+        const perName = getTermMappingSymbolMatches(db, names, 3);
+        for (const result of perName.values()) {
+          for (const candidate of result.candidates) {
+            if (seen.has(candidate.id)) continue;
+            const node = queries.getNodeById(candidate.id);
+            if (node) { seen.add(node.id); mappedSeedNodes.push(node); }
+            if (mappedSeedNodes.length >= 24) break;
+          }
+          if (mappedSeedNodes.length >= 24) break;
+        }
+      } catch { /* Invalid optional policy must not prevent normal retrieval. */ }
+      return api.findRelevantContext(query, { ...options, mappedSeedNodes });
+    },
     getVerifiedSource: file => snapshots.get(file).content,
   };
 }

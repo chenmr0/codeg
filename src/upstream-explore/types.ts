@@ -703,4 +703,7 @@ export interface FindRelevantContextOptions {
    * SEGMENTS the query's words name are seeded here instead.
    */
   seedNames?: string[];
+
+  /** Host-resolved, exact project term candidates; additive to automatic seeds. */
+  mappedSeedNodes?: Node[];
 }

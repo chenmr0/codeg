@@ -407,3 +407,7 @@ scripts/build-bundle.sh win32-x64
 ## 许可
 
 CodeGraph-CPP 基于开源 CodeGraph 演进，沿用 MIT License。
+
+### 项目术语映射（Explore）
+
+维护者可通过 `.codegraph-wx/term-mappings.json` 为业务同义词配置同一组符号，补充原有 Explore 召回。使用 `codegraph mappings check` 只读检查符号，普通查询无需感知维护告警。[配置与验证说明](docs/term-mappings.md)。

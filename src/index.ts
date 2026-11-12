@@ -3364,9 +3364,9 @@ export class CodeGraph {
 
   /**
    * Completely remove CodeGraph from the project.
-   * This closes the database and deletes the .CodeGraph directory.
+   * This closes the database and removes index data, preserving term-mappings.json.
    *
-   * WARNING: This permanently deletes all CodeGraph data for the project.
+   * WARNING: This permanently deletes indexed data, but preserves maintainer query configuration.
    */
   uninitialize(): void {
     this.assertWritableFacade();

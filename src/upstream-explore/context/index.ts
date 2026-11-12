@@ -218,6 +218,7 @@ const DEFAULT_FIND_OPTIONS: Required<Omit<FindRelevantContextOptions, 'queryInte
   edgeKinds: [],
   nodeKinds: HIGH_VALUE_NODE_KINDS, // Filter out imports/exports by default
   seedNames: [],         // Segment-vocab supplement — filled by the facade
+  mappedSeedNodes: [],
 };
 
 // Re-export the low-confidence sentinel (defined in a dependency-free leaf so
@@ -524,7 +525,8 @@ export class ContextBuilder {
 
     // Step 2: Look up exact matches for extracted symbols
     let exactMatches: SearchResult[] = [];
-    if (symbolsFromQuery.length > 0 || opts.seedNames.length > 0) {
+    const mappedSeedIds = new Set<string>();
+    if (symbolsFromQuery.length > 0 || opts.seedNames.length > 0 || opts.mappedSeedNodes.length > 0) {
       try {
         if (symbolsFromQuery.length > 0) {
           // Get more results so we can apply co-location boosting before trimming
@@ -554,6 +556,18 @@ export class ContextBuilder {
             exactMatches.push({ ...r, score: r.score * 0.6 });
           }
           logDebug('Segment seed matches', { seedNames: opts.seedNames, added: known.size });
+        }
+
+        // Project terms supplement, never replace, upstream lexical seeds. IDs
+        // are resolved by the host with case-sensitive name/qualified-name lookup.
+        // Keep a fixed candidate budget and the existing weak-seed score.
+        const knownMapped = new Set(exactMatches.map(r => r.node.id));
+        for (const node of opts.mappedSeedNodes.slice(0, Math.ceil(opts.searchLimit * 3))) {
+          if (options.nodeKinds && options.nodeKinds.length > 0 && !options.nodeKinds.includes(node.kind)) continue;
+          mappedSeedIds.add(node.id);
+          if (knownMapped.has(node.id)) continue;
+          knownMapped.add(node.id);
+          exactMatches.push({ node, score: 0.6 });
         }
 
         // Co-location boost: when multiple extracted symbols appear in the same file,
@@ -872,6 +886,10 @@ export class ContextBuilder {
         } else if (distinctiveExactMatchIds.has(result.node.id)) {
           // Exact match on a distinctive identifier the user explicitly named —
           // keep full score (e.g. "LiveEditMode DevServerPreview").
+        } else if (mappedSeedIds.has(result.node.id)) {
+          // The maintainer explicitly bridges different business/code words.
+          // Lack of literal query overlap is expected, not accidental common-
+          // word noise. Retain the weak score, without pinning or boosting it.
         } else if (exactMatchIds.has(result.node.id)) {
           // Exact match on a COMMON word (e.g. "flat" → FLAT): high-scoring noise
           // inflated by the +exact-name bonus, corroborated by no other query

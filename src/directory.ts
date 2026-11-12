@@ -228,8 +228,18 @@ export function removeDirectory(projectRoot: string, directoryName?: string): vo
     return;
   }
 
-  // Recursively remove directory
-  fs.rmSync(codegraphDir, { recursive: true, force: true });
+  // Maintainer-owned query policy is not index data. Leave it in place so
+  // uninit/re-init does not silently discard project terminology. Do not read
+  // or follow it here (even malformed configuration must be preserved).
+  const mappingFile = 'term-mappings.json';
+  const entries = fs.readdirSync(codegraphDir);
+  if (entries.includes(mappingFile)) {
+    for (const entry of entries) {
+      if (entry !== mappingFile) fs.rmSync(path.join(codegraphDir, entry), { recursive: true, force: true });
+    }
+  } else {
+    fs.rmSync(codegraphDir, { recursive: true, force: true });
+  }
 }
 
 /**

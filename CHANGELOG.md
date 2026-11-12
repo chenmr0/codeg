@@ -9,6 +9,11 @@ and adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- 新增项目术语映射：通过数据目录中的 `term-mappings.json` 将业务同义词映射到符号，补充而不替换 Explore 自动召回；支持配置热更新、精确候选与数量预算，不触发重新建库。
+- 新增维护者只读命令 `codegraph mappings check`，支持 JSON 报告和可选源码变更检查；区分同名候选、索引未命中与不可验证状态，索引清理保留术语配置。详见 [项目术语映射](docs/term-mappings.md)。
+
 ### Breaking Changes
 
 - 默认索引 C/C++、Objective-C/Objective-C++、Python 和 Lua，可通过 `CODEGRAPH_ALL_LANGUAGES=1` 恢复全部语言支持；切换范围后的首次索引或同步会重建图谱，之后继续增量更新。
