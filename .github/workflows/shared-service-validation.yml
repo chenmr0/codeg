@@ -85,12 +85,19 @@ jobs:
                           async with stdio_client(params) as (r, w):
                               async with ClientSession(r, w) as client:
                                   await client.initialize()
-                                  result = await client.call_tool("search", {"query": "sharedMarker"})
+                                  listed = await client.list_tools()
+                                  search_name = next(t.name for t in listed.tools if t.name in ("search", "codegraph_search"))
+                                  result = await client.call_tool(search_name, {"query": "sharedMarker"})
                                   assert not result.isError, result
-                                  assert "sharedMarker" in result.model_dump_json(), result
+                                  payload = result.model_dump_json()
+                                  print("SEARCH:", payload)
+                                  assert "sharedMarker" in payload and "example.ts" in payload, result
+                                  assert "No results found" not in payload, result
                       results = await asyncio.gather(
                           agent.call_tool("status", {}), short_client(), short_client())
                       assert not results[0].isError, results[0]
+                      print("STATUS:", results[0].model_dump_json())
+                      assert "**Files indexed:** 0" not in results[0].model_dump_json(), results[0]
                       assert service_status(root)["pid"] == initial["pid"]
                       # The long-lived protocol client remains usable after the scripts exit.
                       assert not (await agent.call_tool("status", {})).isError
@@ -103,7 +110,7 @@ jobs:
           with tempfile.TemporaryDirectory(prefix="cg-sdk-") as root:
               pathlib.Path(root, "example.ts").write_text(
                   "export function sharedMarker() { return 42; }\n")
-              command(root, "init")
+              print("INIT:", command(root, "init"))
               try:
                   initial = json.loads(command(root, "service", "start", "--path", root,
                                                "--json", "--no-watch"))
