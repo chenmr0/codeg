@@ -91,7 +91,7 @@ jobs:
                                   assert not result.isError, result
                                   payload = result.model_dump_json()
                                   print("SEARCH:", payload)
-                                  assert "sharedMarker" in payload and "example.ts" in payload, result
+                                  assert "sharedMarker" in payload and "example.c" in payload, result
                                   assert "No results found" not in payload, result
                       results = await asyncio.gather(
                           agent.call_tool("status", {}), short_client(), short_client())
@@ -108,8 +108,8 @@ jobs:
               assert service_status(root)["pid"] == initial["pid"]
 
           with tempfile.TemporaryDirectory(prefix="cg-sdk-") as root:
-              pathlib.Path(root, "example.ts").write_text(
-                  "export function sharedMarker() { return 42; }\n")
+              pathlib.Path(root, "example.c").write_text(
+                  "int sharedMarker(void) { return 42; }\n")
               print("INIT:", command(root, "init"))
               try:
                   initial = json.loads(command(root, "service", "start", "--path", root,
