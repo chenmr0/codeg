@@ -13,6 +13,7 @@
  *   codegraph index [path]       Index all files in the project
  *   codegraph sync [path]        Sync changes since last index
  *   codegraph status [path]      Show index status
+ *   codegraph service <action>   Manage an opt-in persistent local MCP service
  *   codegraph query <search>     Search for symbols
  *   codegraph explore <query>    Explore related symbols and source
  *   codegraph files [options]    Show project file structure
@@ -1481,6 +1482,46 @@ function printFileTree(
   renderNode(root, '', true, 0);
 }
 
+/** Explicit service management is opt-in; existing serve defaults stay unchanged. */
+const serviceCommand = program
+  .command('service')
+  .description('Manage the persistent local MCP service for an initialized project');
+
+for (const action of ['start', 'status', 'stop'] as const) {
+  const command = serviceCommand
+    .command(action)
+    .description({
+      start: 'Start a persistent shared MCP service (does not replace an automatic daemon)',
+      status: 'Check the actual shared service handshake and project identity',
+      stop: 'Gracefully stop the shared service and disconnect its clients',
+    }[action])
+    .option('-p, --path <path>', 'Project path (defaults to current directory)')
+    .option('--json', 'Print machine-readable status');
+  if (action === 'start') command.option('--no-watch', 'Disable the service file watcher');
+  command.action(async (options: { path?: string; json?: boolean; watch?: boolean }) => {
+    try {
+      const projectPath = resolveProjectPath(options.path || process.cwd());
+      if (action === 'start' && options.watch === false) process.env.CODEGRAPH_NO_WATCH = '1';
+      const service = await import('../mcp/service');
+      const status = await ({ start: service.startService, status: service.getServiceStatus, stop: service.stopService }[action])(projectPath);
+      if (options.json) {
+        console.log(JSON.stringify(status, null, 2));
+      } else {
+        console.log(`Project: ${status.projectRoot}`);
+        console.log(`Service: ${status.running ? 'running' : 'stopped'}`);
+        if (status.pid !== undefined) console.log(`PID: ${status.pid}`);
+        if (status.mode !== undefined) console.log(`Mode: ${status.mode}`);
+        if (status.version !== undefined) console.log(`Version: ${status.version}`);
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (options.json) console.log(JSON.stringify({ error: message }));
+      else error(`Service ${action} failed: ${message}`);
+      process.exitCode = 1;
+    }
+  });
+}
+
 /**
  * codegraph serve
  */
@@ -1489,8 +1530,9 @@ program
   .description('Start CodeGraph as an MCP server for AI assistants')
   .option('-p, --path <path>', 'Project path (optional for MCP mode, uses rootUri from client)')
   .option('--mcp', 'Run as MCP server (stdio transport)')
+  .option('--shared-required', 'Connect only to an existing persistent service; requires --mcp and --path')
   .option('--no-watch', 'Disable the file watcher (no auto-sync; useful on slow filesystems like WSL2 /mnt drives)')
-  .action(async (options: { path?: string; mcp?: boolean; watch?: boolean }) => {
+  .action(async (options: { path?: string; mcp?: boolean; watch?: boolean; sharedRequired?: boolean }) => {
     const projectPath = options.path ? resolveProjectPath(options.path) : undefined;
 
     // Commander sets watch=false when --no-watch is passed. Route it through
@@ -1500,10 +1542,13 @@ program
     }
 
     try {
+      if (options.sharedRequired && (!options.mcp || !options.path)) {
+        throw new Error('--shared-required requires --mcp and an explicit --path');
+      }
       if (options.mcp) {
         // Start MCP server - it handles initialization lazily based on rootUri from client
         const { MCPServer } = await import('../mcp/index');
-        const server = new MCPServer(projectPath);
+        const server = new MCPServer(projectPath, { sharedRequired: options.sharedRequired });
         await server.start();
         // Server will run until terminated
       } else {

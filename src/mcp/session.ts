@@ -14,6 +14,7 @@ import { ExploreSessionState, type ExploreEmission } from '../upstream-explore/m
  */
 
 import * as path from 'path';
+import * as fs from 'fs';
 import { JsonRpcRequest, JsonRpcNotification, JsonRpcTransport, ErrorCodes } from './transport';
 import { MCPEngine } from './engine';
 import { tools } from './tools';
@@ -74,6 +75,7 @@ export interface MCPSessionOptions {
    * where the project lives.
    */
   explicitProjectPath?: string | null;
+  restrictProject?: boolean;
 }
 
 /**
@@ -89,6 +91,7 @@ export class MCPSession {
   private rootsAttempted = false;
   private resolvePromise: Promise<void> | null = null;
   private explicitProjectPath: string | null;
+  private restrictProject: boolean;
   private activeToolCalls = new Map<string | number, AbortController>();
 
   constructor(
@@ -97,6 +100,7 @@ export class MCPSession {
     opts: MCPSessionOptions = {},
   ) {
     this.explicitProjectPath = opts.explicitProjectPath ?? null;
+    this.restrictProject = opts.restrictProject === true;
   }
 
   /**
@@ -190,6 +194,11 @@ export class MCPSession {
       explicitPath = this.explicitProjectPath;
     }
 
+    if (this.restrictProject && explicitPath && !this.matchesProject(explicitPath)) {
+      this.transport.sendError(request.id, ErrorCodes.InvalidParams, 'Shared service is bound to a different project');
+      return;
+    }
+
     // Respond to the handshake BEFORE doing any heavy init — see issue #172.
     this.transport.sendResult(request.id, {
       protocolVersion: PROTOCOL_VERSION,
@@ -227,6 +236,12 @@ export class MCPSession {
     const toolName = params.name;
     const toolArgs = params.arguments || {};
 
+    if (this.restrictProject && toolArgs.projectPath !== undefined &&
+        (typeof toolArgs.projectPath !== 'string' || !this.matchesProject(toolArgs.projectPath))) {
+      this.transport.sendError(request.id, ErrorCodes.InvalidParams, 'Shared service is bound to a different project');
+      return;
+    }
+
     const tool = tools.find((t) => t.name === toolName);
     if (!tool) {
       this.transport.sendError(
@@ -262,6 +277,11 @@ export class MCPSession {
         this.activeToolCalls.delete(request.id);
       }
     }
+  }
+
+  private matchesProject(candidate: string): boolean {
+    try { return fs.realpathSync(candidate) === fs.realpathSync(this.explicitProjectPath!); }
+    catch { return false; }
   }
 
   private handleCancelled(notification: JsonRpcNotification): void {

@@ -41,6 +41,8 @@
  */
 
 import * as fs from 'fs';
+import { randomUUID } from 'crypto';
+import { getCodeGraphDir } from '../directory';
 import * as net from 'net';
 import * as path from 'path';
 import { MCPEngine } from './engine';
@@ -88,6 +90,7 @@ export interface DaemonHello {
   pid: number;       // daemon pid (informational; for `ps` debugging)
   socketPath: string; // echoed back so the proxy can log it
   protocol: 1;       // bump if the hello shape changes
+  service?: { version: 1; instance: string; projectRoot: string; dataDir: string; persistent: boolean };
 }
 
 /**
@@ -136,17 +139,21 @@ export class Daemon {
   private clientSweepTimer: NodeJS.Timeout | null = null;
   private engine: MCPEngine;
   private stopping = false;
+  private readonly instance = randomUUID();
+  private pendingSockets = new Set<net.Socket>();
+  private persistent: boolean;
   private socketPath: string;
   private pidPath: string;
 
   constructor(
     private projectRoot: string,
-    opts: { idleTimeoutMs?: number; maxIdleMs?: number } = {},
+    opts: { idleTimeoutMs?: number; maxIdleMs?: number; persistent?: boolean } = {},
   ) {
     this.socketPath = getDaemonSocketPath(projectRoot);
     this.pidPath = getDaemonPidPath(projectRoot);
-    this.idleTimeoutMs = opts.idleTimeoutMs ?? resolveIdleTimeoutMs();
-    this.maxIdleMs = opts.maxIdleMs ?? resolveMaxIdleMs();
+    this.persistent = opts.persistent === true;
+    this.idleTimeoutMs = this.persistent ? 0 : (opts.idleTimeoutMs ?? resolveIdleTimeoutMs());
+    this.maxIdleMs = this.persistent ? 0 : (opts.maxIdleMs ?? resolveMaxIdleMs());
     this.engine = new MCPEngine();
     this.engine.setProjectPathHint(projectRoot);
   }
@@ -238,6 +245,8 @@ export class Daemon {
       try { session.stop(); } catch { /* best-effort */ }
     }
     this.clients.clear();
+    for (const socket of this.pendingSockets) socket.destroy();
+    this.pendingSockets.clear();
     if (this.server) {
       await new Promise<void>((resolve) => this.server!.close(() => resolve()));
       this.server = null;
@@ -251,6 +260,7 @@ export class Daemon {
   }
 
   private handleConnection(socket: net.Socket): void {
+    if (this.stopping) { socket.destroy(); return; }
     // Hello first so the proxy can verify versions before piping any
     // application bytes. The proxy reads exactly one line, then forwards.
     const hello: DaemonHello = {
@@ -258,6 +268,8 @@ export class Daemon {
       pid: process.pid,
       socketPath: this.socketPath,
       protocol: 1,
+      service: { version: 1, instance: this.instance, projectRoot: this.projectRoot,
+        dataDir: path.resolve(getCodeGraphDir(this.projectRoot)), persistent: this.persistent },
     };
     socket.write(JSON.stringify(hello) + '\n');
 
@@ -265,10 +277,22 @@ export class Daemon {
     // peer pids, then hand the socket to the session. Fail-safe: any problem —
     // timeout, a non-hello first line, an early close — yields null pids and we
     // fall back to the socket-close lifecycle exactly as before (#692).
+    this.pendingSockets.add(socket);
     void readClientHello(socket).then((peers) => {
+      this.pendingSockets.delete(socket);
+      if (this.stopping || socket.destroyed) { socket.destroy(); return; }
+      if (peers.serviceStop !== undefined) {
+        if (peers.serviceStop !== this.instance) { socket.destroy(); return; }
+        socket.end(JSON.stringify({ serviceStopped: this.instance }) + "\n");
+        // Control happens on the verified connection, never by signalling a PID file.
+        socket.destroySoon();
+        void this.stop("service stop");
+        return;
+      }
       const transport = new SocketTransport(socket);
       const session = new MCPSession(transport, this.engine, {
         explicitProjectPath: this.projectRoot,
+        restrictProject: this.persistent,
       });
       transport.onClose(() => {
         // Abort any request-scoped raw-evidence subprocess before dropping the
@@ -532,12 +556,13 @@ function resolveClientSweepMs(): number {
  */
 export function parseClientHelloLine(
   line: string,
-): { pid: number; hostPid: number | null } | null {
+): { pid: number; hostPid: number | null; serviceStop?: string } | null {
   let parsed: unknown;
   try { parsed = JSON.parse(line); } catch { return null; }
   if (!parsed || typeof parsed !== 'object') return null;
   const o = parsed as Record<string, unknown>;
   if (o.codegraph_client !== 1 || typeof o.pid !== 'number') return null;
+  if (typeof o.serviceStop === "string") return { pid: o.pid, hostPid: null, serviceStop: o.serviceStop };
   return { pid: o.pid, hostPid: typeof o.hostPid === 'number' ? o.hostPid : null };
 }
 
@@ -567,13 +592,13 @@ export function peerIsDead(
  */
 function readClientHello(
   socket: net.Socket,
-): Promise<{ pid: number | null; hostPid: number | null }> {
+): Promise<{ pid: number | null; hostPid: number | null; serviceStop?: string }> {
   return new Promise((resolve) => {
     let chunks: Buffer[] = [];
     let total = 0;
     let settled = false;
     const finish = (
-      peers: { pid: number | null; hostPid: number | null },
+      peers: { pid: number | null; hostPid: number | null; serviceStop?: string },
       putBack?: Buffer,
     ) => {
       if (settled) return;

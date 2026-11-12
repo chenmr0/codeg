@@ -409,7 +409,7 @@ function startPpidWatchdogNoSocket(onDeath: () => void): void {
  * malicious or broken peer can't OOM us. Times out at 3s — a healthy daemon
  * sends hello immediately on accept.
  */
-function readHelloLine(socket: net.Socket): Promise<DaemonHello> {
+export function readHelloLine(socket: net.Socket): Promise<DaemonHello> {
   return new Promise((resolve, reject) => {
     let buffer = '';
     const cleanup = () => {
@@ -550,4 +550,13 @@ function isProcessAliveLocal(pid: number): boolean {
     if (e.code === 'EPERM') return true;
     return false;
   }
+}
+
+/** Verified strict-service connection: no local handshake or engine fallback. */
+export async function runVerifiedServiceProxy(socket: net.Socket): Promise<void> {
+  sendClientHello(socket);
+  startPpidWatchdog(socket);
+  await pipeUntilClose(socket);
+  socket.destroy();
+  process.exit(0);
 }

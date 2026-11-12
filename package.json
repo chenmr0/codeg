@@ -20,6 +20,7 @@
     "docs/sync-diagnostics.md",
     "docs/adaptive-sync.md",
     "docs/term-mappings.md",
+    "docs/shared-service.md",
     "docs/scoped-reference-batches.md",
     "docs/rust-scan-prototype.md",
     "docs/native-scan-release.md",

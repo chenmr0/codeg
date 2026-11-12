@@ -145,7 +145,7 @@ function daemonInternalSet(): boolean {
  * symlinked `rootUri` would otherwise hash to different sockets and silently
  * fail to share the daemon.
  */
-function resolveDaemonRoot(explicitPath: string | null): string | null {
+export function resolveDaemonRoot(explicitPath: string | null): string | null {
   const candidate = explicitPath ?? process.cwd();
   const root = findNearestCodeGraphRoot(candidate);
   if (!root) return null;
@@ -163,7 +163,7 @@ function resolveDaemonRoot(explicitPath: string | null): string | null {
  * O_EXCL lock, so racing launchers may each spawn one — losers exit and every
  * launcher proxies through the single winner.
  */
-function spawnDetachedDaemon(root: string): void {
+export function spawnDetachedDaemon(root: string, persistent = false): void {
   const scriptPath = process.argv[1];
   if (!scriptPath) {
     // No resolvable CLI entry point to re-invoke — let the caller fall back to
@@ -187,7 +187,7 @@ function spawnDetachedDaemon(root: string): void {
         detached: true,
         stdio,
         windowsHide: true,
-        env: { ...process.env, [DAEMON_INTERNAL_ENV]: '1' },
+        env: { ...process.env, [DAEMON_INTERNAL_ENV]: '1', CODEGRAPH_SERVICE_INTERNAL: persistent ? '1' : '0' },
       },
     );
     child.unref();
@@ -226,7 +226,7 @@ export class MCPServer {
   private stopped = false;
   private mode: 'unstarted' | 'direct' | 'proxy' | 'daemon' = 'unstarted';
 
-  constructor(projectPath?: string) {
+  constructor(projectPath?: string, private options: { sharedRequired?: boolean } = {}) {
     this.projectPath = projectPath || null;
   }
 
@@ -248,6 +248,16 @@ export class MCPServer {
     // daemon honors the same env it was spawned with (it never sets NO_DAEMON).
     if (daemonInternalSet()) {
       return this.startDaemonProcess();
+    }
+
+    if (this.options.sharedRequired) {
+      if (!this.projectPath) throw new Error('--shared-required requires an explicit --path');
+      if (daemonOptOutSet()) throw new Error('--shared-required conflicts with CODEGRAPH_NO_DAEMON');
+      const { connectService } = await import('./service');
+      const { runVerifiedServiceProxy } = await import('./proxy');
+      const connection = await connectService(this.projectPath, true);
+      this.mode = 'proxy';
+      return runVerifiedServiceProxy(connection.socket);
     }
 
     // Direct mode if the user opted out. Setting the env var is sufficient to
@@ -355,7 +365,7 @@ export class MCPServer {
       const lock = tryAcquireDaemonLock(root);
 
       if (lock.kind === 'acquired') {
-        const daemon = new Daemon(root);
+        const daemon = new Daemon(root, { persistent: process.env.CODEGRAPH_SERVICE_INTERNAL === '1' });
         await daemon.start();
         this.daemon = daemon;
         this.mode = 'daemon';
