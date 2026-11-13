@@ -11,7 +11,7 @@
  */
 
 import type CodeGraph from '../index';
-import { findNearestCodeGraphRoot } from '../directory';
+import { findNearestCodeGraphRoot, isInitialized } from '../directory';
 import { watchDisabledReason } from '../sync';
 import { ToolHandler } from './tools';
 import { drainGenerationCollections } from '../sync/generation-store';
@@ -95,7 +95,7 @@ export class MCPEngine {
    * subsequent-tool-call semantics; we preserve them by NOT throwing when the
    * search misses (just leaves `cg` null so the next call can retry).
    */
-  async ensureInitialized(searchFrom: string): Promise<void> {
+  async ensureInitialized(searchFrom: string, exactRoot = false): Promise<void> {
     if (this.closed) return;
     if (this.toolHandler.hasDefaultCodeGraph()) return;
     if (this.initPromise) {
@@ -103,7 +103,7 @@ export class MCPEngine {
       return;
     }
 
-    this.initPromise = this.doInitialize(searchFrom).finally(() => {
+    this.initPromise = this.doInitialize(searchFrom, exactRoot).finally(() => {
       this.initPromise = null;
     });
     try {
@@ -119,11 +119,11 @@ export class MCPEngine {
    * background `ensureInitialized` already finished (or failed) and we need
    * to pick up a project that appeared *after* the engine started.
    */
-  retryInitializeSync(searchFrom: string): void {
+  retryInitializeSync(searchFrom: string, exactRoot = false): void {
     if (this.closed) return;
     if (this.toolHandler.hasDefaultCodeGraph()) return;
     this.toolHandler.setDefaultProjectHint(searchFrom);
-    const resolvedRoot = findNearestCodeGraphRoot(searchFrom);
+    const resolvedRoot = exactRoot ? (isInitialized(searchFrom) ? searchFrom : null) : findNearestCodeGraphRoot(searchFrom);
     if (!resolvedRoot) return;
     try {
       // Close any previously failed instance to avoid leaking resources.
@@ -199,10 +199,10 @@ export class MCPEngine {
     return this.drainPromise;
   }
 
-  private async doInitialize(searchFrom: string): Promise<void> {
+  private async doInitialize(searchFrom: string, exactRoot = false): Promise<void> {
     this.toolHandler.setDefaultProjectHint(searchFrom);
 
-    const resolvedRoot = findNearestCodeGraphRoot(searchFrom);
+    const resolvedRoot = exactRoot ? (isInitialized(searchFrom) ? searchFrom : null) : findNearestCodeGraphRoot(searchFrom);
     if (!resolvedRoot) {
       // No .codegraph/ above searchFrom. Sessions may still discover one later via roots/list
       this.projectPath = searchFrom;

@@ -53,17 +53,25 @@ it('ordinary and strict sessions on one persistent daemon retain different proje
   vi.stubEnv('CODEGRAPH_NO_WATCH', '1');
   base = fs.mkdtempSync(path.join(os.tmpdir(), 'cg-session-route-'));
   const a = await indexed('alpha'), b = await indexed('beta');
+  fs.mkdirSync(path.join(a, 'src'));
+  const back = path.join(b, 'back'); fs.symlinkSync(path.join(a, 'src'), back, process.platform === 'win32' ? 'junction' : 'dir');
   daemon = new Daemon(a, { persistent: true });
   server = net.createServer(socket => { sockets.push(socket); (daemon as any).handleConnection(socket); });
   await new Promise<void>((resolve, reject) => { server!.once('error', reject); server!.listen(0, '127.0.0.1', resolve); });
   const port = (server.address() as net.AddressInfo).port;
   const ordinary = await connect(false, port), strict = await connect(true, port);
   const init = { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'routing-test', version: '1' }, rootUri: pathToFileURL(a).href };
+  expect((await strict(1, 'initialize', { ...init, rootUri: pathToFileURL(back).href })).error).toBeUndefined();
   expect((await ordinary(1, 'initialize', init)).error).toBeUndefined();
-  expect((await strict(1, 'initialize', init)).error).toBeUndefined();
   const args = { name: 'search', arguments: { query: 'betaMarker', projectPath: b } };
   const found = await ordinary(2, 'tools/call', args);
   expect(found.error).toBeUndefined(); expect(found.result.isError, JSON.stringify(found.result)).not.toBe(true); expect(JSON.stringify(found.result)).toContain('betaMarker');
   expect((await strict(2, 'tools/call', args)).error.code).toBe(-32602);
+  // A logical path under B resolves into A. Validation must bind dispatch to A.
+  const aliasResult = await strict(8, 'tools/call', { name: 'search', arguments: { query: 'betaMarker', projectPath: back } });
+  expect(aliasResult.error).toBeUndefined();
+  expect(JSON.stringify(aliasResult.result)).not.toContain('example.c');
+  const own = await strict(9, 'tools/call', { name: 'search', arguments: { query: 'alphaMarker', projectPath: back } });
+  expect(JSON.stringify(own.result)).toContain('alphaMarker');
   expect(JSON.stringify((await strict(3, 'tools/call', { name: 'search', arguments: { query: 'alphaMarker' } })).result)).toContain('alphaMarker');
 }, 30000);

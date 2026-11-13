@@ -1,3 +1,4 @@
+import { bindStrictProject, isStrictProjectBindingCurrent, type StrictProjectBinding } from './strict-project-binding';
 import { sameProjectPath } from './project-identity';
 import { ExploreSessionState, type ExploreEmission } from '../upstream-explore/mcp/explore-session-state';
 /**
@@ -93,6 +94,7 @@ export class MCPSession {
   private resolvePromise: Promise<void> | null = null;
   private explicitProjectPath: string | null;
   private restrictProject: boolean;
+  private strictBinding: StrictProjectBinding | null;
   private activeToolCalls = new Map<string | number, AbortController>();
 
   constructor(
@@ -102,6 +104,7 @@ export class MCPSession {
   ) {
     this.explicitProjectPath = opts.explicitProjectPath ?? null;
     this.restrictProject = opts.restrictProject === true;
+    this.strictBinding = this.restrictProject && this.explicitProjectPath ? bindStrictProject(this.explicitProjectPath) : null;
   }
 
   /**
@@ -195,10 +198,15 @@ export class MCPSession {
       explicitPath = this.explicitProjectPath;
     }
 
-    if (this.restrictProject && explicitPath && !this.matchesProject(explicitPath)) {
+    if (this.restrictProject && (!this.strictBinding || !isStrictProjectBindingCurrent(this.strictBinding) ||
+        (explicitPath && !this.matchesProject(explicitPath)))) {
       this.transport.sendError(request.id, ErrorCodes.InvalidParams, 'Shared service is bound to a different project');
       return;
     }
+
+    // Validation accepts aliases, but execution must never re-resolve the
+    // caller's lexical path (which can belong to a different indexed project).
+    if (this.restrictProject) explicitPath = this.strictBinding!.root;
 
     // Respond to the handshake BEFORE doing any heavy init — see issue #172.
     this.transport.sendResult(request.id, {
@@ -212,7 +220,7 @@ export class MCPSession {
       // Kick off engine init in the background. If another session in the
       // same daemon already opened the project, `ensureInitialized` is a
       // ~free no-op — N concurrent clients pay exactly one open.
-      this.resolvePromise = this.engine.ensureInitialized(explicitPath);
+      this.resolvePromise = this.engine.ensureInitialized(explicitPath, this.restrictProject);
     }
   }
 
@@ -235,13 +243,17 @@ export class MCPSession {
     }
 
     const toolName = params.name;
-    const toolArgs = params.arguments || {};
+    let toolArgs = params.arguments || {};
 
-    if (this.restrictProject && toolArgs.projectPath !== undefined &&
-        (typeof toolArgs.projectPath !== 'string' || !this.matchesProject(toolArgs.projectPath))) {
+    if (this.restrictProject && (!this.strictBinding || !isStrictProjectBindingCurrent(this.strictBinding) ||
+        (toolArgs.projectPath !== undefined && (typeof toolArgs.projectPath !== 'string' || !this.matchesProject(toolArgs.projectPath))))) {
       this.transport.sendError(request.id, ErrorCodes.InvalidParams, 'Shared service is bound to a different project');
       return;
     }
+
+    // Pin even calls without projectPath: a shared engine may also serve
+    // ordinary sessions, so its default project is not an isolation boundary.
+    if (this.restrictProject) toolArgs = { ...toolArgs, projectPath: this.strictBinding!.root };
 
     const tool = tools.find((t) => t.name === toolName);
     if (!tool) {
@@ -260,6 +272,7 @@ export class MCPSession {
       const emissions: ExploreEmission[] = [];
       const result = await this.engine.getToolHandler().execute(toolName, toolArgs, {
         signal: controller.signal,
+        ...(this.restrictProject ? { boundProject: this.strictBinding! } : {}),
         exploreSession: this.exploreSession,
         onExploreEmission: emission => emissions.push(emission),
       });
@@ -311,7 +324,7 @@ export class MCPSession {
 
     if (this.engine.hasDefaultCodeGraph()) return;
 
-    const hint = this.explicitProjectPath ?? this.engine.getProjectPath();
+    const hint = this.strictBinding?.root ?? this.explicitProjectPath ?? this.engine.getProjectPath();
     if (!hint && !this.rootsAttempted) {
       this.rootsAttempted = true;
       this.resolvePromise = this.clientSupportsRoots
@@ -325,7 +338,7 @@ export class MCPSession {
     // Last resort: walk from the best candidate (sync open). Picks up
     // projects that appeared after the server started.
     const candidate = hint ?? process.cwd();
-    this.engine.retryInitializeSync(candidate);
+    this.engine.retryInitializeSync(candidate, this.restrictProject);
   }
 
   /**

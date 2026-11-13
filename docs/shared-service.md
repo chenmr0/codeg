@@ -77,3 +77,9 @@ python scripts/examples/shared_mcp_client.py /absolute/project
   does named-pipe naming; POSIX case-sensitive identities remain unchanged.
   Restart old daemons with their original launcher before using an upgraded
   version, particularly on Windows where the normalized pipe name may differ.
+
+### 严格连接的隔离确认
+
+`--shared-required` 在转发任何 MCP 请求前，等待服务确认已为该连接安装严格项目策略。确认超时、格式不符或旧 daemon 不支持确认时，连接失败，不降级为普通会话。升级后请先停止旧 daemon，再启动新服务。
+
+严格会话可以接受指向本项目的路径别名，但初始化与工具查库统一绑定到已验证的服务项目根目录，不再沿调用者的原始别名重新选择项目。普通客户端的跨项目查询不受此限制。

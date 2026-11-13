@@ -1,3 +1,4 @@
+import { isStrictProjectBindingCurrent, type StrictProjectBinding } from './strict-project-binding';
 import { getExploreBudget } from '../upstream-explore/mcp/budget-policy';
 export { getExploreBudget, getExploreOutputBudget } from '../upstream-explore/mcp/budget-policy';
 export type { ExploreOutputBudget } from '../upstream-explore/mcp/budget-policy';
@@ -11,7 +12,8 @@ import type { ExploreEmission, ExploreSessionState } from '../upstream-explore/m
 import type CodeGraph from '../index';
 import type { IndexDataReadiness } from '../index';
 import { AsyncLocalStorage } from 'async_hooks';
-import { findNearestCodeGraphRoot, getCodeGraphDir } from '../directory';
+import { findNearestCodeGraphRoot, getCodeGraphDir, isInitialized } from '../directory';
+import { sameProjectPath } from './project-identity';
 import { acquireCurrentGenerationLease } from '../sync/generation-store';
 // Lazy-load the heavy CodeGraph chain off the MCP startup path — see the same
 // helper in engine.ts. ToolHandler must load to answer tools/list (static
@@ -353,6 +355,8 @@ export interface ToolResult {
 }
 
 export interface ToolExecutionOptions {
+  /** Internal strict-session binding; never supplied through tool arguments. */
+  boundProject?: StrictProjectBinding;
   /** Internal commit-on-send sink; never returned on the wire. */
   onExploreEmission?: (emission: ExploreEmission) => void;
   exploreSession?: ExploreSessionState;
@@ -1454,6 +1458,23 @@ export class ToolHandler {
   }
 
   private getProjectCodeGraph(projectPath?: string): CodeGraph {
+    const binding = this.exploreSession.getStore()?.boundProject;
+    if (binding) {
+      if (!isStrictProjectBindingCurrent(binding)) throw new Error('Bound shared-service project identity changed');
+      const boundRoot = binding.root;
+      // Never discover upward for strict sessions, even if their index is
+      // removed after validation. Reuse only an instance of the bound root.
+      const pathError = validateProjectPath(boundRoot);
+      if (pathError) throw new Error(pathError);
+      if (this.cg && sameProjectPath(this.cg.getProjectRoot(), boundRoot)) return this.cg;
+      const cached = this.projectCache.get(boundRoot);
+      if (cached && sameProjectPath(cached.getProjectRoot(), boundRoot)) return cached;
+      if (!isInitialized(boundRoot)) throw new Error('Bound shared-service project is no longer initialized');
+      const graph = loadCodeGraph().openSync(boundRoot);
+      this.projectCache.set(boundRoot, graph);
+      return graph;
+    }
+
     if (!projectPath) {
       if (!this.cg) {
         const searched = this.defaultProjectHint ?? process.cwd();

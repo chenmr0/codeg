@@ -488,6 +488,7 @@ function pipeUntilClose(socket: net.Socket): Promise<void> {
     socket.on('data', (chunk) => {
       try { process.stdout.write(chunk); } catch { /* ignore */ }
     });
+    socket.resume();
     socket.on('end', () => done());
     socket.on('close', () => done());
     socket.on('error', (err) => {
@@ -555,9 +556,53 @@ function isProcessAliveLocal(pid: number): boolean {
 
 /** Verified strict-service connection: no local handshake or engine fallback. */
 export async function runVerifiedServiceProxy(socket: net.Socket): Promise<void> {
-  sendClientHello(socket, true);
+  await confirmStrictServiceSession(socket);
   startPpidWatchdog(socket);
   await pipeUntilClose(socket);
   socket.destroy();
   process.exit(0);
+}
+
+/** No MCP bytes are forwarded until the daemon confirms its installed policy.
+ * Old daemons and client-hello timeouts fail closed, never fall back to ordinary.
+ */
+export async function confirmStrictServiceSession(socket: net.Socket): Promise<void> {
+  try {
+    await new Promise<void>((resolve, reject) => {
+      let buffer = '';
+      const finish = (error?: Error, tail = '') => {
+        socket.pause();
+        clearTimeout(timer);
+        socket.removeListener('data', onData);
+        socket.removeListener('error', onError);
+        socket.removeListener('close', onClose);
+        if (tail) socket.unshift(tail);
+        if (error) reject(error); else resolve();
+      };
+      const onError = (error: Error) => finish(error);
+      const onClose = () => finish(new Error('Strict service acknowledgement connection closed'));
+      const onData = (chunk: string | Buffer) => {
+        buffer += chunk.toString();
+        const end = buffer.indexOf('\n');
+        if (end < 0) {
+          if (Buffer.byteLength(buffer) > MAX_HELLO_LINE_BYTES) finish(new Error('Strict service acknowledgement too large'));
+          return;
+        }
+        if (Buffer.byteLength(buffer.slice(0, end)) > MAX_HELLO_LINE_BYTES) {
+          finish(new Error('Strict service acknowledgement too large')); return;
+        }
+        try {
+          const ack = JSON.parse(buffer.slice(0, end));
+          if (ack.codegraph_client_ack !== 1 || ack.sharedRequired !== true) throw new Error('Invalid strict service acknowledgement');
+          finish(undefined, buffer.slice(end + 1));
+        } catch (error) { finish(error instanceof Error ? error : new Error('Invalid strict service acknowledgement')); }
+      };
+      const timer = setTimeout(() => finish(new Error('Timed out waiting for strict service acknowledgement')), 3000);
+      socket.on('data', onData);
+      socket.on('error', onError);
+      socket.on('close', onClose);
+      socket.resume();
+      sendClientHello(socket, true);
+    });
+  } catch (error) { socket.destroy(); throw error; }
 }

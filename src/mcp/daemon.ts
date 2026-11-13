@@ -305,6 +305,11 @@ export class Daemon {
       this.clientPeers.set(session, peers);
       this.disarmIdleTimer();
       session.start();
+      // Only an installed restricted session can acknowledge strict policy.
+      // A late hello after the legacy timeout is never acknowledged.
+      if (peers.sharedRequired === true) {
+        socket.write(JSON.stringify({ codegraph_client_ack: 1, sharedRequired: true }) + '\n');
+      }
       // Observe inbound bytes purely to feed the inactivity backstop — a second
       // 'data' listener that reads nothing, added AFTER the transport's so the
       // unshifted client-hello tail reaches the transport intact.
