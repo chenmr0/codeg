@@ -92,3 +92,10 @@ it('deduplicates physical files reached by distinct aliases and hard links',()=>
  fs.linkSync(path.join(shared,'remote.c'),path.join(shared,'duplicate.c'));
  expect(scanDirectory(root).filter(f=>f.startsWith('linked/'))).toHaveLength(1);
 });
+
+it.skipIf(process.platform === 'win32')('preserves Git explicit global exclude symlink policy',()=>{
+ const actual=path.join(base,'global-rules'), alias=path.join(base,'global-alias');
+ fs.writeFileSync(actual,'remote.c\n');fs.symlinkSync(actual,alias);
+ git('config','core.excludesFile',alias);
+ expect(scanDirectory(root)).toEqual(['local.c']);
+});

@@ -388,12 +388,17 @@ function isValidUtf8(buf: Buffer): boolean {
  * which `.gitignore` was at fault) and indexing continues instead of aborting.
  * Returns '' when there's nothing usable.
  */
-function readGitignorePatterns(giPath: string): string {
+function readGitignorePatterns(giPath: string, explicitGitConfig = false): string {
   let buf: Buffer;
   try {
     const stat = fs.lstatSync(giPath, { throwIfNoEntry: false });
     // Git itself does not follow symbolic links when reading ignore files.
-    if (!stat?.isFile() || stat.isSymbolicLink()) return '';
+    if (!stat) return '';
+    if (stat.isSymbolicLink()) {
+      // Git's explicit global excludes path is a user configuration input, not
+      // a source-tree .gitignore. Preserve Git's own symlink behavior there.
+      if (!explicitGitConfig || !fs.statSync(giPath).isFile()) return '';
+    } else if (!stat.isFile()) return '';
     buf = fs.readFileSync(giPath);
   } catch (error) {
     const code = (error as NodeJS.ErrnoException).code;
@@ -760,11 +765,11 @@ function getGitVisibleFiles(rootDir: string, diagnostics?: ScanDiagnostics): Set
         const configured = runScanGit(['config', '--path', '--get', 'core.excludesFile'], {
           cwd: rootDir, encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true,
         }, diagnostics).trim();
-        if (configured) globalRules.push(readGitignorePatterns(path.resolve(rootDir, configured)));
+        if (configured) globalRules.push(readGitignorePatterns(path.resolve(rootDir, configured), true));
       } catch (error) {
         if ((error as { status?: number }).status !== 1) throw new ScanCoverageError(rootDir, error);
         const defaultExclude = path.join(process.env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config'), 'git/ignore');
-        globalRules.push(readGitignorePatterns(defaultExclude));
+        globalRules.push(readGitignorePatterns(defaultExclude, true));
       }
       const excludePath = runScanGit(['rev-parse', '--git-path', 'info/exclude'], {
         cwd: rootDir, encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true,
