@@ -53,6 +53,8 @@ import {
 import { ReconcileDiagnostics, type ScanDiagnostics } from './sync-diagnostics';
 import { StoreDiagnostics, measureStore } from './store-diagnostics';
 import { filterGitPaths } from './git-paths';
+import { separateGitDirectoryLinks } from './git-linked-roots';
+import { ScanCoverageError } from './scan-coverage';
 import { rewireRecoveryMetadata, type SyncRetryState } from './sync-retry-state';
 import { AppendDeltaState } from './append-delta';
 import { EXTRACTION_VERSION } from './extraction-version';
@@ -389,9 +391,14 @@ function isValidUtf8(buf: Buffer): boolean {
 function readGitignorePatterns(giPath: string): string {
   let buf: Buffer;
   try {
+    const stat = fs.lstatSync(giPath, { throwIfNoEntry: false });
+    // Git itself does not follow symbolic links when reading ignore files.
+    if (!stat?.isFile() || stat.isSymbolicLink()) return '';
     buf = fs.readFileSync(giPath);
-  } catch {
-    return ''; // unreadable (permissions / race) — treat as absent
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === 'ENOENT' || code === 'ENOTDIR') return '';
+    throw new ScanCoverageError(giPath, error);
   }
   // A NUL byte never appears in real gitignore text, and a fatal UTF-8 decode
   // catches the rest. Such a file isn't ignore patterns at all.
@@ -740,37 +747,45 @@ function getGitVisibleFiles(rootDir: string, diagnostics?: ScanDiagnostics): Set
     const rootRules = rootIgnoreGroups(rootDir);
     const ig = buildDefaultIgnore(rootDir, diagnostics, rootRules);
     failureStage = 'filter-canonical';
-    const visible = filterGitPaths(rootDir, files, ig, rootRules, diagnostics);
-    // Git lists a directory symlink itself, never its source descendants.
-    // Keep ordinary repositories on the unchanged fast path. Explicit external
-    // source opt-in supplements only Git-visible aliases, not every allowed root.
-    if (process.env.CODEGRAPH_ALLOWED_SOURCE_ROOTS) {
-      const linkedRoots: string[] = [];
-      for (const logical of files) {
-        if (ig.ignores(logical) || ig.ignores(logical + '/')) continue;
-        const full = path.join(rootDir, logical);
-        try {
-          if (!fs.lstatSync(full).isSymbolicLink()) continue;
-          const target = validatePathWithinRoot(rootDir, logical, true);
-          if (!target || !fs.statSync(target).isDirectory()) continue;
-          linkedRoots.push(process.platform === 'win32' ? logical.toLowerCase() : logical);
-          // A directory alias named e.g. linked.c must not be parsed as a file.
-          visible.delete(canonicalFilePath(rootDir, logical));
-        } catch (error) {
-          if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
-        }
+    const checkLinkBoundaries = !!process.env.CODEGRAPH_ALLOWED_SOURCE_ROOTS || process.platform === 'win32';
+    if (checkLinkBoundaries) failureStage = 'supplement-links';
+    const candidates = checkLinkBoundaries
+      ? separateGitDirectoryLinks(rootDir, files) : { ordinary: files, external: [] };
+    const visible = filterGitPaths(rootDir, candidates.ordinary, ig, rootRules, diagnostics);
+    if (candidates.external.length) {
+      // Git global excludes are not present in ls-files output for descendants
+      // of a POSIX directory link. Apply the same policy to those new paths.
+      const globalRules: string[] = [];
+      try {
+        const configured = runScanGit(['config', '--path', '--get', 'core.excludesFile'], {
+          cwd: rootDir, encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true,
+        }, diagnostics).trim();
+        if (configured) globalRules.push(readGitignorePatterns(path.resolve(rootDir, configured)));
+      } catch (error) {
+        if ((error as { status?: number }).status !== 1) throw new ScanCoverageError(rootDir, error);
+        const defaultExclude = path.join(process.env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config'), 'git/ignore');
+        globalRules.push(readGitignorePatterns(defaultExclude));
       }
-      if (linkedRoots.length) {
-        const mode = diagnostics?.mode;
-        const linked = scanDirectoryWalk(rootDir, undefined, diagnostics, {
-          roots: linkedRoots, rejectSymlinks: false, rootIgnore: ig, authorizedSymlinksOnly: true,
-        });
-        if (diagnostics && mode) diagnostics.mode = mode;
-        for (const file of linked) visible.add(file);
-      }
+      const excludePath = runScanGit(['rev-parse', '--git-path', 'info/exclude'], {
+        cwd: rootDir, encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true,
+      }, diagnostics).trim();
+      const cgPatterns = readGitignorePatterns(path.join(rootDir, '.codegraphignore'));
+      const linkedIgnore = buildDefaultIgnore(rootDir, diagnostics, [
+        DEFAULT_IGNORE_PATTERNS.join('\n'), ...globalRules,
+        readGitignorePatterns(path.resolve(rootDir, excludePath)),
+        readGitignorePatterns(path.join(rootDir, '.gitignore')),
+        cgPatterns, expandAnchoredNegations(cgPatterns).join('\n'),
+      ]);
+      const mode = diagnostics?.mode;
+      const linked = scanDirectoryWalk(rootDir, undefined, diagnostics, {
+        roots: candidates.external, rejectSymlinks: false, rootIgnore: linkedIgnore, authorizedSymlinksOnly: true,
+      });
+      if (diagnostics && mode) diagnostics.mode = mode;
+      for (const file of linked) visible.add(file);
     }
     return visible;
   } catch (error) {
+    if (error instanceof ScanCoverageError || failureStage === 'supplement-links') throw error;
     // This catch also covers ignore/canonicalization failures. Do not
     // mislabel every fallback as a non-git project or run a second probe.
     if (diagnostics) {
@@ -1177,6 +1192,9 @@ function tryRustDirectoryScan(rootDir: string, diagnostics?: ScanDiagnostics,
   const started = performance.now();
   let eligible = false;
   try {
+    // The native walker does not implement authorized external-root boundaries.
+    // Stay on the bounded JS inventory before it can read nested controls.
+    if (process.env.CODEGRAPH_ALLOWED_SOURCE_ROOTS) throw new Error('authorized-source-roots');
     if (mode === 'auto') {
       const status = automaticRustScanStatus();
       if (!status.ready) throw new Error(status.reason);
@@ -1245,11 +1263,21 @@ function scanDirectoryWalk(
   // dedups files so a file reachable via its real path and a symlink, or via
   // several symlinks, is emitted once under its canonical realpath-relative path).
   const seenCanonical = new Set<string>();
+  const seenPhysical = new Set<string>();
+  const physicalKey = (file: string): string => {
+    const stat = fs.statSync(file, { bigint: true });
+    return stat.ino !== 0n ? `${stat.dev}:${stat.ino}` : fs.realpathSync(file);
+  };
   const reuse = process.env.CODEGRAPH_NO_SCAN_PATH_REUSE !== '1';
   const pushCanonical = (logicalRel: string, knownRealPath?: string) => {
     const c = canonicalFilePath(rootDir, logicalRel, reuse ? knownRealPath : undefined);
     if (reuse && knownRealPath && diagnostics) diagnostics.canonicalFromParent++;
     if (!isSourceFile(c) || seenCanonical.has(c)) return;
+    if (supplement?.authorizedSymlinksOnly) {
+      const physical = physicalKey(path.join(rootDir, logicalRel));
+      if (seenPhysical.has(physical)) return;
+      seenPhysical.add(physical);
+    }
     seenCanonical.add(c);
     files.push(c);
     count++;
@@ -1269,7 +1297,7 @@ function scanDirectoryWalk(
     const started = diagnostics ? performance.now() : 0;
     try {
       const giPath = path.join(dir, '.gitignore');
-      if (!fs.existsSync(giPath)) return null;
+      if (!fs.existsSync(giPath) || !validatePathWithinRoot(rootDir, path.relative(rootDir, dir), true)) return null;
       // readGitignorePatterns is defensive: a non-UTF-8 (DLP-encrypted) or
       // uncompilable .gitignore is skipped/filtered with a warning, never thrown
       // (issue #682) — so the per-file `.ignores()` calls below can't crash.
@@ -1280,30 +1308,41 @@ function scanDirectoryWalk(
     }
   };
 
+  const cgOverride = supplement?.authorizedSymlinksOnly
+    ? ignore().add(readGitignorePatterns(path.join(rootDir, '.codegraphignore'))) : undefined;
   const isIgnored = (fullPath: string, isDir: boolean, matchers: ScopedIgnore[]): boolean => {
+    let ignored = false;
     for (const { dir, ig } of matchers) {
       let rel = normalizePath(path.relative(dir, fullPath));
       if (!rel || rel.startsWith('..')) continue; // not under this matcher's dir
       if (isDir) rel += '/'; // dir-only rules (e.g. `build/`) only match with the slash
-      if (ig.ignores(rel)) return true;
+      const result = ig.test(rel);
+      if (result.ignored) ignored = true;
+      else if (result.unignored) ignored = false;
     }
-    return false;
+    if (cgOverride) {
+      const rel = normalizePath(path.relative(rootDir, fullPath)) + (isDir ? '/' : '');
+      const result = cgOverride.test(rel);
+      if (result.ignored) ignored = true;
+      else if (result.unignored) ignored = false;
+    }
+    return ignored;
   };
 
   function walk(dir: string, matchers: ScopedIgnore[]): void {
     let realDir: string;
     try {
       realDir = fs.realpathSync(dir);
-    } catch {
-      logDebug('Skipping unresolvable directory', { dir });
-      return;
+    } catch (error) {
+      throw new ScanCoverageError(dir, error);
     }
 
-    if (visitedDirs.has(realDir)) {
+    const visitKey = supplement?.authorizedSymlinksOnly ? physicalKey(realDir) : realDir;
+    if (visitedDirs.has(visitKey)) {
       logDebug('Skipping already-visited directory (symlink cycle)', { dir, realDir });
       return;
     }
-    visitedDirs.add(realDir);
+    visitedDirs.add(visitKey);
     if (diagnostics) diagnostics.walkDirectories++;
 
     // This directory's own .gitignore (if present) applies to everything below it.
@@ -1316,8 +1355,7 @@ function scanDirectoryWalk(
     try {
       entries = fs.readdirSync(dir, { withFileTypes: true });
     } catch (error) {
-      logDebug('Skipping unreadable directory', { dir, error: String(error) });
-      return;
+      throw new ScanCoverageError(dir, error);
     }
 
     for (const entry of entries) {
@@ -1329,8 +1367,7 @@ function scanDirectoryWalk(
       const relativePath = normalizePath(path.relative(rootDir, fullPath));
 
       if (supplement) {
-        const lower = supplement.authorizedSymlinksOnly && process.platform !== 'win32'
-          ? relativePath : relativePath.toLowerCase();
+        const lower = supplement.authorizedSymlinksOnly ? relativePath : relativePath.toLowerCase();
         const inside = supplement.roots.some(root => lower === root || lower.startsWith(root + '/'));
         const toward = supplement.roots.some(root => root.startsWith(lower + '/'));
         if (!inside && !(toward && (entry.isDirectory() || entry.isSymbolicLink()))) continue;
@@ -1351,7 +1388,10 @@ function scanDirectoryWalk(
               pushCanonical(relativePath);
             }
           }
-        } catch {
+        } catch (error) {
+          if (error instanceof ScanCoverageError) throw error;
+          const code = (error as NodeJS.ErrnoException).code;
+          if (code !== 'ENOENT' && code !== 'ENOTDIR' && code !== 'ELOOP') throw new ScanCoverageError(fullPath, error);
           logDebug('Skipping broken symlink', { path: fullPath });
         }
         continue;

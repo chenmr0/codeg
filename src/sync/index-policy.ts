@@ -3,6 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as crypto from 'crypto';
 import { loadWorkspacePackages } from '../resolution/workspace-packages';
+import { validatePathWithinRoot } from '../utils';
 import { getLanguageScopeKey } from '../extraction/language-scope';
 
 // The published 1765271 release has neither a semantic nor a broad fingerprint.
@@ -45,7 +46,8 @@ function fingerprints(root: string, files: SourceFiles, broad: boolean, semantic
       // On the common missing-file path, avoid allocating an Error and its stack
       // for each control. lstat keeps dangling links on the normal read path.
       const stat = fs.lstatSync(absolute, { throwIfNoEntry: false });
-      if (!stat || stat.isDirectory()) return null;
+      if (!stat?.isFile() || stat.isSymbolicLink()) return null;
+      if (!validatePathWithinRoot(base, relative, true)) return null;
       return crypto.createHash('sha256').update(fs.readFileSync(absolute)).digest('hex');
     }
     catch (error) {
