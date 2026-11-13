@@ -111,3 +111,41 @@ it('hashes linked content during recovery even when size and mtime match the ind
   const plan = await createAdaptivePlan(root, tracked, { runtimeKey: '', fullHash: true, reconcileAuthorizedLinks: true });
   expect(plan.modified).toContain('linked/remote.c');
 });
+
+it.skipIf(process.platform === 'win32')('retains a pending publication marker on real ignore EACCES, then verifies recovery after access returns', () => {
+  const root = dir(), shared = dir();
+  for (const directory of [root, shared]) fs.chmodSync(directory, 0o777);
+  execFileSync('git', ['init', '--quiet'], { cwd: root });
+  fs.writeFileSync(path.join(root, 'local.c'), 'int local_pending(void) { return 1; }\n');
+  fs.writeFileSync(path.join(shared, 'remote.c'), 'int external_pending(void) { return 2; }\n');
+  fs.symlinkSync(shared, path.join(root, 'linked'), 'junction');
+  const policy = path.join(shared, '.gitignore');
+  fs.writeFileSync(policy, '# policy\n');
+  const uid = process.getuid?.() === 0 ? 65534 : undefined;
+  if (uid !== undefined) fs.chownSync(policy, uid, uid);
+  const script = path.join(root, 'pending-policy.cjs');
+  fs.writeFileSync(script, `
+const fs = require('node:fs');
+const { CodeGraph } = require(${JSON.stringify(path.resolve('dist/index.js'))});
+(async () => {
+ const graph = await CodeGraph.init(${JSON.stringify(root)}, { index: true });
+ try {
+  const markerDb = new (require('node:sqlite').DatabaseSync)(graph.getDatabaseFilePath());
+  markerDb.prepare('INSERT OR REPLACE INTO project_metadata(key,value,updated_at) VALUES(?,?,?)').run('portable:source-catchup-v1', 'integration-pending-policy', Date.now());
+  markerDb.close();
+  fs.chmodSync(${JSON.stringify(policy)}, 0);
+  let failed = false;
+  try { await graph.sync({ adaptive: false }); } catch (error) { failed = /EACCES|incomplete/.test(String(error)); }
+  if (!failed || !graph.getPortableCatchup()) throw Error('incomplete policy cleared pending marker');
+  if (graph.getNodesByName('external_pending').length !== 1) throw Error('old external symbol lost');
+  fs.chmodSync(${JSON.stringify(policy)}, 0o644);
+  const result = await graph.sync({ adaptive: false });
+  if (result.complete !== true || graph.getPortableCatchup() !== null) throw Error('recovery did not finish');
+  if (graph.getNodesByName('external_pending').length !== 1) throw Error('external symbol lost after recovery');
+ } finally { fs.chmodSync(${JSON.stringify(policy)}, 0o644); graph.close(); await graph.whenIdle(); }
+})().catch(error => { console.error(error); process.exitCode = 1; });
+`);
+  expect(() => execFileSync(process.execPath, ['--liftoff-only', script], {
+    uid, gid: uid, env: { ...process.env, CODEGRAPH_ALLOWED_SOURCE_ROOTS: shared }, stdio: 'pipe',
+  })).not.toThrow();
+}, 60_000);
