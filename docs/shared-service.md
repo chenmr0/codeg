@@ -58,3 +58,7 @@ python scripts/examples/shared_mcp_client.py /absolute/project
 首版面向本机使用；Windows 命名管道与 Linux/macOS Unix socket 复用已有机制，当前尚未完成 Windows 实机验收，不承诺其命名管道权限与 Unix socket 完全等效。平台实际验收范围以本次发布记录为准。服务不是网络认证网关，不提供远程多用户权限模型。
 
 升级代码包后应在停止现有客户端并确认无工作进行时重启服务，避免让旧服务长期运行。不要用更改 PID 文件或内部环境变量的方式管理服务。
+
+## 根外源码软链接
+
+需要读取工程内指向根外的共享源码时，可显式设置 `CODEGRAPH_ALLOWED_SOURCE_ROOTS`。默认不放宽路径限制，配置和边界详见 [根外共享源码软链接](shared-source-roots.md)。常驻进程须重启后才继承新环境。

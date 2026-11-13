@@ -31,6 +31,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
+import { isAllowedSourceTarget } from '../utils';
 
 // ============================================================
 // SECURITY UTILITIES
@@ -149,7 +150,7 @@ export function validatePathWithinRoot(
     if (options?.allowSymlinkEscape) {
       return realResolved;
     }
-    return isWithinDir(realResolved, realRoot) ? realResolved : null;
+    return isWithinDir(realResolved, realRoot) || isAllowedSourceTarget(realResolved) ? realResolved : null;
   } catch (err) {
     // ENOENT: the path doesn't exist yet (a file about to be written, or an
     // index entry for a since-deleted file) — no symlink to follow, and the

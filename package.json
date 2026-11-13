@@ -21,6 +21,7 @@
     "docs/adaptive-sync.md",
     "docs/term-mappings.md",
     "docs/shared-service.md",
+    "docs/shared-source-roots.md",
     "docs/scoped-reference-batches.md",
     "docs/rust-scan-prototype.md",
     "docs/native-scan-release.md",

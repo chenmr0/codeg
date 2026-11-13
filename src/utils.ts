@@ -111,7 +111,7 @@ export function validatePathWithinRoot(projectRoot: string, filePath: string, re
   try {
     const realRoot = fs.realpathSync(normalizedRoot);
     const realResolved = fs.realpathSync(resolved);
-    return isWithinDir(realResolved, realRoot) ? realResolved : null;
+    return isWithinDir(realResolved, realRoot) || isAllowedSourceTarget(realResolved) ? realResolved : null;
   } catch (err) {
     // An inventory reader needs the original errno to distinguish a removed
     // file (or parent directory) from an inaccessible path.
@@ -125,6 +125,30 @@ export function validatePathWithinRoot(projectRoot: string, filePath: string, re
     }
     return null;
   }
+}
+
+/**
+ * Explicit opt-in for shared source trees. Only called AFTER lexical project
+ * containment, so this never authorizes direct absolute/../ external paths.
+ * Do not cache realpaths: a retargeted root or nested symlink must be checked
+ * against the current filesystem on every content read. The environment is
+ * inherited by resolver/read workers and is not controlled by repository files.
+ */
+export function isAllowedSourceTarget(realTarget: string): boolean {
+  const configured = process.env.CODEGRAPH_ALLOWED_SOURCE_ROOTS;
+  if (!configured) return false;
+  for (const entry of configured.split(path.delimiter)) {
+    if (!entry || !path.isAbsolute(entry)) continue;
+    try {
+      // Require a canonical, existing directory; broad system roots and
+      // sensitive home directories cannot be used as an escape hatch.
+      const root = fs.realpathSync(entry);
+      if (caseKey(root) !== caseKey(path.resolve(entry))) continue;
+      if (validateProjectPath(root) !== null) continue;
+      if (isWithinDir(realTarget, root)) return true;
+    } catch { /* Invalid or unavailable allowlist entries grant no access. */ }
+  }
+  return false;
 }
 
 /**
@@ -307,7 +331,7 @@ function canonicalFilePathInContext(rootDir: string, p: string, knownRealPath: s
       result = rel; // real path inside root → canonical realpath-relative
     }
     // else: real path outside root → keep normalizedLogical (external symlink;
-    // #527 blocks indexing it)
+    // external targets require explicit authorization)
   } catch {
     // ENOENT / ELOOP / EACCES → keep normalizedLogical
   }
