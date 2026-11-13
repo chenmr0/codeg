@@ -29,6 +29,7 @@
  * ```
  */
 
+import { asciiCaseKey, isWithinExistingDirectory } from './path-identity';
 import * as fs from 'fs';
 import { randomUUID } from 'crypto';
 import * as path from 'path';
@@ -67,16 +68,16 @@ export function isConfigLeafNode(node: { kind: string; language?: string }): boo
 }
 
 /**
- * Whether `child` is `parent` itself or sits underneath it. Case-insensitive on
- * Windows — NTFS is case-insensitive, and realpathSync can hand back a different
- * case than the lexical root, which would otherwise false-reject a valid file.
+ * Lexical containment only. Windows accepts ASCII case variants here; actual
+ * authorization checks existing filesystem identities below, not Unicode case
+ * folding or assumptions that every Windows directory is case-insensitive.
  */
 function isWithinDir(child: string, parent: string): boolean {
   let c = child;
   let p = parent;
   if (process.platform === 'win32') {
-    c = c.toLowerCase();
-    p = p.toLowerCase();
+    c = asciiCaseKey(c);
+    p = asciiCaseKey(p);
   }
   return c === p || c.startsWith(p + path.sep);
 }
@@ -111,7 +112,9 @@ export function validatePathWithinRoot(projectRoot: string, filePath: string, re
   try {
     const realRoot = fs.realpathSync(normalizedRoot);
     const realResolved = fs.realpathSync(resolved);
-    return isWithinDir(realResolved, realRoot) || isAllowedSourceTarget(realResolved) ? realResolved : null;
+    const contained = process.platform === 'win32'
+      ? isWithinExistingDirectory(realResolved, realRoot) : isWithinDir(realResolved, realRoot);
+    return contained || isAllowedSourceTarget(realResolved) ? realResolved : null;
   } catch (err) {
     // An inventory reader needs the original errno to distinguish a removed
     // file (or parent directory) from an inaccessible path.
@@ -145,7 +148,8 @@ export function isAllowedSourceTarget(realTarget: string): boolean {
       const root = fs.realpathSync(entry);
       if (caseKey(root) !== caseKey(path.resolve(entry))) continue;
       if (validateProjectPath(root) !== null) continue;
-      if (isWithinDir(realTarget, root)) return true;
+      if (process.platform === 'win32'
+        ? isWithinExistingDirectory(realTarget, root) : isWithinDir(realTarget, root)) return true;
     } catch { /* Invalid or unavailable allowlist entries grant no access. */ }
   }
   return false;
@@ -247,10 +251,10 @@ function symlinkDedupEnabled(): boolean {
   return v !== '0' && lv !== 'false' && lv !== 'off' && lv !== 'no';
 }
 
-/** Case-fold a path-string cache key on Windows (NTFS is case-insensitive),
- *  matching the win32 behavior of {@link isWithinDir}. POSIX is case-sensitive. */
+/** Normalize ASCII case only for the configured-root spelling check.
+ * Physical authorization is checked separately. POSIX stays case-sensitive. */
 function caseKey(s: string): string {
-  return process.platform === 'win32' ? s.toLowerCase() : s;
+  return process.platform === 'win32' ? asciiCaseKey(s) : s;
 }
 
 /** Per-process realpath cache for {@link canonicalFilePath}, cleared by
@@ -315,7 +319,7 @@ function canonicalFilePathInContext(rootDir: string, p: string, knownRealPath: s
 
   const cache = canonicalCache ?? (canonicalCache = new Map());
   const abs = path.resolve(rootDir, p);
-  const key = caseKey(abs);
+  const key = abs; // Cache exact spellings; case-sensitive Windows directories exist.
   const cached = cache.get(key);
   if (cached !== undefined) return cached;
 
