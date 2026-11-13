@@ -6,20 +6,20 @@ import { acquireGenerationLease, acquireCurrentGenerationLease, resolveGeneratio
 import { DatabaseConnection, DatabaseOpenError } from '../db';
 import { PortableCoordinator, type PortableLease } from './portable/protocol';
 import { QueryBuilder } from '../db/queries';
-import { adaptiveRuntimeKey, createAdaptivePlan, AdaptiveSourceIneligibleError, chooseStructuralStrategy, includeAdaptiveReindexWork, scopedCandidateCounts, hasCanonicalScope,
+import { adaptiveRuntimeKey, createAdaptivePlan, assertRebuildSourceEligibility, AdaptiveSourceIneligibleError, chooseStructuralStrategy, includeAdaptiveReindexWork, scopedCandidateCounts, hasCanonicalScope,
   canSkipScopedAdaptivePlan, type AdaptiveEligibility } from './adaptive-plan';
 import type { ResolvedSyncPolicy } from './sync-policy';
 import { validateRebuiltDatabase } from './rebuild-controller';
 import { isSourceOwned, inspectLegacySourceProvenance } from './source-ownership';
 import { EXTRACTION_VERSION } from '../extraction/extraction-version';
 import { SEMANTIC_CONFIG_KEY, SEMANTIC_REINDEX_PENDING, requiresSemanticReindex, indexConfigFingerprints } from './index-policy';
-import { PUBLICATION_MACROS, PUBLICATION_FRAMEWORKS } from './portable/metadata';
+import { CATCHUP, PUBLICATION_MACROS, PUBLICATION_FRAMEWORKS } from './portable/metadata';
 import { ExtractionOrchestrator } from '../extraction';
 import { isMacroSource, MacroContextBuilder, macroContextFingerprint, scanMacroContribution } from '../extraction/macro-scan';
 
 export type AdaptiveReadJob =
   | { type: 'validate-initial'; root: string; databasePath: string }
-  | { type: 'evaluate'; root: string; databasePath: string; eligibility: AdaptiveEligibility; policy?: ResolvedSyncPolicy; paths?: string[]; portable?: boolean; fullHash?: boolean; repairPending?: boolean; decisionOnly?: boolean }
+  | { type: 'evaluate'; root: string; databasePath: string; eligibility: AdaptiveEligibility; policy?: ResolvedSyncPolicy; paths?: string[]; portable?: boolean; fullHash?: boolean; reconcileAuthorizedLinks?: boolean; repairPending?: boolean; decisionOnly?: boolean }
   | { type: 'validate'; root: string; databasePath: string; sourceDatabasePath: string; runtimeKey: string; portable?: boolean };
 
 
@@ -107,6 +107,7 @@ async function execute(job: AdaptiveReadJob): Promise<unknown> {
       let plan;
       try {
         plan = await createAdaptivePlan(job.root, tracked, { runtimeKey: '', fullHash: job.fullHash,
+          reconcileAuthorizedLinks: job.fullHash === true && job.reconcileAuthorizedLinks === true && queries.getMetadata(CATCHUP) !== null,
           observeContent: macroBuilder ? (relative, content) => {
             if (isMacroSource(relative) && /#\s*define\b/.test(content)) macroBuilder.add(scanMacroContribution(content));
           } : undefined,
@@ -166,6 +167,9 @@ async function execute(job: AdaptiveReadJob): Promise<unknown> {
       if (!isSourceOwned(source.connection.getDb()) && !inspectLegacySourceProvenance(source.connection.getDb()).eligible) return false;
     } finally { source.close(); }
   }
+  // Admission happened before candidate parsing. Recheck before either portable
+  // or legacy publication; later mutations remain covered by the catch-up marker.
+  await assertRebuildSourceEligibility(job.root);
   return adaptiveRuntimeKey(job.root, 'node-sqlite') === job.runtimeKey;
 }
 

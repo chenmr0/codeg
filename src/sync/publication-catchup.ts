@@ -24,7 +24,7 @@ export async function reconcilePublishedSource(graph: CodeGraph, options: SyncOp
       plan: AdaptivePlan; configurationChanged: boolean;
     } & VerifiedPublicationContext>({
       type: 'evaluate', root: graph.getProjectRoot(), databasePath: graph.getDatabaseFilePath(),
-      portable: graph.isPortableStorage(), fullHash: true, repairPending, policy: options[resolvedSyncPolicy],
+      portable: graph.isPortableStorage(), fullHash: true, reconcileAuthorizedLinks: true, repairPending, policy: options[resolvedSyncPolicy],
       eligibility: { upgradeRequired },
     }, { signal: options.signal });
     options.signal?.throwIfAborted();

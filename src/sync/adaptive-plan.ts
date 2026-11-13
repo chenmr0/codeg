@@ -12,6 +12,7 @@ import { rustScanBinaryPath, automaticRustScanStatus } from '../extraction/rust-
 import { rustMacroBinaryPath, automaticRustMacroStatus } from '../extraction/rust-macros';
 import type { FileRecord } from '../types';
 import { indexConfigFingerprints } from './index-policy';
+import { validatePathWithinRoot } from '../utils';
 export { adaptiveConfigFingerprint } from './index-policy';
 
 const digest = (value: unknown): string => crypto.createHash('sha256').update(JSON.stringify(value)).digest('hex');
@@ -218,9 +219,27 @@ export function includeAdaptiveReindexWork(plan: AdaptivePlan, tracked: Readonly
  * for atomic replacement. Do not turn this into permission to publish it. */
 export class AdaptiveSourceIneligibleError extends Error {}
 
+/** Recheck immediately before switching the active database. Source mutations
+ * cannot be locked by the DB writer lease, so catch-up still handles later edits. */
+export async function assertRebuildSourceEligibility(root: string): Promise<void> {
+  for (const relative of await scanDirectoryAsync(root)) {
+    const absolute = path.resolve(root, relative);
+    let stat: fs.Stats;
+    try { stat = fs.lstatSync(absolute); }
+    catch (error) {
+      if (['ENOENT', 'ENOTDIR'].includes((error as NodeJS.ErrnoException).code ?? '')) continue;
+      throw error;
+    }
+    if (stat.isSymbolicLink() || fs.realpathSync(absolute) !== absolute) {
+      throw new AdaptiveSourceIneligibleError(`Symlink source is not eligible: ${relative}`);
+    }
+    if (!stat.isFile()) throw new Error(`Unsupported adaptive source: ${relative}`);
+  }
+}
+
 /** Ordinary planning uses sync's size/mtime shortcut. Post-publication catch-up hashes every source. */
 export async function createAdaptivePlan(root: string, tracked: ReadonlyArray<FileRecord>,
-  options: { runtimeKey: string; fullHash?: boolean; observeContent?: (relative: string, content: string) => void } ): Promise<AdaptivePlan> {
+  options: { runtimeKey: string; fullHash?: boolean; reconcileAuthorizedLinks?: boolean; observeContent?: (relative: string, content: string) => void } ): Promise<AdaptivePlan> {
   const started = performance.now();
   for (const file of tracked) {
     if (!path.resolve(root, file.path).startsWith(path.resolve(root) + path.sep)) {
@@ -245,10 +264,21 @@ export async function createAdaptivePlan(root: string, tracked: ReadonlyArray<Fi
       if (code === 'ENOENT' || code === 'ENOTDIR') continue;
       throw error;
     }
-    if (before.isSymbolicLink()) throw new AdaptiveSourceIneligibleError(`Symlink source is not eligible: ${relative}`);
+    const realSource = fs.realpathSync(absolute);
+    const linked = before.isSymbolicLink() || realSource !== absolute;
+    if (linked) {
+      // Recovery is NOT publication admission. A DB already marked pending
+      // must be reconciled with all currently authorized bytes, not remain
+      // permanently stuck merely because the source tree gained a link.
+      if (!options.fullHash || !options.reconcileAuthorizedLinks) {
+        throw new AdaptiveSourceIneligibleError(`Symlink source is not eligible: ${relative}`);
+      }
+      if (validatePathWithinRoot(root, absolute, true) !== realSource) {
+        throw new Error(`Source is not authorized for reconciliation: ${relative}`);
+      }
+      before = fs.statSync(realSource);
+    }
     if (!before.isFile()) throw new Error(`Unsupported adaptive source: ${relative}`);
-    // A directory symlink can otherwise hide an external or alias source.
-    if (fs.realpathSync(absolute) !== absolute) throw new AdaptiveSourceIneligibleError(`Symlink source is not eligible: ${relative}`);
     const prior = old.get(relative);
     let contentHash: string;
     // Ordinary sync re-reads incomplete macro extractions even with matching
@@ -256,12 +286,15 @@ export async function createAdaptivePlan(root: string, tracked: ReadonlyArray<Fi
     if (!options.fullHash && prior && !hasDeclarationMacroRecoverySkipped(prior.errors) && before.size === prior.size &&
         Math.floor(before.mtimeMs) === Math.floor(prior.modifiedAt)) contentHash = prior.contentHash;
     else {
-      const content = fs.readFileSync(absolute, 'utf8');
+      const content = fs.readFileSync(realSource, 'utf8');
       contentHash = hashContent(content);
       options.observeContent?.(relative, content);
     }
-    const after = fs.statSync(absolute);
-    if (before.size !== after.size || before.mtimeMs !== after.mtimeMs || before.ctimeMs !== after.ctimeMs || before.ino !== after.ino) {
+    const after = fs.statSync(realSource);
+    if (linked && (fs.realpathSync(absolute) !== realSource || validatePathWithinRoot(root, absolute, true) !== realSource)) {
+      throw new Error(`Source link changed during reconciliation: ${relative}`);
+    }
+    if (before.dev !== after.dev || before.size !== after.size || before.mtimeMs !== after.mtimeMs || before.ctimeMs !== after.ctimeMs || before.ino !== after.ino) {
       throw new Error(`Source changed during adaptive planning: ${relative}`);
     }
     files.push({ path: relative, size: after.size });
