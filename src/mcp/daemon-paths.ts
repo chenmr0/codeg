@@ -22,6 +22,7 @@ import * as crypto from 'crypto';
 import * as os from 'os';
 import * as path from 'path';
 import { getCodeGraphDir } from '../directory';
+import { projectPathIdentity } from './project-identity';
 
 /** Soft upper bound for in-project socket paths. */
 const POSIX_SOCKET_PATH_LIMIT = 100;
@@ -33,7 +34,7 @@ function projectHash(projectRoot: string): string {
   // Keep old-index endpoints compatible with running legacy daemons, while
   // different database directories in the same project get different endpoints.
   const identity = directory === path.join(root, '.codegraph') ? root : directory;
-  return crypto.createHash('sha256').update(identity).digest('hex').slice(0, 16);
+  return crypto.createHash('sha256').update(projectPathIdentity(identity)).digest('hex').slice(0, 16);
 }
 
 /**

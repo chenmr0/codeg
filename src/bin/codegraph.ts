@@ -1500,7 +1500,7 @@ for (const action of ['start', 'status', 'stop'] as const) {
   if (action === 'start') command.option('--no-watch', 'Disable the service file watcher');
   command.action(async (options: { path?: string; json?: boolean; watch?: boolean }) => {
     try {
-      const projectPath = resolveProjectPath(options.path || process.cwd());
+      const projectPath = path.resolve(options.path || process.cwd());
       if (action === 'start' && options.watch === false) process.env.CODEGRAPH_NO_WATCH = '1';
       const service = await import('../mcp/service');
       const status = await ({ start: service.startService, status: service.getServiceStatus, stop: service.stopService }[action])(projectPath);
@@ -1533,7 +1533,10 @@ program
   .option('--shared-required', 'Connect only to an existing persistent service; requires --mcp and --path')
   .option('--no-watch', 'Disable the file watcher (no auto-sync; useful on slow filesystems like WSL2 /mnt drives)')
   .action(async (options: { path?: string; mcp?: boolean; watch?: boolean; sharedRequired?: boolean }) => {
-    const projectPath = options.path ? resolveProjectPath(options.path) : undefined;
+    // Strict mode must retain the original request until bounded service discovery.
+    const projectPath = options.path
+      ? (options.sharedRequired ? path.resolve(options.path) : resolveProjectPath(options.path))
+      : undefined;
 
     // Commander sets watch=false when --no-watch is passed. Route it through
     // the same env-var chokepoint the watcher and MCP server already honor.

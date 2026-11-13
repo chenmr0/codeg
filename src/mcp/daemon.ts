@@ -106,6 +106,7 @@ export interface DaemonClientHello {
   codegraph_client: 1;
   pid: number;             // the proxy process's own pid
   hostPid: number | null;  // the MCP host pid (past any launcher shim), if known
+  sharedRequired?: boolean; // opt-in project restriction belongs to this session
 }
 
 export interface DaemonStartResult {
@@ -292,7 +293,7 @@ export class Daemon {
       const transport = new SocketTransport(socket);
       const session = new MCPSession(transport, this.engine, {
         explicitProjectPath: this.projectRoot,
-        restrictProject: this.persistent,
+        restrictProject: peers.sharedRequired === true,
       });
       transport.onClose(() => {
         // Abort any request-scoped raw-evidence subprocess before dropping the
@@ -556,14 +557,15 @@ function resolveClientSweepMs(): number {
  */
 export function parseClientHelloLine(
   line: string,
-): { pid: number; hostPid: number | null; serviceStop?: string } | null {
+): { pid: number; hostPid: number | null; serviceStop?: string; sharedRequired?: boolean } | null {
   let parsed: unknown;
   try { parsed = JSON.parse(line); } catch { return null; }
   if (!parsed || typeof parsed !== 'object') return null;
   const o = parsed as Record<string, unknown>;
   if (o.codegraph_client !== 1 || typeof o.pid !== 'number') return null;
   if (typeof o.serviceStop === "string") return { pid: o.pid, hostPid: null, serviceStop: o.serviceStop };
-  return { pid: o.pid, hostPid: typeof o.hostPid === 'number' ? o.hostPid : null };
+  return { pid: o.pid, hostPid: typeof o.hostPid === 'number' ? o.hostPid : null,
+    ...(o.sharedRequired === true ? { sharedRequired: true } : {}) };
 }
 
 /**
@@ -592,13 +594,13 @@ export function peerIsDead(
  */
 function readClientHello(
   socket: net.Socket,
-): Promise<{ pid: number | null; hostPid: number | null; serviceStop?: string }> {
+): Promise<{ pid: number | null; hostPid: number | null; serviceStop?: string; sharedRequired?: boolean }> {
   return new Promise((resolve) => {
     let chunks: Buffer[] = [];
     let total = 0;
     let settled = false;
     const finish = (
-      peers: { pid: number | null; hostPid: number | null; serviceStop?: string },
+      peers: { pid: number | null; hostPid: number | null; serviceStop?: string; sharedRequired?: boolean },
       putBack?: Buffer,
     ) => {
       if (settled) return;

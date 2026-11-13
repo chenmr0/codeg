@@ -162,11 +162,12 @@ export async function connectWithHello(
  * socket-close lifecycle). `hostPid` mirrors the PPID watchdog: the threaded
  * host pid if set, else our own parent (the host, on a no-relaunch bundle).
  */
-function sendClientHello(socket: net.Socket): void {
+function sendClientHello(socket: net.Socket, sharedRequired = false): void {
   const clientHello: DaemonClientHello = {
     codegraph_client: 1,
     pid: process.pid,
     hostPid: parseHostPpid(process.env[HOST_PPID_ENV]) ?? process.ppid,
+    ...(sharedRequired ? { sharedRequired: true } : {}),
   };
   try { socket.write(JSON.stringify(clientHello) + '\n'); } catch { /* best-effort */ }
 }
@@ -554,7 +555,7 @@ function isProcessAliveLocal(pid: number): boolean {
 
 /** Verified strict-service connection: no local handshake or engine fallback. */
 export async function runVerifiedServiceProxy(socket: net.Socket): Promise<void> {
-  sendClientHello(socket);
+  sendClientHello(socket, true);
   startPpidWatchdog(socket);
   await pipeUntilClose(socket);
   socket.destroy();

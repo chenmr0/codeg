@@ -62,3 +62,18 @@ python scripts/examples/shared_mcp_client.py /absolute/project
 ## 根外源码软链接
 
 需要读取工程内指向根外的共享源码时，可显式设置 `CODEGRAPH_ALLOWED_SOURCE_ROOTS`。默认不放宽路径限制，配置和边界详见 [根外共享源码软链接](shared-source-roots.md)。常驻进程须重启后才继承新环境。
+
+### Project boundaries and client compatibility
+
+- Explicit `service start/status/stop` and `serve --mcp --shared-required --path`
+  resolve ordinary subdirectories to their initialized project, but never walk
+  above a Git repository/worktree boundary. An uninitialized nested worktree
+  must be initialized separately; its commands cannot select an outer service.
+- Strict project restrictions belong to clients using `--shared-required`.
+  Ordinary MCP clients retain their existing `projectPath` cross-project tool
+  calls even when they share a persistent daemon. Persistence is a lifetime
+  policy, not a project permission imposed on every connected client.
+- Windows project and data-directory identity comparisons ignore casing, as
+  does named-pipe naming; POSIX case-sensitive identities remain unchanged.
+  Restart old daemons with their original launcher before using an upgraded
+  version, particularly on Windows where the normalized pipe name may differ.

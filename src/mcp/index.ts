@@ -145,9 +145,9 @@ function daemonInternalSet(): boolean {
  * symlinked `rootUri` would otherwise hash to different sockets and silently
  * fail to share the daemon.
  */
-export function resolveDaemonRoot(explicitPath: string | null): string | null {
+export function resolveDaemonRoot(explicitPath: string | null, options: { respectGitBoundary?: boolean } = {}): string | null {
   const candidate = explicitPath ?? process.cwd();
-  const root = findNearestCodeGraphRoot(candidate);
+  const root = findNearestCodeGraphRoot(candidate, options);
   if (!root) return null;
   try { return fs.realpathSync(root); } catch { return root; }
 }

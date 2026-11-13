@@ -156,13 +156,23 @@ export function hasIndexForOpen(projectRoot: string): boolean {
  * @param startPath - Directory to start searching from
  * @returns The project root containing .codegraph/, or null if not found
  */
-export function findNearestCodeGraphRoot(startPath: string): string | null {
+export function findNearestCodeGraphRoot(startPath: string, options: { respectGitBoundary?: boolean } = {}): string | null {
   let current = path.resolve(startPath);
+  // Resolve directory aliases before walking, so an alias cannot hide a worktree boundary.
+  if (options.respectGitBoundary) {
+    try { current = fs.realpathSync(current); } catch { return null; }
+  }
   const root = path.parse(current).root;
 
   while (current !== root) {
     if (isInitialized(current)) {
       return current;
+    }
+    // A .git directory OR worktree .git file owns the uninitialized project.
+    // Never silently select a different project above it for service control.
+    if (options.respectGitBoundary) {
+      try { fs.lstatSync(path.join(current, ".git")); return null; }
+      catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
     }
     const parent = path.dirname(current);
     if (parent === current) break; // Reached filesystem root

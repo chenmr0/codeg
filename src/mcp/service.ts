@@ -8,6 +8,7 @@ import { decodeLockInfo, getDaemonPidPath, getDaemonSocketPath } from './daemon-
 import { isProcessAlive, type DaemonHello } from './daemon';
 import { readHelloLine } from './proxy';
 import { CodeGraphPackageVersion } from './version';
+import { sameProjectPath } from './project-identity';
 
 export interface ServiceStatus {
   running: boolean;
@@ -19,7 +20,7 @@ export interface ServiceStatus {
 }
 
 function rootFor(projectPath: string): string {
-  const root = resolveDaemonRoot(projectPath);
+  const root = resolveDaemonRoot(projectPath, { respectGitBoundary: true });
   if (!root) throw new Error('No initialized CodeGraph project found; run codegraph init first');
   return root;
 }
@@ -40,7 +41,8 @@ async function probe(root: string): Promise<{ socket: net.Socket; hello: DaemonH
         lock.socketPath !== endpoint || lock.version !== hello.codegraph ||
         service?.version !== 1 || typeof service.instance !== 'string' || !service.instance ||
         typeof service.persistent !== 'boolean' ||
-        service.projectRoot !== root || service.dataDir !== path.resolve(getCodeGraphDir(root))) {
+        typeof service.projectRoot !== 'string' || !sameProjectPath(service.projectRoot, root) ||
+        typeof service.dataDir !== 'string' || !sameProjectPath(service.dataDir, path.resolve(getCodeGraphDir(root)))) {
       throw new Error('Service identity/version mismatch or older daemon; refusing to manage or attach. Stop it with its original launcher first.');
     }
     return { socket, hello };

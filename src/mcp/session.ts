@@ -1,3 +1,4 @@
+import { sameProjectPath } from './project-identity';
 import { ExploreSessionState, type ExploreEmission } from '../upstream-explore/mcp/explore-session-state';
 /**
  * MCP per-connection session — speaks the JSON-RPC protocol (initialize,
@@ -14,7 +15,7 @@ import { ExploreSessionState, type ExploreEmission } from '../upstream-explore/m
  */
 
 import * as path from 'path';
-import * as fs from 'fs';
+import { findNearestCodeGraphRoot } from '../directory';
 import { JsonRpcRequest, JsonRpcNotification, JsonRpcTransport, ErrorCodes } from './transport';
 import { MCPEngine } from './engine';
 import { tools } from './tools';
@@ -280,7 +281,10 @@ export class MCPSession {
   }
 
   private matchesProject(candidate: string): boolean {
-    try { return fs.realpathSync(candidate) === fs.realpathSync(this.explicitProjectPath!); }
+    try {
+      const root = findNearestCodeGraphRoot(candidate, { respectGitBoundary: true });
+      return root !== null && sameProjectPath(root, this.explicitProjectPath!);
+    }
     catch { return false; }
   }
 

@@ -1,6 +1,6 @@
 /** Opt-in persistent service, exercised through the built public CLI and real MCP. */
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { spawn, type ChildProcessWithoutNullStreams } from 'child_process';
+import { spawn, execFileSync, type ChildProcessWithoutNullStreams } from 'child_process';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -166,4 +166,50 @@ describe('Explicit shared MCP service', () => {
     expect((await command(root, ['serve', '--mcp', '--shared-required'])).code).toBe(1);
     expect((await command(root, ['serve', '--mcp', '--shared-required', '--path', root], { CODEGRAPH_NO_DAEMON: '1' })).code).toBe(1);
   }, 40_000);
+
+  it('does not stop or query an outer service from an uninitialized nested worktree', async () => {
+    execFileSync('git', ['init', '-q'], { cwd: root });
+    execFileSync('git', ['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '--allow-empty', '-qm', 'fixture'], { cwd: root });
+    const inner = path.join(root, 'inner');
+    execFileSync('git', ['worktree', 'add', '-qb', 'inner', inner], { cwd: root });
+    fs.mkdirSync(path.join(root, 'src'));
+    const started = await command(root, ['service', 'start', '--path', root, '--json', '--no-watch']);
+    expect(started.code, started.out + started.err).toBe(0);
+    const original = JSON.parse(started.out);
+    const active = client(root); clients.push(active); await initialize(active, root);
+    const stopped = await command(root, ['service', 'stop', '--path', inner, '--json']);
+    expect(stopped.code).toBe(1); expect(stopped.out).toContain('No initialized CodeGraph');
+    const strict = await command(root, ['serve', '--mcp', '--shared-required', '--path', inner]);
+    expect(strict.code).toBe(1); expect(strict.err).toContain('No initialized CodeGraph');
+    const status = JSON.parse((await command(root, ['service', 'status', '--path', root, '--json'])).out);
+    expect(status.pid).toBe(original.pid); expect(status.instance).toBe(original.instance);
+    expect(JSON.stringify((await request(active, 2, 'tools/call', { name: 'search', arguments: { query: 'alphaMarker' } })).result)).toContain('alphaMarker');
+    const subdir = JSON.parse((await command(root, ['service', 'status', '--path', path.join(root, 'src'), '--json'])).out);
+    expect(subdir.pid).toBe(original.pid);
+  }, 60_000);
+
+  it('keeps ordinary clients cross-project capable on a persistent daemon while strict clients reject B', async () => {
+    const beta = await indexedRoot(base, 'beta'); roots.push(beta);
+    const started = await command(root, ['service', 'start', '--path', root, '--json']);
+    expect(started.code, started.out + started.err).toBe(0);
+    const ordinary = client(root, false), strict = client(root); clients.push(ordinary, strict);
+    await initialize(ordinary, root); await initialize(strict, root);
+    const args = { name: 'search', arguments: { query: 'betaMarker', projectPath: beta } };
+    const result = await request(ordinary, 2, 'tools/call', args);
+    expect(result.error).toBeUndefined(); expect(result.result.isError).not.toBe(true);
+    expect(JSON.stringify(result.result)).toContain('betaMarker');
+    expect((await request(strict, 2, 'tools/call', args)).error.code).toBe(-32602);
+  }, 60_000);
+
+  it.skipIf(process.platform !== 'win32')('shares a Windows service across path and rootUri casing', async () => {
+    const started = await command(root, ['service', 'start', '--path', root, '--json']);
+    expect(started.code, started.out + started.err).toBe(0);
+    const uppercase = root.toUpperCase();
+    const status = await command(root, ['service', 'status', '--path', uppercase, '--json']);
+    expect(status.code).toBe(0); expect(JSON.parse(status.out).pid).toBe(JSON.parse(started.out).pid);
+    const c = client(uppercase); clients.push(c);
+    expect((await initialize(c, root.toLowerCase())).error).toBeUndefined();
+    expect(JSON.stringify((await request(c, 2, 'tools/call', { name: 'search', arguments: { query: 'alphaMarker', projectPath: root.toUpperCase() } })).result)).toContain('alphaMarker');
+  }, 60_000);
+
 });
