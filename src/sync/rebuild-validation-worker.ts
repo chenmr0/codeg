@@ -6,7 +6,7 @@ import { acquireGenerationLease, acquireCurrentGenerationLease, resolveGeneratio
 import { DatabaseConnection, DatabaseOpenError } from '../db';
 import { PortableCoordinator, type PortableLease } from './portable/protocol';
 import { QueryBuilder } from '../db/queries';
-import { adaptiveRuntimeKey, createAdaptivePlan, chooseStructuralStrategy, includeAdaptiveReindexWork, scopedCandidateCounts, hasCanonicalScope,
+import { adaptiveRuntimeKey, createAdaptivePlan, AdaptiveSourceIneligibleError, chooseStructuralStrategy, includeAdaptiveReindexWork, scopedCandidateCounts, hasCanonicalScope,
   canSkipScopedAdaptivePlan, type AdaptiveEligibility } from './adaptive-plan';
 import type { ResolvedSyncPolicy } from './sync-policy';
 import { validateRebuiltDatabase } from './rebuild-controller';
@@ -104,11 +104,19 @@ async function execute(job: AdaptiveReadJob): Promise<unknown> {
       }
       const indexedMacros = job.fullHash ? queries.getMetadata(PUBLICATION_MACROS) : null;
       const macroBuilder = indexedMacros === null ? null : new MacroContextBuilder();
-      let plan = await createAdaptivePlan(job.root, tracked, { runtimeKey: '', fullHash: job.fullHash,
-        observeContent: macroBuilder ? (relative, content) => {
-          if (isMacroSource(relative) && /#\s*define\b/.test(content)) macroBuilder.add(scanMacroContribution(content));
-        } : undefined,
-      });
+      let plan;
+      try {
+        plan = await createAdaptivePlan(job.root, tracked, { runtimeKey: '', fullHash: job.fullHash,
+          observeContent: macroBuilder ? (relative, content) => {
+            if (isMacroSource(relative) && /#\s*define\b/.test(content)) macroBuilder.add(scanMacroContribution(content));
+          } : undefined,
+        });
+      } catch (error) {
+        if (!job.fullHash && error instanceof AdaptiveSourceIneligibleError) {
+          return { decision: { strategy: 'incremental', reason: 'symlink-source-ineligible' } };
+        }
+        throw error;
+      }
       const semantic = plan.snapshot.semanticConfigFingerprint;
       const reextract = requiresSemanticReindex(indexedSemantic, semantic, indexedConfig,
         plan.snapshot.configFingerprint, upgradeRequired, semanticPending);

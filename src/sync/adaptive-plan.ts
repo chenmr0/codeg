@@ -214,6 +214,10 @@ export function includeAdaptiveReindexWork(plan: AdaptivePlan, tracked: Readonly
     affectedOldNodes, changedBytes };
 }
 
+/** A source inventory can be safe for incremental sync without being eligible
+ * for atomic replacement. Do not turn this into permission to publish it. */
+export class AdaptiveSourceIneligibleError extends Error {}
+
 /** Ordinary planning uses sync's size/mtime shortcut. Post-publication catch-up hashes every source. */
 export async function createAdaptivePlan(root: string, tracked: ReadonlyArray<FileRecord>,
   options: { runtimeKey: string; fullHash?: boolean; observeContent?: (relative: string, content: string) => void } ): Promise<AdaptivePlan> {
@@ -241,9 +245,10 @@ export async function createAdaptivePlan(root: string, tracked: ReadonlyArray<Fi
       if (code === 'ENOENT' || code === 'ENOTDIR') continue;
       throw error;
     }
-    if (!before.isFile() || before.isSymbolicLink()) throw new Error(`Unsupported adaptive source: ${relative}`);
+    if (before.isSymbolicLink()) throw new AdaptiveSourceIneligibleError(`Symlink source is not eligible: ${relative}`);
+    if (!before.isFile()) throw new Error(`Unsupported adaptive source: ${relative}`);
     // A directory symlink can otherwise hide an external or alias source.
-    if (fs.realpathSync(absolute) !== absolute) throw new Error(`Symlink source is not eligible: ${relative}`);
+    if (fs.realpathSync(absolute) !== absolute) throw new AdaptiveSourceIneligibleError(`Symlink source is not eligible: ${relative}`);
     const prior = old.get(relative);
     let contentHash: string;
     // Ordinary sync re-reads incomplete macro extractions even with matching

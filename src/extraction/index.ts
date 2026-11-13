@@ -669,7 +669,7 @@ function getGitVisibleFiles(rootDir: string, diagnostics?: ScanDiagnostics): Set
   // Only explicit literal-directory supplements can avoid the full walk.
   // Opt-in until target-platform measurements beat the simpler optimized
   // walker. Windows OceanBase currently favors parent-path reuse alone.
-  if (roots === null || (roots && (process.env.CODEGRAPH_HYBRID_SCAN !== '1' ||
+  if (roots === null || (roots && (process.env.CODEGRAPH_ALLOWED_SOURCE_ROOTS || process.env.CODEGRAPH_HYBRID_SCAN !== '1' ||
       process.env.CODEGRAPH_NO_HYBRID_SCAN === '1'))) {
     if (diagnostics) diagnostics.fallbackReason = 'codegraph-negation';
     return null;
@@ -740,7 +740,36 @@ function getGitVisibleFiles(rootDir: string, diagnostics?: ScanDiagnostics): Set
     const rootRules = rootIgnoreGroups(rootDir);
     const ig = buildDefaultIgnore(rootDir, diagnostics, rootRules);
     failureStage = 'filter-canonical';
-    return filterGitPaths(rootDir, files, ig, rootRules, diagnostics);
+    const visible = filterGitPaths(rootDir, files, ig, rootRules, diagnostics);
+    // Git lists a directory symlink itself, never its source descendants.
+    // Keep ordinary repositories on the unchanged fast path. Explicit external
+    // source opt-in supplements only Git-visible aliases, not every allowed root.
+    if (process.env.CODEGRAPH_ALLOWED_SOURCE_ROOTS) {
+      const linkedRoots: string[] = [];
+      for (const logical of files) {
+        if (ig.ignores(logical) || ig.ignores(logical + '/')) continue;
+        const full = path.join(rootDir, logical);
+        try {
+          if (!fs.lstatSync(full).isSymbolicLink()) continue;
+          const target = validatePathWithinRoot(rootDir, logical, true);
+          if (!target || !fs.statSync(target).isDirectory()) continue;
+          linkedRoots.push(process.platform === 'win32' ? logical.toLowerCase() : logical);
+          // A directory alias named e.g. linked.c must not be parsed as a file.
+          visible.delete(canonicalFilePath(rootDir, logical));
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+        }
+      }
+      if (linkedRoots.length) {
+        const mode = diagnostics?.mode;
+        const linked = scanDirectoryWalk(rootDir, undefined, diagnostics, {
+          roots: linkedRoots, rejectSymlinks: false, rootIgnore: ig, authorizedSymlinksOnly: true,
+        });
+        if (diagnostics && mode) diagnostics.mode = mode;
+        for (const file of linked) visible.add(file);
+      }
+    }
+    return visible;
   } catch (error) {
     // This catch also covers ignore/canonicalization failures. Do not
     // mislabel every fallback as a non-git project or run a second probe.
@@ -1205,7 +1234,7 @@ function scanDirectoryWalk(
   rootDir: string,
   onProgress?: (current: number, file: string) => void,
   diagnostics?: ScanDiagnostics,
-  supplement?: { roots: string[]; rejectSymlinks: boolean; rootIgnore: Ignore },
+  supplement?: { roots: string[]; rejectSymlinks: boolean; rootIgnore: Ignore; authorizedSymlinksOnly?: boolean },
 ): string[] {
   const walkStarted = diagnostics ? performance.now() : 0;
   if (diagnostics) diagnostics.mode = 'walk';
@@ -1300,7 +1329,8 @@ function scanDirectoryWalk(
       const relativePath = normalizePath(path.relative(rootDir, fullPath));
 
       if (supplement) {
-        const lower = relativePath.toLowerCase();
+        const lower = supplement.authorizedSymlinksOnly && process.platform !== 'win32'
+          ? relativePath : relativePath.toLowerCase();
         const inside = supplement.roots.some(root => lower === root || lower.startsWith(root + '/'));
         const toward = supplement.roots.some(root => root.startsWith(lower + '/'));
         if (!inside && !(toward && (entry.isDirectory() || entry.isSymbolicLink()))) continue;
@@ -1309,6 +1339,7 @@ function scanDirectoryWalk(
 
       if (entry.isSymbolicLink()) {
         try {
+          if (supplement?.authorizedSymlinksOnly && !validatePathWithinRoot(rootDir, relativePath, true)) continue;
           const realTarget = fs.realpathSync(fullPath);
           const stat = fs.statSync(realTarget);
           if (stat.isDirectory()) {

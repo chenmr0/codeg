@@ -174,7 +174,7 @@ export function validateProjectPath(dirPath: string): string | null {
   const sensitiveHomeDirs = ['.ssh', '.gnupg', '.aws', '.config'];
   for (const dir of sensitiveHomeDirs) {
     const sensitivePath = path.join(homeDir, dir);
-    if (resolved === sensitivePath || resolved.startsWith(sensitivePath + path.sep)) {
+    if (isWithinDir(resolved, sensitivePath)) {
       return `Refusing to operate on sensitive directory: ${resolved}`;
     }
   }
