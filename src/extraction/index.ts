@@ -751,17 +751,7 @@ function getGitVisibleFiles(rootDir: string, diagnostics?: ScanDiagnostics): Set
       }
     }
 
-    if (needsWalk) {
-      // A negation can re-include paths omitted by Git. Traverse with the
-      // same ignore policy and link authorization used for Git supplements.
-      failureStage = 'supplement-links';
-      const rootIgnore = gitWalkIgnore(rootDir, diagnostics);
-      return new Set(scanDirectoryWalk(rootDir, undefined, diagnostics, {
-        roots: [], rejectSymlinks: false, rootIgnore, authorizedSymlinksOnly: true,
-      }));
-    }
-
-    if (roots) {
+    if (!needsWalk && roots) {
       failureStage = 'hybrid-scan';
       const ig = buildDefaultIgnore(rootDir, diagnostics);
       if (diagnostics) diagnostics.supplementRoots = roots.length;
@@ -799,13 +789,13 @@ function getGitVisibleFiles(rootDir: string, diagnostics?: ScanDiagnostics): Set
     const candidates = checkedLinks
       ? separateGitDirectoryLinks(rootDir, files) : { ordinary: files, external: [] };
     const visible = filterGitPaths(rootDir, candidates.ordinary, ig, rootRules, diagnostics);
-    if (candidates.external.length) {
+    if (needsWalk || candidates.external.length) {
       // Git global excludes are not present in ls-files output for descendants
       // of a POSIX directory link. Apply the same policy to those new paths.
       const linkedIgnore = gitWalkIgnore(rootDir, diagnostics);
       const mode = diagnostics?.mode;
       const linked = scanDirectoryWalk(rootDir, undefined, diagnostics, {
-        roots: candidates.external, rejectSymlinks: false, rootIgnore: linkedIgnore, authorizedSymlinksOnly: true,
+        roots: needsWalk ? [] : candidates.external, rejectSymlinks: false, rootIgnore: linkedIgnore, authorizedSymlinksOnly: true,
       });
       if (diagnostics && mode) diagnostics.mode = mode;
       for (const file of linked) visible.add(file);

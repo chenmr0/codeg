@@ -112,7 +112,8 @@ it('hashes linked content during recovery even when size and mtime match the ind
   expect(plan.modified).toContain('linked/remote.c');
 });
 
-it.skipIf(process.platform === 'win32')('retains a pending publication marker on real ignore EACCES, then verifies recovery after access returns', () => {
+for (const fault of ['ignore file', 'untracked directory']) it.skipIf(process.platform === 'win32')(
+  'retains a pending publication marker on real EACCES for ' + fault + ' and verifies recovery', () => {
   const root = dir(), shared = dir();
   for (const directory of [root, shared]) fs.chmodSync(directory, 0o777);
   execFileSync('git', ['init', '--quiet'], { cwd: root });
@@ -122,7 +123,8 @@ it.skipIf(process.platform === 'win32')('retains a pending publication marker on
   const policy = path.join(shared, '.gitignore');
   fs.writeFileSync(policy, '# policy\n');
   const uid = process.getuid?.() === 0 ? 65534 : undefined;
-  if (uid !== undefined) fs.chownSync(policy, uid, uid);
+  if (uid !== undefined) { fs.chownSync(policy, uid, uid); fs.chownSync(root, uid, uid); }
+  const denied = fault === 'ignore file' ? policy : path.join(root, 'new-sources');
   const script = path.join(root, 'pending-policy.cjs');
   fs.writeFileSync(script, `
 const fs = require('node:fs');
@@ -133,16 +135,22 @@ const { CodeGraph } = require(${JSON.stringify(path.resolve('dist/index.js'))});
   const markerDb = new (require('node:sqlite').DatabaseSync)(graph.getDatabaseFilePath());
   markerDb.prepare('INSERT OR REPLACE INTO project_metadata(key,value,updated_at) VALUES(?,?,?)').run('portable:source-catchup-v1', 'integration-pending-policy', Date.now());
   markerDb.close();
-  fs.chmodSync(${JSON.stringify(policy)}, 0);
+  const denied = ${JSON.stringify(denied)};
+  if (${fault === 'untracked directory'}) {
+    fs.mkdirSync(denied);
+    fs.writeFileSync(require('path').join(denied, 'new.c'), 'int newly_visible(void){return 3;}');
+  }
+  fs.chmodSync(denied, 0);
   let failed = false;
   try { await graph.sync({ adaptive: false }); } catch (error) { failed = /EACCES|incomplete/.test(String(error)); }
   if (!failed || !graph.getPortableCatchup()) throw Error('incomplete policy cleared pending marker');
   if (graph.getNodesByName('external_pending').length !== 1) throw Error('old external symbol lost');
-  fs.chmodSync(${JSON.stringify(policy)}, 0o644);
+  fs.chmodSync(${JSON.stringify(denied)}, ${fault === 'ignore file' ? '0o644' : '0o755'});
   const result = await graph.sync({ adaptive: false });
   if (result.complete !== true || graph.getPortableCatchup() !== null) throw Error('recovery did not finish');
   if (graph.getNodesByName('external_pending').length !== 1) throw Error('external symbol lost after recovery');
- } finally { fs.chmodSync(${JSON.stringify(policy)}, 0o644); graph.close(); await graph.whenIdle(); }
+  if (${fault === 'untracked directory'} && graph.getNodesByName('newly_visible').length !== 1) throw Error('new source missed on retry');
+ } finally { fs.chmodSync(${JSON.stringify(denied)}, ${fault === 'ignore file' ? '0o644' : '0o755'}); graph.close(); await graph.whenIdle(); }
 })().catch(error => { console.error(error); process.exitCode = 1; });
 `);
   expect(() => execFileSync(process.execPath, ['--liftoff-only', script], {

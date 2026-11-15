@@ -106,11 +106,13 @@ it('keeps global excludes and directory authorization when an unrelated negation
   git('config', 'core.excludesFile', excludes);
   fs.writeFileSync(path.join(root, '.codegraphignore'), '!unrelated.c\n');
   fs.writeFileSync(path.join(shared, 'secret.private.c'), 'int hidden;');
+  fs.writeFileSync(path.join(root, 'tracked.private.c'), 'int tracked;');
+  git('add', '-f', 'tracked.private.c');
   const other = path.join(base, 'other');
   fs.mkdirSync(other);
   fs.writeFileSync(path.join(other, 'outside.c'), 'int outside;');
   fs.symlinkSync(other, path.join(root, 'denied'), 'junction');
-  expect(scanDirectory(root).sort()).toEqual(['linked/remote.c', 'local.c']);
+  expect(scanDirectory(root).sort()).toEqual(['linked/remote.c', 'local.c', 'tracked.private.c']);
 });
 
 it.skipIf(process.platform !== 'win32')('keeps a tracked file after a case-only on-disk rename', async () => {
@@ -121,7 +123,8 @@ it.skipIf(process.platform !== 'win32')('keeps a tracked file after a case-only 
     fs.renameSync(path.join(root, 'local.c'), path.join(root, 'temp.c'));
     fs.renameSync(path.join(root, 'temp.c'), path.join(root, 'LOCAL.c'));
     expect(scanDirectory(root).filter(file => file.toLowerCase() === 'local.c')).toHaveLength(1);
-    await graph.sync({ adaptive: false });
+    const result = await graph.sync({ adaptive: false });
+    expect(result.filesRemoved).toBe(0);
     expect(graph.getNodesByName('local_fn')).toHaveLength(1);
   } finally { graph.close(); await graph.whenIdle(); }
 });
@@ -137,4 +140,16 @@ it('invalidates semantic configuration when a linked target changes', ctx => {
   const before = indexConfigFingerprints(root, []).semanticConfigFingerprint;
   fs.writeFileSync(target, '{"compilerOptions":{"strict":true}}');
   expect(indexConfigFingerprints(root, []).semanticConfigFingerprint).not.toBe(before);
+});
+
+it.skipIf(process.platform !== 'win32')('discovers explicitly authorized distinct Kelvin sibling using the logical link name', () => {
+  const project = path.join(base, 'K');
+  const sibling = path.join(base, '\u212a');
+  fs.mkdirSync(project);
+  fs.mkdirSync(sibling);
+  execFileSync('git', ['init', '-q'], { cwd: project });
+  fs.writeFileSync(path.join(sibling, 'kelvin.c'), 'int kelvin_file;');
+  fs.symlinkSync(sibling, path.join(project, 'linked'), 'junction');
+  vi.stubEnv('CODEGRAPH_ALLOWED_SOURCE_ROOTS', sibling);
+  expect(scanDirectory(project)).toEqual(['linked/kelvin.c']);
 });

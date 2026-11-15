@@ -50,6 +50,7 @@ it('rejects equality when the filesystem provides no usable file ID', () => {
   Object.defineProperty(process,'platform',{value:'win32',configurable:true});
   vi.spyOn(fs,'statSync').mockReturnValue({dev: 1n, ino: 0n} as any);
   expect(sameProjectPath(dir,dir)).toBe(false);
+  expect(() => validatePathWithinRoot(dir, '.', true)).toThrow(/identity unavailable/);
 });
 it('rejects equality on inaccessible filesystem identities', () => {
   Object.defineProperty(process,'platform',{value:'win32',configurable:true});
