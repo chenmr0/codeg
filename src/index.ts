@@ -5,6 +5,7 @@
  * knowledge graph from any codebase.
  */
 
+import { openedDirectoryIdentity } from './path-identity';
 import * as path from 'path';
 import { appendAdaptiveLog, formatAdaptiveDecision } from './sync/adaptive-log';
 import { resolveSyncPolicy, resolvedSyncPolicy, type ResolvedSyncPolicy } from './sync/sync-policy';
@@ -280,6 +281,7 @@ export class CodeGraph {
   // File lock for preventing concurrent writes across processes (CLI, MCP, git hooks)
   private fileLock: GenerationWriterLock;
   private readonly dataDir: string;
+  private readonly openedDirectories: ReturnType<typeof openedDirectoryIdentity>;
   private readonly shadowCandidate: boolean;
   private portableBound = false;
   // Only an unpublished, newly created database may use disposable fast-init.
@@ -363,6 +365,7 @@ export class CodeGraph {
     this.readOnly = readOnly;
     this.pinnedRead = pinnedRead;
     this.dataDir = shadowCandidate ? path.dirname(db.getPath()) : dataDirOverride ?? getCodeGraphDir(projectRoot);
+    this.openedDirectories = openedDirectoryIdentity(projectRoot, this.dataDir);
     // Down-weight the project name as a query term in search ranking — it names
     // the whole repo, not a symbol, so it has no discriminative value (#720).
     try {
@@ -774,6 +777,8 @@ export class CodeGraph {
 
   /** Logical store identity is pinned for the life of this facade. */
   getDataDirectory(): string { return this.dataDir; }
+  /** @internal Physical directories associated with this open instance. */
+  getOpenedDirectories() { return this.openedDirectories; }
 
   /**
    * Check if a directory has been initialized as a CodeGraph project

@@ -8,7 +8,7 @@ import { MCPSession } from '../dist/mcp/session';
 import { MCPEngine } from '../dist/mcp/engine';
 let base: string | undefined, engine: MCPEngine | undefined;
 afterEach(async () => { if (engine) { await engine.stopAndDrain(); } if (base) fs.rmSync(base, { force: true, recursive: true }); });
-it.each(['unopened-index', 'opened-index', 'replaced-root', 'redirected-index'])('never discovers another project after %s', async mode => {
+for (const mode of ['unopened-index', 'opened-index', 'replaced-root', 'redirected-index']) it('never discovers another project after ' + mode, async ctx => {
   const opened = mode === 'opened-index';
   base = fs.mkdtempSync(path.join(os.tmpdir(), 'strict-root-life-'));
   const b = path.join(base, 'outer'), a = path.join(b, 'inner'); fs.mkdirSync(a, { recursive: true });
@@ -30,6 +30,8 @@ it.each(['unopened-index', 'opened-index', 'replaced-root', 'redirected-index'])
     catch (error) {
       // An open NTFS handle can prevent the move itself.
       if (!opened || process.platform !== 'win32' || !['EBUSY', 'EPERM'].includes((error as NodeJS.ErrnoException).code ?? '')) throw error;
+      session.stop();
+      return ctx.skip();
     }
     if (mode === 'redirected-index') fs.symlinkSync(path.join(b, '.codegraph-wx'), path.join(a, '.codegraph-wx'), 'junction');
   }

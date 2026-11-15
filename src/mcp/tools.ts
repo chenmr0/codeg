@@ -13,8 +13,6 @@ import type CodeGraph from '../index';
 import type { IndexDataReadiness } from '../index';
 import { AsyncLocalStorage } from 'async_hooks';
 import { findNearestCodeGraphRoot, getCodeGraphDir, isInitialized } from '../directory';
-import { sameProjectPath } from './project-identity';
-import { existingPathIdentity } from '../path-identity';
 import { acquireCurrentGenerationLease } from '../sync/generation-store';
 // Lazy-load the heavy CodeGraph chain off the MCP startup path — see the same
 // helper in engine.ts. ToolHandler must load to answer tools/list (static
@@ -1345,6 +1343,20 @@ export class ToolHandler {
    * similar to how git finds .git/ directories.
    */
   private getCodeGraph(projectPath?: string): CodeGraph {
+    const graph = this.getRequestReader(projectPath);
+    const binding = this.exploreSession.getStore()?.boundProject;
+    if (binding && (!isStrictProjectBindingCurrent(binding) || !this.matchesBoundDirectories(graph, binding))) {
+      throw new Error('Strict session reader belongs to a different project or index');
+    }
+    return graph;
+  }
+
+  private matchesBoundDirectories(graph: CodeGraph, binding: StrictProjectBinding): boolean {
+    const opened = graph.getOpenedDirectories();
+    return opened.rootId === binding.rootId && opened.dataId === binding.dataId;
+  }
+
+  private getRequestReader(projectPath?: string): CodeGraph {
     const request = this.generationRequest.getStore();
     if (this.closing && !request?.retained.size) throw new Error('CodeGraph tool handler is closing');
     // The default root is stable even while its writer forwards to a newer
@@ -1451,6 +1463,8 @@ export class ToolHandler {
     // Pending watcher events belong to the project, while SQL reads remain
     // pinned to their request's generation. Never substitute the query facade.
     if (graph === this.cg) return graph;
+    const binding = this.exploreSession.getStore()?.boundProject;
+    if (binding && this.cg && !this.matchesBoundDirectories(this.cg, binding)) return graph;
     const freshness = this.cg && resolvePath(this.cg.getProjectRoot()) === resolvePath(graph.getProjectRoot())
       ? this.cg : graph;
     const request = this.generationRequest.getStore();
@@ -1467,13 +1481,18 @@ export class ToolHandler {
       // removed after validation. Reuse only an instance of the bound root.
       const pathError = validateProjectPath(boundRoot);
       if (pathError) throw new Error(pathError);
-      const matchesBinding = (graph: CodeGraph) => sameProjectPath(graph.getProjectRoot(), boundRoot) &&
-        existingPathIdentity(graph.getDataDirectory()) === binding.dataId;
-      if (this.cg && matchesBinding(this.cg)) return this.cg;
+      if (this.cg && this.matchesBoundDirectories(this.cg, binding)) return this.cg;
       const cached = this.projectCache.get(boundRoot);
-      if (cached && matchesBinding(cached)) return cached;
+      if (cached) {
+        if (this.matchesBoundDirectories(cached, binding)) return cached;
+        throw new Error('Cached strict reader belongs to a different project or index');
+      }
       if (!isInitialized(boundRoot)) throw new Error('Bound shared-service project is no longer initialized');
       const graph = loadCodeGraph().openSync(boundRoot);
+      if (!this.matchesBoundDirectories(graph, binding)) {
+        graph.close();
+        throw new Error('Bound shared-service index changed during open');
+      }
       this.projectCache.set(boundRoot, graph);
       return graph;
     }

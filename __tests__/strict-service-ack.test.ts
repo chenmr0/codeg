@@ -61,3 +61,20 @@ it.each(['missing', 'wrong-policy', 'malformed', 'oversized', 'closed'])('reject
   expect(JSON.parse(inbound.trim())).toMatchObject({ codegraph_client: 1, sharedRequired: true });
   expect(inbound).not.toContain('tools/call');
 }, 6000);
+
+it('refuses confirmation when the index directory changes after the daemon greets the client', async () => {
+  root = fs.mkdtempSync(path.join(os.tmpdir(), 'cg-stale-handshake-'));
+  const data = path.join(root, '.codegraph-wx');
+  fs.mkdirSync(data);
+  const daemon = new Daemon(root, { persistent: true });
+  server = net.createServer(peer => { sockets.push(peer); (daemon as any).handleConnection(peer); });
+  await new Promise<void>(resolve => server!.listen(0, '127.0.0.1', resolve));
+  const client = net.createConnection((server.address() as net.AddressInfo).port, '127.0.0.1');
+  sockets.push(client);
+  const { readHelloLine, confirmStrictServiceSession } = await import('../dist/mcp/proxy');
+  client.setEncoding('utf8');
+  await readHelloLine(client);
+  fs.renameSync(data, data + '-previous');
+  fs.mkdirSync(data);
+  await expect(confirmStrictServiceSession(client)).rejects.toThrow();
+});

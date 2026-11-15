@@ -22,7 +22,9 @@ export function bindStrictProject(root: string): StrictProjectBinding | null {
 }
 
 export function isStrictProjectBindingCurrent(binding: StrictProjectBinding): boolean {
-  return existingPathIdentity(binding.root) === binding.rootId &&
-    existingPathIdentity(binding.dataDir) === binding.dataId &&
-    getCodeGraphDir(binding.root) === binding.dataDir;
+  try {
+    return existingPathIdentity(binding.root) === binding.rootId &&
+      existingPathIdentity(binding.dataDir) === binding.dataId &&
+      getCodeGraphDir(binding.root) === binding.dataDir;
+  } catch { return false; }
 }

@@ -54,9 +54,9 @@ async function initialize(c: Client, root?: string) {
 }
 async function indexedRoot(base: string, name: string) {
   const root = path.join(base, name); fs.mkdirSync(root);
-  fs.writeFileSync(path.join(root, 'example.ts'), `export function ${name}Marker() { return 42; }\n`);
+  fs.writeFileSync(path.join(root, name + '.c'), `int ${name}Marker(void) { return 42; }\n`);
   const cg = CodeGraph.initSync(root);
-  try { await cg.indexAll(); } finally { cg.close(); }
+  try { await cg.indexAll(); } finally { cg.close(); await cg.whenIdle(); }
   return fs.realpathSync(root);
 }
 
@@ -100,7 +100,7 @@ describe('Explicit shared MCP service', () => {
       expect((await initialize(c, root)).result.serverInfo.name).toBe('codegraph');
       const result = await request(c, 2, 'tools/call', { name: 'search', arguments: { query: 'alphaMarker' } });
       expect(result.error).toBeUndefined(); expect(result.result.isError).not.toBe(true);
-      expect(JSON.stringify(result.result)).toContain('alphaMarker');
+      expect(JSON.stringify(result.result)).toContain('alpha.c');
     }
     a.child.stdin.end(); await until(() => a.child.exitCode !== null);
     const active = await request(b, 3, 'tools/call', { name: 'status', arguments: {} });
@@ -127,7 +127,7 @@ describe('Explicit shared MCP service', () => {
     expect((await initialize(a, beta)).error.code).toBe(-32602);
     expect((await request(a, 2, 'initialize', { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'test', version: '1' }, rootUri: pathToFileURL(root).href })).result.serverInfo.name).toBe('codegraph');
     expect((await request(a, 3, 'tools/call', { name: 'search', arguments: { query: 'betaMarker', projectPath: beta } })).error.code).toBe(-32602);
-    expect(JSON.stringify((await request(a, 4, 'tools/call', { name: 'search', arguments: { query: 'alphaMarker' } })).result)).toContain('alphaMarker');
+    expect(JSON.stringify((await request(a, 4, 'tools/call', { name: 'search', arguments: { query: 'alphaMarker' } })).result)).toContain('alpha.c');
   }, 60_000);
 
   it.skipIf(process.platform === 'win32')('canonicalizes symlink paths to the same service', async () => {
@@ -183,7 +183,7 @@ describe('Explicit shared MCP service', () => {
     expect(strict.code).toBe(1); expect(strict.err).toContain('No initialized CodeGraph');
     const status = JSON.parse((await command(root, ['service', 'status', '--path', root, '--json'])).out);
     expect(status.pid).toBe(original.pid); expect(status.instance).toBe(original.instance);
-    expect(JSON.stringify((await request(active, 2, 'tools/call', { name: 'search', arguments: { query: 'alphaMarker' } })).result)).toContain('alphaMarker');
+    expect(JSON.stringify((await request(active, 2, 'tools/call', { name: 'search', arguments: { query: 'alphaMarker' } })).result)).toContain('alpha.c');
     const subdir = JSON.parse((await command(root, ['service', 'status', '--path', path.join(root, 'src'), '--json'])).out);
     expect(subdir.pid).toBe(original.pid);
   }, 60_000);
@@ -197,7 +197,7 @@ describe('Explicit shared MCP service', () => {
     const args = { name: 'search', arguments: { query: 'betaMarker', projectPath: beta } };
     const result = await request(ordinary, 2, 'tools/call', args);
     expect(result.error).toBeUndefined(); expect(result.result.isError).not.toBe(true);
-    expect(JSON.stringify(result.result)).toContain('betaMarker');
+    expect(JSON.stringify(result.result)).toContain('beta.c');
     expect((await request(strict, 2, 'tools/call', args)).error.code).toBe(-32602);
   }, 60_000);
 
@@ -209,7 +209,7 @@ describe('Explicit shared MCP service', () => {
     expect(status.code).toBe(0); expect(JSON.parse(status.out).pid).toBe(JSON.parse(started.out).pid);
     const c = client(uppercase); clients.push(c);
     expect((await initialize(c, root.toLowerCase())).error).toBeUndefined();
-    expect(JSON.stringify((await request(c, 2, 'tools/call', { name: 'search', arguments: { query: 'alphaMarker', projectPath: root.toUpperCase() } })).result)).toContain('alphaMarker');
+    expect(JSON.stringify((await request(c, 2, 'tools/call', { name: 'search', arguments: { query: 'alphaMarker', projectPath: root.toUpperCase() } })).result)).toContain('alpha.c');
   }, 60_000);
 
 });

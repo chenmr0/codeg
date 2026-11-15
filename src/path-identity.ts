@@ -13,6 +13,11 @@ export function existingPathIdentity(value: string): string | null {
   try { return requireIdentity(value); } catch { return null; }
 }
 
+/** Snapshot at open time. Re-resolving a cached handle's path can describe a different directory. */
+export function openedDirectoryIdentity(root: string, dataDir: string) {
+  return Object.freeze({ rootId: existingPathIdentity(root), dataId: existingPathIdentity(dataDir) });
+}
+
 export function sameExistingPath(left: string, right: string): boolean {
   const id = existingPathIdentity(left);
   return id !== null && id === existingPathIdentity(right);

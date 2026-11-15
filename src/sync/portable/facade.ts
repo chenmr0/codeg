@@ -1,4 +1,5 @@
 /** Stable project facade; native connections belong to admitted operations, not projects. */
+import { openedDirectoryIdentity } from "../../path-identity";
 import * as path from "node:path";
 import { appendAdaptiveLog, formatAdaptiveDecision } from "../adaptive-log";
 import { resolveSyncPolicy, resolvedSyncPolicy } from "../sync-policy";
@@ -54,6 +55,7 @@ const pause = (ms: number) =>
 
 class PortableFacade {
   readonly coordinator: PortableCoordinator;
+  private readonly openedDirectories: ReturnType<typeof openedDirectoryIdentity>;
   private reader?: {
     graph: CodeGraph;
     lease: PortableLease;
@@ -85,6 +87,7 @@ class PortableFacade {
     private factory: (readOnly: boolean) => CodeGraph,
     private readOnly: boolean,
   ) {
+    this.openedDirectories = openedDirectoryIdentity(root, dataDir);
     this.coordinator = new PortableCoordinator(dataDir);
     // A live publisher makes recovery busy, but readers may continue in idle.
     try {
@@ -581,6 +584,7 @@ class PortableFacade {
     if (key === "getDatabaseIdentity")
       return () => this.read(() => this.reader!.identity);
     if (key === "getProjectRoot") return () => this.root;
+    if (key === "getOpenedDirectories") return () => this.openedDirectories;
     if (key === "getDataDirectory") return () => this.dataDir;
     if (key === "getDatabaseFilePath")
       return () => path.join(this.dataDir, "codegraph.db");

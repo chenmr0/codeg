@@ -169,10 +169,13 @@ export class Daemon {
    * listening — the daemon then sticks around until idle/shutdown.
    */
   async start(): Promise<DaemonStartResult> {
+    if (this.persistent && (!this.strictBinding || !isStrictProjectBindingCurrent(this.strictBinding))) {
+      throw new Error('Cannot establish filesystem identity for the shared service');
+    }
     // Engine init is deliberately backgrounded — see #172. The first session
     // to land waits on `ensureInitialized` either way, and unloaded sessions
     // (cross-project tool calls only) shouldn't pay any open cost.
-    void this.engine.ensureInitialized(this.projectRoot);
+    void this.engine.ensureInitialized(this.projectRoot, this.persistent);
 
     // Stale socket file (left over from a SIGKILL'd previous daemon) will
     // wedge `listen` with EADDRINUSE. We arrived here holding the lockfile,
