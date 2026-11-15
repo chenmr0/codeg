@@ -50,15 +50,21 @@ describe('maintainer term mappings', () => {
     fs.unlinkSync(file);
     expect(loadTermMappings(root).exists).toBe(false);
   });
-  it('refuses oversized files, directories and symlinks quietly at runtime', () => {
+  it('refuses oversized mapping files and directories', () => {
     const file = path.join(root, 'term-mappings.json');
     fs.writeFileSync(file, ' '.repeat(256 * 1024 + 1));
     expect(loadTermMappings(root).errors.length).toBe(1);
     fs.unlinkSync(file); fs.mkdirSync(file);
     expect(loadTermMappings(root).errors.length).toBe(1);
-    fs.rmdirSync(file);
+  });
+  it('refuses a symlinked mapping file', ctx => {
+    const file = path.join(root, 'term-mappings.json');
     fs.writeFileSync(path.join(root, 'other'), '{"rules":[]}');
-    fs.symlinkSync(path.join(root, 'other'), file);
+    try { fs.symlinkSync(path.join(root, 'other'), file); }
+    catch (error) {
+      if (process.platform === 'win32' && (error as NodeJS.ErrnoException).code === 'EPERM') return ctx.skip();
+      throw error;
+    }
     expect(loadTermMappings(root).errors.length).toBe(1);
   });
   it('uses exact case-sensitive indexed names/qualified names with untruncated counts', () => {

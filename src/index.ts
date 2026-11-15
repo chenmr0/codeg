@@ -2391,10 +2391,10 @@ export class CodeGraph {
   /**
    * Get files that have changed since last index
    */
-  getChangedFiles(): { added: string[]; modified: string[]; removed: string[] } {
+  getChangedFiles(options: { verifySource?: boolean } = {}): { added: string[]; modified: string[]; removed: string[] } {
     return this.withReadView(view => {
-      if (view !== this) return view.getChangedFiles();
-      return this.orchestrator.getChangedFiles();
+      if (view !== this) return view.getChangedFiles(options);
+      return this.orchestrator.getChangedFiles(options);
     });
   }
 

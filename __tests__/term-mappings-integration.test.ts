@@ -6,12 +6,12 @@ import { createHash } from 'node:crypto';
 import CodeGraph from '../src';
 import { createUpstreamExploreGraph } from '../src/mcp/upstream-explore-adapter';
 import { ToolHandler } from '../src/mcp/tools';
-import { removeDirectory } from '../src/directory';
+import { getCodeGraphDir, removeDirectory } from '../src/directory';
 
 let root: string;
 let cg: CodeGraph | undefined;
 beforeEach(() => { root = fs.mkdtempSync(path.join(os.tmpdir(), 'terms-explore-')); vi.stubEnv('CODEGRAPH_ENABLE_EXPLORE', '1'); });
-afterEach(() => { cg?.close(); cg = undefined; fs.rmSync(root, { recursive: true, force: true }); vi.unstubAllEnvs(); });
+afterEach(async () => { cg?.close(); await cg?.whenIdle(); cg = undefined; fs.rmSync(root, { recursive: true, force: true }); vi.unstubAllEnvs(); });
 async function setup() {
   fs.writeFileSync(path.join(root, 'radio.cpp'), 'int getChannel() { return 6; }\nint getRadioCfg() { return getChannel(); }\n');
   fs.writeFileSync(path.join(root, 'order.ts'), 'export class OrderStateMachine { transit() { return 1; } }\n');
@@ -65,7 +65,7 @@ describe('project mappings in native Explore', () => {
   });
   it('does not mutate read-only index bytes, and mapping edits do not require reindexing', async () => {
     const graph = await setup(); const dir = graph.getDataDirectory();
-    graph.close(); cg = undefined;
+    graph.close(); await graph.whenIdle(); cg = undefined;
     const dbPath = path.join(dir, 'codegraph.db');
     const hash = () => createHash('sha256').update(fs.readFileSync(dbPath)).digest('hex');
     const before = hash();
@@ -73,7 +73,7 @@ describe('project mappings in native Explore', () => {
     cg = await CodeGraph.open(root, { readOnly: true, sync: false });
     const api = createUpstreamExploreGraph(cg);
     expect([...(await api.findRelevantContext('信道配置')).nodes.values()].some(n => n.name === 'getChannel')).toBe(true);
-    cg.close(); cg = undefined;
+    cg.close(); await cg.whenIdle(); cg = undefined;
     expect(hash()).toBe(before);
   });
   it('preserves mappings through sync, full init and uninitialize/reinitialize', async () => {
@@ -97,4 +97,35 @@ describe('project mappings in native Explore', () => {
     cg = CodeGraph.initSync(root); await cg.indexAll();
     expect([...(await createUpstreamExploreGraph(cg).findRelevantContext('信道配置')).nodes.values()].some(n => n.name === 'getChannel')).toBe(true);
   });
+});
+
+it('reopens legacy configuration after offline cleanup and prefers explicitly configured new mappings on conflict', async () => {
+  const legacy = path.join(root, '.codegraph');
+  const preferred = path.join(root, '.codegraph-wx');
+  fs.mkdirSync(legacy);
+  writeMappings(legacy, ['legacy']);
+  fs.writeFileSync(path.join(legacy, 'codegraph.db'), '');
+  removeDirectory(root);
+  expect(getCodeGraphDir(root)).toBe(legacy);
+  cg = CodeGraph.initSync(root);
+  expect(cg.getDataDirectory()).toBe(legacy);
+  cg.close();
+  await cg.whenIdle();
+  cg = undefined;
+  removeDirectory(root);
+  fs.mkdirSync(preferred);
+  writeMappings(preferred, ['new']);
+  expect(getCodeGraphDir(root)).toBe(preferred);
+  expect(fs.readFileSync(path.join(legacy, 'term-mappings.json'), 'utf8')).toContain('legacy');
+});
+
+it.skipIf(process.platform !== 'win32')('keeps the native case of an active mapping file during cleanup', () => {
+  const data = path.join(root, '.codegraph-wx');
+  fs.mkdirSync(data);
+  const file = path.join(data, 'TERM-MAPPINGS.JSON');
+  fs.writeFileSync(file, '{}');
+  fs.writeFileSync(path.join(data, 'codegraph.db'), '');
+  removeDirectory(root);
+  expect(fs.readdirSync(data)).toEqual(['TERM-MAPPINGS.JSON']);
+  expect(fs.readFileSync(file, 'utf8')).toBe('{}');
 });

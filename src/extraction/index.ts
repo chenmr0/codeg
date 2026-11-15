@@ -3760,10 +3760,11 @@ export class ExtractionOrchestrator {
    * Get files that have changed since last index.
    * Uses git status as a fast path when available, falling back to full scan.
    */
-  getChangedFiles(): { added: string[]; modified: string[]; removed: string[] } {
+  getChangedFiles(options: { verifySource?: boolean } = {}): { added: string[]; modified: string[]; removed: string[] } {
     // .codegraphignore negation rules re-include files git has already excluded,
     // so `git status` never reports them.  Fall back to a full filesystem scan.
-    const gitChanges = hasCodegraphIgnoreNegation(this.rootDir) ? null : getGitChangedFiles(this.rootDir);
+    if (options.verifySource) clearCanonicalCache();
+    const gitChanges = options.verifySource || hasCodegraphIgnoreNegation(this.rootDir) ? null : getGitChangedFiles(this.rootDir);
 
     if (gitChanges) {
       // === Git fast path ===
@@ -3841,11 +3842,18 @@ export class ExtractionOrchestrator {
 
     // Find added and modified files
     for (const filePath of currentFiles) {
-      const fullPath = path.join(this.rootDir, filePath);
       let content: string;
       try {
+        const fullPath = validatePathWithinRoot(this.rootDir, filePath, true);
+        if (!fullPath) throw new Error('Source outside configured roots: ' + filePath);
         content = fs.readFileSync(fullPath, 'utf-8');
       } catch (error) {
+        if (options.verifySource) {
+          const code = (error as NodeJS.ErrnoException).code;
+          if (code !== 'ENOENT' && code !== 'ENOTDIR') throw error;
+          if (trackedMap.has(filePath)) removed.push(filePath);
+          continue;
+        }
         logDebug('Skipping unreadable file while detecting changes', { filePath, error: String(error) });
         continue;
       }

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { spawnSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -36,6 +36,10 @@ describe('built mappings check CLI', () => {
 
   it('checks a real index without syncing changed sources or altering database bytes', async () => {
     fs.writeFileSync(path.join(root, 'radio.cpp'), 'int getChannel() { return 1; }\n');
+    const git = (...args: string[]) => execFileSync('git', ['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', ...args], { cwd: root });
+    git('init', '-q');
+    git('add', 'radio.cpp');
+    git('commit', '-qm', 'initial');
     const graph = CodeGraph.initSync(root);
     try { await graph.indexAll(); } finally { graph.close(); await graph.whenIdle(); }
     config(['getChannel', 'getRadioCfg']);
@@ -46,6 +50,8 @@ describe('built mappings check CLI', () => {
     expect(plain.status, plain.stderr).toBe(1);
     expect(JSON.parse(plain.stdout)).toMatchObject({ source: { status: 'not_checked' }, results: [{ status: 'FOUND' }, { status: 'NOT_FOUND_IN_INDEX' }] });
     fs.appendFileSync(path.join(root, 'radio.cpp'), 'int getRadioCfg() { return 2; }\n');
+    git('commit', '-qam', 'change after indexing');
+    expect(git('status', '--porcelain', '--', 'radio.cpp').toString()).toBe('');
     const changed = command(['--json', '--check-source']);
     expect(changed.status, changed.stderr).toBe(2);
     expect(JSON.parse(changed.stdout)).toMatchObject({ source: { status: 'changed', modified: 1 }, results: [{ status: 'FOUND' }, { status: 'UNVERIFIED' }] });

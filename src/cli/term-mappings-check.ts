@@ -35,7 +35,7 @@ export function checkTermMappings(
     configPath: config.path, ruleCount: config.rules.length, uniqueSymbolCount: symbols.length,
     results: [], errors: [...config.errors], warnings: [...config.warnings],
     index: { status: 'unavailable', stale: null },
-    source: { status: 'not_checked' }, exitCode: 0,
+    source: { status: options.checkSource ? 'unverified' : 'not_checked' }, exitCode: 0,
   };
   if (!config.exists) report.errors.push('Term mappings configuration does not exist.');
   if (report.errors.length > 0) { report.exitCode = 2; return report; }
@@ -60,7 +60,7 @@ export function checkTermMappings(
       report.source.status = 'unverified';
       report.warnings.push('The selected index belongs to a different working tree.');
     } else if (options.checkSource) {
-      const changes = graph.getChangedFiles();
+      const changes = graph.getChangedFiles({ verifySource: true });
       const added = changes.added.length;
       const modified = changes.modified.length;
       const removed = changes.removed.length;

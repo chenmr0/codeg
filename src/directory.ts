@@ -7,6 +7,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { acquireCurrentGenerationLease } from './sync/generation-store';
+import { TERM_MAPPINGS_FILE } from './term-mappings';
 import { PortableCoordinator } from './sync/portable/protocol';
 function hasPortableRuntime(directory: string): boolean { return fs.existsSync(path.join(directory, '.runtime', 'portable', 'gate.sqlite')); }
 
@@ -114,7 +115,13 @@ export function getCodeGraphDir(projectRoot: string): string {
   if (configured || !legacyCompatibilityEnabled() ||
       (hasPortableRuntime(preferred) || fs.existsSync(path.join(preferred, 'codegraph.db')) || hasCurrentManifest(preferred))) return preferred;
   const legacy = path.join(projectRoot, LEGACY_CODEGRAPH_DIR);
-  return (hasPortableRuntime(legacy) || fs.existsSync(path.join(legacy, 'codegraph.db')) || hasCurrentManifest(legacy)) ? legacy : preferred;
+  if (hasPortableRuntime(legacy) || fs.existsSync(path.join(legacy, 'codegraph.db')) || hasCurrentManifest(legacy)) return legacy;
+  // Offline cleanup retains mappings. Reinitialize where they live unless
+  // the preferred directory already has its own configuration.
+  if (fs.lstatSync(legacy, { throwIfNoEntry: false })?.isDirectory() &&
+      fs.lstatSync(path.join(legacy, TERM_MAPPINGS_FILE), { throwIfNoEntry: false })?.isFile() &&
+      !fs.lstatSync(path.join(preferred, TERM_MAPPINGS_FILE), { throwIfNoEntry: false })) return legacy;
+  return preferred;
 }
 
 /**
@@ -241,9 +248,13 @@ export function removeDirectory(projectRoot: string, directoryName?: string): vo
   // Maintainer-owned query policy is not index data. Leave it in place so
   // uninit/re-init does not silently discard project terminology. Do not read
   // or follow it here (even malformed configuration must be preserved).
-  const mappingFile = 'term-mappings.json';
   const entries = fs.readdirSync(codegraphDir);
-  if (entries.includes(mappingFile)) {
+  // Use the same filesystem lookup as the loader. On case-sensitive volumes
+  // only the exact spelling is active; elsewhere keep the actual dirent name.
+  const mappingFile = entries.includes(TERM_MAPPINGS_FILE) ? TERM_MAPPINGS_FILE :
+    fs.lstatSync(path.join(codegraphDir, TERM_MAPPINGS_FILE), { throwIfNoEntry: false }) &&
+      entries.find(entry => entry.toLowerCase() === TERM_MAPPINGS_FILE);
+  if (mappingFile) {
     for (const entry of entries) {
       if (entry !== mappingFile) fs.rmSync(path.join(codegraphDir, entry), { recursive: true, force: true });
     }
