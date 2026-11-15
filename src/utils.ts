@@ -113,8 +113,8 @@ export function validatePathWithinRoot(projectRoot: string, filePath: string, re
     const realRoot = fs.realpathSync(normalizedRoot);
     const realResolved = fs.realpathSync(resolved);
     const contained = process.platform === 'win32'
-      ? isWithinExistingDirectory(realResolved, realRoot) : isWithinDir(realResolved, realRoot);
-    return contained || isAllowedSourceTarget(realResolved) ? realResolved : null;
+      ? isWithinExistingDirectory(realResolved, realRoot, requireExisting) : isWithinDir(realResolved, realRoot);
+    return contained || isAllowedSourceTarget(realResolved, requireExisting) ? realResolved : null;
   } catch (err) {
     // An inventory reader needs the original errno to distinguish a removed
     // file (or parent directory) from an inaccessible path.
@@ -137,7 +137,7 @@ export function validatePathWithinRoot(projectRoot: string, filePath: string, re
  * against the current filesystem on every content read. The environment is
  * inherited by resolver/read workers and is not controlled by repository files.
  */
-export function isAllowedSourceTarget(realTarget: string): boolean {
+export function isAllowedSourceTarget(realTarget: string, requireKnown = false): boolean {
   const configured = process.env.CODEGRAPH_ALLOWED_SOURCE_ROOTS;
   if (!configured) return false;
   for (const entry of configured.split(path.delimiter)) {
@@ -149,8 +149,11 @@ export function isAllowedSourceTarget(realTarget: string): boolean {
       if (caseKey(root) !== caseKey(path.resolve(entry))) continue;
       if (validateProjectPath(root) !== null) continue;
       if (process.platform === 'win32'
-        ? isWithinExistingDirectory(realTarget, root) : isWithinDir(realTarget, root)) return true;
-    } catch { /* Invalid or unavailable allowlist entries grant no access. */ }
+        ? isWithinExistingDirectory(realTarget, root, requireKnown) : isWithinDir(realTarget, root)) return true;
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (requireKnown && code !== 'ENOENT' && code !== 'ENOTDIR' && code !== 'ELOOP') throw error;
+    }
   }
   return false;
 }
@@ -331,7 +334,8 @@ function canonicalFilePathInContext(rootDir: string, p: string, knownRealPath: s
     const real = knownRealPath ?? resolveRealPath(abs);
     const rel = normalizePath(rootPrefix && real.startsWith(rootPrefix)
       ? real.slice(rootPrefix.length) : path.relative(rootDir, real));
-    if (rel && !rel.startsWith('..') && !path.isAbsolute(rel)) {
+    if (rel && !rel.startsWith('..') && !path.isAbsolute(rel) &&
+        (process.platform !== 'win32' || real.startsWith(rootDir + path.sep) || isWithinExistingDirectory(real, rootDir))) {
       result = rel; // real path inside root → canonical realpath-relative
     }
     // else: real path outside root → keep normalizedLogical (external symlink;

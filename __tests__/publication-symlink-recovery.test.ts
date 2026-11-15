@@ -38,7 +38,7 @@ it('retains the active database when an authorized link appears during candidate
   const before = metadata(graph, 'portable:database-id-v1');
   fs.writeFileSync(path.join(root, 'local.c'), 'int local_updated(void) { return 123; }\n');
   vi.stubEnv('TEST_PUBLICATION_LINK_ROOT', shared);
-  vi.stubEnv('NODE_OPTIONS', `--require="${path.resolve(__dirname, 'fixtures/link-during-portable-build.cjs')}"`);
+  vi.stubEnv('NODE_OPTIONS', `--require="${path.resolve(__dirname, 'fixtures/link-during-portable-build.cjs').split(path.sep).join('/')}"`);
   const result = await graph.sync({ adaptiveFallback: { minChangedFiles: 1, minChangedFraction: 0.01, minWorkFraction: 0.01 } });
   expect(result.complete).toBe(true);
   expect(fs.lstatSync(path.join(root, 'linked')).isSymbolicLink()).toBe(true);
@@ -149,3 +149,14 @@ const { CodeGraph } = require(${JSON.stringify(path.resolve('dist/index.js'))});
     uid, gid: uid, env: { ...process.env, CODEGRAPH_ALLOWED_SOURCE_ROOTS: shared }, stdio: 'pipe',
   })).not.toThrow();
 }, 60_000);
+
+it('chooses incremental sync before spawning a publisher for known linked sources', async () => {
+  const { root, shared, graph } = await fixture();
+  fs.symlinkSync(shared, path.join(root, 'linked'), 'junction');
+  fs.writeFileSync(path.join(root, 'local.c'), 'int updated_local(void) { return 123; }\n');
+  const publish = vi.spyOn(require('../dist/sync/portable/publisher-client'), 'runPortableRebuild');
+  const result = await graph.sync({ adaptiveFallback: { minChangedFiles: 1, minChangedFraction: 0.01, minWorkFraction: 0.01 } });
+  expect(result.complete).toBe(true);
+  expect(publish).not.toHaveBeenCalled();
+  expect(graph.getNodesByName('external_symbol')).toHaveLength(1);
+});

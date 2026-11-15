@@ -46,9 +46,13 @@ function fingerprints(root: string, files: SourceFiles, broad: boolean, semantic
       // On the common missing-file path, avoid allocating an Error and its stack
       // for each control. lstat keeps dangling links on the normal read path.
       const stat = fs.lstatSync(absolute, { throwIfNoEntry: false });
-      if (!stat?.isFile() || stat.isSymbolicLink()) return null;
-      if (!validatePathWithinRoot(base, relative, true)) return null;
-      return crypto.createHash('sha256').update(fs.readFileSync(absolute)).digest('hex');
+      if (!stat || (!stat.isFile() && !stat.isSymbolicLink())) return null;
+      // Git ignores symlinked ignore files. Resolvers do follow semantic
+      // configuration links, so hash the validated target in that case.
+      if (stat.isSymbolicLink() && ['.gitignore', '.codegraphignore', 'exclude'].includes(path.basename(relative))) return null;
+      const target = validatePathWithinRoot(base, relative, true);
+      if (!target || (stat.isSymbolicLink() && !fs.statSync(target).isFile())) return null;
+      return crypto.createHash('sha256').update(fs.readFileSync(target)).digest('hex');
     }
     catch (error) {
       const code = (error as NodeJS.ErrnoException).code;

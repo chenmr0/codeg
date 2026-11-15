@@ -64,6 +64,7 @@ import { Mutex, canonicalFilePath } from './utils';
 import { GenerationWriterLock, resolveGeneration, createGeneration, publishGeneration, hasRebuildDiskSpace, acquireCurrentGenerationLease, acquireGenerationLease, cleanupGenerationCandidate, collectRetiredGenerations, type GenerationLease } from './sync/generation-store';
 import { installSourceOwnership, isSourceOwned, beginSourceWrite, finishSourceWrite } from './sync/source-ownership';
 import { adaptiveRuntimeKey, adaptiveConfigFingerprint, chooseStructuralStrategy, hasCanonicalScope,
+  assertRebuildSourceEligibility, AdaptiveSourceIneligibleError,
   type AdaptiveDecision, type AdaptivePlan, type AdaptiveFallbackPolicy, type AdaptiveRuleSelection } from './sync/adaptive-plan';
 import { runRebuildChild, runAdaptiveReadWorker } from './sync/rebuild-controller';
 import { reconcilePublishedSource, publicationContext, type VerifiedPublicationContext } from './sync/publication-catchup';
@@ -1551,6 +1552,16 @@ export class CodeGraph {
         enabled: policySnapshot.enabled, disabledReason: policySnapshot.disabledReason,
         fallback: policySnapshot.thresholds, rules: policySnapshot.rules,
       });
+      if (decision.strategy === 'rebuild' && process.env.CODEGRAPH_ALLOWED_SOURCE_ROOTS) {
+        // A scoped observation cannot certify the rest of the project. Let
+        // the full planner decide before the publisher is launched.
+        if (scoped) return null;
+        try { await assertRebuildSourceEligibility(this.projectRoot, inventory.paths); }
+        catch (error) {
+          if (!(error instanceof AdaptiveSourceIneligibleError)) throw error;
+          return { strategy: 'incremental', reason: 'symlink-source-ineligible' };
+        }
+      }
       if (scoped && decision.reason === 'below-rebuild-range') decision.reason = 'scoped-small-change';
       // The publisher or an SDK decision callback can change source state.
       // These paths revalidate rather than carrying stale observations forward.

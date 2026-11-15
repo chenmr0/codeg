@@ -10,7 +10,7 @@ import * as path from 'path';
 import * as crypto from 'crypto';
 import * as os from 'os';
 import { getHeapStatistics } from 'node:v8';
-import { execFileSync, type ExecFileSyncOptionsWithStringEncoding } from 'child_process';
+import { execFileSync, spawnSync, type ExecFileSyncOptionsWithStringEncoding } from 'child_process';
 import {
   Language,
   FileRecord,
@@ -53,7 +53,8 @@ import {
 import { ReconcileDiagnostics, type ScanDiagnostics } from './sync-diagnostics';
 import { StoreDiagnostics, measureStore } from './store-diagnostics';
 import { filterGitPaths } from './git-paths';
-import { separateGitDirectoryLinks } from './git-linked-roots';
+import { isWithinExistingDirectory } from '../path-identity';
+import { isGitJunctionCycleWarning, separateGitDirectoryLinks } from './git-linked-roots';
 import { ScanCoverageError } from './scan-coverage';
 import { rewireRecoveryMetadata, type SyncRetryState } from './sync-retry-state';
 import { AppendDeltaState } from './append-delta';
@@ -609,13 +610,19 @@ function hasCodegraphIgnoreNegation(rootDir: string): boolean {
 function runScanGit(
   args: string[], options: ExecFileSyncOptionsWithStringEncoding, diagnostics?: ScanDiagnostics,
 ): string {
-  if (!diagnostics) return execFileSync('git', args, options);
-  const started = performance.now();
-  diagnostics.gitCommands++;
+  const started = diagnostics ? performance.now() : 0;
+  if (diagnostics) diagnostics.gitCommands++;
   try {
-    return execFileSync('git', args, options);
+    if (args[0] !== 'ls-files') return execFileSync('git', args, options);
+    // Git may exit successfully after omitting unreadable untracked paths.
+    const result = spawnSync('git', args, { ...options, env: { ...process.env, LC_ALL: 'C' } });
+    const diagnosticsText = (result.stderr || '').split(/\r?\n/).filter(line => /^(?:warning|error|fatal):/.test(line));
+    if (result.error || result.status !== 0 || diagnosticsText.some(line => !isGitJunctionCycleWarning(String(options.cwd), line))) {
+      throw new ScanCoverageError(String(options.cwd), result.error ?? (result.stderr || 'git ls-files failed'));
+    }
+    return result.stdout;
   } finally {
-    diagnostics.gitCommandMs += performance.now() - started;
+    if (diagnostics) diagnostics.gitCommandMs += performance.now() - started;
   }
 }
 
@@ -669,6 +676,30 @@ function collectGitFiles(repoDir: string, prefix: string, files: Set<string>, di
   }
 }
 
+function gitWalkIgnore(rootDir: string, diagnostics?: ScanDiagnostics): Ignore {
+  const globalRules: string[] = [];
+  try {
+    const configured = runScanGit(['config', '--path', '--get', 'core.excludesFile'], {
+      cwd: rootDir, encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true,
+    }, diagnostics).trim();
+    if (configured) globalRules.push(readGitignorePatterns(path.resolve(rootDir, configured), true));
+  } catch (error) {
+    if ((error as { status?: number }).status !== 1) throw new ScanCoverageError(rootDir, error);
+    const defaultExclude = path.join(process.env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config'), 'git/ignore');
+    globalRules.push(readGitignorePatterns(defaultExclude, true));
+  }
+  const excludePath = runScanGit(['rev-parse', '--git-path', 'info/exclude'], {
+    cwd: rootDir, encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true,
+  }, diagnostics).trim();
+  const cgPatterns = readGitignorePatterns(path.join(rootDir, '.codegraphignore'));
+  return buildDefaultIgnore(rootDir, diagnostics, [
+    DEFAULT_IGNORE_PATTERNS.join('\n'), ...globalRules,
+    readGitignorePatterns(path.resolve(rootDir, excludePath)),
+    readGitignorePatterns(path.join(rootDir, '.gitignore')),
+    cgPatterns, expandAnchoredNegations(cgPatterns).join('\n'),
+  ]);
+}
+
 /**
  * Get all files visible to git (tracked + untracked but not ignored).
  * Respects .gitignore at all levels (root, subdirectories) and descends into
@@ -681,8 +712,10 @@ function getGitVisibleFiles(rootDir: string, diagnostics?: ScanDiagnostics): Set
   // Only explicit literal-directory supplements can avoid the full walk.
   // Opt-in until target-platform measurements beat the simpler optimized
   // walker. Windows OceanBase currently favors parent-path reuse alone.
-  if (roots === null || (roots && (process.env.CODEGRAPH_ALLOWED_SOURCE_ROOTS || process.env.CODEGRAPH_HYBRID_SCAN !== '1' ||
-      process.env.CODEGRAPH_NO_HYBRID_SCAN === '1'))) {
+  const checkedLinks = !!process.env.CODEGRAPH_ALLOWED_SOURCE_ROOTS || process.platform === 'win32';
+  const needsWalk = roots === null || (roots !== undefined &&
+    (checkedLinks || process.env.CODEGRAPH_HYBRID_SCAN !== '1' || process.env.CODEGRAPH_NO_HYBRID_SCAN === '1'));
+  if (needsWalk && !checkedLinks) {
     if (diagnostics) diagnostics.fallbackReason = 'codegraph-negation';
     return null;
   }
@@ -698,7 +731,7 @@ function getGitVisibleFiles(rootDir: string, diagnostics?: ScanDiagnostics): Set
       diagnostics,
     ).trim();
 
-    if (roots && path.relative(gitRoot, rootDir) !== '') {
+    if (!needsWalk && roots && path.relative(gitRoot, rootDir) !== '') {
       throw new HybridScanFallback('project-not-repository-root');
     }
 
@@ -716,6 +749,16 @@ function getGitVisibleFiles(rootDir: string, diagnostics?: ScanDiagnostics): Set
       } catch {
         // Not ignored — safe to use git ls-files
       }
+    }
+
+    if (needsWalk) {
+      // A negation can re-include paths omitted by Git. Traverse with the
+      // same ignore policy and link authorization used for Git supplements.
+      failureStage = 'supplement-links';
+      const rootIgnore = gitWalkIgnore(rootDir, diagnostics);
+      return new Set(scanDirectoryWalk(rootDir, undefined, diagnostics, {
+        roots: [], rejectSymlinks: false, rootIgnore, authorizedSymlinksOnly: true,
+      }));
     }
 
     if (roots) {
@@ -752,35 +795,14 @@ function getGitVisibleFiles(rootDir: string, diagnostics?: ScanDiagnostics): Set
     const rootRules = rootIgnoreGroups(rootDir);
     const ig = buildDefaultIgnore(rootDir, diagnostics, rootRules);
     failureStage = 'filter-canonical';
-    const checkLinkBoundaries = !!process.env.CODEGRAPH_ALLOWED_SOURCE_ROOTS || process.platform === 'win32';
-    if (checkLinkBoundaries) failureStage = 'supplement-links';
-    const candidates = checkLinkBoundaries
+    if (checkedLinks) failureStage = 'supplement-links';
+    const candidates = checkedLinks
       ? separateGitDirectoryLinks(rootDir, files) : { ordinary: files, external: [] };
     const visible = filterGitPaths(rootDir, candidates.ordinary, ig, rootRules, diagnostics);
     if (candidates.external.length) {
       // Git global excludes are not present in ls-files output for descendants
       // of a POSIX directory link. Apply the same policy to those new paths.
-      const globalRules: string[] = [];
-      try {
-        const configured = runScanGit(['config', '--path', '--get', 'core.excludesFile'], {
-          cwd: rootDir, encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true,
-        }, diagnostics).trim();
-        if (configured) globalRules.push(readGitignorePatterns(path.resolve(rootDir, configured), true));
-      } catch (error) {
-        if ((error as { status?: number }).status !== 1) throw new ScanCoverageError(rootDir, error);
-        const defaultExclude = path.join(process.env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config'), 'git/ignore');
-        globalRules.push(readGitignorePatterns(defaultExclude, true));
-      }
-      const excludePath = runScanGit(['rev-parse', '--git-path', 'info/exclude'], {
-        cwd: rootDir, encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true,
-      }, diagnostics).trim();
-      const cgPatterns = readGitignorePatterns(path.join(rootDir, '.codegraphignore'));
-      const linkedIgnore = buildDefaultIgnore(rootDir, diagnostics, [
-        DEFAULT_IGNORE_PATTERNS.join('\n'), ...globalRules,
-        readGitignorePatterns(path.resolve(rootDir, excludePath)),
-        readGitignorePatterns(path.join(rootDir, '.gitignore')),
-        cgPatterns, expandAnchoredNegations(cgPatterns).join('\n'),
-      ]);
+      const linkedIgnore = gitWalkIgnore(rootDir, diagnostics);
       const mode = diagnostics?.mode;
       const linked = scanDirectoryWalk(rootDir, undefined, diagnostics, {
         roots: candidates.external, rejectSymlinks: false, rootIgnore: linkedIgnore, authorizedSymlinksOnly: true,
@@ -1268,6 +1290,7 @@ function scanDirectoryWalk(
   // dedups files so a file reachable via its real path and a symlink, or via
   // several symlinks, is emitted once under its canonical realpath-relative path).
   const seenCanonical = new Set<string>();
+  const realRoot = supplement?.authorizedSymlinksOnly ? fs.realpathSync(rootDir) : rootDir;
   const seenPhysical = new Set<string>();
   const physicalKey = (file: string): string => {
     const stat = fs.statSync(file, { bigint: true });
@@ -1371,7 +1394,7 @@ function scanDirectoryWalk(
       const fullPath = path.join(dir, entry.name);
       const relativePath = normalizePath(path.relative(rootDir, fullPath));
 
-      if (supplement) {
+      if (supplement?.roots.length) {
         const lower = supplement.authorizedSymlinksOnly ? relativePath : relativePath.toLowerCase();
         const inside = supplement.roots.some(root => lower === root || lower.startsWith(root + '/'));
         const toward = supplement.roots.some(root => root.startsWith(lower + '/'));
@@ -1385,6 +1408,8 @@ function scanDirectoryWalk(
           const realTarget = fs.realpathSync(fullPath);
           const stat = fs.statSync(realTarget);
           if (stat.isDirectory()) {
+            if (supplement?.authorizedSymlinksOnly && !supplement.roots.length &&
+                isWithinExistingDirectory(realTarget, realRoot, true)) continue;
             if (!isIgnored(fullPath, true, active)) {
               walk(fullPath, active);
             }

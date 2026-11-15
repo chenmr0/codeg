@@ -99,3 +99,42 @@ it.skipIf(process.platform === 'win32')('preserves Git explicit global exclude s
  git('config','core.excludesFile',alias);
  expect(scanDirectory(root)).toEqual(['local.c']);
 });
+
+it('keeps global excludes and directory authorization when an unrelated negation requests a walk', () => {
+  const excludes = path.join(base, 'global-ignore');
+  fs.writeFileSync(excludes, '*.private.c\n');
+  git('config', 'core.excludesFile', excludes);
+  fs.writeFileSync(path.join(root, '.codegraphignore'), '!unrelated.c\n');
+  fs.writeFileSync(path.join(shared, 'secret.private.c'), 'int hidden;');
+  const other = path.join(base, 'other');
+  fs.mkdirSync(other);
+  fs.writeFileSync(path.join(other, 'outside.c'), 'int outside;');
+  fs.symlinkSync(other, path.join(root, 'denied'), 'junction');
+  expect(scanDirectory(root).sort()).toEqual(['linked/remote.c', 'local.c']);
+});
+
+it.skipIf(process.platform !== 'win32')('keeps a tracked file after a case-only on-disk rename', async () => {
+  git('add', 'local.c');
+  const graph = CodeGraph.initSync(root);
+  try {
+    await graph.indexAll();
+    fs.renameSync(path.join(root, 'local.c'), path.join(root, 'temp.c'));
+    fs.renameSync(path.join(root, 'temp.c'), path.join(root, 'LOCAL.c'));
+    expect(scanDirectory(root).filter(file => file.toLowerCase() === 'local.c')).toHaveLength(1);
+    await graph.sync({ adaptive: false });
+    expect(graph.getNodesByName('local_fn')).toHaveLength(1);
+  } finally { graph.close(); await graph.whenIdle(); }
+});
+
+it('invalidates semantic configuration when a linked target changes', ctx => {
+  const target = path.join(shared, 'tsconfig-base.json');
+  fs.writeFileSync(target, '{}');
+  try { fs.symlinkSync(target, path.join(root, 'tsconfig.json'), 'file'); }
+  catch (error) {
+    if (process.platform === 'win32' && (error as NodeJS.ErrnoException).code === 'EPERM') return ctx.skip();
+    throw error;
+  }
+  const before = indexConfigFingerprints(root, []).semanticConfigFingerprint;
+  fs.writeFileSync(target, '{"compilerOptions":{"strict":true}}');
+  expect(indexConfigFingerprints(root, []).semanticConfigFingerprint).not.toBe(before);
+});

@@ -31,7 +31,8 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { isAllowedSourceTarget } from '../utils';
+import { asciiCaseKey } from '../path-identity';
+import { validatePathWithinRoot as validateSourcePath } from '../utils';
 
 // ============================================================
 // SECURITY UTILITIES
@@ -75,8 +76,8 @@ function isWithinDir(child: string, parent: string): boolean {
   let c = child;
   let p = parent;
   if (process.platform === 'win32') {
-    c = c.toLowerCase();
-    p = p.toLowerCase();
+    c = asciiCaseKey(c);
+    p = asciiCaseKey(p);
   }
   return c === p || c.startsWith(p + path.sep);
 }
@@ -131,36 +132,11 @@ export function validatePathWithinRoot(
   filePath: string,
   options?: { allowSymlinkEscape?: boolean }
 ): string | null {
-  // 1. Lexical containment — cheap, catches `../` traversal. Applies even on
-  //    the indexing read path: a crafted `../` escape is still rejected.
+  if (!options?.allowSymlinkEscape) return validateSourcePath(projectRoot, filePath);
   const resolved = lexicalPathWithinRoot(projectRoot, filePath);
-  if (resolved === null) {
-    return null;
-  }
-  const normalizedRoot = path.resolve(projectRoot);
-
-  // 2. Symlink-aware containment — resolve symlinks on both sides and re-check,
-  //    so an in-repo symlink whose real target escapes the root is rejected.
-  //    The indexing read path (allowSymlinkEscape) skips only this rejection so
-  //    it stays consistent with the directory walk, which already followed the
-  //    in-root symlink to enumerate these files (#935).
-  try {
-    const realRoot = fs.realpathSync(normalizedRoot);
-    const realResolved = fs.realpathSync(resolved);
-    if (options?.allowSymlinkEscape) {
-      return realResolved;
-    }
-    return isWithinDir(realResolved, realRoot) || isAllowedSourceTarget(realResolved) ? realResolved : null;
-  } catch (err) {
-    // ENOENT: the path doesn't exist yet (a file about to be written, or an
-    // index entry for a since-deleted file) — no symlink to follow, and the
-    // lexical check already passed, so allow the lexical path. Any other
-    // resolution failure (ELOOP, EACCES, …) is treated as unsafe → reject.
-    if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
-      return resolved;
-    }
-    return null;
-  }
+  if (resolved === null) return null;
+  try { return fs.realpathSync(resolved); }
+  catch (err) { return (err as NodeJS.ErrnoException).code === 'ENOENT' ? resolved : null; }
 }
 
 /**

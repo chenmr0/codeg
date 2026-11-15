@@ -221,8 +221,8 @@ export class AdaptiveSourceIneligibleError extends Error {}
 
 /** Recheck immediately before switching the active database. Source mutations
  * cannot be locked by the DB writer lease, so catch-up still handles later edits. */
-export async function assertRebuildSourceEligibility(root: string): Promise<void> {
-  for (const relative of await scanDirectoryAsync(root)) {
+export async function assertRebuildSourceEligibility(root: string, inventory?: readonly string[]): Promise<void> {
+  for (const relative of inventory ?? await scanDirectoryAsync(root)) {
     const absolute = path.resolve(root, relative);
     let stat: fs.Stats;
     try { stat = fs.lstatSync(absolute); }

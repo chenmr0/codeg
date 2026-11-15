@@ -3,6 +3,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { projectPathIdentity, sameProjectPath } from '../src/mcp/project-identity';
+import { validatePathWithinRoot as validateExplorePath } from '../src/upstream-explore/utils';
 import { validatePathWithinRoot } from '../src/utils';
 vi.mock('fs', async importOriginal => {
   const actual = await importOriginal<typeof import('fs')>();
@@ -31,6 +32,7 @@ it('rejects an authorized K tree escaping through a nested link to Kelvin', () =
   vi.stubEnv('CODEGRAPH_ALLOWED_SOURCE_ROOTS',k);
   Object.defineProperty(process,'platform',{value:'win32',configurable:true});
   expect(validatePathWithinRoot(project,'linked/escape/private.c')).toBeNull();
+  expect(validateExplorePath(project,'linked/escape/private.c')).toBeNull();
 });
 it('fails closed for missing project identities rather than folding their spelling', () => {
   Object.defineProperty(process,'platform',{value:'win32',configurable:true});
