@@ -13,7 +13,7 @@ it('accepts Windows rootUri and tool projectPath case variants but rejects anoth
   Object.defineProperty(process, 'platform', { value: 'win32', configurable: true });
   // Model the filesystem's identity result, not Unicode string folding.
   vi.spyOn(identity, 'sameExistingPath').mockImplementation((a,b) => path.resolve(a).replace(/[A-Z]/g,c=>c.toLowerCase()) === path.resolve(b).replace(/[A-Z]/g,c=>c.toLowerCase()));
-  vi.spyOn(binding, 'bindStrictProject').mockImplementation(root => ({ root, dev: 1n, ino: 1n }));
+  vi.spyOn(binding, 'bindStrictProject').mockImplementation(root => ({ root, rootId: '1:1', dataDir: path.join(root, '.codegraph-wx'), dataId: '1:2' }));
   vi.spyOn(binding, 'isStrictProjectBindingCurrent').mockReturnValue(true);
   vi.spyOn(directory, 'findNearestCodeGraphRoot').mockImplementation(root => root);
   const transport = { sendResult: vi.fn(), sendError: vi.fn(), stop: vi.fn() } as unknown as JsonRpcTransport;

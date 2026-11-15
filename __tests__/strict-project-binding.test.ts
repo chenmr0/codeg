@@ -1,19 +1,20 @@
-import { afterEach, expect, it, vi } from 'vitest';
-import * as fs from 'fs';
+import { expect, it, vi } from 'vitest';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { bindStrictProject, isStrictProjectBindingCurrent } from '../src/mcp/strict-project-binding';
-vi.mock('fs', () => ({ realpathSync: vi.fn(), statSync: vi.fn() }));
-afterEach(() => vi.resetAllMocks());
-it.each([0n, undefined])('fails closed when filesystem identity is unavailable (%s)', ino => {
-  vi.mocked(fs.realpathSync).mockReturnValue('/project');
-  vi.mocked(fs.statSync).mockReturnValue({ isDirectory: () => true, dev: 1n, ino } as any);
-  expect(bindStrictProject('/project')).toBeNull();
-});
-it('rejects replaced directories but accepts unchanged root identity', () => {
-  vi.mocked(fs.realpathSync).mockReturnValue('/project');
-  const stat = vi.mocked(fs.statSync).mockReturnValue({ isDirectory: () => true, dev: 1n, ino: 2n } as any);
-  const binding = bindStrictProject('/alias')!;
-  expect(binding.root).toBe('/project');
-  expect(isStrictProjectBindingCurrent(binding)).toBe(true);
-  stat.mockReturnValue({ isDirectory: () => true, dev: 1n, ino: 3n } as any);
-  expect(isStrictProjectBindingCurrent(binding)).toBe(false);
+
+it('pins the original root and data directory across sessions and index replacements', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cg-bound-index-'));
+  const data = path.join(root, '.codegraph-wx');
+  try {
+    fs.mkdirSync(data);
+    const binding = bindStrictProject(root)!;
+    expect(isStrictProjectBindingCurrent(binding)).toBe(true);
+    fs.renameSync(data, data + '-old');
+    fs.mkdirSync(data);
+    expect(isStrictProjectBindingCurrent(binding)).toBe(false);
+    const missingId = vi.spyOn(require('fs'), 'statSync').mockReturnValue({ ino: 0n, dev: 0n } as any);
+    try { expect(bindStrictProject(root)).toBeNull(); } finally { missingId.mockRestore(); }
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });

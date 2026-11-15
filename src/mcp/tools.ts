@@ -14,6 +14,7 @@ import type { IndexDataReadiness } from '../index';
 import { AsyncLocalStorage } from 'async_hooks';
 import { findNearestCodeGraphRoot, getCodeGraphDir, isInitialized } from '../directory';
 import { sameProjectPath } from './project-identity';
+import { existingPathIdentity } from '../path-identity';
 import { acquireCurrentGenerationLease } from '../sync/generation-store';
 // Lazy-load the heavy CodeGraph chain off the MCP startup path — see the same
 // helper in engine.ts. ToolHandler must load to answer tools/list (static
@@ -1466,9 +1467,11 @@ export class ToolHandler {
       // removed after validation. Reuse only an instance of the bound root.
       const pathError = validateProjectPath(boundRoot);
       if (pathError) throw new Error(pathError);
-      if (this.cg && sameProjectPath(this.cg.getProjectRoot(), boundRoot)) return this.cg;
+      const matchesBinding = (graph: CodeGraph) => sameProjectPath(graph.getProjectRoot(), boundRoot) &&
+        existingPathIdentity(graph.getDataDirectory()) === binding.dataId;
+      if (this.cg && matchesBinding(this.cg)) return this.cg;
       const cached = this.projectCache.get(boundRoot);
-      if (cached && sameProjectPath(cached.getProjectRoot(), boundRoot)) return cached;
+      if (cached && matchesBinding(cached)) return cached;
       if (!isInitialized(boundRoot)) throw new Error('Bound shared-service project is no longer initialized');
       const graph = loadCodeGraph().openSync(boundRoot);
       this.projectCache.set(boundRoot, graph);

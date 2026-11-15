@@ -8,6 +8,7 @@ import { decodeLockInfo, getDaemonPidPath, getDaemonSocketPath } from './daemon-
 import { isProcessAlive, type DaemonHello } from './daemon';
 import { readHelloLine } from './proxy';
 import { CodeGraphPackageVersion } from './version';
+import { bindStrictProject } from './strict-project-binding';
 import { sameProjectPath } from './project-identity';
 
 export interface ServiceStatus {
@@ -93,6 +94,7 @@ export async function startService(projectPath: string): Promise<ServiceStatus> 
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
   }
+  if (!bindStrictProject(root)) throw new Error('Cannot establish filesystem identity for the project and its index directory');
   spawnDetachedDaemon(root, true);
   for (let i = 0; i < 240; i++) {
     await new Promise(resolve => setTimeout(resolve, 25));

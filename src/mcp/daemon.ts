@@ -41,6 +41,7 @@
  */
 
 import * as fs from 'fs';
+import { bindStrictProject, isStrictProjectBindingCurrent, type StrictProjectBinding } from './strict-project-binding';
 import { randomUUID } from 'crypto';
 import { getCodeGraphDir } from '../directory';
 import * as net from 'net';
@@ -143,6 +144,7 @@ export class Daemon {
   private readonly instance = randomUUID();
   private pendingSockets = new Set<net.Socket>();
   private persistent: boolean;
+  private readonly strictBinding: StrictProjectBinding | null;
   private socketPath: string;
   private pidPath: string;
 
@@ -153,6 +155,7 @@ export class Daemon {
     this.socketPath = getDaemonSocketPath(projectRoot);
     this.pidPath = getDaemonPidPath(projectRoot);
     this.persistent = opts.persistent === true;
+    this.strictBinding = bindStrictProject(projectRoot);
     this.idleTimeoutMs = this.persistent ? 0 : (opts.idleTimeoutMs ?? resolveIdleTimeoutMs());
     this.maxIdleMs = this.persistent ? 0 : (opts.maxIdleMs ?? resolveMaxIdleMs());
     this.engine = new MCPEngine();
@@ -290,10 +293,15 @@ export class Daemon {
         void this.stop("service stop");
         return;
       }
+      if (peers.sharedRequired && (!this.strictBinding || !isStrictProjectBindingCurrent(this.strictBinding))) {
+        socket.destroy();
+        return;
+      }
       const transport = new SocketTransport(socket);
       const session = new MCPSession(transport, this.engine, {
         explicitProjectPath: this.projectRoot,
         restrictProject: peers.sharedRequired === true,
+        strictBinding: this.strictBinding,
       });
       transport.onClose(() => {
         // Abort any request-scoped raw-evidence subprocess before dropping the

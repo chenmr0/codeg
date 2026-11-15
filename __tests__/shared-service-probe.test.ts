@@ -8,6 +8,10 @@ const mocks = vi.hoisted(() => ({
   connect: vi.fn(),
 }));
 vi.mock('fs', () => ({ readFileSync: mocks.readFile }));
+vi.mock('../src/path-identity', () => ({
+  existingPathIdentity: (value: string) => path.resolve(value),
+  sameExistingPath: (a: string, b: string) => path.resolve(a) === path.resolve(b),
+}));
 vi.mock('net', () => ({ createConnection: mocks.connect }));
 vi.mock('../src/mcp/index', () => ({ resolveDaemonRoot: (root: string) => root, spawnDetachedDaemon: mocks.spawn }));
 vi.mock('../src/directory', () => ({ getCodeGraphDir: (root: string) => path.join(root, '.codegraph-wx') }));

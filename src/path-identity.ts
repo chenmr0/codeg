@@ -3,12 +3,14 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 /** Returns the volume/device and file identifier. Never caches mutable paths. */
+function requireIdentity(value: string): string {
+  const stat = fs.statSync(value, { bigint: true });
+  if (!(stat.ino > 0n && stat.dev >= 0n)) throw new Error('Filesystem identity unavailable: ' + value);
+  return stat.dev + ':' + stat.ino;
+}
+
 export function existingPathIdentity(value: string): string | null {
-  try {
-    const stat = fs.statSync(value, { bigint: true });
-    // Some filesystems cannot supply an identifier. Fail closed for equality.
-    return stat.ino === 0n ? null : `${stat.dev}:${stat.ino}`;
-  } catch { return null; }
+  try { return requireIdentity(value); } catch { return null; }
 }
 
 export function sameExistingPath(left: string, right: string): boolean {
@@ -17,12 +19,13 @@ export function sameExistingPath(left: string, right: string): boolean {
 }
 
 /** Call with resolved real paths. A lexical prefix is not an authorization. */
-export function isWithinExistingDirectory(target: string, root: string): boolean {
-  const rootId = existingPathIdentity(root);
+export function isWithinExistingDirectory(target: string, root: string, requireKnown = false): boolean {
+  const identity = requireKnown ? requireIdentity : existingPathIdentity;
+  const rootId = identity(root);
   if (rootId === null) return false;
   let current = path.resolve(target);
   for (;;) {
-    if (existingPathIdentity(current) === rootId) return true;
+    if (identity(current) === rootId) return true;
     const parent = path.dirname(current);
     if (parent === current) return false;
     current = parent;

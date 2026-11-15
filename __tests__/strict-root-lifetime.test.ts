@@ -8,7 +8,7 @@ import { MCPSession } from '../dist/mcp/session';
 import { MCPEngine } from '../dist/mcp/engine';
 let base: string | undefined, engine: MCPEngine | undefined;
 afterEach(async () => { if (engine) { await engine.stopAndDrain(); } if (base) fs.rmSync(base, { force: true, recursive: true }); });
-it.each(['unopened-index', 'opened-index', 'replaced-root'])('never discovers another project after %s', async mode => {
+it.each(['unopened-index', 'opened-index', 'replaced-root', 'redirected-index'])('never discovers another project after %s', async mode => {
   const opened = mode === 'opened-index';
   base = fs.mkdtempSync(path.join(os.tmpdir(), 'strict-root-life-'));
   const b = path.join(base, 'outer'), a = path.join(b, 'inner'); fs.mkdirSync(a, { recursive: true });
@@ -25,7 +25,14 @@ it.each(['unopened-index', 'opened-index', 'replaced-root'])('never discovers an
   if (mode === 'replaced-root') {
     fs.renameSync(a, path.join(base, 'saved-root'));
     fs.symlinkSync(b, a, process.platform === 'win32' ? 'junction' : 'dir');
-  } else fs.renameSync(path.join(a, '.codegraph-wx'), path.join(base, 'saved-index'));
+  } else {
+    try { fs.renameSync(path.join(a, '.codegraph-wx'), path.join(base, 'saved-index')); }
+    catch (error) {
+      // An open NTFS handle can prevent the move itself.
+      if (!opened || process.platform !== 'win32' || !['EBUSY', 'EPERM'].includes((error as NodeJS.ErrnoException).code ?? '')) throw error;
+    }
+    if (mode === 'redirected-index') fs.symlinkSync(path.join(b, '.codegraph-wx'), path.join(a, '.codegraph-wx'), 'junction');
+  }
   await (session as any).handleMessage({ id: 1, method: 'tools/call', params: { name: 'search', arguments: { query: 'betaPrivate' } } });
   const result = JSON.stringify(replies);
   expect(result).not.toContain('b.c');

@@ -78,6 +78,7 @@ export interface MCPSessionOptions {
    */
   explicitProjectPath?: string | null;
   restrictProject?: boolean;
+  strictBinding?: StrictProjectBinding | null;
 }
 
 /**
@@ -104,7 +105,8 @@ export class MCPSession {
   ) {
     this.explicitProjectPath = opts.explicitProjectPath ?? null;
     this.restrictProject = opts.restrictProject === true;
-    this.strictBinding = this.restrictProject && this.explicitProjectPath ? bindStrictProject(this.explicitProjectPath) : null;
+    this.strictBinding = !this.restrictProject ? null : opts.strictBinding !== undefined ? opts.strictBinding :
+      this.explicitProjectPath ? bindStrictProject(this.explicitProjectPath) : null;
   }
 
   /**

@@ -15,6 +15,7 @@ afterEach(async () => {
 });
 it.each([0, 4100])('strict proxy requires explicit acknowledgement after hello delay %dms', async delay => {
   root = fs.mkdtempSync(path.join(os.tmpdir(), 'cg-strict-ack-'));
+  fs.mkdirSync(path.join(root, '.codegraph-wx'));
   const daemon = new Daemon(root, { persistent: true, idleTimeoutMs: 0, maxIdleMs: 0 });
   server = net.createServer(s => { sockets.push(s); (daemon as any).handleConnection(s); });
   await new Promise<void>(resolve => server!.listen(0, '127.0.0.1', resolve));
