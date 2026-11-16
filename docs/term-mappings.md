@@ -52,6 +52,8 @@ codegraph explore --query-file .\需求.md --explain
 - 中心层信息日志（文档相似匹配，ALD/Design.md:5） → REDUCEBIN_ALD_INFO_LOG1、REDUCEBIN_ALD_INFO_LOG2
 ```
 
+手工规则命中多个同名索引记录时，说明会列出实际召回数、索引匹配总数及已召回记录的源码位置。例如 `sameName（同名候选 2/2：ald/core.c:3、ald/proxy.c:7）`。若四处同名而每个名字的候选上限为三处，会显示 `3/4` 和这三处的位置。
+
 术语命中后，如符号失效、文档模块内存在同名歧义，或本次候选名额已用完，该条可能显示“无候选”。候选仍需经过 Explore 排序，最终展示的符号见后面的源码结果。
 
 ### 预览单篇文档

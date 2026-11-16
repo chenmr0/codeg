@@ -1,9 +1,10 @@
-import { afterEach, beforeEach, expect, it } from 'vitest';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import CodeGraph from '../src';
+import { ReferenceResolver } from '../src/resolution';
 import { createUpstreamExploreGraph } from '../src/mcp/upstream-explore-adapter';
 import { loadTermMappings, type TermMappingRule } from '../src/term-mappings';
 import { designSeedIds } from '../src/design-recall';
@@ -346,4 +347,41 @@ it('reports only admitted symbols when manual and document rules share the candi
   expect(detail).toContain('（手工短语匹配） → ' + names.slice(0, 16).join('、') + '\n');
   expect(detail).toContain('ald/DESIGN.md:1） → ' + names.slice(16, 24).join('、') + '\n');
   expect(detail).toContain('ald/DESIGN.md:2） → 无候选\n');
+}, 90000);
+
+it.each([2, 4])('lists the admitted file and line for each same-named manual candidate (total=%i)', async total => {
+  for (let i = 1; i <= total; i++) {
+    write('ald/part' + i + '.c', '\n'.repeat(i) + 'static int sameName(void) { return ' + i + '; }\n');
+  }
+  graph = await CodeGraph.init(root, { index: true });
+  fs.writeFileSync(active(), JSON.stringify({ rules: [{ terms: ['设备状态查询'], symbols: ['sameName'] }] }));
+  const query = '设备状态查询';
+  const plain = command('explore', query).toString();
+  const explained = command('explore', query, '--explain').toString();
+  expect(explained.endsWith(plain)).toBe(true);
+  const detail = explained.slice(0, -plain.length);
+  const expected = total === 2 ? '2/2：ald/part1.c:2、ald/part2.c:3' : '3/4：ald/part1.c:2、ald/part2.c:3、ald/part3.c:4';
+  expect(detail).toContain('设备状态查询（手工短语匹配） → sameName（同名候选 ' + expected + '）\n');
+  expect(detail).not.toContain('ald/part4.c');
+}, 90000);
+
+it('preserves the previous mappings on incomplete source sync and regenerates after recovery', async () => {
+  write('ald/Design.md', doc);
+  graph = await CodeGraph.init(root, { index: true });
+  const manual = JSON.stringify({ rules: [{ terms: ['手工条目'], symbols: ['aldCorePidInit'] }] });
+  fs.writeFileSync(active(), manual);
+  fs.utimesSync(active(), 123456789, 123456789);
+  const stamp = fs.statSync(active()).mtimeMs;
+  fs.appendFileSync(path.join(root, 'ald/ald.c'), '\nint changedForSync(void) { return 7; }\n');
+  const fault = vi.spyOn(ReferenceResolver.prototype, 'synthesizeIncrementalCCpp')
+    .mockRejectedValueOnce(new Error('injected C/C++ synthesis failure'));
+  try {
+    await expect(graph.sync({ adaptive: false, regenerateTermMappings: true })).rejects.toThrow('require a complete sync');
+    expect(fault).toHaveBeenCalled();
+    expect(graph.getIndexCompleteness().status).toBe('incomplete');
+    expect(fs.readFileSync(active(), 'utf8')).toBe(manual);
+    expect(fs.statSync(active()).mtimeMs).toBe(stamp);
+  } finally { fault.mockRestore(); }
+  expect((await graph.sync({ adaptive: false, regenerateTermMappings: true })).complete).toBe(true);
+  expect(rules()).toContainEqual(expect.objectContaining({ terms: [descriptions[0]], symbols: [macros[0]] }));
 }, 90000);

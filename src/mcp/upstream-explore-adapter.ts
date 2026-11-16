@@ -188,12 +188,11 @@ export function createUpstreamExploreGraph(cg: CodeGraph, explanation?: ExploreE
         }
         if (explanation && manualMatches) {
           for (const { terms, symbols } of manualMatches) {
-            const ids = symbols.flatMap(symbol => perName.get(symbol)?.candidates.map(node => node.id) ?? []);
-            explanation.recordMatch(terms, ids.filter(id => seen.has(id)));
+            explanation.recordManualMatch(terms, symbols, perName, seen);
           }
         }
         const designIds = designSeedIds(db, query, config, explanation
-          ? (rule, terms, ids) => explanation.recordMatch(terms, ids, rule.design) : undefined);
+          ? (rule, terms, ids) => explanation.recordDesignMatch(terms, ids, rule.design!) : undefined);
         for (const id of designIds) {
           if (mappedSeedNodes.length >= 24) break;
           if (seen.has(id)) continue;
