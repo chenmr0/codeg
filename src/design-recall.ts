@@ -1,5 +1,5 @@
 import type { SqliteDatabase } from './db/sqlite-adapter';
-import type { TermMappings, TermMappingRule } from './term-mappings';
+import { designModulePrefix, type TermMappings, type TermMappingRule } from './term-mappings';
 
 export const MAX_DESIGN_SEEDS = 24;
 
@@ -22,7 +22,6 @@ function counts(text: string): Map<string, number> {
 function compile(entries: TermMappingRule[]) {
   const vectors = entries.map(entry => {
     const terms = counts(entry.terms.join(' '));
-    for (const [term, n] of counts(entry.design?.heading ?? '')) terms.set(term, (terms.get(term) ?? 0) + 0.25 * n);
     return { terms, rule: entry, norm: 0 };
   });
   const idf = new Map<string, number>();
@@ -70,12 +69,13 @@ export function designSeedIds(db: SqliteDatabase, query: string, config: TermMap
   }
   ranked.sort((a, b) => b.score - a.score);
   if (!ranked.length) return [];
-  const definition = db.prepare("SELECT id FROM nodes WHERE file_path=? AND (name=? OR qualified_name=?) AND kind NOT IN ('file','import') LIMIT 2");
+  const definition = db.prepare("SELECT id FROM nodes WHERE substr(file_path,1,length(?))=? AND (name=? OR qualified_name=?) AND kind NOT IN ('file','import') LIMIT 2");
   const ids = new Set<string>();
   for (const row of ranked) {
     if (row.score < ranked[0]!.score * 0.9) break;
+    const prefix = designModulePrefix(row.rule.design!.document);
     for (const symbol of row.rule.symbols) {
-      const matches = definition.all(row.rule.design!.file, symbol, symbol);
+      const matches = definition.all(prefix, prefix, symbol, symbol);
       if (matches.length !== 1) continue;
       ids.add(matches[0].id);
       if (ids.size === MAX_DESIGN_SEEDS) return [...ids];

@@ -67,7 +67,7 @@ import { Command } from 'commander';
 import * as path from 'path';
 import * as fs from 'fs';
 import { getCodeGraphDir, isInitialized } from '../directory';
-import { designDraftPath } from '../term-mappings';
+import { TERM_MAPPINGS_FILE } from '../term-mappings';
 import { canonicalFilePath } from '../utils';
 import { removeOfflineLock } from '../cli/offline-unlock';
 import { detectWorktreeIndexMismatch, worktreeMismatchWarning } from '../sync/worktree';
@@ -663,8 +663,7 @@ program
         throw error;
       } finally { await progress?.stop(); }
       clack.log.success(`Initialized in ${projectPath}`);
-      const draft = designDraftPath(cg.getDataDirectory());
-      if (fs.existsSync(draft)) clack.log.info('Design mappings for review: ' + draft);
+      if (result?.complete) clack.log.info('Term mappings: ' + path.join(cg.getDataDirectory(), TERM_MAPPINGS_FILE));
       if (result) printIndexResult(clack, result, projectPath);
 
       try {
@@ -815,7 +814,8 @@ program
   .description('Sync changes since last index')
   .option('-q, --quiet', 'Suppress output (for git hooks)')
   .option('-v, --verbose', 'Show detailed sync phase and worker timing')
-  .action(async (pathArg: string | undefined, options: { quiet?: boolean; verbose?: boolean }) => {
+  .option('--regenerate-term-mappings', 'Replace term-mappings.json from module design documents after syncing')
+  .action(async (pathArg: string | undefined, options: { quiet?: boolean; verbose?: boolean; regenerateTermMappings?: boolean }) => {
     const projectPath = resolveProjectPath(pathArg);
     const commandStarted = performance.now();
 
@@ -835,7 +835,7 @@ program
       const databaseOpenMs = performance.now() - databaseOpenStarted;
 
       if (options.quiet) {
-        await cg.sync();
+        await cg.sync({ regenerateTermMappings: options.regenerateTermMappings });
         cg.destroy();
         return;
       }
@@ -848,6 +848,7 @@ program
 
       const syncPipelineStarted = performance.now();
       const result = await cg.sync({
+        regenerateTermMappings: options.regenerateTermMappings,
         displayOnlyProgress: true,
         onScanFallback: message => console.log(message),
         onProgress: progress.onProgress,
@@ -886,8 +887,7 @@ program
         clack.log.info(`${details.join(', ')} ${getGlyphs().dash} ${formatNumber(result.nodesUpdated)} nodes in ${formatDuration(Math.round(syncPipelineMs))}`);
       }
 
-      const draft = designDraftPath(cg.getDataDirectory());
-      if (fs.existsSync(draft)) clack.log.info('Design mappings for review: ' + draft);
+      if (options.regenerateTermMappings) clack.log.info('Regenerated ' + path.join(cg.getDataDirectory(), TERM_MAPPINGS_FILE));
       if (result.complete === false) {
         for (const diagnostic of result.errors ?? []) clack.log.warn(diagnostic.message);
         for (const hint of getIncompleteIndexHints(result.errors ?? [])) clack.log.info(hint);
@@ -972,7 +972,7 @@ mappings.command('preview <document>')
         const { sameExistingPath } = await import('../path-identity');
         if (path.basename(destination).toLowerCase() === 'term-mappings.json' &&
             sameExistingPath(path.dirname(destination), cg.getDataDirectory())) {
-          throw new Error('Export to a review file first; this path is the active mappings configuration.');
+          throw new Error('Use sync --regenerate-term-mappings to replace the active mappings file.');
         }
         const rules = designRules(report.mappings);
         fs.writeFileSync(destination, serializeDesignRules(rules), { flag: 'wx' });

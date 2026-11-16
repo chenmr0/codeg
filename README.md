@@ -410,4 +410,4 @@ CodeGraph-CPP 基于开源 CodeGraph 演进，沿用 MIT License。
 
 ### 项目术语映射（Explore）
 
-维护者可通过 `.codegraph-wx/term-mappings.json` 为业务同义词配置同一组符号，补充原有 Explore 召回。使用 `codegraph mappings check` 只读检查符号，普通查询无需感知维护告警。[配置与验证说明](docs/term-mappings.md)。
+首次 `codegraph init` 会从各模块的 `Design.md`（含 `DESIGN.md`）提取能在代码索引中核实的符号，写入 `.codegraph-wx/term-mappings.json`。Explore 可以借此把中文需求关联到代码。普通 `codegraph sync` 保留手工编辑；运行 `codegraph sync --regenerate-term-mappings` 会按当前文档覆盖整份文件。用 `codegraph mappings check` 可以核对映射中的符号。[配置与使用示例](docs/term-mappings.md)

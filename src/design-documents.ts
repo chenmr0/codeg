@@ -1,14 +1,14 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { getDefaults, Lexer, type Token } from 'marked';
+import type CodeGraph from './index';
 import type { SqliteDatabase } from './db/sqlite-adapter';
-import { DESIGN_DOCUMENT_NAMES, scanDesignDocuments } from './extraction';
+import { scanDesignDocuments } from './extraction';
 import { isWithinExistingDirectory, sameExistingPath } from './path-identity';
 import { validatePathWithinRoot } from './utils';
-import { logWarn } from './errors';
 import { randomUUID } from 'node:crypto';
 import { MAX_DESIGN_SEEDS } from './design-recall';
-import { designDraftPath, type TermMappingRule } from './term-mappings';
+import { MAX_MAPPING_BYTES, parseTermMappings, TERM_MAPPINGS_FILE, type TermMappingRule } from './term-mappings';
 
 interface Definition { name: string; qualifiedName: string; kind: string; file: string; line: number }
 interface DesignEntry {
@@ -124,6 +124,14 @@ function extract(document: string, content: string, db: SqliteDatabase, module =
       rows = exact.all(symbol, symbol, ...params);
       if (rows.length !== 1) return;
     }
+    // The saved rule can identify a symbol only by its module and name.
+    // A header hint narrows extraction but cannot disambiguate later lookups.
+    if (file || wildcard) {
+      rows = rows.filter(row => {
+        const name = row.qualifiedName || row.name;
+        return exact.all(name, name, prefix, prefix, '', '', '', '').length === 1;
+      });
+    }
     if (!rows.length) return;
     entries.push({ document, documentLine, heading: [heading, label].filter(Boolean).join(' '), description: item.text,
       evidence: evidence.trim(), reference: symbol, definitions: rows });
@@ -187,7 +195,8 @@ function readDocument(root: string, file: string): string | undefined {
   const fd = fs.openSync(target, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW ?? 0) | (fs.constants.O_NONBLOCK ?? 0));
   try {
     const st = fs.fstatSync(fd);
-    if (!st.isFile() || st.size > MAX_DOC_BYTES) return;
+    if (!st.isFile()) return;
+    if (st.size > MAX_DOC_BYTES) throw new Error('Design document exceeds 1 MiB: ' + file);
     const bytes = Buffer.alloc(st.size + 1);
     let count = 0;
     while (count < bytes.length) {
@@ -196,7 +205,8 @@ function readDocument(root: string, file: string): string | undefined {
       count += read;
     }
     if (count !== st.size) throw new Error('Document changed during indexing: ' + file);
-    return bytes.toString('utf8', 0, count);
+    try { return new TextDecoder('utf-8', { fatal: true }).decode(bytes.subarray(0, count)); }
+    catch { throw new Error('Expected a UTF-8 design document: ' + file); }
   } finally { fs.closeSync(fd); }
 }
 
@@ -222,77 +232,49 @@ export function previewDesignDocument(input: string, project: string, selected: 
 }
 
 export function designRules(entries: DesignEntry[]): TermMappingRule[] {
-  return entries.map(entry => {
-    const locations = new Map<string, number>();
-    for (const node of entry.definitions) {
-      const symbol = node.qualifiedName || node.name;
-      if (!locations.has(symbol)) locations.set(symbol, node.line);
-    }
-    return {
-      terms: [entry.description.replace(/^[\s:：—–-]+/, '').replace(/\s+/g, ' ').trim()],
-      symbols: [...locations.keys()],
-      design: { document: entry.document, documentLine: entry.documentLine,
-        file: entry.definitions[0]!.file, line: [...locations.values()].join(', ') },
-    };
-  });
+  return entries.map(entry => ({
+    terms: [entry.description.replace(/^[\s:：—–-]+/, '').replace(/\s+/g, ' ').trim()],
+    symbols: [...new Set(entry.definitions.map(node => node.qualifiedName || node.name))],
+    design: { document: entry.document, documentLine: entry.documentLine },
+  }));
 }
 
 export function serializeDesignRules(rules: TermMappingRule[]): string {
   return JSON.stringify({ rules }, null, 2) + '\n';
 }
 
-/** Only ancestors of indexed source files can contain module-local definitions.
- * Avoid running an additional inventory in projects without module documents. */
-export function buildDesignDraft(root: string, db: SqliteDatabase, sources: readonly {path: string}[]): string | null | undefined {
-  try {
-    const dirs = new Set<string>();
-    let found = false;
-    for (const file of sources) {
-      let dir = path.posix.dirname(file.path);
-      while (!dirs.has(dir)) {
-        dirs.add(dir);
-        if (DESIGN_DOCUMENT_NAMES.some(name => fs.lstatSync(path.join(root, dir, name), { throwIfNoEntry: false })?.isFile())) { found = true; break; }
-        if (dir === '.') break;
-        dir = path.posix.dirname(dir);
-      }
-      if (found) break;
-    }
-    if (!found) return null;
-    const rules: TermMappingRule[] = [];
-    for (const document of scanDesignDocuments(root)) {
-      const content = readDocument(root, document);
-      if (content) rules.push(...designRules(extract(document, content, db)));
-    }
-    return serializeDesignRules(rules);
-  } catch (error) {
-    logWarn('Could not extract the Design.md review draft', { error: String(error) });
-    return undefined;
+/** Build against a single published or private candidate index. No writes until
+ * the whole document inventory and the loadable configuration have been verified. */
+export function buildTermMappings(root: string, db: SqliteDatabase): string {
+  const rules: TermMappingRule[] = [];
+  for (const document of scanDesignDocuments(root)) {
+    const content = readDocument(root, document);
+    if (content) rules.push(...designRules(extract(document, content, db)));
   }
+  const json = serializeDesignRules(rules);
+  if (Buffer.byteLength(json) > MAX_MAPPING_BYTES) throw new Error('Generated term mappings exceed 256 KiB');
+  const { errors } = parseTermMappings(json);
+  if (errors.length) throw new Error('Invalid generated term mappings: ' + errors.join('; '));
+  return json;
 }
 
-/** Publish only a completely scanned draft. A missing corpus clears an existing
- * draft; failed scans and unpublished candidates leave the last draft intact. */
-export function publishDesignDraft(dataDir: string, content: string | null | undefined): void {
-  if (content === undefined) return;
+export function writeTermMappings(dataDir: string, content: string): void {
+  const file = path.join(dataDir, TERM_MAPPINGS_FILE);
+  const previous = fs.lstatSync(file, { throwIfNoEntry: false });
+  if (previous && !previous.isFile()) throw new Error('Expected a regular term mappings file: ' + file);
+  const temporary = path.join(dataDir, randomUUID() + '.tmp');
   try {
-    const file = designDraftPath(dataDir);
-    const directory = path.dirname(file);
-    const directoryStat = fs.lstatSync(directory, { throwIfNoEntry: false });
-    if (content === null && !directoryStat) return;
-    if (directoryStat && !directoryStat.isDirectory()) throw new Error('Expected a regular review directory: ' + directory);
-    const previous = fs.lstatSync(file, { throwIfNoEntry: false });
-    if (previous && !previous.isFile()) throw new Error('Expected a regular draft file: ' + file);
+    fs.writeFileSync(temporary, content, { flag: 'wx' });
+    fs.renameSync(temporary, file);
+  } finally { fs.rmSync(temporary, { force: true }); }
+}
 
-    if (content === null && !previous) return;
-    const draft = content ?? serializeDesignRules([]);
-    if (previous?.size === Buffer.byteLength(draft) && fs.readFileSync(file, 'utf8') === draft) return;
-    fs.mkdirSync(directory, { recursive: true });
-    const temporary = path.join(directory, randomUUID() + '.tmp');
-    try {
-      fs.writeFileSync(temporary, draft, { flag: 'wx' });
-      fs.renameSync(temporary, file);
-    } finally { fs.rmSync(temporary, { force: true }); }
-  } catch (error) {
-    logWarn('Could not refresh the Design.md review draft', { error: String(error) });
+/** Caller holds the writer fence and has pinned the current graph through the rename. */
+export function regenerateTermMappings(graph: CodeGraph): void {
+  const coverage = graph.getIndexCompleteness();
+  if (coverage.status !== 'complete' || coverage.legacyUnverified || coverage.diagnostics.length || graph.getPortableCatchup()) {
+    throw new Error('Term mappings require a complete, reconciled index');
   }
+  const content = buildTermMappings(graph.getProjectRoot(), graph.getExploreQueryConnection());
+  writeTermMappings(graph.getDataDirectory(), content);
 }

@@ -1,51 +1,54 @@
 # 项目术语映射
 
-Explore 可以在原有词法检索、自动词段召回之外，加入维护者配置的业务术语候选。
-手工规则按短语匹配；来自设计文档并经维护者确认的规则还支持本地双字 TF-IDF 召回。
+## 从模块 Design.md 生成映射
 
-## 从模块 Design.md 生成待审阅的术语映射
+在项目根目录运行 `codegraph init`。源码索引完整建立后，CodeGraph 扫描各级模块目录中名为 `Design.md` 的文档。文件名忽略大小写，包括 `DESIGN.md` 和 `design.md`；Git 忽略的未跟踪文档会跳过。默认生成 `.codegraph-wx/term-mappings.json`，Explore 随即可以使用。扫描完成但没有符合条件的文档或条目时，文件内容为 `{"rules":[]}`。
 
-在模块根目录放置 UTF-8 的 `Design.md`、`design.md` 或 `DESIGN.md`，代码可以在该目录或其子目录。运行 `codegraph init` 时，CodeGraph 解析 Markdown 的列表项、段落和表格行，用行内代码（或加粗的大写标识符）查找当前模块的真实定义。例如：
+例如，`ALD/Design.md` 的第 5 行写有：
 
 ```markdown
-### 日志记录机制与接口
-
-日志宏定义在 `ald_logcode.h` 中：
-
 - `REDUCEBIN_ALD_INFO_LOG*`：中心层信息日志
-- `REDUCEBIN_ALDPXY_INFO_LOG*`：适配层信息日志
 ```
 
-已有索引的项目升级后运行 `codegraph sync`，即可发现已有的模块文档。首次 `init` 或后续 `sync` 完成后，打开活动数据目录下的 `review/term-mappings.json` 查看候选。在默认目录布局下，审阅和启用步骤如下：
+如果模块索引里有两个符合该前缀的宏，生成的条目如下：
+
+```json
+{
+  "rules": [{
+    "terms": ["中心层信息日志"],
+    "symbols": ["REDUCEBIN_ALD_INFO_LOG1", "REDUCEBIN_ALD_INFO_LOG2"],
+    "design": { "document": "ALD/Design.md", "documentLine": 5 }
+  }]
+}
+```
+
+`design.document` 是相对项目根的文档路径，`documentLine` 是对应 Markdown 条目的起始行，从 1 开始。提取器接受带明确代码标识符的列表、段落、加粗标签和表格。末尾的 `*` 只展开索引中已有的宏；文档给出的头文件名可以限定展开范围。仅提及业务概念、同段混有多个标识符或在模块内无法唯一定位的符号会跳过。
+
+### 已初始化的项目和日常同步
 
 ```powershell
-Get-Content -Raw -Encoding utf8 .\.codegraph-wx\review\term-mappings.json
-# 首次启用且尚无人工配置；已有配置时只合并确认过的 rules 条目。
-if (!(Test-Path .\.codegraph-wx\term-mappings.json)) {
-  Copy-Item .\.codegraph-wx\review\term-mappings.json .\.codegraph-wx\term-mappings.json
-}
+codegraph sync                            # 更新源码索引，保留映射文件和手工编辑
+codegraph sync --regenerate-term-mappings # 同步源码，再用当前文档覆盖整份映射文件
 codegraph explore "增加一条中心层信息日志"
 ```
 
-每条规则的 `terms` 是中文说明，`symbols` 列出真实符号名。`design.document` 和 `design.documentLine` 指向设计文档及对应条目的起始行（从 1 开始）。列表指向具体列表项，表格指向数据行。项目内路径相对项目根，显式预览的项目外草稿保留绝对路径。`design.file` 指向源码定义文件，`design.line` 是导出时从 1 开始的源码行号。单个符号写作 `"3"`，多个符号按 `symbols` 的顺序写作 `"3, 7"`。每个符号记录首个匹配的定义行；查看所有定义和文档原文可运行 `mappings preview`。文件增删行后，已确认规则继续按文件和符号名查找，下一次 `sync` 会刷新草稿行号。末尾的 `*` 只展开索引中的宏定义。列表前明确给出的源码文件名会进一步限定定义范围。支持“中文标签 + 行内代码”“行内代码：说明”、带显式标识符的加粗标题，以及有符号列和说明列的表格。标题紧随的定义列表可以补充检索词。仅同段出现、多个符号混杂、无法唯一定位的名称和只有英文概念名的描述会跳过。每条说明独立参与匹配。旧配置仍可使用；其中已有的标题仍提供低权重上下文。
+已有索引的项目可以直接运行第二条命令，即使只改了文档或映射文件尚不存在也可用。重生成会覆盖手工添加或修改的规则。生成前需要完整的源码索引；文档读取、解析或输出校验报错时保留原文件。单篇文档上限为 1 MiB。普通同步不解析设计文档，增删源码、变更文档或触发源码索引重建都不会改写映射文件。
 
-Explore 用相邻中文双字片段的 TF-IDF 余弦相似度比较需求和条目，并保留英文标识词（如 PID）。至少两个词命中且相似度达到 0.4 的条目才参与召回，再从最相关的一组条目补充候选。仅出现“日志”或完全无匹配时，沿用原有检索。此方法在本地运行，未共享词片段的同义改写仍可能漏召回。
-
-文档映射只生成 JSON 草稿。增删改文档或源码符号后运行 `codegraph sync` 会更新草稿，已确认的配置由维护者管理。新宏需要再次审阅才会参与文档召回；已失效的符号会在查询时跳过。旧版本存在 SQLite 中的自动映射不参与召回。文档不计入源码增改删统计。单篇文档上限为 1 MiB。手工维护的 `term-mappings.json` 继续优先占用映射候选预算。
+文档规则使用中文相邻双字片段及英文词做本地 TF-IDF 匹配。比如查询“日志打印模块是怎样的”和条目“日志打印模块初始化”共享“日志”“志打”“打印”“印模”“模块”。至少两个词片段命中、余弦相似度达到 0.4 且接近最高分时，Explore 会将该条目对应的符号加入候选。命中后按当前索引在文档所在目录及子目录中查找符号；已删除或有同名歧义的符号会跳过。没有命中文档规则时，Explore 继续走原有检索。手工编写的纯 `terms`、`symbols` 规则使用下文的完整短语匹配。
 
 ### 预览单篇文档
 
 ```powershell
 codegraph mappings preview .\ALD\Design.md --path .
+codegraph mappings preview .\ALD\Design.md --output .\ald-mappings.json
 codegraph mappings preview D:\草稿\设计说明.md --path .\ALD --json
-codegraph mappings preview D:\草稿\设计说明.md --path .\ALD --output .\term-mappings.json
 ```
 
-该命令读取指定文档的当前内容，用已有代码索引核验映射，列出每条被接受的原文、引用名、实际符号、定义文件和行号。可以预览任意文件名的 Markdown 草稿。文档路径相对当前工作目录；指定项目根时，项目内文档默认取其所在目录作为模块，项目外草稿默认查整个项目。`--path` 显式指定模块子目录时只查该模块。`--output` 导出可审阅的词典格式，目标文件必须是新文件。`--json` 在终端输出带行号的预览报告。两种操作都不写入数据库。默认同步会重新生成 review 目录下的草稿，编辑筛选时可先复制到其他位置。
+预览读取指定文档的当前内容并与已有代码索引核对，可查看接受的引用、文档原文、实际符号及源码位置。`--output` 将精简映射导出到新文件，`--json` 在终端输出详细报告。项目外的草稿可用 `--path` 指定核对的模块。要让文档规则参与项目召回，请把文档放到对应模块中，以便生成可定位该模块的项目相对路径。
 
 ## 配置
 
-在项目的 `.codegraph-wx/term-mappings.json` 中写入：
+可在项目的 `.codegraph-wx/term-mappings.json` 中手工添加短语规则，例如：
 
 ```json
 {
@@ -100,7 +103,7 @@ codegraph mappings check --check-source
 ## 生命周期
 
 正常 init、sync、重建不会把词典纳入提取语义指纹，修改词典不触发全量重建。
-原生离线 uninit 的目录清理会保留 `term-mappings.json`（包括坏配置），删除索引数据后目录可能仍存在；重新初始化时可继续使用。启用旧目录兼容时，若仅旧目录保留了配置，重新初始化会沿用旧目录。两个目录都只有配置时优先使用 `.codegraph-wx`，两份配置各自保留。现有 portable storage 的活跃进程删除保护不变，仍须先停止相关进程。
+原生离线 uninit 会保留 `term-mappings.json`。重新运行带索引的 init 会根据当时的文档生成新配置；希望保留手工规则时，请先备份。启用旧目录兼容时，若仅旧目录保留了配置，重新初始化会沿用旧目录。两个目录都只有配置时优先使用 `.codegraph-wx`，两份配置各自保留。现有 portable storage 的活跃进程删除保护不变，仍须先停止相关进程。
 不要手工删除整个数据目录来清索引，否则词典仍会丢失。团队共用的词典应另行纳入备份或版本管理。
 
 ## 本轮验证范围

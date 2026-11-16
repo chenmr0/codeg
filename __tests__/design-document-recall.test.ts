@@ -32,9 +32,7 @@ function command(...args: string[]) {
   });
 }
 const active = () => path.join(graph!.getDataDirectory(), 'term-mappings.json');
-const draft = () => path.join(graph!.getDataDirectory(), 'review', 'term-mappings.json');
-const rules = (): TermMappingRule[] => JSON.parse(fs.readFileSync(draft(), 'utf8')).rules;
-function approve() { fs.copyFileSync(draft(), active()); }
+const rules = (): TermMappingRule[] => JSON.parse(fs.readFileSync(active(), 'utf8')).rules;
 function seeds(query: string) {
   const db = graph!.getExploreQueryConnection();
   return designSeedIds(db, query, loadTermMappings(graph!.getDataDirectory())).map(id => db.prepare('SELECT name,file_path FROM nodes WHERE id=?').get(id));
@@ -58,19 +56,11 @@ it('indexes module documentation through the built CLI and recalls the documente
   write('.gitignore', 'other/Design.md\n');
   command('init', root);
   graph = CodeGraph.openSync(root);
-  expect(fs.existsSync(active())).toBe(false);
-  expect(seeds('中心层信息日志')).toEqual([]);
+  expect(fs.existsSync(path.join(graph.getDataDirectory(), 'review'))).toBe(false);
   const db = graph.getExploreQueryConnection();
   expect(db.prepare('SELECT value FROM project_metadata WHERE key=?').get('explore:design-documents-v1')).toBeUndefined();
-  expect(rules()).toContainEqual(expect.objectContaining({ terms: ['中心层信息日志'], symbols: [macros[0]],
-    design: expect.objectContaining({ file: 'ald/include/ald_logcode.h' }) }));
-  expect([...((await createUpstreamExploreGraph(graph).findRelevantContext('增加一条中心层信息日志')).nodes.values())]
-    .map(n => n.name)).not.toContain(macros[0]);
-  const reviewed = rules().filter(rule => rule.terms.includes('中心层信息日志'));
-  fs.writeFileSync(active(), JSON.stringify({ rules: reviewed }));
-  expect(seeds('中心层信息日志')).toHaveLength(1);
-  expect(seeds('适配层错误日志')).toEqual([]);
-  approve();
+  expect(rules()).toContainEqual({ terms: ['中心层信息日志'], symbols: [macros[0]],
+    design: { document: 'ald/Design.md', documentLine: 5 } });
   expect(command('explore', '增加一条中心层信息日志').toString()).toContain('REDUCEBIN_ALD_INFO_LOG1');
   expect(seeds('不相关词语')).toEqual([]);
   for (let i = 0; i < descriptions.length; i++) {
@@ -88,32 +78,27 @@ it('indexes module documentation through the built CLI and recalls the documente
   expect(graph.getFiles().some(f => f.path.endsWith('.md'))).toBe(false);
 }, 90000);
 
-it('exports one-based definition lines in symbol order and resolves approved rules after lines move', async () => {
+it('resolves symbols across source moves within a module and skips ambiguous bindings', async () => {
   const header = 'ald/include/ald_logcode.h';
-  const source = ['', '', '#define REDUCEBIN_ALD_INFO_LOG2(msg) log(msg)', '', '', '',
-    '#define REDUCEBIN_ALD_INFO_LOG1(msg) log(msg)', ''].join('\n');
+  const source = '#define REDUCEBIN_ALD_INFO_LOG1(msg) msg\n#define REDUCEBIN_ALD_INFO_LOG2(msg) msg\n';
   write(header, source);
   write('ald/Design.md', doc);
+  write('ald-other/ald_logcode.h', source);
   graph = await CodeGraph.init(root, { index: true });
-  const infoRule = () => rules().find(rule => rule.terms.includes('中心层信息日志'))!;
-  const rule = infoRule();
-  expect(rule).toEqual({
-    terms: ['中心层信息日志'], symbols: ['REDUCEBIN_ALD_INFO_LOG2', 'REDUCEBIN_ALD_INFO_LOG1'],
-    design: { document: 'ald/Design.md', documentLine: 5, file: header, line: '3, 7' },
-  });
-  approve();
-  write(header, '// inserted line\n' + source);
+  const symbols = ['REDUCEBIN_ALD_INFO_LOG1', 'REDUCEBIN_ALD_INFO_LOG2'];
+  expect(rules()).toContainEqual({ terms: ['中心层信息日志'], symbols,
+    design: { document: 'ald/Design.md', documentLine: 5 } });
+  write('ald/include/moved.h', source);
+  fs.unlinkSync(path.join(root, header));
   await graph.sync({ adaptive: false });
-  expect(infoRule().design?.line).toBe('4, 8');
-  expect(loadTermMappings(graph.getDataDirectory()).rules[0]?.design?.line).toBe('3, 7');
-  expect(seeds('中心层信息日志').map(node => node.name)).toEqual(rule.symbols);
+  expect(seeds('中心层信息日志')).toEqual(symbols.map(name => ({ name, file_path: 'ald/include/moved.h' })));
 
-  // An existing approved file from the previous format needs no migration.
-  fs.writeFileSync(active(), JSON.stringify({ rules: [{ ...rule, design: {
-    file: header, document: 'ald/Design.md', heading: '日志记录机制与接口',
-    reference: 'REDUCEBIN_ALD_INFO_LOG*', evidence: '中心层信息日志',
-  } }] }));
-  expect(seeds('中心层信息日志').map(node => node.name)).toEqual(rule.symbols);
+  write(header, '#define REDUCEBIN_ALD_INFO_LOG1(msg) msg\n#define REDUCEBIN_ALD_INFO_LOG3(msg) msg\n');
+  await graph.sync({ adaptive: false });
+  expect(seeds('中心层信息日志').map(row => row.name)).toEqual([symbols[1]]);
+  await graph.sync({ regenerateTermMappings: true });
+  expect(rules()).toContainEqual({ terms: ['中心层信息日志'], symbols: ['REDUCEBIN_ALD_INFO_LOG3'],
+    design: { document: 'ald/Design.md', documentLine: 5 } });
 });
 
 it.each([false, true])('discovers uppercase DESIGN.md on sync of an existing project (git=%s)', async useGit => {
@@ -125,54 +110,99 @@ it.each([false, true])('discovers uppercase DESIGN.md on sync of an existing pro
   write('beqm/DESIGN.md', '- 设备初始化`deviceInit()`');
   command('sync', root);
   graph = CodeGraph.openSync(root);
+  expect(rules()).toEqual([]);
+  command('sync', root, '--regenerate-term-mappings');
   expect(rules()).toContainEqual({
-    terms: ['中心层信息日志'], symbols: [macros[0]], design: { document: 'ald/DESIGN.md', documentLine: 5, file: 'ald/include/ald_logcode.h', line: '1' },
+    terms: ['中心层信息日志'], symbols: [macros[0]], design: { document: 'ald/DESIGN.md', documentLine: 5 },
   });
   expect(rules()).toContainEqual({
-    terms: ['设备初始化'], symbols: ['deviceInit'], design: { document: 'beqm/DESIGN.md', documentLine: 1, file: 'beqm/src/device.c', line: '1' },
+    terms: ['设备初始化'], symbols: ['deviceInit'], design: { document: 'beqm/DESIGN.md', documentLine: 1 },
   });
-  expect(fs.existsSync(active())).toBe(false);
 }, 90000);
 
-it('updates on document-only sync, symbol changes, and deletion while preserving ordinary Explore', async () => {
+it('preserves manual edits during sync and replaces them only on explicit regeneration', async () => {
   graph = await CodeGraph.init(root, { index: true });
   const ordinary = async () => [...(await createUpstreamExploreGraph(graph!).findRelevantContext('aldCorePidInit')).nodes.keys()];
   const baseline = await ordinary();
   expect(baseline.length).toBeGreaterThan(0);
-  expect(seeds('中心层信息日志')).toEqual([]);
-  write('ald/Design.md', doc);
-  graph.close(); await graph.whenIdle(); graph = undefined;
+  expect(rules()).toEqual([]);
+  const manual = JSON.stringify({ rules: [{ terms: ['自定义业务'], symbols: ['aldCorePidInit'] }] });
+  fs.writeFileSync(active(), manual);
+  fs.utimesSync(active(), 123456789, 123456789);
+  const stamp = fs.statSync(active()).mtimeMs;
+  // A plain sync must not even parse the new document.
+  const design = path.join(root, 'ald/Design.md');
+  fs.writeFileSync(design, Buffer.from([0xff, 0xfe]));
   command('sync');
-  graph = CodeGraph.openSync(root);
-  expect(seeds(descriptions[0]!)).toEqual([]);
-  approve();
-  const approvedBytes = fs.readFileSync(active());
-  expect(seeds(descriptions[0]!).map(row => row.name)).toEqual([macros[0]]);
-  write('ald/Design.md', '- `REDUCEBIN_ALD_INFO_LOG*`：链路握手追踪');
+  expect(() => command('sync', '--regenerate-term-mappings')).toThrow();
+  expect(fs.readFileSync(active(), 'utf8')).toBe(manual);
+  expect(fs.statSync(active()).mtimeMs).toBe(stamp);
+  expect(fs.readdirSync(graph.getDataDirectory()).filter(name => name.endsWith('.tmp'))).toEqual([]);
+
+  write('ald/Design.md', '- `REDUCEBIN_ALD_INFO_LOG*`：日志打印模块初始化');
   const result = await graph.sync();
   expect(result.filesAdded + result.filesModified + result.filesRemoved).toBe(0);
-  expect(fs.readFileSync(active())).toEqual(approvedBytes);
-  expect(seeds(descriptions[0]!)).toHaveLength(1);
-  expect(seeds('链路握手追踪')).toEqual([]);
-  approve();
-  expect(seeds(descriptions[0]!)).toEqual([]);
-  expect(seeds('链路握手追踪').map(row => row.name)).toEqual([macros[0]]);
+  expect(fs.statSync(active()).mtimeMs).toBe(stamp);
+  expect(command('sync', '-q', '--regenerate-term-mappings').toString()).toBe('');
+  expect(rules()).toEqual([{ terms: ['日志打印模块初始化'], symbols: [macros[0]],
+    design: { document: 'ald/Design.md', documentLine: 1 } }]);
+  expect(command('explore', '日志打印模块是怎样的').toString()).toContain(macros[0]);
+
+  const generated = fs.readFileSync(active());
   write('ald/include/ald_logcode.h', '#define REDUCEBIN_ALD_INFO_LOG_NEW(msg) msg\n');
   await graph.sync({ adaptive: false });
-  expect(seeds('链路握手追踪')).toEqual([]);
-  approve();
-  expect(seeds('链路握手追踪').map(row => row.name)).toEqual(['REDUCEBIN_ALD_INFO_LOG_NEW']);
-  fs.unlinkSync(path.join(root, 'ald/Design.md'));
+  expect(fs.readFileSync(active())).toEqual(generated);
+  expect(seeds('日志打印模块是怎样的')).toEqual([]);
+  await graph.sync({ regenerateTermMappings: true });
+  expect(seeds('日志打印模块是怎样的').map(row => row.name)).toEqual(['REDUCEBIN_ALD_INFO_LOG_NEW']);
+  fs.unlinkSync(design);
   await graph.sync();
+  expect(seeds('日志打印模块是怎样的')).toHaveLength(1);
+  await graph.sync({ regenerateTermMappings: true });
   expect(rules()).toEqual([]);
-  expect(seeds('链路握手追踪')).toHaveLength(1);
-  approve();
-  expect(seeds('链路握手追踪')).toEqual([]);
   expect(await ordinary()).toEqual(baseline);
-  expect(graph.getExploreQueryConnection().prepare('SELECT value FROM project_metadata WHERE key=?')
-    .get('explore:design-documents-v1')).toBeUndefined();
+  fs.unlinkSync(active());
+  await graph.sync();
+  expect(fs.existsSync(active())).toBe(false);
 }, 90000);
 
+it('preserves a manual configuration across a published rebuild and regenerates from the next published index', async () => {
+  const built = require('../dist') as typeof import('../src');
+  const argv = process.execArgv;
+  process.execArgv = ['--liftoff-only'];
+  try {
+    write('ald/Design.md', '- `logOriginal()`：日志打印模块初始化');
+    const source = 'ald/log.c';
+    write(source, 'int logOriginal(void) { return 0; }');
+    graph = await built.CodeGraph.init(root, { index: true });
+    const manual = '{"rules":[{"terms":["手工术语"],"symbols":["logOriginal"]}]}';
+    fs.writeFileSync(active(), manual);
+    fs.utimesSync(active(), 123456789, 123456789);
+    const stamp = fs.statSync(active()).mtimeMs;
+    const adaptiveFallback = { minChangedFiles: 1, minChangedFraction: 0.01, minWorkFraction: 0.01 };
+    write(source, 'int logAfterFirstBuild(void) { return 10; }');
+    expect((await graph.sync({ adaptiveFallback })).adaptive?.strategy).toBe('rebuild');
+    expect(fs.readFileSync(active(), 'utf8')).toBe(manual);
+    expect(fs.statSync(active()).mtimeMs).toBe(stamp);
+    write(source, 'int logAfterSecondBuild(void) { return 123; }');
+    write('ald/Design.md', '- `logAfterSecondBuild()`：日志打印模块初始化');
+    expect((await graph.sync({ adaptiveFallback, regenerateTermMappings: true })).adaptive?.strategy).toBe('rebuild');
+    expect(rules()).toEqual([{ terms: ['日志打印模块初始化'], symbols: ['logAfterSecondBuild'],
+      design: { document: 'ald/Design.md', documentLine: 1 } }]);
+  } finally { process.execArgv = argv; }
+}, 90000);
+
+it('keeps the newly indexed source usable when init cannot generate the file', async () => {
+  const design = 'ald/Design.md';
+  write(design, 'a'.repeat(1024 * 1024 + 1));
+  await expect(CodeGraph.init(root, { index: true })).rejects.toThrow(/Design document exceeds 1 MiB/);
+  graph = CodeGraph.openSync(root);
+  expect(graph.getIndexCompleteness().status).toBe('complete');
+  expect(fs.existsSync(active())).toBe(false);
+  write(design, doc);
+  await graph.sync({ regenerateTermMappings: true });
+  expect(seeds('中心层信息日志').map(row => row.name)).toEqual([macros[0]]);
+}, 90000);
 
 it('keeps physical Markdown lines across reference definitions, code fences, repeated entries, nested lists and table rows', async () => {
   const entry = '- `aldCorePidInit()`：中心层初始化';
@@ -192,7 +222,7 @@ it('keeps physical Markdown lines across reference definitions, code fences, rep
   ];
   expect(positions()).toEqual(expected);
   write('ald/DESIGN.md', '\r\n' + input.join('\r\n'));
-  await graph.sync();
+  await graph.sync({ regenerateTermMappings: true });
   expect(positions()).toEqual(expected.map(([symbol, document, line]) => [symbol, document, Number(line) + 1]));
 });
 
@@ -211,7 +241,6 @@ it('requires local evidence: accepts explicit typed labels, rejects concepts, co
     '', '| 接口 | 用途 |', '|---|---|', '| `DeviceObject` | 设备属性查询 |',
   ].join('\n'));
   graph = await CodeGraph.init(root, { index: true });
-  approve();
   const expected = { name: 'CTRLTOP_PORT_CONFIG_STATUS_ENUM', file_path: 'beqm/bbutop_common.h' };
   expect(seeds('端口配置状态')).toContainEqual(expected);
   expect(seeds('未配置、已配置、配置失败')).toContainEqual(expected);
@@ -221,14 +250,13 @@ it('requires local evidence: accepts explicit typed labels, rejects concepts, co
   expect(report.mappings).toContainEqual(expect.objectContaining({
     document: 'beqm/design.md', documentLine: 3, reference: expected.name, evidence: expect.stringContaining('配置失败') }));
   expect(report.mappings.some((entry: { evidence: string }) => entry.evidence.includes('Device Object'))).toBe(false);
-  expect(rules().find(rule => rule.symbols.includes(expected.name))?.design).toEqual({ document: 'beqm/design.md', documentLine: 1, file: expected.file_path, line: '1' });
+  expect(rules().find(rule => rule.symbols.includes(expected.name))?.design).toEqual({ document: 'beqm/design.md', documentLine: 1 });
 });
 
 it('previews the current draft against an explicit module without changing Explore bindings', async () => {
   write('ald/Design.md', doc);
   write('other/ald_logcode.h', '#define REDUCEBIN_ALD_INFO_LOG_OTHER(msg) msg\n');
   graph = await CodeGraph.init(root, { index: true });
-  approve();
   const original = seeds('中心层信息日志');
   const external = fs.mkdtempSync(path.join(os.tmpdir(), 'cg-preview-'));
   try {
@@ -238,7 +266,7 @@ it('previews the current draft against an explicit module without changing Explo
     const exported = path.join(external, 'term-mappings.json');
     const report = JSON.parse(command('mappings', 'preview', draft, '--path', path.join(root, 'ald'), '--output', exported, '--json').toString());
     expect(JSON.parse(fs.readFileSync(exported, 'utf8')).rules).toEqual([
-      { terms: ['业务接入追踪'], symbols: [macros[0]], design: { document: draft, documentLine: 1, file: 'ald/include/ald_logcode.h', line: '1' } },
+      { terms: ['业务接入追踪'], symbols: [macros[0]], design: { document: draft, documentLine: 1 } },
     ]);
     expect(() => command('mappings', 'preview', draft, '--path', path.join(root, 'ald'), '--output', exported)).toThrow();
     expect(report).toMatchObject({ module: 'ald', mappings: [{ reference: 'REDUCEBIN_ALD_INFO_LOG*',

@@ -4,22 +4,21 @@ import * as path from 'node:path';
 import type { SqliteDatabase } from './db/sqlite-adapter';
 
 export const TERM_MAPPINGS_FILE = 'term-mappings.json';
-export function designDraftPath(dataDir: string): string { return path.join(dataDir, 'review', TERM_MAPPINGS_FILE); }
 export const MAX_MAPPING_SEEDS = 16;
-const MAX_BYTES = 256 * 1024;
+export const MAX_MAPPING_BYTES = 256 * 1024;
 const MAX_RULES = 1000;
 export interface DesignEvidence {
-  file: string;
-  /** Source lines at export time, in symbol order. Never used to resolve symbols. */
-  line?: string;
-  document?: string;
-  /** One-based start line of the originating Markdown entry. */
-  documentLine?: number;
-  // Older drafts can also carry the original document context.
-  heading?: string;
-  reference?: string;
-  evidence?: string;
+  document: string;
+  documentLine: number;
 }
+
+/** Index paths use project-relative POSIX separators. The trailing slash
+ * distinguishes a module from a sibling with the same name prefix. */
+export function designModulePrefix(document: string): string {
+  const directory = path.posix.dirname(document);
+  return directory === '.' ? '' : directory + '/';
+}
+
 export interface TermMappingRule { terms: string[]; symbols: string[]; design?: DesignEvidence }
 export interface TermMappings {
   path: string;
@@ -36,7 +35,7 @@ export function loadTermMappings(dataDir: string): TermMappings {
   try {
     const stat = fs.lstatSync(file);
     if (!stat.isFile() || stat.isSymbolicLink()) return empty(true, ['Mapping configuration must be a regular file, not a symlink.']);
-    if (stat.size > MAX_BYTES) return empty(true, [`Mapping configuration exceeds ${MAX_BYTES} bytes.`]);
+    if (stat.size > MAX_MAPPING_BYTES) return empty(true, [`Mapping configuration exceeds ${MAX_MAPPING_BYTES} bytes.`]);
     const stamp = `${stat.dev}:${stat.ino}:${stat.size}:${stat.mtimeMs}:${stat.ctimeMs}`;
     const hit = cache.get(file);
     if (hit?.stamp === stamp) return hit.value;
@@ -45,15 +44,15 @@ export function loadTermMappings(dataDir: string): TermMappings {
     let content: string;
     try {
       const opened = fs.fstatSync(fd);
-      if (!opened.isFile() || opened.size > MAX_BYTES) return empty(true, ['Mapping configuration must be a regular file of at most 256 KiB.']);
-      const buffer = Buffer.alloc(MAX_BYTES + 1);
+      if (!opened.isFile() || opened.size > MAX_MAPPING_BYTES) return empty(true, ['Mapping configuration must be a regular file of at most 256 KiB.']);
+      const buffer = Buffer.alloc(MAX_MAPPING_BYTES + 1);
       let length = 0;
       while (length < buffer.length) {
         const n = fs.readSync(fd, buffer, length, buffer.length - length, null);
         if (!n) break;
         length += n;
       }
-      if (length > MAX_BYTES) return empty(true, [`Mapping configuration exceeds ${MAX_BYTES} bytes.`]);
+      if (length > MAX_MAPPING_BYTES) return empty(true, [`Mapping configuration exceeds ${MAX_MAPPING_BYTES} bytes.`]);
       content = buffer.subarray(0, length).toString('utf8');
     } finally { fs.closeSync(fd); }
     const result = parseTermMappings(content, file);
@@ -96,10 +95,10 @@ export function parseTermMappings(content: string, file = TERM_MAPPINGS_FILE): T
       if (previous !== undefined) result.warnings.push(`${label}: term "${term}" also occurs in rule ${previous + 1}; matching rules are merged.`);
       else seenTerms.set(term, index);
     }
-    if (design !== undefined && (!design || typeof design.file !== 'string' || !design.file ||
-        (design.line !== undefined && (typeof design.line !== 'string' || !/^[1-9]\d*(?:,\s*[1-9]\d*)*$/.test(design.line))) ||
-        (design.documentLine !== undefined && (!Number.isSafeInteger(design.documentLine) || design.documentLine < 1)) ||
-        [design.heading, design.document, design.reference, design.evidence].some(value => value !== undefined && typeof value !== 'string'))) {
+    if (design !== undefined && (!design || typeof design.document !== 'string' || !design.document ||
+        path.win32.isAbsolute(design.document) || design.document.includes('\\') ||
+        design.document.split('/').some(part => !part || part === '..' || part === '.') ||
+        !Number.isSafeInteger(design.documentLine) || design.documentLine < 1)) {
       result.errors.push(label + ': invalid design evidence.');
       return;
     }
@@ -144,16 +143,16 @@ export interface MappingSymbolMatch { count: number; candidates: MappingSymbolCa
 /** Shared by Explore and the maintainer CLI. Exact, case-sensitive, index-backed
  * lookup; total counts are not inferred from a truncated display list. */
 export function getTermMappingSymbolMatches(
-  db: Pick<SqliteDatabase, 'prepare'>, names: readonly string[], limitPerSymbol = 20, file?: string,
+  db: Pick<SqliteDatabase, 'prepare'>, names: readonly string[], limitPerSymbol = 20, modulePrefix?: string,
 ): Map<string, MappingSymbolMatch> {
   const matches = new Map<string, MappingSymbolMatch>();
   if (!names.length) return matches;
-  const predicate = "(name = ? OR qualified_name = ?) AND kind NOT IN ('file', 'import')" + (file === undefined ? '' : ' AND file_path=?');
+  const predicate = "(name = ? OR qualified_name = ?) AND kind NOT IN ('file', 'import')" + (modulePrefix ? ' AND substr(file_path,1,length(?))=?' : '');
   const count = db.prepare(`SELECT count(*) AS count FROM nodes WHERE ${predicate}`);
   const select = db.prepare(`SELECT id, name, qualified_name, kind, file_path, start_line FROM nodes WHERE ${predicate} ORDER BY file_path, start_line, id LIMIT ?`);
   const limit = Math.min(100, Math.max(1, Math.floor(limitPerSymbol) || 20));
   for (const name of new Set(names)) {
-    const args = file === undefined ? [name, name] : [name, name, file];
+    const args = modulePrefix ? [name, name, modulePrefix, modulePrefix] : [name, name];
     const total = Number(count.get(...args).count);
     const candidates = select.all(...args, limit).map(row => ({
       id: String(row.id), name: String(row.name), qualifiedName: row.qualified_name ?? undefined,

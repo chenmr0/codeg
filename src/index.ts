@@ -5,7 +5,7 @@
  * knowledge graph from any codebase.
  */
 
-import { buildDesignDraft, publishDesignDraft } from './design-documents';
+import { regenerateTermMappings } from './design-documents';
 import { openedDirectoryIdentity } from './path-identity';
 import * as path from 'path';
 import { appendAdaptiveLog, formatAdaptiveDecision } from './sync/adaptive-log';
@@ -202,6 +202,8 @@ export interface IndexOptions {
 
 /** Options for incremental synchronization. */
 export interface SyncOptions extends IndexOptions {
+  /** Explicitly replace the project terminology file after successful source sync. */
+  regenerateTermMappings?: boolean;
   /** @internal Parser inputs verified against the post-publication source inventory. */
   [publicationContext]?: VerifiedPublicationContext;
   /** @internal The CLI renderer only displays progress and scan notices; SDK callbacks may edit source. */
@@ -461,7 +463,6 @@ export class CodeGraph {
             // reader admitted during init can never observe MEMORY/OFF writes.
             candidate = coordinator.beginInitialCandidate();
             let result: IndexResult | undefined;
-            let draft: string | null | undefined;
             try {
               const graph = candidateGraph = await CodeGraph.createPortableCandidate(root, candidate.path);
               candidateConnection = graph.db;
@@ -471,7 +472,6 @@ export class CodeGraph {
                 failedInitialResult = result;
                 throw new Error(result.errors.map(error => error.message).join('; ') || 'Initial indexing failed');
               }
-              if (result.complete) draft = buildDesignDraft(root, graph.db.getDb(), graph.getFiles());
             } catch (error) {
               if (!candidateGraph && error instanceof DatabaseOpenError) {
                 candidateConnection = error.connection;
@@ -489,7 +489,12 @@ export class CodeGraph {
             await coordinator.publishInitialCandidate(candidate, { timeoutMs: 30_000, signal: options.signal });
             indexed = true;
             initialResult = result;
-            publishDesignDraft(dataDir, draft);
+            if (result.complete) {
+              instance = CodeGraph.openPortable(root, dataDir);
+              const pin = instance.acquirePortableRead();
+              try { regenerateTermMappings(pin.graph); }
+              finally { pin.release(); }
+            }
           }
         } finally {
           let closed = !db;
@@ -504,7 +509,7 @@ export class CodeGraph {
           } else if (!closed) CodeGraph.failedPortableInitializations.set(writer, db!);
           else CodeGraph.failedPortableBuilds.set(writer, candidateGraph ?? candidateConnection!);
         }
-        instance = CodeGraph.openPortable(root, dataDir);
+        instance ??= CodeGraph.openPortable(root, dataDir);
       } else {
       // Unsupported native runtimes retain the historical flat storage format.
       // The same root lock prevents racing another initializer into a flat DB.
@@ -516,6 +521,7 @@ export class CodeGraph {
       initializationError = error;
     } finally { lock.release(); }
     if (initializationFailed) {
+      if (instance) { instance.close(); await instance.whenIdle(); }
       if (failedInitialResult) options.onIndexResult?.(failedInitialResult);
       throw initializationError;
     }
@@ -525,6 +531,7 @@ export class CodeGraph {
       if (indexed) options.onIndexResult?.(initialResult!);
       if (options.index && !indexed) {
         const result = await instance!.indexAll({ onProgress: options.onProgress, signal: options.signal, verbose: options.verbose });
+        if (result.complete) instance!.regenerateCurrentMappings();
         options.onIndexResult?.(result);
         if (!result.success) throw new Error(result.errors.map(error => error.message).join('; ') || 'Initial indexing failed');
       }
@@ -650,7 +657,6 @@ export class CodeGraph {
 
   private updatePublicationCatchup(operation: string | null): void {
     const db = this.db.getDb();
-    if (operation === null) this.refreshDesignDocuments(this.queries.getAllFiles());
     db.transaction(() => {
       // Legacy ownership triggers guard metadata too. Keep the marker change and its ownership proof atomic.
       const ownership = this.portableBound ? null : beginSourceWrite(db);
@@ -1228,7 +1234,6 @@ export class CodeGraph {
           if (scopeApplied) {
             const files = this.queries.getAllFiles();
             const indexedPolicy = indexConfigFingerprints(this.projectRoot, files);
-            if (result.complete) this.refreshDesignDocuments(files);
             const indexedSemantic = candidateSemantic ?? indexedPolicy.semanticConfigFingerprint;
             this.queries.applyMetadataChanges({
               'adaptive:index-config-v1': indexedPolicy.configFingerprint,
@@ -1532,7 +1537,15 @@ export class CodeGraph {
   async sync(options: SyncOptions = {}): Promise<SyncResult> {
     this.assertWritableFacade();
     const policy = resolveSyncPolicy(this.projectRoot, options);
-    try { return await this.syncInternal({ ...options, [resolvedSyncPolicy]: policy }); } finally { this.refreshIdleFacade(); }
+    try {
+      const result = await this.syncInternal({ ...options, paths: options.regenerateTermMappings ? undefined : options.paths, [resolvedSyncPolicy]: policy });
+      if (options.regenerateTermMappings) {
+        if (!result.complete) throw new Error('Term mappings require a complete sync');
+        options.signal?.throwIfAborted();
+        this.regenerateCurrentMappings();
+      }
+      return result;
+    } finally { this.refreshIdleFacade(); }
   }
 
   /** @internal Classify source changes under the portable writer lease. The publisher
@@ -1582,7 +1595,6 @@ export class CodeGraph {
       const reusable = options.displayOnlyProgress || (!options.onProgress && !options.onScanFallback);
       const finalizeStarted = options.verbose ? performance.now() : 0;
       if (!scoped && reusable && changes.changedFiles === 0 && !changes.hasStatChanges && !changes.needsRecovery && this.canFinishWithoutWriting()) {
-        this.refreshDesignDocuments(tracked);
         const result = finishUnchangedSyncInventory(inventory, tracked.length, options.onProgress, options.onScanFallback);
         result.coverageVerified = true; // canFinishWithoutWriting requires proven coverage.
         options.signal?.throwIfAborted();
@@ -1608,10 +1620,10 @@ export class CodeGraph {
       this.hasPortableCompletionProof();
   }
 
-  private refreshDesignDocuments(files: readonly {path: string}[]): void {
-    // Private rebuild candidates cannot publish project-visible review files.
-    if (this.disposableCandidate || (this.shadowCandidate && !this.portableBound)) return;
-    publishDesignDraft(this.dataDir, buildDesignDraft(this.projectRoot, this.db.getDb(), files));
+  private regenerateCurrentMappings(): void {
+    this.fileLock.acquire();
+    try { this.withReadView(view => regenerateTermMappings(view)); }
+    finally { this.fileLock.release(); }
   }
 
   private async syncInternal(options: SyncOptions, heldBy?: 'forwarder' | 'catchup', prepared?: PreparedSync): Promise<SyncResult> {
@@ -2203,7 +2215,6 @@ export class CodeGraph {
         }
         if (result.complete === true) {
           const sourceFiles = result.filesAdded || result.filesRemoved ? this.queries.getAllFiles() : tracked;
-          this.refreshDesignDocuments(sourceFiles);
           const metadata = {
             indexed_language_scope: getLanguageScopeKey(),
             language_scope_pending: null,

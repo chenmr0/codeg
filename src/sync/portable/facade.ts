@@ -1,4 +1,5 @@
 /** Stable project facade; native connections belong to admitted operations, not projects. */
+import { regenerateTermMappings } from "../../design-documents";
 import { openedDirectoryIdentity } from "../../path-identity";
 import * as path from "node:path";
 import { appendAdaptiveLog, formatAdaptiveDecision } from "../adaptive-log";
@@ -387,6 +388,20 @@ class PortableFacade {
     }
   }
   private async sync(options: SyncOptions): Promise<SyncResult> {
+    const { regenerateTermMappings: regenerate, ...sourceOptions } = options;
+    const result = await this.syncSource(regenerate ? { ...sourceOptions, paths: undefined } : sourceOptions);
+    if (!regenerate) return result;
+    if (!result.complete) throw new Error('Term mappings require a complete sync');
+    // Re-admit the published reader under the writer fence, including after a
+    // read-only no-op or atomic rebuild. Only the external JSON is updated.
+    return this.write<SyncResult>({ prepare: async reader => {
+      options.signal?.throwIfAborted();
+      regenerateTermMappings(reader);
+      return { result };
+    } }, options.signal);
+  }
+
+  private async syncSource(options: SyncOptions): Promise<SyncResult> {
     if (this.readOnly) throw new Error("CodeGraph is read-only");
     const abort = new AbortController();
     this.aborts.add(abort);

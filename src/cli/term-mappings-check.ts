@@ -1,10 +1,10 @@
 import type CodeGraph from '../index';
-import { loadTermMappings, getTermMappingSymbolMatches } from '../term-mappings';
+import { designModulePrefix, loadTermMappings, getTermMappingSymbolMatches } from '../term-mappings';
 
 export type MappingCheckStatus = 'FOUND' | 'MULTIPLE' | 'NOT_FOUND_IN_INDEX' | 'UNVERIFIED';
 export interface MappingCheckResult {
   symbol: string;
-  file?: string;
+  module?: string;
   status: MappingCheckStatus;
   count: number;
   candidates: Array<{ id: string; name: string; qualifiedName?: string; kind: string; filePath: string; startLine: number }>;
@@ -74,17 +74,17 @@ export function checkTermMappings(
     }
     const scopes = new Map<string | undefined, Set<string>>();
     for (const rule of config.rules) {
-      const file = rule.design?.file;
-      const names = scopes.get(file) ?? new Set<string>();
+      const prefix = rule.design ? designModulePrefix(rule.design.document) : undefined;
+      const names = scopes.get(prefix) ?? new Set<string>();
       for (const name of rule.symbols) names.add(name);
-      scopes.set(file, names);
+      scopes.set(prefix, names);
     }
     const db = graph.getExploreQueryConnection();
-    for (const [file, names] of scopes) {
-      const matches = getTermMappingSymbolMatches(db, [...names], 20, file);
+    for (const [prefix, names] of scopes) {
+      const matches = getTermMappingSymbolMatches(db, [...names], 20, prefix);
       for (const [symbol, { count, candidates }] of matches) {
         report.results.push({
-          symbol, ...(file ? { file } : {}), count, candidates, truncated: count > candidates.length,
+          symbol, ...(prefix !== undefined ? { module: prefix || '.' } : {}), count, candidates, truncated: count > candidates.length,
           status: count > 1 ? 'MULTIPLE' : count === 1 ? 'FOUND' : reliable ? 'NOT_FOUND_IN_INDEX' : 'UNVERIFIED',
         });
       }
@@ -104,7 +104,7 @@ export function formatMappingsCheck(report: MappingsCheckReport): string {
     `Rules: ${report.ruleCount}; unique symbols: ${report.uniqueSymbolCount}`,
   ];
   for (const result of report.results) {
-    lines.push(`${result.status.padEnd(19)} ${result.symbol}${result.file ? ` [${result.file}]` : ''}${result.count > 1 ? ` (${result.count} candidates; review same-name definitions/declarations)` : ''}`);
+    lines.push(`${result.status.padEnd(19)} ${result.symbol}${result.module ? ` [${result.module}]` : ''}${result.count > 1 ? ` (${result.count} candidates; review same-name definitions/declarations)` : ''}`);
     for (const candidate of result.candidates) {
       lines.push(`  ${candidate.kind} ${candidate.qualifiedName || candidate.name}  ${candidate.filePath}:${candidate.startLine}`);
     }
