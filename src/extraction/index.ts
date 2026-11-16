@@ -706,7 +706,7 @@ function gitWalkIgnore(rootDir: string, diagnostics?: ScanDiagnostics): Ignore {
  * embedded (nested, non-submodule) git repos. Returns null on failure
  * (non-git project) so callers can fall back to a filesystem walk.
  */
-function getGitVisibleFiles(rootDir: string, diagnostics?: ScanDiagnostics): Set<string> | null {
+function getGitVisibleFiles(rootDir: string, diagnostics?: ScanDiagnostics, accept?: (file: string) => boolean): Set<string> | null {
   const cgIgnore = path.join(rootDir, '.codegraphignore');
   const roots = fs.existsSync(cgIgnore) ? planSupplementRoots(readGitignorePatterns(cgIgnore)) : undefined;
   // Only explicit literal-directory supplements can avoid the full walk.
@@ -751,7 +751,7 @@ function getGitVisibleFiles(rootDir: string, diagnostics?: ScanDiagnostics): Set
       }
     }
 
-    if (!needsWalk && roots) {
+    if (!accept && !needsWalk && roots) {
       failureStage = 'hybrid-scan';
       const ig = buildDefaultIgnore(rootDir, diagnostics);
       if (diagnostics) diagnostics.supplementRoots = roots.length;
@@ -786,17 +786,18 @@ function getGitVisibleFiles(rootDir: string, diagnostics?: ScanDiagnostics): Set
     const ig = buildDefaultIgnore(rootDir, diagnostics, rootRules);
     failureStage = 'filter-canonical';
     if (checkedLinks) failureStage = 'supplement-links';
+    if (accept) for (const file of files) { if (!accept(file)) files.delete(file); }
     const candidates = checkedLinks
       ? separateGitDirectoryLinks(rootDir, files) : { ordinary: files, external: [] };
     const visible = filterGitPaths(rootDir, candidates.ordinary, ig, rootRules, diagnostics);
-    if (needsWalk || candidates.external.length) {
+    if (needsWalk || (accept && roots) || candidates.external.length) {
       // Git global excludes are not present in ls-files output for descendants
       // of a POSIX directory link. Apply the same policy to those new paths.
       const linkedIgnore = gitWalkIgnore(rootDir, diagnostics);
       const mode = diagnostics?.mode;
       const linked = scanDirectoryWalk(rootDir, undefined, diagnostics, {
-        roots: needsWalk ? [] : candidates.external, rejectSymlinks: false, rootIgnore: linkedIgnore, authorizedSymlinksOnly: true,
-      });
+        roots: needsWalk || (accept && roots) ? [] : candidates.external, rejectSymlinks: false, rootIgnore: linkedIgnore, authorizedSymlinksOnly: true,
+      }, accept);
       if (diagnostics && mode) diagnostics.mode = mode;
       for (const file of linked) visible.add(file);
     }
@@ -879,6 +880,18 @@ export function scanDirectory(
   capture?: RustScanCapture,
 ): string[] {
   return withLanguageScope(() => scanDirectoryInScope(rootDir, onProgress, diagnostics, capture));
+}
+
+function isDesignDocument(file: string): boolean {
+  const name = path.basename(file);
+  return name === 'Design.md' || name === 'design.md';
+}
+
+/** Keep documentation out of the source inventory, its coverage and change counts. */
+export function scanDesignDocuments(root: string): string[] {
+  const files = getGitVisibleFiles(root, undefined, isDesignDocument) ??
+    scanDirectoryWalk(root, undefined, undefined, undefined, isDesignDocument);
+  return [...files].filter(isDesignDocument).sort();
 }
 
 function scanDirectoryInScope(
@@ -1270,6 +1283,7 @@ function scanDirectoryWalk(
   onProgress?: (current: number, file: string) => void,
   diagnostics?: ScanDiagnostics,
   supplement?: { roots: string[]; rejectSymlinks: boolean; rootIgnore: Ignore; authorizedSymlinksOnly?: boolean },
+  accept = isSourceFile,
 ): string[] {
   const walkStarted = diagnostics ? performance.now() : 0;
   if (diagnostics) diagnostics.mode = 'walk';
@@ -1290,7 +1304,7 @@ function scanDirectoryWalk(
   const pushCanonical = (logicalRel: string, knownRealPath?: string) => {
     const c = canonicalFilePath(rootDir, logicalRel, reuse ? knownRealPath : undefined);
     if (reuse && knownRealPath && diagnostics) diagnostics.canonicalFromParent++;
-    if (!isSourceFile(c) || seenCanonical.has(c)) return;
+    if (!accept(c) || seenCanonical.has(c)) return;
     if (supplement?.authorizedSymlinksOnly) {
       const physical = physicalKey(path.join(rootDir, logicalRel));
       if (seenPhysical.has(physical)) return;
@@ -1393,6 +1407,7 @@ function scanDirectoryWalk(
       }
 
       if (entry.isSymbolicLink()) {
+        if (accept === isDesignDocument) continue;
         try {
           if (supplement?.authorizedSymlinksOnly && !validatePathWithinRoot(rootDir, relativePath, true)) continue;
           const realTarget = fs.realpathSync(fullPath);
@@ -1404,7 +1419,7 @@ function scanDirectoryWalk(
               walk(fullPath, active);
             }
           } else if (stat.isFile()) {
-            if (!isIgnored(fullPath, false, active) && isSourceFile(relativePath)) {
+            if (!isIgnored(fullPath, false, active) && accept(relativePath)) {
               pushCanonical(relativePath);
             }
           }
@@ -1422,7 +1437,7 @@ function scanDirectoryWalk(
           walk(fullPath, active);
         }
       } else if (entry.isFile()) {
-        if (!isIgnored(fullPath, false, active) && isSourceFile(relativePath)) {
+        if (!isIgnored(fullPath, false, active) && accept(relativePath)) {
           pushCanonical(relativePath, path.join(realDir, entry.name));
         }
       }

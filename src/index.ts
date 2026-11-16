@@ -5,6 +5,8 @@
  * knowledge graph from any codebase.
  */
 
+import { designIndexUpdate } from './design-documents';
+import { DESIGN_INDEX_KEY } from './design-recall';
 import { openedDirectoryIdentity } from './path-identity';
 import * as path from 'path';
 import { appendAdaptiveLog, formatAdaptiveDecision } from './sync/adaptive-log';
@@ -646,9 +648,11 @@ export class CodeGraph {
 
   private updatePublicationCatchup(operation: string | null): void {
     const db = this.db.getDb();
+    const documents = operation === null ? this.designDocumentChange(this.queries.getAllFiles()) : undefined;
     db.transaction(() => {
       // Legacy ownership triggers guard metadata too. Keep the marker change and its ownership proof atomic.
       const ownership = this.portableBound ? null : beginSourceWrite(db);
+      if (documents !== undefined) this.queries.applyMetadataChanges({ [DESIGN_INDEX_KEY]: documents });
       if (operation === null) db.prepare('DELETE FROM project_metadata WHERE key IN (?, ?, ?)').run(CATCHUP, PUBLICATION_MACROS, PUBLICATION_FRAMEWORKS);
       else setPortableMetadata(db, CATCHUP, operation);
       finishSourceWrite(db, ownership, true);
@@ -1221,7 +1225,9 @@ export class CodeGraph {
           // scopeApplied still excludes aborts, whole-file failures, semantic
           // drift and unfinished required resolution/framework work.
           if (scopeApplied) {
-            const indexedPolicy = indexConfigFingerprints(this.projectRoot, this.queries.getAllFiles());
+            const files = this.queries.getAllFiles();
+            const indexedPolicy = indexConfigFingerprints(this.projectRoot, files);
+            if (result.complete) this.refreshDesignDocuments(files);
             const indexedSemantic = candidateSemantic ?? indexedPolicy.semanticConfigFingerprint;
             this.queries.applyMetadataChanges({
               'adaptive:index-config-v1': indexedPolicy.configFingerprint,
@@ -1575,11 +1581,16 @@ export class CodeGraph {
       const reusable = options.displayOnlyProgress || (!options.onProgress && !options.onScanFallback);
       const finalizeStarted = options.verbose ? performance.now() : 0;
       if (!scoped && reusable && changes.changedFiles === 0 && !changes.hasStatChanges && !changes.needsRecovery && this.canFinishWithoutWriting()) {
+        const documentChange = this.designDocumentChange(tracked);
         const result = finishUnchangedSyncInventory(inventory, tracked.length, options.onProgress, options.onScanFallback);
         result.coverageVerified = true; // canFinishWithoutWriting requires proven coverage.
         options.signal?.throwIfAborted();
         if (options.verbose) console.log(`[sync] tail-detail mode=read-only prepareAndWalMs=0ms finalizeMs=${Math.round(performance.now() - finalizeStarted)}ms`);
         result.durationMs = Math.round(performance.now() - startedAt);
+        if (documentChange !== undefined) return async writer => {
+          writer.queries.applyMetadataChanges({ [DESIGN_INDEX_KEY]: documentChange });
+          return result;
+        };
         return result;
       }
       const prepared = { startedAt, tracked, inventory: reusable ? inventory : undefined, policyFiles, policy };
@@ -1598,6 +1609,15 @@ export class CodeGraph {
       this.queries.getMetadata('indexed_with_extraction_version') === String(EXTRACTION_VERSION) &&
       this.db.getWalSizeBytes() < resolveWalValveMb(process.env.CODEGRAPH_WAL_VALVE_MB) * 1024 * 1024 &&
       this.hasPortableCompletionProof();
+  }
+
+  private designDocumentChange(files: readonly {path: string}[]) {
+    return designIndexUpdate(this.projectRoot, this.db.getDb(), files, this.queries.getMetadata(DESIGN_INDEX_KEY));
+  }
+
+  private refreshDesignDocuments(files: readonly {path: string}[]): void {
+    const change = this.designDocumentChange(files);
+    if (change !== undefined) this.queries.applyMetadataChanges({ [DESIGN_INDEX_KEY]: change });
   }
 
   private async syncInternal(options: SyncOptions, heldBy?: 'forwarder' | 'catchup', prepared?: PreparedSync): Promise<SyncResult> {
@@ -2188,6 +2208,8 @@ export class CodeGraph {
           }
         }
         if (result.complete === true) {
+          const sourceFiles = result.filesAdded || result.filesRemoved ? this.queries.getAllFiles() : tracked;
+          this.refreshDesignDocuments(sourceFiles);
           const metadata = {
             indexed_language_scope: getLanguageScopeKey(),
             language_scope_pending: null,
@@ -2198,7 +2220,7 @@ export class CodeGraph {
             ...(verifiedMacros ? { [PUBLICATION_MACROS]: verifiedMacros.fingerprint } : {}),
             ...(frameworks ? { [PUBLICATION_FRAMEWORKS]: JSON.stringify(frameworks.names) } : {}),
             'adaptive:index-config-v1': result.filesAdded || result.filesRemoved
-              ? adaptiveConfigFingerprint(this.projectRoot, this.queries.getAllFiles()) : configBefore,
+              ? adaptiveConfigFingerprint(this.projectRoot, sourceFiles) : configBefore,
           };
           if (Object.entries(metadata).some(([key, value]) => this.queries.getMetadata(key) !== value)) {
             this.queries.applyMetadataChanges(metadata);

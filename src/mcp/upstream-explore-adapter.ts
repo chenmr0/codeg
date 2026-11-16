@@ -1,3 +1,4 @@
+import { designSeedIds } from '../design-recall';
 import { createExploreGraphApi } from './upstream-explore-graph';
 import type CodeGraph from '../index';
 import type { ExploreGraph } from '../upstream-explore';
@@ -180,6 +181,15 @@ export function createUpstreamExploreGraph(cg: CodeGraph): ExploreGraph {
           if (mappedSeedNodes.length >= 24) break;
         }
       } catch { /* Invalid optional policy must not prevent normal retrieval. */ }
+      try {
+        const seen = new Set(mappedSeedNodes.map(node => node.id));
+        for (const id of designSeedIds(db, query)) {
+          if (mappedSeedNodes.length >= 24) break;
+          if (seen.has(id)) continue;
+          const node = queries.getNodeById(id);
+          if (node) { mappedSeedNodes.push(node); seen.add(id); }
+        }
+      } catch { /* Design evidence is optional on old or incomplete indexes. */ }
       return api.findRelevantContext(query, { ...options, mappedSeedNodes });
     },
     getVerifiedSource: file => snapshots.get(file).content,
