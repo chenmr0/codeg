@@ -5,7 +5,7 @@ Explore 可以在原有词法检索、自动词段召回之外，加入维护者
 
 ## 从模块 Design.md 生成待审阅的术语映射
 
-在模块根目录放置 UTF-8 的 `Design.md` 或 `design.md`，代码可以在该目录或其子目录。运行 `codegraph init` 时，CodeGraph 解析 Markdown 的列表项、段落和表格行，用行内代码（或加粗的大写标识符）查找当前模块的真实定义。例如：
+在模块根目录放置 UTF-8 的 `Design.md`、`design.md` 或 `DESIGN.md`，代码可以在该目录或其子目录。运行 `codegraph init` 时，CodeGraph 解析 Markdown 的列表项、段落和表格行，用行内代码（或加粗的大写标识符）查找当前模块的真实定义。例如：
 
 ```markdown
 ### 日志记录机制与接口
@@ -16,7 +16,7 @@ Explore 可以在原有词法检索、自动词段召回之外，加入维护者
 - `REDUCEBIN_ALDPXY_INFO_LOG*`：适配层信息日志
 ```
 
-首次 `init` 或后续 `sync` 完成后，打开活动数据目录下的 `review/term-mappings.json` 查看候选。在默认目录布局下，审阅和启用步骤如下：
+已有索引的项目升级后运行 `codegraph sync`，即可发现已有的模块文档。首次 `init` 或后续 `sync` 完成后，打开活动数据目录下的 `review/term-mappings.json` 查看候选。在默认目录布局下，审阅和启用步骤如下：
 
 ```powershell
 Get-Content -Raw -Encoding utf8 .\.codegraph-wx\review\term-mappings.json

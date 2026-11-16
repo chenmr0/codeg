@@ -116,6 +116,24 @@ it('exports one-based definition lines in symbol order and resolves approved rul
   expect(seeds('中心层信息日志').map(node => node.name)).toEqual(rule.symbols);
 });
 
+it.each([false, true])('discovers uppercase DESIGN.md on sync of an existing project (git=%s)', async useGit => {
+  if (useGit) execFileSync('git', ['init', '-q'], { cwd: root });
+  write('beqm/src/device.c', 'int deviceInit(void) { return 1; }\n');
+  command('init', root);
+
+  write('ald/DESIGN.md', doc);
+  write('beqm/DESIGN.md', '- 设备初始化`deviceInit()`');
+  command('sync', root);
+  graph = CodeGraph.openSync(root);
+  expect(rules()).toContainEqual({
+    terms: ['中心层信息日志'], symbols: [macros[0]], design: { file: 'ald/include/ald_logcode.h', line: '1' },
+  });
+  expect(rules()).toContainEqual({
+    terms: ['设备初始化'], symbols: ['deviceInit'], design: { file: 'beqm/src/device.c', line: '1' },
+  });
+  expect(fs.existsSync(active())).toBe(false);
+}, 90000);
+
 it('updates on document-only sync, symbol changes, and deletion while preserving ordinary Explore', async () => {
   graph = await CodeGraph.init(root, { index: true });
   const ordinary = async () => [...(await createUpstreamExploreGraph(graph!).findRelevantContext('aldCorePidInit')).nodes.keys()];

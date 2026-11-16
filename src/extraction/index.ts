@@ -882,9 +882,10 @@ export function scanDirectory(
   return withLanguageScope(() => scanDirectoryInScope(rootDir, onProgress, diagnostics, capture));
 }
 
+export const DESIGN_DOCUMENT_NAMES: readonly string[] = ['Design.md', 'design.md', 'DESIGN.md'];
+
 function isDesignDocument(file: string): boolean {
-  const name = path.basename(file);
-  return name === 'Design.md' || name === 'design.md';
+  return DESIGN_DOCUMENT_NAMES.includes(path.basename(file));
 }
 
 /** Keep documentation out of the source inventory, its coverage and change counts. */

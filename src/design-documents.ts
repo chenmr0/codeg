@@ -2,7 +2,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { Lexer, type Token } from 'marked';
 import type { SqliteDatabase } from './db/sqlite-adapter';
-import { scanDesignDocuments } from './extraction';
+import { DESIGN_DOCUMENT_NAMES, scanDesignDocuments } from './extraction';
 import { isWithinExistingDirectory, sameExistingPath } from './path-identity';
 import { validatePathWithinRoot } from './utils';
 import { logWarn } from './errors';
@@ -217,7 +217,7 @@ export function buildDesignDraft(root: string, db: SqliteDatabase, sources: read
       let dir = path.posix.dirname(file.path);
       while (!dirs.has(dir)) {
         dirs.add(dir);
-        if (['Design.md', 'design.md'].some(name => fs.lstatSync(path.join(root, dir, name), { throwIfNoEntry: false })?.isFile())) { found = true; break; }
+        if (DESIGN_DOCUMENT_NAMES.some(name => fs.lstatSync(path.join(root, dir, name), { throwIfNoEntry: false })?.isFile())) { found = true; break; }
         if (dir === '.') break;
         dir = path.posix.dirname(dir);
       }
