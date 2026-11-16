@@ -40,7 +40,10 @@ function compile(entries: TermMappingRule[]) {
 }
 
 const cache = new WeakMap<TermMappings, ReturnType<typeof compile>>();
-export function designSeedIds(db: SqliteDatabase, query: string, config: TermMappings): string[] {
+export function designSeedIds(
+  db: SqliteDatabase, query: string, config: TermMappings,
+  onMatch?: (rule: TermMappingRule, terms: string[], ids: string[]) => void,
+): string[] {
   if (!/\p{Script=Han}/u.test(query)) return [];
   let index = cache.get(config);
   if (!index) {
@@ -74,11 +77,20 @@ export function designSeedIds(db: SqliteDatabase, query: string, config: TermMap
   for (const row of ranked) {
     if (row.score < ranked[0]!.score * 0.9) break;
     const prefix = designModulePrefix(row.rule.design!.document);
+    const ruleIds = onMatch ? [] as string[] : undefined;
     for (const symbol of row.rule.symbols) {
+      if (ids.size >= MAX_DESIGN_SEEDS) break;
       const matches = definition.all(prefix, prefix, symbol, symbol);
       if (matches.length !== 1) continue;
       ids.add(matches[0].id);
-      if (ids.size === MAX_DESIGN_SEEDS) return [...ids];
+      ruleIds?.push(matches[0].id);
+      if (!onMatch && ids.size === MAX_DESIGN_SEEDS) return [...ids];
+    }
+    if (onMatch && ruleIds) {
+      // A document rule is scored as one vector. Only name aliases whose words
+      // actually contributed to its score, even when several aliases share it.
+      const terms = row.rule.terms.filter(term => [...counts(term).keys()].some(word => weights.has(word)));
+      onMatch(row.rule, terms, ruleIds);
     }
   }
   return [...ids];

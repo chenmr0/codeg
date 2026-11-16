@@ -1,3 +1,4 @@
+import type { ExploreExplanation } from '../explore-explanation';
 import { designSeedIds } from '../design-recall';
 import { createExploreGraphApi } from './upstream-explore-graph';
 import type CodeGraph from '../index';
@@ -134,7 +135,7 @@ function ensureVocabulary(db: SqliteDatabase, queries: QueryBuilder): void {
   throw new Error('CodeGraph index changed repeatedly while rebuilding the Explore vocabulary; retry the query.');
 }
 
-export function createUpstreamExploreGraph(cg: CodeGraph): ExploreGraph {
+export function createUpstreamExploreGraph(cg: CodeGraph, explanation?: ExploreExplanation): ExploreGraph {
   const db = cg.getExploreQueryConnection();
   let cached = queryCaches.get(cg);
   if (!cached || cached.db !== db) {
@@ -164,10 +165,14 @@ export function createUpstreamExploreGraph(cg: CodeGraph): ExploreGraph {
   return {
     ...api,
     findRelevantContext: (query, options) => {
-      let mappedSeedNodes: NonNullable<typeof options>['mappedSeedNodes'] = [];
+      if (explanation && options?.queryIntent) explanation.recordMentions(db, options.queryIntent);
+      const mappedSeedNodes: NonNullable<typeof options>['mappedSeedNodes'] = [];
       try {
         const config = loadTermMappings(cg.getDataDirectory());
-        const names = matchTermMappingSymbols(config, query);
+        if (explanation) explanation.mappingErrors.push(...config.errors);
+        const manualMatches: { terms: string[]; symbols: string[] }[] | undefined = explanation ? [] : undefined;
+        const names = matchTermMappingSymbols(config, query, manualMatches
+          ? (rule, terms) => manualMatches.push({ terms, symbols: rule.symbols }) : undefined);
         // Resolve a bounded set of IDs, not lower-case fuzzy names. Do not cache
         // nodes across index generations or let optional config break Explore.
         const seen = new Set<string>();
@@ -181,13 +186,25 @@ export function createUpstreamExploreGraph(cg: CodeGraph): ExploreGraph {
           }
           if (mappedSeedNodes.length >= 24) break;
         }
-        for (const id of designSeedIds(db, query, config)) {
+        if (explanation && manualMatches) {
+          for (const { terms, symbols } of manualMatches) {
+            const ids = symbols.flatMap(symbol => perName.get(symbol)?.candidates.map(node => node.id) ?? []);
+            explanation.recordMatch(terms, ids.filter(id => seen.has(id)));
+          }
+        }
+        const designIds = designSeedIds(db, query, config, explanation
+          ? (rule, terms, ids) => explanation.recordMatch(terms, ids, rule.design) : undefined);
+        for (const id of designIds) {
           if (mappedSeedNodes.length >= 24) break;
           if (seen.has(id)) continue;
           const node = queries.getNodeById(id);
           if (node) { mappedSeedNodes.push(node); seen.add(id); }
         }
-      } catch { /* Design evidence is optional on old or incomplete indexes. */ }
+      } catch (error) {
+        // Mapping evidence is optional on old or incomplete indexes.
+        if (explanation) explanation.mappingErrors.push(String(error));
+      }
+      explanation?.recordCandidates(mappedSeedNodes);
       return api.findRelevantContext(query, { ...options, mappedSeedNodes });
     },
     getVerifiedSource: file => snapshots.get(file).content,

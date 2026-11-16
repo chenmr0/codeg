@@ -283,3 +283,67 @@ it('previews the current draft against an explicit module without changing Explo
     expect(JSON.parse(command('mappings', 'preview', draft, '--json').toString()).mappings).toEqual([]);
   } finally { fs.rmSync(external, { recursive: true, force: true }); }
 }, 90000);
+
+it('explains the same named symbols and real mapped candidates for text and a requirement file', async () => {
+  write('ald/DESIGN.md', '- `REDUCEBIN_ALD_INFO_LOG*`：中心层信息日志');
+  write('ald/include/log2.h', '#define log2 1\n');
+  graph = await CodeGraph.init(root, { index: true });
+  const config = [...rules(), { terms: ['进程启动', '启动进程'], symbols: [macros[0], 'aldCorePidInit', 'MissingSymbol'] }];
+  fs.writeFileSync(active(), JSON.stringify({ rules: config }));
+  const query = '进程启动时，在 aldCorePidInit() 和 FutureLogHook() 增加一条中心层信息日志';
+  write('需求.md', query);
+  const plain = command('explore', query).toString();
+  const explained = command('explore', query, '--explain').toString();
+  expect(command('explore', '--explain', '--query-file', '需求.md').toString()).toBe(explained);
+  expect(explained.endsWith(plain)).toBe(true);
+  const detail = explained.slice(0, -plain.length);
+  expect(detail).toContain('原文提到的符号（索引已确认）：aldCorePidInit\n');
+  expect(detail).toContain('原文中的标识符（索引未确认）：FutureLogHook\n');
+  expect(detail).toContain('进程启动（手工短语匹配） → REDUCEBIN_ALD_INFO_LOG1、aldCorePidInit\n');
+  expect(detail).toContain('中心层信息日志（文档相似匹配，ald/DESIGN.md:1） → REDUCEBIN_ALD_INFO_LOG1\n');
+  expect(detail).not.toContain('MissingSymbol');
+  expect(detail).not.toContain('启动进程');
+  const noHit = command('explore', '--explain', '查看 ald/include/log2.h 与未来业务目标').toString();
+  expect(noHit).toContain('原文提到的符号（索引已确认）：无\n');
+  expect(noHit).toContain('命中的术语 → 召回候选符号\n无\n');
+}, 90000);
+
+it('explains fuzzy document matches even if their definitions are ambiguous or missing', async () => {
+  write('ald/duplicate.h', '#define REDUCEBIN_ALD_INFO_LOG1(msg) msg\n');
+  graph = await CodeGraph.init(root, { index: true });
+  const term = '日志打印模块初始化';
+  const design = { document: 'ald/Design.md', documentLine: 4 };
+  fs.writeFileSync(active(), JSON.stringify({ rules: [
+    { terms: [term, '风扇过热'], symbols: [macros[0], 'MissingSymbol', 'aldScanTimeoutProc'], design },
+    { terms: [term, '风扇过热'], symbols: [macros[0]], design: { ...design, documentLine: 8 } },
+  ] }));
+  const query = '日志打印模块是怎样的';
+  const plain = command('explore', query).toString();
+  const explained = command('explore', '--explain', query).toString();
+  expect(explained.endsWith(plain)).toBe(true);
+  const detail = explained.slice(0, -plain.length);
+  expect(detail).toContain('原文提到的符号（索引已确认）：无');
+  expect(detail).toContain('日志打印模块初始化（文档相似匹配，ald/Design.md:4） → aldScanTimeoutProc\n');
+  expect(detail).toContain('日志打印模块初始化（文档相似匹配，ald/Design.md:8） → 无候选\n');
+  expect(detail).not.toMatch(/风扇过热|MissingSymbol|REDUCEBIN_ALD_INFO_LOG1/);
+}, 90000);
+
+it('reports only admitted symbols when manual and document rules share the candidate budget', async () => {
+  const names = Array.from({ length: 41 }, (_, n) => 'ALD_BUDGET_' + n);
+  write('ald/include/budget.h', names.map(name => '#define ' + name + ' 1').join('\n'));
+  graph = await CodeGraph.init(root, { index: true });
+  const term = '预算查询';
+  const design = { document: 'ald/DESIGN.md', documentLine: 1 };
+  fs.writeFileSync(active(), JSON.stringify({ rules: [
+    { terms: [term], symbols: names.slice(0, 16) },
+    { terms: [term], symbols: names.slice(16, 40), design },
+    { terms: [term], symbols: names.slice(40), design: { ...design, documentLine: 2 } },
+  ] }));
+  const plain = command('explore', term).toString();
+  const explained = command('explore', '--explain', term).toString();
+  expect(explained.endsWith(plain)).toBe(true);
+  const detail = explained.slice(0, -plain.length);
+  expect(detail).toContain('（手工短语匹配） → ' + names.slice(0, 16).join('、') + '\n');
+  expect(detail).toContain('ald/DESIGN.md:1） → ' + names.slice(16, 24).join('、') + '\n');
+  expect(detail).toContain('ald/DESIGN.md:2） → 无候选\n');
+}, 90000);

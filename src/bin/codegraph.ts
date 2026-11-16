@@ -1278,9 +1278,10 @@ program
   .command('explore [query...]')
   .description('Explore related symbols, call paths, and source code')
   .option('--query-file <file>', 'Read the query from a UTF-8 document instead of positional text')
+  .option('--explain', 'Show symbols mentioned in the input and the candidates recalled by each matching term')
   .option('-p, --path <path>', 'Project path')
   .option('--max-files <number>', 'Maximum files to return (1–20; default depends on project size)')
-  .action(async (words: string[], options: { path?: string; maxFiles?: string; queryFile?: string }) => {
+  .action(async (words: string[], options: { path?: string; maxFiles?: string; queryFile?: string; explain?: boolean }) => {
     try {
       if (options.queryFile !== undefined && words.length > 0) {
         throw new Error('Use either query text or --query-file, not both');
@@ -1308,12 +1309,14 @@ program
       const { ToolHandler: Explore } = await import('../upstream-explore/mcp/tools');
       const graph = await openQueryGraph(CodeGraph, projectPath);
       try {
-        const result = await new Explore(createUpstreamExploreGraph(graph), {
+        const explanation = options.explain ? new (await import('../explore-explanation')).ExploreExplanation() : undefined;
+        const result = await new Explore(createUpstreamExploreGraph(graph, explanation), {
           names: { explore: 'codegraph explore', node: 'codegraph node' },
           served: new Set(['explore', 'node']),
         }).execute('codegraph_explore', { query, maxFiles });
         const text = result.content.map(item => item.text).join('\n');
         if (result.isError) throw new Error(text);
+        if (explanation) console.log(explanation.format() + '\n');
         console.log(text);
       } finally {
         graph.close();

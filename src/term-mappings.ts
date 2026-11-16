@@ -27,7 +27,9 @@ export interface TermMappings {
   errors: string[];
   warnings: string[];
 }
-const cache = new Map<string, { stamp: string; value: TermMappings }>();
+// Two same-size edits can share all stat fields on a coarse filesystem clock.
+const TIMESTAMP_WINDOW_MS = 2000;
+const cache = new Map<string, { stamp: string; recentContent?: string; value: TermMappings }>();
 
 export function loadTermMappings(dataDir: string): TermMappings {
   const file = path.join(dataDir, TERM_MAPPINGS_FILE);
@@ -38,7 +40,10 @@ export function loadTermMappings(dataDir: string): TermMappings {
     if (stat.size > MAX_MAPPING_BYTES) return empty(true, [`Mapping configuration exceeds ${MAX_MAPPING_BYTES} bytes.`]);
     const stamp = `${stat.dev}:${stat.ino}:${stat.size}:${stat.mtimeMs}:${stat.ctimeMs}`;
     const hit = cache.get(file);
-    if (hit?.stamp === stamp) return hit.value;
+    if (hit?.stamp === stamp && hit.recentContent === undefined) return hit.value;
+    // Until a read occurs after the last timestamp tick, verify the bytes.
+    // Reuse the parsed object (and its TF-IDF vectors) when they still match.
+    const recent = Date.now() - Math.max(stat.mtimeMs, stat.ctimeMs) <= TIMESTAMP_WINDOW_MS;
     // Bounded read even when the file grows between stat and read.
     const fd = fs.openSync(file, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW ?? 0) | (fs.constants.O_NONBLOCK ?? 0));
     let content: string;
@@ -55,9 +60,13 @@ export function loadTermMappings(dataDir: string): TermMappings {
       if (length > MAX_MAPPING_BYTES) return empty(true, [`Mapping configuration exceeds ${MAX_MAPPING_BYTES} bytes.`]);
       content = buffer.subarray(0, length).toString('utf8');
     } finally { fs.closeSync(fd); }
+    if (hit?.stamp === stamp && hit.recentContent === content) {
+      if (!recent) delete hit.recentContent;
+      return hit.value;
+    }
     const result = parseTermMappings(content, file);
     if (cache.size >= 32) cache.delete(cache.keys().next().value!);
-    cache.set(file, { stamp, value: result });
+    cache.set(file, { stamp, recentContent: recent ? content : undefined, value: result });
     return result;
   } catch (error) {
     cache.delete(file);
@@ -123,14 +132,22 @@ function containsTerm(query: string, term: string): boolean {
 }
 
 /** Invalid individual rules are ignored; valid rules remain usable. */
-export function matchTermMappingSymbols(config: TermMappings, query: string): string[] {
+export function matchTermMappingSymbols(
+  config: TermMappings, query: string, onMatch?: (rule: TermMappingRule, terms: string[]) => void,
+): string[] {
   const normalized = normalizeTerm(query);
   const names = new Set<string>();
   for (const rule of config.rules) {
-    if (rule.design || !rule.terms.some(term => containsTerm(normalized, term))) continue;
+    if (rule.design) continue;
+    if (onMatch) {
+      const terms = rule.terms.filter(term => containsTerm(normalized, term));
+      if (!terms.length) continue;
+      onMatch(rule, terms);
+    } else if (!rule.terms.some(term => containsTerm(normalized, term))) continue;
     for (const symbol of rule.symbols) {
+      if (names.size >= MAX_MAPPING_SEEDS) break;
       names.add(symbol);
-      if (names.size >= MAX_MAPPING_SEEDS) return [...names];
+      if (!onMatch && names.size === MAX_MAPPING_SEEDS) return [...names];
     }
   }
   return [...names];

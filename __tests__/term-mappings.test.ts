@@ -42,7 +42,9 @@ describe('maintainer term mappings', () => {
     const file = path.join(root, 'term-mappings.json');
     expect(loadTermMappings(root).exists).toBe(false);
     fs.writeFileSync(file, JSON.stringify({ rules: [{ terms: ['信道'], symbols: ['one'] }] }));
-    expect(matchTermMappingSymbols(loadTermMappings(root), '信道')).toEqual(['one']);
+    const first = loadTermMappings(root);
+    expect(matchTermMappingSymbols(first, '信道')).toEqual(['one']);
+    expect(loadTermMappings(root)).toBe(first);
     fs.writeFileSync(file, JSON.stringify({ rules: [{ terms: ['信道'], symbols: ['two'] }] }));
     expect(matchTermMappingSymbols(loadTermMappings(root), '信道')).toEqual(['two']);
     fs.writeFileSync(file, '{');
