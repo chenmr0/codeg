@@ -6,7 +6,18 @@ import { scanDesignDocuments } from './extraction';
 import { isWithinExistingDirectory, sameExistingPath } from './path-identity';
 import { validatePathWithinRoot } from './utils';
 import { logWarn } from './errors';
-import { MAX_DESIGN_SEEDS, type DesignEntry } from './design-recall';
+import { randomUUID } from 'node:crypto';
+import { MAX_DESIGN_SEEDS } from './design-recall';
+import { designDraftPath, type TermMappingRule } from './term-mappings';
+
+interface Definition { name: string; qualifiedName: string; kind: string; file: string; line: number }
+interface DesignEntry {
+  description: string;
+  heading: string;
+  evidence: string;
+  reference: string;
+  definitions: Definition[];
+}
 
 const MAX_DOC_BYTES = 1024 * 1024;
 interface Fragment { text: string; symbols: string[]; files: string[]; direct: boolean }
@@ -63,10 +74,11 @@ function extract(document: string, content: string, db: SqliteDatabase, module =
   const prefix = module === '.' ? '' : module + '/';
   const scope = " AND substr(file_path,1,length(?)) = ? " +
     "AND (? = '' OR file_path = ? OR substr(file_path, -length(?) - 1) = '/' || ?)";
-  const exact = db.prepare("SELECT id,file_path FROM nodes WHERE (name = ? OR qualified_name = ?) AND kind NOT IN ('file','import')" + scope + ' LIMIT 2');
+  const columns = 'SELECT name,qualified_name AS qualifiedName,kind,file_path AS file,start_line AS line';
+  const exact = db.prepare(columns + " FROM nodes WHERE (name = ? OR qualified_name = ?) AND kind NOT IN ('file','import')" + scope + ' LIMIT 2');
   const macroFilter = " FROM nodes WHERE name GLOB ? AND kind = 'macro'";
   const familyFiles = db.prepare('SELECT DISTINCT file_path' + macroFilter + scope + ' LIMIT 2');
-  const family = db.prepare('SELECT id,file_path' + macroFilter + ' AND file_path = ? ORDER BY start_line,id LIMIT ?');
+  const family = db.prepare(columns + macroFilter + ' AND file_path = ? ORDER BY start_line,id LIMIT ?');
   let heading = '', label = '', source = '';
   function add(item: Fragment, evidence: string): void {
     if (!item.direct || item.symbols.length !== 1 || !/\p{Script=Han}/u.test(item.text) ||
@@ -75,7 +87,7 @@ function extract(document: string, content: string, db: SqliteDatabase, module =
     const params = [prefix, prefix, file, file, file, file];
     const symbol = item.symbols[0]!;
     const wildcard = symbol.endsWith('*');
-    let rows: { id: string; file_path: string }[];
+    let rows: Definition[];
     if (wildcard) {
       // Prove the file is unambiguous before truncating a large macro family.
       const files = familyFiles.all(symbol, ...params);
@@ -86,8 +98,8 @@ function extract(document: string, content: string, db: SqliteDatabase, module =
       if (rows.length !== 1) return;
     }
     if (!rows.length) return;
-    entries.push({ document, heading: [heading, label].filter(Boolean).join(' '), text: item.text,
-      evidence: evidence.trim(), symbol, file: rows[0]!.file_path, ids: rows.map(row => row.id) });
+    entries.push({ heading: [heading, label].filter(Boolean).join(' '), description: item.text,
+      evidence: evidence.trim(), reference: symbol, definitions: rows });
   }
 
   function list(items: { raw: string; tokens: Token[] }[], definition?: Fragment, title = ''): void {
@@ -172,22 +184,25 @@ export function previewDesignDocument(input: string, project: string, selected: 
   if (!isWithinExistingDirectory(scope, root, true)) throw new Error('Module directory is outside the indexed project: ' + scope);
   const module = path.relative(root, scope).split(path.sep).join('/') || '.';
 
-  return db.transaction(() => {
-    const definition = db.prepare('SELECT name, qualified_name AS qualifiedName, kind, file_path AS file, start_line AS line FROM nodes WHERE id=?');
-    const mappings = extract(document, content, db, module).map(entry => ({
-      description: entry.text, heading: entry.heading, evidence: entry.evidence, reference: entry.symbol,
-      definitions: entry.ids.map(id => definition.get(id) as {
-        name: string; qualifiedName: string; kind: string; file: string; line: number;
-      }),
-    }));
-    return { document, project: root, module, mappings };
-  })();
+  const mappings = db.transaction(() => extract(document, content, db, module))();
+  return { document, project: root, module, mappings };
+}
+
+export function designRules(document: string, entries: DesignEntry[]): TermMappingRule[] {
+  return entries.map(entry => ({
+    terms: [entry.description.replace(/^[\s:：—–-]+/, '').replace(/\s+/g, ' ').trim()],
+    symbols: [...new Set(entry.definitions.map(node => node.qualifiedName || node.name))],
+    design: { document, heading: entry.heading, reference: entry.reference, file: entry.definitions[0]!.file, evidence: entry.evidence },
+  }));
+}
+
+export function serializeDesignRules(rules: TermMappingRule[]): string {
+  return JSON.stringify({ rules }, null, 2) + '\n';
 }
 
 /** Only ancestors of indexed source files can contain module-local definitions.
  * Avoid running an additional inventory in projects without module documents. */
-export function designIndexUpdate(root: string, db: SqliteDatabase, sources: readonly {path: string}[],
-  previous: string | null): string | null | undefined {
+export function buildDesignDraft(root: string, db: SqliteDatabase, sources: readonly {path: string}[]): string | null | undefined {
   try {
     const dirs = new Set<string>();
     let found = false;
@@ -201,15 +216,42 @@ export function designIndexUpdate(root: string, db: SqliteDatabase, sources: rea
       }
       if (found) break;
     }
-    const entries: DesignEntry[] = [];
-    if (found) for (const document of scanDesignDocuments(root)) {
+    if (!found) return null;
+    const rules: TermMappingRule[] = [];
+    for (const document of scanDesignDocuments(root)) {
       const content = readDocument(root, document);
-      if (content) entries.push(...extract(document, content, db));
+      if (content) rules.push(...designRules(document, extract(document, content, db)));
     }
-    const value = entries.length ? JSON.stringify(entries) : null;
-    return value === previous ? undefined : value;
+    return serializeDesignRules(rules);
   } catch (error) {
-    logWarn('Could not refresh Design.md recall; retaining the previous document index', { error: String(error) });
+    logWarn('Could not extract the Design.md review draft', { error: String(error) });
     return undefined;
+  }
+}
+
+/** Publish only a completely scanned draft. A missing corpus clears an existing
+ * draft; failed scans and unpublished candidates leave the last draft intact. */
+export function publishDesignDraft(dataDir: string, content: string | null | undefined): void {
+  if (content === undefined) return;
+  try {
+    const file = designDraftPath(dataDir);
+    const directory = path.dirname(file);
+    const directoryStat = fs.lstatSync(directory, { throwIfNoEntry: false });
+    if (content === null && !directoryStat) return;
+    if (directoryStat && !directoryStat.isDirectory()) throw new Error('Expected a regular review directory: ' + directory);
+    const previous = fs.lstatSync(file, { throwIfNoEntry: false });
+    if (previous && !previous.isFile()) throw new Error('Expected a regular draft file: ' + file);
+
+    if (content === null && !previous) return;
+    const draft = content ?? serializeDesignRules([]);
+    if (previous?.size === Buffer.byteLength(draft) && fs.readFileSync(file, 'utf8') === draft) return;
+    fs.mkdirSync(directory, { recursive: true });
+    const temporary = path.join(directory, randomUUID() + '.tmp');
+    try {
+      fs.writeFileSync(temporary, draft, { flag: 'wx' });
+      fs.renameSync(temporary, file);
+    } finally { fs.rmSync(temporary, { force: true }); }
+  } catch (error) {
+    logWarn('Could not refresh the Design.md review draft', { error: String(error) });
   }
 }

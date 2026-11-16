@@ -5,8 +5,7 @@
  * knowledge graph from any codebase.
  */
 
-import { designIndexUpdate } from './design-documents';
-import { DESIGN_INDEX_KEY } from './design-recall';
+import { buildDesignDraft, publishDesignDraft } from './design-documents';
 import { openedDirectoryIdentity } from './path-identity';
 import * as path from 'path';
 import { appendAdaptiveLog, formatAdaptiveDecision } from './sync/adaptive-log';
@@ -462,6 +461,7 @@ export class CodeGraph {
             // reader admitted during init can never observe MEMORY/OFF writes.
             candidate = coordinator.beginInitialCandidate();
             let result: IndexResult | undefined;
+            let draft: string | null | undefined;
             try {
               const graph = candidateGraph = await CodeGraph.createPortableCandidate(root, candidate.path);
               candidateConnection = graph.db;
@@ -471,6 +471,7 @@ export class CodeGraph {
                 failedInitialResult = result;
                 throw new Error(result.errors.map(error => error.message).join('; ') || 'Initial indexing failed');
               }
+              if (result.complete) draft = buildDesignDraft(root, graph.db.getDb(), graph.getFiles());
             } catch (error) {
               if (!candidateGraph && error instanceof DatabaseOpenError) {
                 candidateConnection = error.connection;
@@ -488,6 +489,7 @@ export class CodeGraph {
             await coordinator.publishInitialCandidate(candidate, { timeoutMs: 30_000, signal: options.signal });
             indexed = true;
             initialResult = result;
+            publishDesignDraft(dataDir, draft);
           }
         } finally {
           let closed = !db;
@@ -648,11 +650,10 @@ export class CodeGraph {
 
   private updatePublicationCatchup(operation: string | null): void {
     const db = this.db.getDb();
-    const documents = operation === null ? this.designDocumentChange(this.queries.getAllFiles()) : undefined;
+    if (operation === null) this.refreshDesignDocuments(this.queries.getAllFiles());
     db.transaction(() => {
       // Legacy ownership triggers guard metadata too. Keep the marker change and its ownership proof atomic.
       const ownership = this.portableBound ? null : beginSourceWrite(db);
-      if (documents !== undefined) this.queries.applyMetadataChanges({ [DESIGN_INDEX_KEY]: documents });
       if (operation === null) db.prepare('DELETE FROM project_metadata WHERE key IN (?, ?, ?)').run(CATCHUP, PUBLICATION_MACROS, PUBLICATION_FRAMEWORKS);
       else setPortableMetadata(db, CATCHUP, operation);
       finishSourceWrite(db, ownership, true);
@@ -1581,16 +1582,12 @@ export class CodeGraph {
       const reusable = options.displayOnlyProgress || (!options.onProgress && !options.onScanFallback);
       const finalizeStarted = options.verbose ? performance.now() : 0;
       if (!scoped && reusable && changes.changedFiles === 0 && !changes.hasStatChanges && !changes.needsRecovery && this.canFinishWithoutWriting()) {
-        const documentChange = this.designDocumentChange(tracked);
+        this.refreshDesignDocuments(tracked);
         const result = finishUnchangedSyncInventory(inventory, tracked.length, options.onProgress, options.onScanFallback);
         result.coverageVerified = true; // canFinishWithoutWriting requires proven coverage.
         options.signal?.throwIfAborted();
         if (options.verbose) console.log(`[sync] tail-detail mode=read-only prepareAndWalMs=0ms finalizeMs=${Math.round(performance.now() - finalizeStarted)}ms`);
         result.durationMs = Math.round(performance.now() - startedAt);
-        if (documentChange !== undefined) return async writer => {
-          writer.queries.applyMetadataChanges({ [DESIGN_INDEX_KEY]: documentChange });
-          return result;
-        };
         return result;
       }
       const prepared = { startedAt, tracked, inventory: reusable ? inventory : undefined, policyFiles, policy };
@@ -1611,13 +1608,10 @@ export class CodeGraph {
       this.hasPortableCompletionProof();
   }
 
-  private designDocumentChange(files: readonly {path: string}[]) {
-    return designIndexUpdate(this.projectRoot, this.db.getDb(), files, this.queries.getMetadata(DESIGN_INDEX_KEY));
-  }
-
   private refreshDesignDocuments(files: readonly {path: string}[]): void {
-    const change = this.designDocumentChange(files);
-    if (change !== undefined) this.queries.applyMetadataChanges({ [DESIGN_INDEX_KEY]: change });
+    // Private rebuild candidates cannot publish project-visible review files.
+    if (this.disposableCandidate || (this.shadowCandidate && !this.portableBound)) return;
+    publishDesignDraft(this.dataDir, buildDesignDraft(this.projectRoot, this.db.getDb(), files));
   }
 
   private async syncInternal(options: SyncOptions, heldBy?: 'forwarder' | 'catchup', prepared?: PreparedSync): Promise<SyncResult> {

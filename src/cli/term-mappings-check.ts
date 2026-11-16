@@ -4,6 +4,7 @@ import { loadTermMappings, getTermMappingSymbolMatches } from '../term-mappings'
 export type MappingCheckStatus = 'FOUND' | 'MULTIPLE' | 'NOT_FOUND_IN_INDEX' | 'UNVERIFIED';
 export interface MappingCheckResult {
   symbol: string;
+  file?: string;
   status: MappingCheckStatus;
   count: number;
   candidates: Array<{ id: string; name: string; qualifiedName?: string; kind: string; filePath: string; startLine: number }>;
@@ -71,16 +72,23 @@ export function checkTermMappings(
         report.warnings.push('Source changes are not reflected in the current index; synchronize before confirming missing symbols.');
       }
     }
-    const matches = getTermMappingSymbolMatches(graph.getExploreQueryConnection(), symbols, 20);
-    report.results = symbols.map(symbol => {
-      const match = matches.get(symbol);
-      const count = match?.count ?? 0;
-      const candidates = match?.candidates ?? [];
-      return {
-        symbol, count, candidates, truncated: count > candidates.length,
-        status: count > 1 ? 'MULTIPLE' : count === 1 ? 'FOUND' : reliable ? 'NOT_FOUND_IN_INDEX' : 'UNVERIFIED',
-      };
-    });
+    const scopes = new Map<string | undefined, Set<string>>();
+    for (const rule of config.rules) {
+      const file = rule.design?.file;
+      const names = scopes.get(file) ?? new Set<string>();
+      for (const name of rule.symbols) names.add(name);
+      scopes.set(file, names);
+    }
+    const db = graph.getExploreQueryConnection();
+    for (const [file, names] of scopes) {
+      const matches = getTermMappingSymbolMatches(db, [...names], 20, file);
+      for (const [symbol, { count, candidates }] of matches) {
+        report.results.push({
+          symbol, ...(file ? { file } : {}), count, candidates, truncated: count > candidates.length,
+          status: count > 1 ? 'MULTIPLE' : count === 1 ? 'FOUND' : reliable ? 'NOT_FOUND_IN_INDEX' : 'UNVERIFIED',
+        });
+      }
+    }
     report.exitCode = !reliable ? 2 : report.results.some(result => result.count === 0) ? 1 : 0;
   } catch (error) {
     report.errors.push(error instanceof Error ? error.message : String(error));
@@ -96,7 +104,7 @@ export function formatMappingsCheck(report: MappingsCheckReport): string {
     `Rules: ${report.ruleCount}; unique symbols: ${report.uniqueSymbolCount}`,
   ];
   for (const result of report.results) {
-    lines.push(`${result.status.padEnd(19)} ${result.symbol}${result.count > 1 ? ` (${result.count} candidates; review same-name definitions/declarations)` : ''}`);
+    lines.push(`${result.status.padEnd(19)} ${result.symbol}${result.file ? ` [${result.file}]` : ''}${result.count > 1 ? ` (${result.count} candidates; review same-name definitions/declarations)` : ''}`);
     for (const candidate of result.candidates) {
       lines.push(`  ${candidate.kind} ${candidate.qualifiedName || candidate.name}  ${candidate.filePath}:${candidate.startLine}`);
     }

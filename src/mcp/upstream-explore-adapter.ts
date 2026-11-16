@@ -166,7 +166,8 @@ export function createUpstreamExploreGraph(cg: CodeGraph): ExploreGraph {
     findRelevantContext: (query, options) => {
       let mappedSeedNodes: NonNullable<typeof options>['mappedSeedNodes'] = [];
       try {
-        const names = matchTermMappingSymbols(loadTermMappings(cg.getDataDirectory()), query);
+        const config = loadTermMappings(cg.getDataDirectory());
+        const names = matchTermMappingSymbols(config, query);
         // Resolve a bounded set of IDs, not lower-case fuzzy names. Do not cache
         // nodes across index generations or let optional config break Explore.
         const seen = new Set<string>();
@@ -180,10 +181,7 @@ export function createUpstreamExploreGraph(cg: CodeGraph): ExploreGraph {
           }
           if (mappedSeedNodes.length >= 24) break;
         }
-      } catch { /* Invalid optional policy must not prevent normal retrieval. */ }
-      try {
-        const seen = new Set(mappedSeedNodes.map(node => node.id));
-        for (const id of designSeedIds(db, query)) {
+        for (const id of designSeedIds(db, query, config)) {
           if (mappedSeedNodes.length >= 24) break;
           if (seen.has(id)) continue;
           const node = queries.getNodeById(id);

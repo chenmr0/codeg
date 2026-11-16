@@ -4,10 +4,18 @@ import * as path from 'node:path';
 import type { SqliteDatabase } from './db/sqlite-adapter';
 
 export const TERM_MAPPINGS_FILE = 'term-mappings.json';
+export function designDraftPath(dataDir: string): string { return path.join(dataDir, 'review', TERM_MAPPINGS_FILE); }
 export const MAX_MAPPING_SEEDS = 16;
 const MAX_BYTES = 256 * 1024;
 const MAX_RULES = 1000;
-export interface TermMappingRule { terms: string[]; symbols: string[] }
+export interface DesignEvidence {
+  document: string;
+  heading: string;
+  reference: string;
+  file: string;
+  evidence: string;
+}
+export interface TermMappingRule { terms: string[]; symbols: string[]; design?: DesignEvidence }
 export interface TermMappings {
   path: string;
   exists: boolean;
@@ -68,7 +76,7 @@ export function parseTermMappings(content: string, file = TERM_MAPPINGS_FILE): T
   input.forEach((rule, index) => {
     const label = `Rule ${index + 1}`;
     if (!rule || typeof rule !== 'object') { result.errors.push(`${label}: expected an object.`); return; }
-    const { terms, symbols } = rule as { terms?: unknown; symbols?: unknown };
+    const { terms, symbols, design } = rule as { terms?: unknown; symbols?: unknown; design?: DesignEvidence };
     const valid = (list: unknown, max: number): list is string[] => Array.isArray(list) && list.length > 0 && list.length <= max
       && list.every(s => typeof s === 'string' && s.trim().length > 0 && s.length <= 256 && !/[\u0000-\u001f]/.test(s));
     if (!valid(terms, 20) || !valid(symbols, 32)) {
@@ -83,7 +91,13 @@ export function parseTermMappings(content: string, file = TERM_MAPPINGS_FILE): T
       if (previous !== undefined) result.warnings.push(`${label}: term "${term}" also occurs in rule ${previous + 1}; matching rules are merged.`);
       else seenTerms.set(term, index);
     }
-    result.rules.push({ terms: uniqueTerms, symbols: uniqueSymbols });
+    if (design !== undefined && (!design || typeof design.file !== 'string' || !design.file ||
+        typeof design.heading !== 'string' || typeof design.document !== 'string' ||
+        typeof design.reference !== 'string' || typeof design.evidence !== 'string')) {
+      result.errors.push(label + ': invalid design evidence.');
+      return;
+    }
+    result.rules.push({ terms: uniqueTerms, symbols: uniqueSymbols, ...(design ? { design } : {}) });
   });
   return result;
 }
@@ -108,7 +122,7 @@ export function matchTermMappingSymbols(config: TermMappings, query: string): st
   const normalized = normalizeTerm(query);
   const names = new Set<string>();
   for (const rule of config.rules) {
-    if (!rule.terms.some(term => containsTerm(normalized, term))) continue;
+    if (rule.design || !rule.terms.some(term => containsTerm(normalized, term))) continue;
     for (const symbol of rule.symbols) {
       names.add(symbol);
       if (names.size >= MAX_MAPPING_SEEDS) return [...names];
@@ -124,17 +138,18 @@ export interface MappingSymbolMatch { count: number; candidates: MappingSymbolCa
 /** Shared by Explore and the maintainer CLI. Exact, case-sensitive, index-backed
  * lookup; total counts are not inferred from a truncated display list. */
 export function getTermMappingSymbolMatches(
-  db: Pick<SqliteDatabase, 'prepare'>, names: readonly string[], limitPerSymbol = 20,
+  db: Pick<SqliteDatabase, 'prepare'>, names: readonly string[], limitPerSymbol = 20, file?: string,
 ): Map<string, MappingSymbolMatch> {
   const matches = new Map<string, MappingSymbolMatch>();
   if (!names.length) return matches;
-  const predicate = "(name = ? OR qualified_name = ?) AND kind NOT IN ('file', 'import')";
+  const predicate = "(name = ? OR qualified_name = ?) AND kind NOT IN ('file', 'import')" + (file === undefined ? '' : ' AND file_path=?');
   const count = db.prepare(`SELECT count(*) AS count FROM nodes WHERE ${predicate}`);
   const select = db.prepare(`SELECT id, name, qualified_name, kind, file_path, start_line FROM nodes WHERE ${predicate} ORDER BY file_path, start_line, id LIMIT ?`);
   const limit = Math.min(100, Math.max(1, Math.floor(limitPerSymbol) || 20));
   for (const name of new Set(names)) {
-    const total = Number(count.get(name, name).count);
-    const candidates = select.all(name, name, limit).map(row => ({
+    const args = file === undefined ? [name, name] : [name, name, file];
+    const total = Number(count.get(...args).count);
+    const candidates = select.all(...args, limit).map(row => ({
       id: String(row.id), name: String(row.name), qualifiedName: row.qualified_name ?? undefined,
       kind: String(row.kind), filePath: String(row.file_path), startLine: Number(row.start_line),
     }));

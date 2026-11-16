@@ -5,6 +5,7 @@ import * as path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import CodeGraph from '../src';
 import { createUpstreamExploreGraph } from '../src/mcp/upstream-explore-adapter';
+import { loadTermMappings, type TermMappingRule } from '../src/term-mappings';
 import { designSeedIds } from '../src/design-recall';
 
 const cli = path.resolve(__dirname, '../dist/bin/codegraph.js');
@@ -30,9 +31,13 @@ function command(...args: string[]) {
     cwd: root, timeout: 60000, stdio: 'pipe', env: { ...process.env, CI: '1', CODEGRAPH_NO_DAEMON: '1' },
   });
 }
+const active = () => path.join(graph!.getDataDirectory(), 'term-mappings.json');
+const draft = () => path.join(graph!.getDataDirectory(), 'review', 'term-mappings.json');
+const rules = (): TermMappingRule[] => JSON.parse(fs.readFileSync(draft(), 'utf8')).rules;
+function approve() { fs.copyFileSync(draft(), active()); }
 function seeds(query: string) {
   const db = graph!.getExploreQueryConnection();
-  return designSeedIds(db, query).map(id => db.prepare('SELECT name,file_path FROM nodes WHERE id=?').get(id));
+  return designSeedIds(db, query, loadTermMappings(graph!.getDataDirectory())).map(id => db.prepare('SELECT name,file_path FROM nodes WHERE id=?').get(id));
 }
 beforeEach(() => {
   root = fs.mkdtempSync(path.join(os.tmpdir(), 'cg-design-'));
@@ -53,6 +58,19 @@ it('indexes module documentation through the built CLI and recalls the documente
   write('.gitignore', 'other/Design.md\n');
   command('init', root);
   graph = CodeGraph.openSync(root);
+  expect(fs.existsSync(active())).toBe(false);
+  expect(seeds('中心层信息日志')).toEqual([]);
+  const db = graph.getExploreQueryConnection();
+  expect(db.prepare('SELECT value FROM project_metadata WHERE key=?').get('explore:design-documents-v1')).toBeUndefined();
+  expect(rules()).toContainEqual(expect.objectContaining({ terms: ['中心层信息日志'], symbols: [macros[0]],
+    design: expect.objectContaining({ file: 'ald/include/ald_logcode.h' }) }));
+  expect([...((await createUpstreamExploreGraph(graph).findRelevantContext('增加一条中心层信息日志')).nodes.values())]
+    .map(n => n.name)).not.toContain(macros[0]);
+  const reviewed = rules().filter(rule => rule.terms.includes('中心层信息日志'));
+  fs.writeFileSync(active(), JSON.stringify({ rules: reviewed }));
+  expect(seeds('中心层信息日志')).toHaveLength(1);
+  expect(seeds('适配层错误日志')).toEqual([]);
+  approve();
   expect(command('explore', '增加一条中心层信息日志').toString()).toContain('REDUCEBIN_ALD_INFO_LOG1');
   expect(seeds('不相关词语')).toEqual([]);
   for (let i = 0; i < descriptions.length; i++) {
@@ -80,19 +98,33 @@ it('updates on document-only sync, symbol changes, and deletion while preserving
   graph.close(); await graph.whenIdle(); graph = undefined;
   command('sync');
   graph = CodeGraph.openSync(root);
+  expect(seeds(descriptions[0]!)).toEqual([]);
+  approve();
+  const approvedBytes = fs.readFileSync(active());
   expect(seeds(descriptions[0]!).map(row => row.name)).toEqual([macros[0]]);
   write('ald/Design.md', '- `REDUCEBIN_ALD_INFO_LOG*`：链路握手追踪');
   const result = await graph.sync();
   expect(result.filesAdded + result.filesModified + result.filesRemoved).toBe(0);
+  expect(fs.readFileSync(active())).toEqual(approvedBytes);
+  expect(seeds(descriptions[0]!)).toHaveLength(1);
+  expect(seeds('链路握手追踪')).toEqual([]);
+  approve();
   expect(seeds(descriptions[0]!)).toEqual([]);
   expect(seeds('链路握手追踪').map(row => row.name)).toEqual([macros[0]]);
   write('ald/include/ald_logcode.h', '#define REDUCEBIN_ALD_INFO_LOG_NEW(msg) msg\n');
   await graph.sync({ adaptive: false });
+  expect(seeds('链路握手追踪')).toEqual([]);
+  approve();
   expect(seeds('链路握手追踪').map(row => row.name)).toEqual(['REDUCEBIN_ALD_INFO_LOG_NEW']);
   fs.unlinkSync(path.join(root, 'ald/Design.md'));
   await graph.sync();
+  expect(rules()).toEqual([]);
+  expect(seeds('链路握手追踪')).toHaveLength(1);
+  approve();
   expect(seeds('链路握手追踪')).toEqual([]);
   expect(await ordinary()).toEqual(baseline);
+  expect(graph.getExploreQueryConnection().prepare('SELECT value FROM project_metadata WHERE key=?')
+    .get('explore:design-documents-v1')).toBeUndefined();
 }, 90000);
 
 
@@ -111,29 +143,35 @@ it('requires local evidence: accepts explicit typed labels, rejects concepts, co
     '', '| 接口 | 用途 |', '|---|---|', '| `DeviceObject` | 设备属性查询 |',
   ].join('\n'));
   graph = await CodeGraph.init(root, { index: true });
+  approve();
   const expected = { name: 'CTRLTOP_PORT_CONFIG_STATUS_ENUM', file_path: 'beqm/bbutop_common.h' };
   expect(seeds('端口配置状态')).toContainEqual(expected);
   expect(seeds('未配置、已配置、配置失败')).toContainEqual(expected);
   expect(seeds('设备属性查询').map(s => s.name)).toEqual(['DeviceObject']);
   for (const query of ['设备编号', '只是一个示例', '密钥轮换', '识别拓扑节点', '报表管理']) expect(seeds(query)).toEqual([]);
-  const db = graph.getExploreQueryConnection();
-  const evidence = JSON.parse(db.prepare('SELECT value FROM project_metadata WHERE key=?').get('explore:design-documents-v1').value);
-  expect(evidence).toContainEqual(expect.objectContaining({document: 'beqm/design.md', file: expected.file_path,
-    symbol: expected.name, evidence: expect.stringContaining('配置失败')}));
-  expect(evidence.some((entry: { evidence: string }) => entry.evidence.includes('Device Object'))).toBe(false);
+  const evidence = rules().map(rule => rule.design!);
+  expect(evidence).toContainEqual(expect.objectContaining({ document: 'beqm/design.md', file: expected.file_path,
+    reference: expected.name, evidence: expect.stringContaining('配置失败') }));
+  expect(evidence.some(entry => entry.evidence.includes('Device Object'))).toBe(false);
 });
 
 it('previews the current draft against an explicit module without changing Explore bindings', async () => {
   write('ald/Design.md', doc);
   write('other/ald_logcode.h', '#define REDUCEBIN_ALD_INFO_LOG_OTHER(msg) msg\n');
   graph = await CodeGraph.init(root, { index: true });
+  approve();
   const original = seeds('中心层信息日志');
   const external = fs.mkdtempSync(path.join(os.tmpdir(), 'cg-preview-'));
   try {
     const draft = path.join(external, '设计草稿.md');
     const text = '- `REDUCEBIN_ALD_INFO_LOG*`：业务接入追踪';
     fs.writeFileSync(draft, text);
-    const report = JSON.parse(command('mappings', 'preview', draft, '--path', path.join(root, 'ald'), '--json').toString());
+    const exported = path.join(external, 'term-mappings.json');
+    const report = JSON.parse(command('mappings', 'preview', draft, '--path', path.join(root, 'ald'), '--output', exported, '--json').toString());
+    expect(JSON.parse(fs.readFileSync(exported, 'utf8')).rules).toMatchObject([
+      { terms: ['业务接入追踪'], symbols: [macros[0]], design: { file: 'ald/include/ald_logcode.h' } },
+    ]);
+    expect(() => command('mappings', 'preview', draft, '--path', path.join(root, 'ald'), '--output', exported)).toThrow();
     expect(report).toMatchObject({ module: 'ald', mappings: [{ reference: 'REDUCEBIN_ALD_INFO_LOG*',
       evidence: text, definitions: [{ name: macros[0], file: 'ald/include/ald_logcode.h', line: 1 }] }] });
     write('ald/Design.md', text);

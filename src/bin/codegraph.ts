@@ -67,6 +67,7 @@ import { Command } from 'commander';
 import * as path from 'path';
 import * as fs from 'fs';
 import { getCodeGraphDir, isInitialized } from '../directory';
+import { designDraftPath } from '../term-mappings';
 import { canonicalFilePath } from '../utils';
 import { removeOfflineLock } from '../cli/offline-unlock';
 import { detectWorktreeIndexMismatch, worktreeMismatchWarning } from '../sync/worktree';
@@ -662,6 +663,8 @@ program
         throw error;
       } finally { await progress?.stop(); }
       clack.log.success(`Initialized in ${projectPath}`);
+      const draft = designDraftPath(cg.getDataDirectory());
+      if (fs.existsSync(draft)) clack.log.info('Design mappings for review: ' + draft);
       if (result) printIndexResult(clack, result, projectPath);
 
       try {
@@ -883,6 +886,8 @@ program
         clack.log.info(`${details.join(', ')} ${getGlyphs().dash} ${formatNumber(result.nodesUpdated)} nodes in ${formatDuration(Math.round(syncPipelineMs))}`);
       }
 
+      const draft = designDraftPath(cg.getDataDirectory());
+      if (fs.existsSync(draft)) clack.log.info('Design mappings for review: ' + draft);
       if (result.complete === false) {
         for (const diagnostic of result.errors ?? []) clack.log.warn(diagnostic.message);
         for (const hint of getIncompleteIndexHints(result.errors ?? [])) clack.log.info(hint);
@@ -950,7 +955,8 @@ mappings.command('preview <document>')
   .description('Preview the mappings extracted from one Markdown file using the current index')
   .option('-p, --path <path>', 'Indexed project or module directory')
   .option('-j, --json', 'Output as JSON')
-  .action(async (document: string, options: { path?: string; json?: boolean }) => {
+  .option('-o, --output <file>', 'Export verified rules to a new term-mappings JSON file for review')
+  .action(async (document: string, options: { path?: string; json?: boolean; output?: string }) => {
     let cg: import('../index').default | undefined;
     try {
       const selected = path.resolve(options.path || process.cwd());
@@ -959,8 +965,18 @@ mappings.command('preview <document>')
       if (detectWorktreeIndexMismatch(selected, project)) throw new Error('Selected directory and index belong to different working trees.');
       const { default: CodeGraph } = await loadCodeGraph();
       cg = await openQueryGraph(CodeGraph, project);
-      const { previewDesignDocument } = await import('../design-documents');
+      const { previewDesignDocument, designRules, serializeDesignRules } = await import('../design-documents');
       const report = previewDesignDocument(document, project, options.path, cg.getExploreQueryConnection());
+      if (options.output) {
+        const destination = path.resolve(options.output);
+        const { sameExistingPath } = await import('../path-identity');
+        if (path.basename(destination).toLowerCase() === 'term-mappings.json' &&
+            sameExistingPath(path.dirname(destination), cg.getDataDirectory())) {
+          throw new Error('Export to a review file first; this path is the active mappings configuration.');
+        }
+        const rules = designRules(report.document, report.mappings);
+        fs.writeFileSync(destination, serializeDesignRules(rules), { flag: 'wx' });
+      }
       if (options.json) console.log(JSON.stringify(report, null, 2));
       else {
         console.log(report.document + ' — ' + report.mappings.length + ' verified mapping(s) [module ' + report.module + ']');
