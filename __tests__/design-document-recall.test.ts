@@ -99,7 +99,7 @@ it('exports one-based definition lines in symbol order and resolves approved rul
   const rule = infoRule();
   expect(rule).toEqual({
     terms: ['中心层信息日志'], symbols: ['REDUCEBIN_ALD_INFO_LOG2', 'REDUCEBIN_ALD_INFO_LOG1'],
-    design: { file: header, line: '3, 7' },
+    design: { document: 'ald/Design.md', documentLine: 5, file: header, line: '3, 7' },
   });
   approve();
   write(header, '// inserted line\n' + source);
@@ -126,10 +126,10 @@ it.each([false, true])('discovers uppercase DESIGN.md on sync of an existing pro
   command('sync', root);
   graph = CodeGraph.openSync(root);
   expect(rules()).toContainEqual({
-    terms: ['中心层信息日志'], symbols: [macros[0]], design: { file: 'ald/include/ald_logcode.h', line: '1' },
+    terms: ['中心层信息日志'], symbols: [macros[0]], design: { document: 'ald/DESIGN.md', documentLine: 5, file: 'ald/include/ald_logcode.h', line: '1' },
   });
   expect(rules()).toContainEqual({
-    terms: ['设备初始化'], symbols: ['deviceInit'], design: { file: 'beqm/src/device.c', line: '1' },
+    terms: ['设备初始化'], symbols: ['deviceInit'], design: { document: 'beqm/DESIGN.md', documentLine: 1, file: 'beqm/src/device.c', line: '1' },
   });
   expect(fs.existsSync(active())).toBe(false);
 }, 90000);
@@ -174,6 +174,28 @@ it('updates on document-only sync, symbol changes, and deletion while preserving
 }, 90000);
 
 
+it('keeps physical Markdown lines across reference definitions, code fences, repeated entries, nested lists and table rows', async () => {
+  const entry = '- `aldCorePidInit()`：中心层初始化';
+  const input = [
+    '[link]: /unrelated', '', '~~~md', entry, '~~~', '', // 1–6
+    entry, entry, '  - 扫描超时`aldScanTimeoutProc()`', '', // 7–10
+    '| 函数 | 说明 |', '| --- | --- |', '| `aldCorePidInit()` | 核心初始化 |',
+    '| `aldprxyPidInit()` | 代理初始化 |',
+  ];
+  write('ald/DESIGN.md', input.join('\r\n'));
+  graph = await CodeGraph.init(root, { index: true });
+  const positions = () => rules().map(rule => [rule.symbols[0], rule.design?.document, rule.design?.documentLine]);
+  const expected = [
+    ['aldCorePidInit', 'ald/DESIGN.md', 7], ['aldCorePidInit', 'ald/DESIGN.md', 8],
+    ['aldScanTimeoutProc', 'ald/DESIGN.md', 9], ['aldCorePidInit', 'ald/DESIGN.md', 13],
+    ['aldprxyPidInit', 'ald/DESIGN.md', 14],
+  ];
+  expect(positions()).toEqual(expected);
+  write('ald/DESIGN.md', '\r\n' + input.join('\r\n'));
+  await graph.sync();
+  expect(positions()).toEqual(expected.map(([symbol, document, line]) => [symbol, document, Number(line) + 1]));
+});
+
 it('requires local evidence: accepts explicit typed labels, rejects concepts, counterexamples and ambiguous definitions', async () => {
   write('beqm/bbutop_common.h', 'enum CTRLTOP_PORT_CONFIG_STATUS_ENUM { NOT_SET, SET };\nstruct DeviceObject { int id; };\n');
   write('beqm/old.c', 'static int duplicated(void){return 1;}\n');
@@ -197,9 +219,9 @@ it('requires local evidence: accepts explicit typed labels, rejects concepts, co
   for (const query of ['设备编号', '只是一个示例', '密钥轮换', '识别拓扑节点', '报表管理']) expect(seeds(query)).toEqual([]);
   const report = JSON.parse(command('mappings', 'preview', 'beqm/design.md', '--json').toString());
   expect(report.mappings).toContainEqual(expect.objectContaining({
-    reference: expected.name, evidence: expect.stringContaining('配置失败') }));
+    document: 'beqm/design.md', documentLine: 3, reference: expected.name, evidence: expect.stringContaining('配置失败') }));
   expect(report.mappings.some((entry: { evidence: string }) => entry.evidence.includes('Device Object'))).toBe(false);
-  expect(rules().find(rule => rule.symbols.includes(expected.name))?.design).toEqual({ file: expected.file_path, line: '1' });
+  expect(rules().find(rule => rule.symbols.includes(expected.name))?.design).toEqual({ document: 'beqm/design.md', documentLine: 1, file: expected.file_path, line: '1' });
 });
 
 it('previews the current draft against an explicit module without changing Explore bindings', async () => {
@@ -216,13 +238,14 @@ it('previews the current draft against an explicit module without changing Explo
     const exported = path.join(external, 'term-mappings.json');
     const report = JSON.parse(command('mappings', 'preview', draft, '--path', path.join(root, 'ald'), '--output', exported, '--json').toString());
     expect(JSON.parse(fs.readFileSync(exported, 'utf8')).rules).toEqual([
-      { terms: ['业务接入追踪'], symbols: [macros[0]], design: { file: 'ald/include/ald_logcode.h', line: '1' } },
+      { terms: ['业务接入追踪'], symbols: [macros[0]], design: { document: draft, documentLine: 1, file: 'ald/include/ald_logcode.h', line: '1' } },
     ]);
     expect(() => command('mappings', 'preview', draft, '--path', path.join(root, 'ald'), '--output', exported)).toThrow();
     expect(report).toMatchObject({ module: 'ald', mappings: [{ reference: 'REDUCEBIN_ALD_INFO_LOG*',
       evidence: text, definitions: [{ name: macros[0], file: 'ald/include/ald_logcode.h', line: 1 }] }] });
     write('ald/Design.md', text);
     const preview = command('mappings', 'preview', 'ald/Design.md', '--path', root).toString();
+    expect(preview).toContain('ald/Design.md:1');
     expect(preview).toContain(text);
     expect(preview).toContain('ald/include/ald_logcode.h:1');
     expect(preview).toContain(macros[0]);

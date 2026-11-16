@@ -981,7 +981,7 @@ mappings.command('preview <document>')
       else {
         console.log(report.document + ' — ' + report.mappings.length + ' verified mapping(s) [module ' + report.module + ']');
         for (const mapping of report.mappings) {
-          console.log('\n' + mapping.evidence);
+          console.log('\n' + mapping.document + ':' + mapping.documentLine + '\n' + mapping.evidence);
           for (const node of mapping.definitions) {
             console.log('  ' + mapping.reference + ' → ' + (node.qualifiedName || node.name) + '  ' + node.file + ':' + node.line);
           }

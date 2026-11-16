@@ -12,8 +12,10 @@ export interface DesignEvidence {
   file: string;
   /** Source lines at export time, in symbol order. Never used to resolve symbols. */
   line?: string;
-  // Previously exported drafts carry the original document context.
   document?: string;
+  /** One-based start line of the originating Markdown entry. */
+  documentLine?: number;
+  // Older drafts can also carry the original document context.
   heading?: string;
   reference?: string;
   evidence?: string;
@@ -96,6 +98,7 @@ export function parseTermMappings(content: string, file = TERM_MAPPINGS_FILE): T
     }
     if (design !== undefined && (!design || typeof design.file !== 'string' || !design.file ||
         (design.line !== undefined && (typeof design.line !== 'string' || !/^[1-9]\d*(?:,\s*[1-9]\d*)*$/.test(design.line))) ||
+        (design.documentLine !== undefined && (!Number.isSafeInteger(design.documentLine) || design.documentLine < 1)) ||
         [design.heading, design.document, design.reference, design.evidence].some(value => value !== undefined && typeof value !== 'string'))) {
       result.errors.push(label + ': invalid design evidence.');
       return;

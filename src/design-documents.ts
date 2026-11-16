@@ -1,6 +1,6 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { Lexer, type Token } from 'marked';
+import { getDefaults, Lexer, type Token } from 'marked';
 import type { SqliteDatabase } from './db/sqlite-adapter';
 import { DESIGN_DOCUMENT_NAMES, scanDesignDocuments } from './extraction';
 import { isWithinExistingDirectory, sameExistingPath } from './path-identity';
@@ -12,6 +12,8 @@ import { designDraftPath, type TermMappingRule } from './term-mappings';
 
 interface Definition { name: string; qualifiedName: string; kind: string; file: string; line: number }
 interface DesignEntry {
+  document: string;
+  documentLine: number;
   description: string;
   heading: string;
   evidence: string;
@@ -69,6 +71,30 @@ function fragment(tokens: Token[]): Fragment {
   return { text: parts.join('').replaceAll(anchor, ' ').trim(), symbols, files, direct };
 }
 
+// Marked consumes some blocks (e.g. link definitions) without emitting a token.
+// Observe its source cursor so omitted blocks and repeated wording keep their
+// actual positions. Nested list items have their own de-indented token stream.
+function lexWithLines(content: string) {
+  const cursors = new WeakMap<Token[], { rest: string; line: number; starts: number[] }>();
+  const tokens = Lexer.lex(content, {
+    ...getDefaults(),
+    extensions: { renderers: {}, childTokens: {}, block: [(rest, blocks) => {
+      let cursor = cursors.get(blocks);
+      if (!cursor) {
+        cursor = { rest, line: 1, starts: [] };
+        cursors.set(blocks, cursor);
+      } else {
+        const consumed = cursor.rest.length - rest.length;
+        cursor.line += cursor.rest.slice(0, consumed).split('\n').length - 1;
+        cursor.rest = rest;
+      }
+      cursor.starts[blocks.length] = cursor.line;
+      return undefined; // Let Marked tokenize the block normally.
+    }] },
+  });
+  return { tokens, lineOf: (blocks: Token[], index: number) => cursors.get(blocks)!.starts[index]! };
+}
+
 function extract(document: string, content: string, db: SqliteDatabase, module = path.posix.dirname(document)): DesignEntry[] {
   const entries: DesignEntry[] = [];
   const prefix = module === '.' ? '' : module + '/';
@@ -80,7 +106,8 @@ function extract(document: string, content: string, db: SqliteDatabase, module =
   const familyFiles = db.prepare('SELECT DISTINCT file_path' + macroFilter + scope + ' LIMIT 2');
   const family = db.prepare(columns + macroFilter + ' AND file_path = ? ORDER BY start_line,id LIMIT ?');
   let heading = '', label = '', source = '';
-  function add(item: Fragment, evidence: string): void {
+  const markdown = lexWithLines(content);
+  function add(item: Fragment, evidence: string, documentLine: number): void {
     if (!item.direct || item.symbols.length !== 1 || !/\p{Script=Han}/u.test(item.text) ||
         uncertain(evidence) || uncertain(label) || uncertain(heading) || item.files.length > 1) return;
     const file = item.files[0] ?? source;
@@ -98,24 +125,28 @@ function extract(document: string, content: string, db: SqliteDatabase, module =
       if (rows.length !== 1) return;
     }
     if (!rows.length) return;
-    entries.push({ heading: [heading, label].filter(Boolean).join(' '), description: item.text,
+    entries.push({ document, documentLine, heading: [heading, label].filter(Boolean).join(' '), description: item.text,
       evidence: evidence.trim(), reference: symbol, definitions: rows });
   }
 
-  function list(items: { raw: string; tokens: Token[] }[], definition?: Fragment, title = ''): void {
+  function list(items: { raw: string; tokens: Token[] }[], line: number, definition?: Fragment, title = ''): void {
     for (const item of items) {
       const row = fragment(item.tokens);
       if (!row.symbols.length && definition && /^(定义|表示|用于|描述|包含)/.test(row.text)) {
-        add({ ...definition, text: definition.text + ' ' + row.text }, title + '\n' + item.raw);
-      } else add(row, title ? title + '\n' + item.raw : item.raw);
-      for (const token of item.tokens) if (token.type === 'list') list(token.items, undefined, title);
+        add({ ...definition, text: definition.text + ' ' + row.text }, title + '\n' + item.raw, line);
+      } else add(row, title ? title + '\n' + item.raw : item.raw, line);
+      for (const [index, token] of item.tokens.entries()) {
+        if (token.type === 'list') list(token.items, line + markdown.lineOf(item.tokens, index) - 1, undefined, title);
+      }
+      line += item.raw.split('\n').length - 1;
     }
   }
   let definition: Fragment | undefined, title = '';
-  for (const token of Lexer.lex(content)) {
+  for (const [index, token] of markdown.tokens.entries()) {
     if (token.type === 'space') continue;
+    const line = markdown.lineOf(markdown.tokens, index);
     if (token.type === 'list') {
-      list(token.items, definition, title);
+      list(token.items, line, definition, title);
       definition = undefined;
       title = '';
       continue;
@@ -129,7 +160,7 @@ function extract(document: string, content: string, db: SqliteDatabase, module =
       if (token.type === 'heading') heading = item.text;
       source = item.files.length === 1 ? item.files[0]! : '';
       label = token.type === 'paragraph' && /[:：]\s*$/.test(item.text) && !item.files.length ? item.text : '';
-      add(item, token.raw);
+      add(item, token.raw, line);
       title = token.raw.trim();
       if (item.direct) definition = item;
     } else if (token.type === 'table') {
@@ -137,11 +168,11 @@ function extract(document: string, content: string, db: SqliteDatabase, module =
       const symbolColumn = header.findIndex((name: string) => /^(符号|宏|接口|函数|类型|symbol|function)$/.test(name));
       const description = header.findIndex((name: string) => /^(说明|含义|用途|描述|业务术语|description)$/.test(name));
       if (symbolColumn < 0 || description < 0) continue;
-      for (const row of token.rows) {
+      for (const [rowIndex, row] of token.rows.entries()) {
         const ref = fragment(row[symbolColumn].tokens);
         const body = fragment(row[description].tokens);
         if (!body.symbols.length) add({ ...ref, text: body.text, direct: true },
-          row.map((cell: { text: string }) => cell.text).join(' | '));
+          row.map((cell: { text: string }) => cell.text).join(' | '), line + 2 + rowIndex);
       }
     }
   }
@@ -179,12 +210,14 @@ export function previewDesignDocument(input: string, project: string, selected: 
   const parent = fs.realpathSync(path.dirname(document));
   const selectedDir = selected ? fs.realpathSync(selected) : root;
   if (!fs.statSync(selectedDir).isDirectory()) throw new Error('Expected a project or module directory: ' + selectedDir);
-  const useDocumentParent = sameExistingPath(selectedDir, root) && isWithinExistingDirectory(parent, root, true);
+  const insideProject = isWithinExistingDirectory(parent, root, true);
+  const useDocumentParent = sameExistingPath(selectedDir, root) && insideProject;
   const scope = useDocumentParent ? parent : selectedDir;
   if (!isWithinExistingDirectory(scope, root, true)) throw new Error('Module directory is outside the indexed project: ' + scope);
   const module = path.relative(root, scope).split(path.sep).join('/') || '.';
 
-  const mappings = db.transaction(() => extract(document, content, db, module))();
+  const sourcePath = insideProject ? path.relative(root, path.join(parent, path.basename(document))).split(path.sep).join('/') : document;
+  const mappings = db.transaction(() => extract(sourcePath, content, db, module))();
   return { document, project: root, module, mappings };
 }
 
@@ -198,7 +231,8 @@ export function designRules(entries: DesignEntry[]): TermMappingRule[] {
     return {
       terms: [entry.description.replace(/^[\s:：—–-]+/, '').replace(/\s+/g, ' ').trim()],
       symbols: [...locations.keys()],
-      design: { file: entry.definitions[0]!.file, line: [...locations.values()].join(', ') },
+      design: { document: entry.document, documentLine: entry.documentLine,
+        file: entry.definitions[0]!.file, line: [...locations.values()].join(', ') },
     };
   });
 }
