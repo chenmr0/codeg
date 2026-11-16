@@ -88,6 +88,34 @@ it('indexes module documentation through the built CLI and recalls the documente
   expect(graph.getFiles().some(f => f.path.endsWith('.md'))).toBe(false);
 }, 90000);
 
+it('exports one-based definition lines in symbol order and resolves approved rules after lines move', async () => {
+  const header = 'ald/include/ald_logcode.h';
+  const source = ['', '', '#define REDUCEBIN_ALD_INFO_LOG2(msg) log(msg)', '', '', '',
+    '#define REDUCEBIN_ALD_INFO_LOG1(msg) log(msg)', ''].join('\n');
+  write(header, source);
+  write('ald/Design.md', doc);
+  graph = await CodeGraph.init(root, { index: true });
+  const infoRule = () => rules().find(rule => rule.terms.includes('中心层信息日志'))!;
+  const rule = infoRule();
+  expect(rule).toEqual({
+    terms: ['中心层信息日志'], symbols: ['REDUCEBIN_ALD_INFO_LOG2', 'REDUCEBIN_ALD_INFO_LOG1'],
+    design: { file: header, line: '3, 7' },
+  });
+  approve();
+  write(header, '// inserted line\n' + source);
+  await graph.sync({ adaptive: false });
+  expect(infoRule().design?.line).toBe('4, 8');
+  expect(loadTermMappings(graph.getDataDirectory()).rules[0]?.design?.line).toBe('3, 7');
+  expect(seeds('中心层信息日志').map(node => node.name)).toEqual(rule.symbols);
+
+  // An existing approved file from the previous format needs no migration.
+  fs.writeFileSync(active(), JSON.stringify({ rules: [{ ...rule, design: {
+    file: header, document: 'ald/Design.md', heading: '日志记录机制与接口',
+    reference: 'REDUCEBIN_ALD_INFO_LOG*', evidence: '中心层信息日志',
+  } }] }));
+  expect(seeds('中心层信息日志').map(node => node.name)).toEqual(rule.symbols);
+});
+
 it('updates on document-only sync, symbol changes, and deletion while preserving ordinary Explore', async () => {
   graph = await CodeGraph.init(root, { index: true });
   const ordinary = async () => [...(await createUpstreamExploreGraph(graph!).findRelevantContext('aldCorePidInit')).nodes.keys()];
@@ -149,10 +177,11 @@ it('requires local evidence: accepts explicit typed labels, rejects concepts, co
   expect(seeds('未配置、已配置、配置失败')).toContainEqual(expected);
   expect(seeds('设备属性查询').map(s => s.name)).toEqual(['DeviceObject']);
   for (const query of ['设备编号', '只是一个示例', '密钥轮换', '识别拓扑节点', '报表管理']) expect(seeds(query)).toEqual([]);
-  const evidence = rules().map(rule => rule.design!);
-  expect(evidence).toContainEqual(expect.objectContaining({ document: 'beqm/design.md', file: expected.file_path,
+  const report = JSON.parse(command('mappings', 'preview', 'beqm/design.md', '--json').toString());
+  expect(report.mappings).toContainEqual(expect.objectContaining({
     reference: expected.name, evidence: expect.stringContaining('配置失败') }));
-  expect(evidence.some(entry => entry.evidence.includes('Device Object'))).toBe(false);
+  expect(report.mappings.some((entry: { evidence: string }) => entry.evidence.includes('Device Object'))).toBe(false);
+  expect(rules().find(rule => rule.symbols.includes(expected.name))?.design).toEqual({ file: expected.file_path, line: '1' });
 });
 
 it('previews the current draft against an explicit module without changing Explore bindings', async () => {
@@ -168,8 +197,8 @@ it('previews the current draft against an explicit module without changing Explo
     fs.writeFileSync(draft, text);
     const exported = path.join(external, 'term-mappings.json');
     const report = JSON.parse(command('mappings', 'preview', draft, '--path', path.join(root, 'ald'), '--output', exported, '--json').toString());
-    expect(JSON.parse(fs.readFileSync(exported, 'utf8')).rules).toMatchObject([
-      { terms: ['业务接入追踪'], symbols: [macros[0]], design: { file: 'ald/include/ald_logcode.h' } },
+    expect(JSON.parse(fs.readFileSync(exported, 'utf8')).rules).toEqual([
+      { terms: ['业务接入追踪'], symbols: [macros[0]], design: { file: 'ald/include/ald_logcode.h', line: '1' } },
     ]);
     expect(() => command('mappings', 'preview', draft, '--path', path.join(root, 'ald'), '--output', exported)).toThrow();
     expect(report).toMatchObject({ module: 'ald', mappings: [{ reference: 'REDUCEBIN_ALD_INFO_LOG*',

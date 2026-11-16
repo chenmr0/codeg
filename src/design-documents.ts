@@ -188,12 +188,19 @@ export function previewDesignDocument(input: string, project: string, selected: 
   return { document, project: root, module, mappings };
 }
 
-export function designRules(document: string, entries: DesignEntry[]): TermMappingRule[] {
-  return entries.map(entry => ({
-    terms: [entry.description.replace(/^[\s:：—–-]+/, '').replace(/\s+/g, ' ').trim()],
-    symbols: [...new Set(entry.definitions.map(node => node.qualifiedName || node.name))],
-    design: { document, heading: entry.heading, reference: entry.reference, file: entry.definitions[0]!.file, evidence: entry.evidence },
-  }));
+export function designRules(entries: DesignEntry[]): TermMappingRule[] {
+  return entries.map(entry => {
+    const locations = new Map<string, number>();
+    for (const node of entry.definitions) {
+      const symbol = node.qualifiedName || node.name;
+      if (!locations.has(symbol)) locations.set(symbol, node.line);
+    }
+    return {
+      terms: [entry.description.replace(/^[\s:：—–-]+/, '').replace(/\s+/g, ' ').trim()],
+      symbols: [...locations.keys()],
+      design: { file: entry.definitions[0]!.file, line: [...locations.values()].join(', ') },
+    };
+  });
 }
 
 export function serializeDesignRules(rules: TermMappingRule[]): string {
@@ -220,7 +227,7 @@ export function buildDesignDraft(root: string, db: SqliteDatabase, sources: read
     const rules: TermMappingRule[] = [];
     for (const document of scanDesignDocuments(root)) {
       const content = readDocument(root, document);
-      if (content) rules.push(...designRules(document, extract(document, content, db)));
+      if (content) rules.push(...designRules(extract(document, content, db)));
     }
     return serializeDesignRules(rules);
   } catch (error) {

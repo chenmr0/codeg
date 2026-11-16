@@ -22,7 +22,7 @@ function counts(text: string): Map<string, number> {
 function compile(entries: TermMappingRule[]) {
   const vectors = entries.map(entry => {
     const terms = counts(entry.terms.join(' '));
-    for (const [term, n] of counts(entry.design!.heading)) terms.set(term, (terms.get(term) ?? 0) + 0.25 * n);
+    for (const [term, n] of counts(entry.design?.heading ?? '')) terms.set(term, (terms.get(term) ?? 0) + 0.25 * n);
     return { terms, rule: entry, norm: 0 };
   });
   const idf = new Map<string, number>();

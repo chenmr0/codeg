@@ -9,11 +9,14 @@ export const MAX_MAPPING_SEEDS = 16;
 const MAX_BYTES = 256 * 1024;
 const MAX_RULES = 1000;
 export interface DesignEvidence {
-  document: string;
-  heading: string;
-  reference: string;
   file: string;
-  evidence: string;
+  /** Source lines at export time, in symbol order. Never used to resolve symbols. */
+  line?: string;
+  // Previously exported drafts carry the original document context.
+  document?: string;
+  heading?: string;
+  reference?: string;
+  evidence?: string;
 }
 export interface TermMappingRule { terms: string[]; symbols: string[]; design?: DesignEvidence }
 export interface TermMappings {
@@ -92,8 +95,8 @@ export function parseTermMappings(content: string, file = TERM_MAPPINGS_FILE): T
       else seenTerms.set(term, index);
     }
     if (design !== undefined && (!design || typeof design.file !== 'string' || !design.file ||
-        typeof design.heading !== 'string' || typeof design.document !== 'string' ||
-        typeof design.reference !== 'string' || typeof design.evidence !== 'string')) {
+        (design.line !== undefined && (typeof design.line !== 'string' || !/^[1-9]\d*(?:,\s*[1-9]\d*)*$/.test(design.line))) ||
+        [design.heading, design.document, design.reference, design.evidence].some(value => value !== undefined && typeof value !== 'string'))) {
       result.errors.push(label + ': invalid design evidence.');
       return;
     }

@@ -974,7 +974,7 @@ mappings.command('preview <document>')
             sameExistingPath(path.dirname(destination), cg.getDataDirectory())) {
           throw new Error('Export to a review file first; this path is the active mappings configuration.');
         }
-        const rules = designRules(report.document, report.mappings);
+        const rules = designRules(report.mappings);
         fs.writeFileSync(destination, serializeDesignRules(rules), { flag: 'wx' });
       }
       if (options.json) console.log(JSON.stringify(report, null, 2));
