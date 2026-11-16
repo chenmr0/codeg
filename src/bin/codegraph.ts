@@ -902,10 +902,9 @@ program
   });
 
 /** Maintainer-only query hints validation; never runs init or sync. */
-program
-  .command('mappings')
-  .description('Manage project terminology mappings')
-  .command('check')
+const mappings = program.command('mappings').description('Manage project terminology mappings');
+
+mappings.command('check')
   .description('Validate mapped symbols against the current index (read-only)')
   .option('-p, --path <path>', 'Project path')
   .option('-j, --json', 'Output as JSON')
@@ -941,6 +940,41 @@ program
         unavailableReason: err instanceof Error ? err.message : String(err),
       });
       console.log(options.json ? JSON.stringify(report, null, 2) : formatMappingsCheck(report));
+      process.exitCode = 2;
+    } finally {
+      if (cg) { cg.close(); await cg.whenIdle(); }
+    }
+  });
+
+mappings.command('preview <document>')
+  .description('Preview the mappings extracted from one Markdown file using the current index')
+  .option('-p, --path <path>', 'Indexed project or module directory')
+  .option('-j, --json', 'Output as JSON')
+  .action(async (document: string, options: { path?: string; json?: boolean }) => {
+    let cg: import('../index').default | undefined;
+    try {
+      const selected = path.resolve(options.path || process.cwd());
+      const project = resolveProjectPath(selected);
+      if (!isQueryProject(project)) throw new Error('No CodeGraph index found. Run codegraph init or pass --path to an indexed project.');
+      if (detectWorktreeIndexMismatch(selected, project)) throw new Error('Selected directory and index belong to different working trees.');
+      const { default: CodeGraph } = await loadCodeGraph();
+      cg = await openQueryGraph(CodeGraph, project);
+      const { previewDesignDocument } = await import('../design-documents');
+      const report = previewDesignDocument(document, project, options.path, cg.getExploreQueryConnection());
+      if (options.json) console.log(JSON.stringify(report, null, 2));
+      else {
+        console.log(report.document + ' — ' + report.mappings.length + ' verified mapping(s) [module ' + report.module + ']');
+        for (const mapping of report.mappings) {
+          console.log('\n' + mapping.evidence);
+          for (const node of mapping.definitions) {
+            console.log('  ' + mapping.reference + ' → ' + (node.qualifiedName || node.name) + '  ' + node.file + ':' + node.line);
+          }
+        }
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (options.json) console.log(JSON.stringify({ error: message }));
+      else error(message);
       process.exitCode = 2;
     } finally {
       if (cg) { cg.close(); await cg.whenIdle(); }

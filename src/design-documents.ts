@@ -3,6 +3,7 @@ import * as path from 'node:path';
 import { Lexer, type Token } from 'marked';
 import type { SqliteDatabase } from './db/sqlite-adapter';
 import { scanDesignDocuments } from './extraction';
+import { isWithinExistingDirectory, sameExistingPath } from './path-identity';
 import { validatePathWithinRoot } from './utils';
 import { logWarn } from './errors';
 import { MAX_DESIGN_SEEDS, type DesignEntry } from './design-recall';
@@ -57,9 +58,8 @@ function fragment(tokens: Token[]): Fragment {
   return { text: parts.join('').replaceAll(anchor, ' ').trim(), symbols, files, direct };
 }
 
-function extract(document: string, content: string, db: SqliteDatabase): DesignEntry[] {
+function extract(document: string, content: string, db: SqliteDatabase, module = path.posix.dirname(document)): DesignEntry[] {
   const entries: DesignEntry[] = [];
-  const module = path.posix.dirname(document);
   const prefix = module === '.' ? '' : module + '/';
   const scope = " AND substr(file_path,1,length(?)) = ? " +
     "AND (? = '' OR file_path = ? OR substr(file_path, -length(?) - 1) = '/' || ?)";
@@ -155,6 +155,33 @@ function readDocument(root: string, file: string): string | undefined {
     if (count !== st.size) throw new Error('Document changed during indexing: ' + file);
     return bytes.toString('utf8', 0, count);
   } finally { fs.closeSync(fd); }
+}
+
+/** Preview the file on disk, using the very same bindings init/sync would compute
+ * for a module document. For an external draft, the selected directory scopes SQL. */
+export function previewDesignDocument(input: string, project: string, selected: string | undefined, db: SqliteDatabase) {
+  const document = path.resolve(input);
+  const content = readDocument(path.dirname(document), path.basename(document));
+  if (content === undefined) throw new Error('Expected a regular UTF-8 Markdown file of at most 1 MiB: ' + document);
+  const root = fs.realpathSync(project);
+  const parent = fs.realpathSync(path.dirname(document));
+  const selectedDir = selected ? fs.realpathSync(selected) : root;
+  if (!fs.statSync(selectedDir).isDirectory()) throw new Error('Expected a project or module directory: ' + selectedDir);
+  const useDocumentParent = sameExistingPath(selectedDir, root) && isWithinExistingDirectory(parent, root, true);
+  const scope = useDocumentParent ? parent : selectedDir;
+  if (!isWithinExistingDirectory(scope, root, true)) throw new Error('Module directory is outside the indexed project: ' + scope);
+  const module = path.relative(root, scope).split(path.sep).join('/') || '.';
+
+  return db.transaction(() => {
+    const definition = db.prepare('SELECT name, qualified_name AS qualifiedName, kind, file_path AS file, start_line AS line FROM nodes WHERE id=?');
+    const mappings = extract(document, content, db, module).map(entry => ({
+      description: entry.text, heading: entry.heading, evidence: entry.evidence, reference: entry.symbol,
+      definitions: entry.ids.map(id => definition.get(id) as {
+        name: string; qualifiedName: string; kind: string; file: string; line: number;
+      }),
+    }));
+    return { document, project: root, module, mappings };
+  })();
 }
 
 /** Only ancestors of indexed source files can contain module-local definitions.

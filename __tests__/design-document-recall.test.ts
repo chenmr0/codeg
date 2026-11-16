@@ -122,3 +122,28 @@ it('requires local evidence: accepts explicit typed labels, rejects concepts, co
     symbol: expected.name, evidence: expect.stringContaining('配置失败')}));
   expect(evidence.some((entry: { evidence: string }) => entry.evidence.includes('Device Object'))).toBe(false);
 });
+
+it('previews the current draft against an explicit module without changing Explore bindings', async () => {
+  write('ald/Design.md', doc);
+  write('other/ald_logcode.h', '#define REDUCEBIN_ALD_INFO_LOG_OTHER(msg) msg\n');
+  graph = await CodeGraph.init(root, { index: true });
+  const original = seeds('中心层信息日志');
+  const external = fs.mkdtempSync(path.join(os.tmpdir(), 'cg-preview-'));
+  try {
+    const draft = path.join(external, '设计草稿.md');
+    const text = '- `REDUCEBIN_ALD_INFO_LOG*`：业务接入追踪';
+    fs.writeFileSync(draft, text);
+    const report = JSON.parse(command('mappings', 'preview', draft, '--path', path.join(root, 'ald'), '--json').toString());
+    expect(report).toMatchObject({ module: 'ald', mappings: [{ reference: 'REDUCEBIN_ALD_INFO_LOG*',
+      evidence: text, definitions: [{ name: macros[0], file: 'ald/include/ald_logcode.h', line: 1 }] }] });
+    write('ald/Design.md', text);
+    const preview = command('mappings', 'preview', 'ald/Design.md', '--path', root).toString();
+    expect(preview).toContain(text);
+    expect(preview).toContain('ald/include/ald_logcode.h:1');
+    expect(preview).toContain(macros[0]);
+    expect(seeds('中心层信息日志')).toEqual(original);
+    expect(seeds('业务接入追踪')).toEqual([]);
+    fs.writeFileSync(draft, '文档只谈业务概念，没有代码引用。');
+    expect(JSON.parse(command('mappings', 'preview', draft, '--json').toString()).mappings).toEqual([]);
+  } finally { fs.rmSync(external, { recursive: true, force: true }); }
+}, 90000);

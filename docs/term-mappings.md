@@ -22,6 +22,15 @@ Explore 用相邻中文双字片段的 TF-IDF 余弦相似度比较需求和条�
 
 文档结果随项目索引保存。增删改文档或源码符号后运行 `codegraph sync`；已有索引也可以运行该命令启用，无需重新初始化。文档不计入源码增改删统计。单篇文档上限为 1 MiB。手工维护的 `term-mappings.json` 继续优先占用映射候选预算。
 
+### 预览单篇文档
+
+```powershell
+codegraph mappings preview .\ALD\Design.md --path .
+codegraph mappings preview D:\草稿\设计说明.md --path .\ALD --json
+```
+
+该命令读取指定文档的当前内容，用已有代码索引核验映射，列出每条被接受的原文、引用名、实际符号、定义文件和行号。可以预览任意文件名的 Markdown 草稿。文档路径相对当前工作目录；指定项目根时，项目内文档默认取其所在目录作为模块，项目外草稿默认查整个项目。`--path` 显式指定模块子目录时只查该模块。预览不写入 Explore 的召回数据；更新正式模块的 `Design.md` 后，运行 `codegraph sync` 使其生效。
+
 ## 配置
 
 在项目的 `.codegraph-wx/term-mappings.json` 中写入：
