@@ -95,7 +95,7 @@ describe('removal admission budgets', () => {
     raw.prepare("UPDATE nodes SET file_path=? WHERE id='target'").run(large);
     expect(fitsRemovalBatch(cost(large))).toBe(false);
     raw.exec("UPDATE nodes SET file_path='target.c' WHERE id='target'");
-    for (const key of ['sync-retry:done:target.c', 'sync-retry:rewire:caller.c']) {
+    for (const key of ['sync-retry:done:target.c', 'sync-retry:rewire:caller.c', 'explore:chinese-comments:v1:target.c']) {
       queries.setMetadata(key, large); expect(fitsRemovalBatch(cost()), key).toBe(false);
       queries.applyMetadataChanges({ [key]: null });
     }

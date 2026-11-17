@@ -412,4 +412,6 @@ CodeGraph-CPP 基于开源 CodeGraph 演进，沿用 MIT License。
 
 ### 项目术语映射（Explore）
 
+Explore 支持一次输入包含多个行为的中文需求，也会检索已索引的函数头和函数体注释。例如 `codegraph explore --explain "发送后等待回包；空队列等待消息唤醒"` 可查看各分句带入的源码候选。[中文源码注释检索](docs/term-mappings.md#使用中文源码注释查实现)
+
 首次 `codegraph init` 会从各模块的 `Design.md`（含 `DESIGN.md`）提取能在代码索引中核实的符号，写入 `.codegraph-wx/term-mappings.json`。Explore 可以借此把中文需求关联到代码。普通 `codegraph sync` 保留手工编辑；运行 `codegraph sync --regenerate-term-mappings` 会按当前文档覆盖整份文件。用 `codegraph mappings check` 可以核对映射中的符号。[配置与使用示例](docs/term-mappings.md)

@@ -9,9 +9,10 @@ export function resolveParseBufferBudget(availableMemoryBytes: number, heapHeadr
 
 /** Conservative buffer admission estimate, not a measurement of V8/WASM heap. */
 export function estimateExtractionBytes(content: string | null,
-  result: Pick<ExtractionResult, 'nodes' | 'edges' | 'unresolvedReferences'> | null): number {
+  result: Pick<ExtractionResult, 'nodes' | 'edges' | 'unresolvedReferences' | 'chineseComments'> | null): number {
   let bytes = 128 + (content?.length ?? 0) * 2;
   if (!result) return bytes;
+  for (const comment of result.chineseComments ?? []) bytes += 96 + 2 * (comment.nodeId.length + comment.text.length);
   for (const node of result.nodes) {
     bytes += 256 + 2 * ((node.id?.length ?? 0) + (node.name?.length ?? 0) + (node.qualifiedName?.length ?? 0) +
       (node.filePath?.length ?? 0) + (node.signature?.length ?? 0) + (node.docstring?.length ?? 0));

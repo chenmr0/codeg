@@ -3042,6 +3042,8 @@ export class ToolHandler {
       }
       const call = flow.spineCallSites.get(n.id);
       if (call) focus.push(call);
+      const commentLine = cg.getCommentFocusLine?.(n.id);
+      if (commentLine !== undefined) focus.push(commentLine);
       const calls: number[] = [];
       try {
         for (const e of cg.getOutgoingEdges(n.id)) {
@@ -4342,6 +4344,7 @@ export class ToolHandler {
         named?: boolean;
         /** A symbol's own range, as opposed to an edge line or an anchored span. */
         definition?: boolean;
+        commentLine?: number;
       }> = [...rangeNodes.values()]
         // Drop whole-file envelope nodes (containers covering >50% of the file).
         .filter(n => !(ENVELOPE_KINDS.has(n.kind) && (n.endLine - n.startLine + 1) > fileLines.length * 0.5))
@@ -4359,6 +4362,7 @@ export class ToolHandler {
           // the agent Read it back — the very thing explore exists to prevent).
           return {
             start: n.startLine, end: n.endLine, name: n.name, kind: n.kind, importance,
+            commentLine: cg.getCommentFocusLine?.(n.id),
             spine: flow.pathNodeIds.has(n.id), spineCallLine: flow.spineCallSites.get(n.id), qualifiedName: n.qualifiedName,
             named: namedSeedIds.has(n.id) || flow.namedNodeIds.has(n.id), definition: true,
           };
@@ -4768,7 +4772,8 @@ export class ToolHandler {
           .map((id) => subgraph.nodes.get(id))
           .filter((n): n is Node => !!n && n.filePath === filePath && n.startLine >= c.start && n.endLine <= c.end)
           .flatMap((n) => bodyFocusLines(n));
-        return [...exactFocus, ...(c.spineCallLine ? [c.spineCallLine] : []), ...named];
+        const comments = c.members.flatMap(m => m.commentLine === undefined ? [] : [m.commentLine]);
+        return [...exactFocus, ...(c.spineCallLine ? [c.spineCallLine] : []), ...comments, ...named];
       };
 
       /**

@@ -260,10 +260,18 @@ export interface FileRecord {
 // Extraction Types
 // =============================================================================
 
-/**
- * Result from parsing a source file
- */
+export const CHINESE_COMMENT_PREFIX = 'explore:chinese-comments:v1:';
+export interface ChineseComment {
+  nodeId: string;
+  field: 'head' | 'body';
+  line: number;
+  text: string;
+}
+
+/** Result from parsing a source file. */
 export interface ExtractionResult {
+  /** Sparse lexical evidence attached to the extracted function or method. */
+  chineseComments?: ChineseComment[];
   /** Extracted nodes */
   nodes: Node[];
 

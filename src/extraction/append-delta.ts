@@ -181,6 +181,7 @@ export class AppendDeltaState {
     this.retry.beforeStore(filePath, contentHash, content, language, result, existing);
     const ids = new Set(result.nodes.map(n => n.id));
     this.queries.storeAppendDelta({
+      chineseComments: result.chineseComments,
       file: { path: filePath, contentHash, language, size: stats.size, modifiedAt: stats.mtimeMs,
         indexedAt: Date.now(), nodeCount: result.nodes.length },
       fileNode: plan.fileNode, added: plan.added,

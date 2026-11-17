@@ -11,6 +11,7 @@ import { estimateExtractionBytes } from './extraction-size';
 import type { StoreDiagnosticsSnapshot } from './store-diagnostics';
 import type {
   Edge,
+  ChineseComment,
   ExtractionResult,
   FileRecord,
   Language,
@@ -19,6 +20,7 @@ import type {
 } from '../types';
 
 export interface StoreBundle {
+  chineseComments?: ChineseComment[];
   nodes: Node[];
   edges: Edge[];
   refs: UnresolvedReference[];
@@ -46,7 +48,7 @@ export interface StoreReplacementResult {
 export type ReplaceFileStore = (request: StoreReplacement) => Promise<StoreReplacementResult>;
 
 export function finalizeStoreBundle(
-  result: Pick<ExtractionResult, 'nodes' | 'edges' | 'unresolvedReferences'>,
+  result: Pick<ExtractionResult, 'nodes' | 'edges' | 'unresolvedReferences' | 'chineseComments'>,
   filePath: string,
   language: Language,
   file: FileRecord
@@ -73,7 +75,7 @@ export function finalizeStoreBundle(
       filePath: ref.filePath ?? filePath,
       language: ref.language ?? language,
     }));
-  return { nodes, edges, refs, file };
+  return { nodes, edges, refs, file, chineseComments: result.chineseComments };
 }
 
 export class StoreWriter {
@@ -170,7 +172,7 @@ export class StoreWriter {
     if (this.firstError) throw this.firstError;
     if (this.exited) throw new Error('store worker already exited');
     const bytes = estimateExtractionBytes(null, {
-      nodes: bundle.nodes, edges: bundle.edges, unresolvedReferences: bundle.refs,
+      nodes: bundle.nodes, edges: bundle.edges, unresolvedReferences: bundle.refs, chineseComments: bundle.chineseComments,
     });
     this.outstanding++;
     this.outstandingBytes += bytes;

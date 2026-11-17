@@ -215,9 +215,7 @@ export function resolveWasmPath(lang: GrammarLanguage): string {
  */
 export async function readGrammarWasmBytes(languages: Language[]): Promise<Record<string, Uint8Array>> {
   const out: Record<string, Uint8Array> = {};
-  const langs = [...new Set(languages)].filter(
-    (lang): lang is GrammarLanguage => lang in WASM_GRAMMAR_FILES
-  );
+  const langs = requiredGrammars(languages);
   await Promise.all(langs.map(async (lang) => {
     try {
       out[lang] = await fsp.readFile(resolveWasmPath(lang));
@@ -226,6 +224,15 @@ export async function readGrammarWasmBytes(languages: Language[]): Promise<Recor
     }
   }));
   return out;
+}
+
+function requiredGrammars(languages: Language[]): GrammarLanguage[] {
+  const requested = new Set(languages);
+  if (requested.has('vue') || requested.has('svelte')) {
+    requested.add('javascript');
+    requested.add('typescript');
+  }
+  return [...requested].filter((lang): lang is GrammarLanguage => lang in WASM_GRAMMAR_FILES);
 }
 
 /**
@@ -246,12 +253,7 @@ export async function loadGrammarsForLanguages(
   }
 
   // Deduplicate and filter to languages that have WASM grammars and aren't already loaded
-  const toLoad = [...new Set(languages)].filter(
-    (lang): lang is GrammarLanguage =>
-      lang in WASM_GRAMMAR_FILES &&
-      !languageCache.has(lang) &&
-      !unavailableGrammarErrors.has(lang)
-  );
+  const toLoad = requiredGrammars(languages).filter(lang => !languageCache.has(lang) && !unavailableGrammarErrors.has(lang));
 
   // Load grammars sequentially to avoid web-tree-sitter WASM race condition on Node 20+
   // See: https://github.com/tree-sitter/tree-sitter/issues/2338
@@ -484,7 +486,8 @@ export function isLanguageSupported(language: Language): boolean {
  * Check if a grammar has been loaded and is ready for parsing.
  */
 export function isGrammarLoaded(language: Language): boolean {
-  if (language === 'svelte' || language === 'vue' || language === 'liquid' || language === 'razor') return true;
+  if (language === 'svelte' || language === 'vue') return languageCache.has('javascript') && languageCache.has('typescript');
+  if (language === 'liquid' || language === 'razor') return true;
   if (language === 'yaml' || language === 'twig') return true; // no WASM grammar needed
   if (language === 'xml' || language === 'properties') return true; // no WASM grammar needed
   return languageCache.has(language);

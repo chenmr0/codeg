@@ -1,5 +1,6 @@
 import type { ExploreExplanation } from '../explore-explanation';
 import { designSeedIds } from '../design-recall';
+import { matchChineseComments } from '../comment-recall';
 import { createExploreGraphApi } from './upstream-explore-graph';
 import type CodeGraph from '../index';
 import type { ExploreGraph } from '../upstream-explore';
@@ -162,9 +163,12 @@ export function createUpstreamExploreGraph(cg: CodeGraph, explanation?: ExploreE
     } catch { return false; }
   });
   const api = createExploreGraphApi(cg.getProjectRoot(), queries, () => ensureVocabulary(db, queries));
+  const commentLines = new Map<string, number>();
   return {
     ...api,
+    getCommentFocusLine: id => commentLines.get(id),
     findRelevantContext: (query, options) => {
+      commentLines.clear();
       if (explanation && options?.queryIntent) explanation.recordMentions(db, options.queryIntent);
       const mappedSeedNodes: NonNullable<typeof options>['mappedSeedNodes'] = [];
       try {
@@ -201,6 +205,21 @@ export function createUpstreamExploreGraph(cg: CodeGraph, explanation?: ExploreE
         }
       } catch (error) {
         // Mapping evidence is optional on old or incomplete indexes.
+        if (explanation) explanation.mappingErrors.push(String(error));
+      }
+      try {
+        const admitted = new Set(mappedSeedNodes.map(node => node.id));
+        for (const { comment, clause } of matchChineseComments(db, query)) {
+          if (!admitted.has(comment.nodeId) && mappedSeedNodes.length >= 24) continue;
+          const node = queries.getNodeById(comment.nodeId);
+          if (!node || (node.kind !== 'method' && node.kind !== 'function')) continue;
+          if (!admitted.has(node.id)) { mappedSeedNodes.push(node); admitted.add(node.id); }
+          if (comment.field === 'body' && comment.line >= node.startLine && comment.line <= node.endLine) {
+            commentLines.set(node.id, comment.line);
+          }
+          explanation?.recordCommentMatch(clause, comment.field, node, comment.line);
+        }
+      } catch (error) {
         if (explanation) explanation.mappingErrors.push(String(error));
       }
       explanation?.recordCandidates(mappedSeedNodes);

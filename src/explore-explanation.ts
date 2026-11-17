@@ -12,6 +12,7 @@ export class ExploreExplanation {
   private unconfirmed = new Set<string>();
   private mentionsTruncated = false;
   private matches: ExplainedMatch[] = [];
+  private commentMatches: string[] = [];
   private admitted = new Map<string, string>();
   mappingErrors: string[] = [];
 
@@ -54,6 +55,11 @@ export class ExploreExplanation {
     this.matches.push({ terms, ids, design });
   }
 
+  recordCommentMatch(clause: string, field: 'head' | 'body', node: { name: string; qualifiedName?: string; filePath: string }, line: number): void {
+    const label = field === 'head' ? '函数头' : '函数体';
+    this.commentMatches.push('- ' + clause + '（' + label + '，' + node.filePath + ':' + line + '） → ' + (node.qualifiedName || node.name));
+  }
+
   recordCandidates(nodes: readonly { id: string; qualifiedName?: string; name: string }[]): void {
     for (const node of nodes) this.admitted.set(node.id, node.qualifiedName || node.name);
   }
@@ -72,6 +78,7 @@ export class ExploreExplanation {
       lines.push('- ' + terms.join(' / ') + '（' + source + '） → ' + (symbols.join('、') || '无候选'));
     }
     if (!this.matches.length) lines.push('无');
+    if (this.commentMatches.length) lines.push('', '中文注释 → 召回候选符号', ...this.commentMatches);
     for (const error of this.mappingErrors) lines.push('术语映射检查提示：' + error);
     return lines.join('\n');
   }

@@ -19,6 +19,8 @@ export interface ExploreGraph extends Pick<QueryBuilder,
  getFiles(): FileRecord[];
  /** Hash-verified bytes shared within this exploration only. */
  getVerifiedSource?(path: string): string | undefined;
+ /** Matched body comment of a selected function, used when its source must be trimmed. */
+ getCommentFocusLine?(id: string): number | undefined;
  generatedFilePredicate(paths: Iterable<string>): (path: string) => boolean;
  ambientDeclarationFilePredicate(paths: Iterable<string>): (path: string) => boolean;
 }

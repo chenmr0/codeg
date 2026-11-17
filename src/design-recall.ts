@@ -1,45 +1,10 @@
+import { ChineseTextIndex, termCounts } from './chinese-text-index';
 import type { SqliteDatabase } from './db/sqlite-adapter';
 import { designModulePrefix, type TermMappings, type TermMappingRule } from './term-mappings';
 
 export const MAX_DESIGN_SEEDS = 24;
 
-function counts(text: string): Map<string, number> {
-  const terms = new Map<string, number>();
-  for (const match of text.normalize('NFKC').toLowerCase().matchAll(/\p{Script=Han}+|[a-z][a-z0-9_]*/gu)) {
-    const word = match[0];
-    if (/^[a-z]/.test(word)) terms.set(word, (terms.get(word) ?? 0) + 1);
-    else {
-      const chars = [...word];
-      for (let i = 1; i < chars.length; i++) {
-        const gram = chars[i - 1]! + chars[i]!;
-        terms.set(gram, (terms.get(gram) ?? 0) + 1);
-      }
-    }
-  }
-  return terms;
-}
-
-function compile(entries: TermMappingRule[]) {
-  const vectors = entries.map(entry => {
-    const terms = counts(entry.terms.join(' '));
-    return { terms, rule: entry, norm: 0 };
-  });
-  const idf = new Map<string, number>();
-  for (const { terms } of vectors) for (const term of terms.keys()) idf.set(term, (idf.get(term) ?? 0) + 1);
-  for (const [term, df] of idf) idf.set(term, 1 + Math.log((1 + entries.length) / (1 + df)));
-  for (const v of vectors) {
-    let squares = 0;
-    for (const [term, tf] of v.terms) {
-      const weight = tf * idf.get(term)!;
-      v.terms.set(term, weight);
-      squares += weight * weight;
-    }
-    v.norm = Math.sqrt(squares);
-  }
-  return { vectors, idf };
-}
-
-const cache = new WeakMap<TermMappings, ReturnType<typeof compile>>();
+const cache = new WeakMap<TermMappings, ChineseTextIndex<TermMappingRule>>();
 export function designSeedIds(
   db: SqliteDatabase, query: string, config: TermMappings,
   onMatch?: (rule: TermMappingRule, terms: string[], ids: string[]) => void,
@@ -47,38 +12,18 @@ export function designSeedIds(
   if (!/\p{Script=Han}/u.test(query)) return [];
   let index = cache.get(config);
   if (!index) {
-    index = compile(config.rules.filter(rule => rule.design));
+    index = new ChineseTextIndex(config.rules.filter(rule => rule.design), rule => rule.terms.join(' '));
     cache.set(config, index);
   }
-  const weights = new Map<string, number>();
-  let squares = 0;
-  for (const [term, tf] of counts(query)) {
-    const idf = index.idf.get(term);
-    if (!idf) continue;
-    const weight = tf * idf;
-    weights.set(term, weight);
-    squares += weight * weight;
-  }
-  if (!squares) return [];
-  const ranked: { score: number; rule: TermMappingRule }[] = [];
-  for (const vector of index.vectors) {
-    let dot = 0, overlap = 0;
-    for (const [term, weight] of weights) {
-      const v = vector.terms.get(term);
-      if (v) { dot += v * weight; overlap++; }
-    }
-    const score = dot / (vector.norm * Math.sqrt(squares));
-    if (overlap >= 2 && score >= 0.4) ranked.push({ score, rule: vector.rule });
-  }
-  ranked.sort((a, b) => b.score - a.score);
+  const ranked = index.match(query);
   if (!ranked.length) return [];
   const definition = db.prepare("SELECT id FROM nodes WHERE substr(file_path,1,length(?))=? AND (name=? OR qualified_name=?) AND kind NOT IN ('file','import') LIMIT 2");
   const ids = new Set<string>();
-  for (const row of ranked) {
-    if (row.score < ranked[0]!.score * 0.9) break;
-    const prefix = designModulePrefix(row.rule.design!.document);
+  const queryTerms = onMatch && termCounts(query);
+  for (const { value: rule } of ranked) {
+    const prefix = designModulePrefix(rule.design!.document);
     const ruleIds = onMatch ? [] as string[] : undefined;
-    for (const symbol of row.rule.symbols) {
+    for (const symbol of rule.symbols) {
       if (ids.size >= MAX_DESIGN_SEEDS) break;
       const matches = definition.all(prefix, prefix, symbol, symbol);
       if (matches.length !== 1) continue;
@@ -86,11 +31,11 @@ export function designSeedIds(
       ruleIds?.push(matches[0].id);
       if (!onMatch && ids.size === MAX_DESIGN_SEEDS) return [...ids];
     }
-    if (onMatch && ruleIds) {
+    if (onMatch && ruleIds && queryTerms) {
       // A document rule is scored as one vector. Only name aliases whose words
       // actually contributed to its score, even when several aliases share it.
-      const terms = row.rule.terms.filter(term => [...counts(term).keys()].some(word => weights.has(word)));
-      onMatch(row.rule, terms, ruleIds);
+      const terms = rule.terms.filter(term => [...termCounts(term).keys()].some(word => queryTerms.has(word)));
+      onMatch(rule, terms, ruleIds);
     }
   }
   return [...ids];

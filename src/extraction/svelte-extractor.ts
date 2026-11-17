@@ -1,4 +1,5 @@
-import { Node, Edge, ExtractionResult, ExtractionError, UnresolvedReference, Language } from '../types';
+import { Node, Edge, ExtractionResult, ExtractionError, UnresolvedReference, ChineseComment } from '../types';
+import { componentScriptBlocks, type ComponentScriptBlock } from './component-script-blocks';
 import { generateNodeId } from './tree-sitter-helpers';
 import { TreeSitterExtractor } from './tree-sitter';
 import { isLanguageSupported } from './grammars';
@@ -28,6 +29,7 @@ export class SvelteExtractor {
   private edges: Edge[] = [];
   private unresolvedReferences: UnresolvedReference[] = [];
   private errors: ExtractionError[] = [];
+  private chineseComments: ChineseComment[] = [];
 
   constructor(filePath: string, source: string) {
     this.filePath = filePath;
@@ -45,14 +47,12 @@ export class SvelteExtractor {
       const componentNode = this.createComponentNode();
 
       // Extract and process script blocks
-      const scriptBlocks = this.extractScriptBlocks();
-
-      for (const block of scriptBlocks) {
+      for (const block of componentScriptBlocks(this.source)) {
         this.processScriptBlock(block, componentNode.id);
       }
 
       // Extract function calls from template expressions ({fn(...)})
-      this.extractTemplateCalls(componentNode.id, scriptBlocks);
+      this.extractTemplateCalls(componentNode.id);
 
       // Extract component usages from template (<ComponentName>)
       this.extractTemplateComponents(componentNode.id);
@@ -74,6 +74,7 @@ export class SvelteExtractor {
       edges: this.edges,
       unresolvedReferences: this.unresolvedReferences,
       errors: this.errors,
+      ...(this.chineseComments.length ? { chineseComments: this.chineseComments } : {}),
       durationMs: Date.now() - startTime,
     };
   }
@@ -106,62 +107,9 @@ export class SvelteExtractor {
     return node;
   }
 
-  /**
-   * Extract <script> blocks from the Svelte source
-   */
-  private extractScriptBlocks(): Array<{
-    content: string;
-    startLine: number;
-    isModule: boolean;
-    isTypeScript: boolean;
-  }> {
-    const blocks: Array<{
-      content: string;
-      startLine: number;
-      isModule: boolean;
-      isTypeScript: boolean;
-    }> = [];
-
-    const scriptRegex = /<script(\s[^>]*)?>(?<content>[\s\S]*?)<\/script>/g;
-    let match;
-
-    while ((match = scriptRegex.exec(this.source)) !== null) {
-      const attrs = match[1] || '';
-      const content = match.groups?.content || match[2] || '';
-
-      // Detect TypeScript from lang attribute
-      const isTypeScript = /lang\s*=\s*["'](ts|typescript)["']/.test(attrs);
-
-      // Detect module script
-      const isModule = /context\s*=\s*["']module["']/.test(attrs);
-
-      // Calculate start line of the script content (line after <script>)
-      const beforeScript = this.source.substring(0, match.index);
-      const scriptTagLine = (beforeScript.match(/\n/g) || []).length;
-      // The content starts on the line after the opening <script> tag
-      const openingTag = match[0].substring(0, match[0].indexOf('>') + 1);
-      const openingTagLines = (openingTag.match(/\n/g) || []).length;
-      const contentStartLine = scriptTagLine + openingTagLines + 1; // 0-indexed line
-
-      blocks.push({
-        content,
-        startLine: contentStartLine,
-        isModule,
-        isTypeScript,
-      });
-    }
-
-    return blocks;
-  }
-
-  /**
-   * Process a script block by delegating to TreeSitterExtractor
-   */
-  private processScriptBlock(
-    block: { content: string; startLine: number; isModule: boolean; isTypeScript: boolean },
-    componentNodeId: string
-  ): void {
-    const scriptLanguage: Language = block.isTypeScript ? 'typescript' : 'javascript';
+  /** Parse at the enclosing file's coordinates so evidence and node IDs agree. */
+  private processScriptBlock(block: ComponentScriptBlock, componentNodeId: string): void {
+    const scriptLanguage = block.language;
 
     // Check if the script language parser is available
     if (!isLanguageSupported(scriptLanguage)) {
@@ -176,10 +124,8 @@ export class SvelteExtractor {
     const extractor = new TreeSitterExtractor(this.filePath, block.content, scriptLanguage);
     const result = extractor.extract();
 
-    // Offset line numbers from script block back to .svelte file positions
+    for (const comment of result.chineseComments ?? []) this.chineseComments.push(comment);
     for (const node of result.nodes) {
-      node.startLine += block.startLine;
-      node.endLine += block.startLine;
       node.language = 'svelte'; // Mark as svelte, not TS/JS
 
       this.nodes.push(node);
@@ -192,29 +138,15 @@ export class SvelteExtractor {
       });
     }
 
-    // Offset edges (they reference line numbers)
-    for (const edge of result.edges) {
-      if (edge.line) {
-        edge.line += block.startLine;
-      }
-      this.edges.push(edge);
-    }
+    for (const edge of result.edges) this.edges.push(edge);
 
-    // Offset unresolved references
     for (const ref of result.unresolvedReferences) {
-      ref.line += block.startLine;
       ref.filePath = this.filePath;
       ref.language = 'svelte';
       this.unresolvedReferences.push(ref);
     }
 
-    // Carry over errors
-    for (const error of result.errors) {
-      if (error.line) {
-        error.line += block.startLine;
-      }
-      this.errors.push(error);
-    }
+    for (const error of result.errors) this.errors.push(error);
   }
 
   /**
@@ -224,10 +156,7 @@ export class SvelteExtractor {
    * not inside `<script>` blocks. We scan the template portion for `{expression}`
    * blocks and extract call patterns from them.
    */
-  private extractTemplateCalls(
-    componentNodeId: string,
-    _scriptBlocks: Array<{ content: string; startLine: number }>
-  ): void {
+  private extractTemplateCalls(componentNodeId: string): void {
     // Build a set of line ranges covered by <script> and <style> blocks so we skip them
     const coveredRanges: Array<[number, number]> = [];
 

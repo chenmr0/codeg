@@ -18,6 +18,7 @@ import {
 } from '../types';
 import { createParser, getParser, detectLanguage, isLanguageSupported, isFileLevelOnlyLanguage, maskCStyleCommentsAndLiterals } from './grammars';
 import { generateNodeId, getNodeText, getChildByField, getPrecedingDocstring } from './tree-sitter-helpers';
+import { collectChineseComments, readCommentSyntax } from './chinese-comments';
 import type { LanguageExtractor, ExtractorContext } from './tree-sitter-types';
 import { EXTRACTORS } from './languages';
 import { LiquidExtractor } from './liquid-extractor';
@@ -1030,6 +1031,7 @@ export class TreeSitterExtractor {
    */
   extract(): ExtractionResult {
     const startTime = Date.now();
+    let chineseComments: ExtractionResult['chineseComments'];
     this.timings = {};
 
     if (!isLanguageSupported(this.language)) {
@@ -1318,8 +1320,11 @@ export class TreeSitterExtractor {
       this.nodeStack.pop();
       this.timings.primaryExtractionMs = performance.now() - primaryExtractionStarted;
 
+      const commentSyntax = !this.useMacroSemanticIds && /\p{Script=Han}/u.test(this.originalSource)
+        ? readCommentSyntax(this.tree.rootNode, this.originalSource, this.language) : undefined;
       this.recoverDeclarationMacroNodes();
       this.recoverWrappedCppFunctions();
+      if (commentSyntax) chineseComments = collectChineseComments(commentSyntax, this.nodes);
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
 
@@ -1350,6 +1355,7 @@ export class TreeSitterExtractor {
       errors: this.errors,
       durationMs: Date.now() - startTime,
       timings: this.timings,
+      ...(chineseComments?.length ? { chineseComments } : {}),
     };
   }
 

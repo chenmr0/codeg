@@ -28,4 +28,7 @@
 // switching to this branch's extraction behavior.
 // v45: Restore C macros with multiline replacement-list comments and refresh
 // C++ overload edges affected by comments in source-spelled macro signatures.
-export const EXTRACTION_VERSION = 45;
+// v46: Persist function/method comment evidence for Chinese Explore queries.
+// v47: Re-extract v46 indexes with C++ macro recovery, Python docstrings and
+// embedded script comments bound to their final source positions.
+export const EXTRACTION_VERSION = 47;

@@ -9,6 +9,8 @@ import picomatch from 'picomatch';
 import { createHash, randomUUID } from 'crypto';
 import {
   Node,
+  ChineseComment,
+  CHINESE_COMMENT_PREFIX,
   Edge,
   FileRecord,
   UnresolvedReference,
@@ -388,6 +390,7 @@ export class QueryBuilder {
     getClassesContainingMethod?: SqliteStatement;
     insertEdge?: SqliteStatement;
     upsertFile?: SqliteStatement;
+    deleteChineseComments?: SqliteStatement;
     refreshUnchangedFileStats?: SqliteStatement;
     deleteEdgesBySource?: SqliteStatement;
     deleteEdgesByTarget?: SqliteStatement;
@@ -619,6 +622,7 @@ export class QueryBuilder {
    * edges and refs to the valid node ids in this bundle.
    */
   storeFileBundle(bundle: {
+    chineseComments?: ChineseComment[];
     nodes: Node[];
     edges: Edge[];
     refs: UnresolvedReference[];
@@ -628,7 +632,7 @@ export class QueryBuilder {
       this.insertNodes(bundle.nodes);
       this.insertEdgesUnchecked(bundle.edges);
       this.insertUnresolvedRefsBatch(bundle.refs);
-      this.upsertFile(bundle.file);
+      this.storeIndexedFile(bundle.file, bundle.chineseComments);
     })();
   }
 
@@ -736,6 +740,7 @@ export class QueryBuilder {
 
   /** Keep stable node rows and selected stamped edges in one atomic file write. */
   storeAppendDelta(bundle: {
+    chineseComments?: ChineseComment[];
     file: FileRecord; fileNode: Node; added: Node[]; edges: Edge[];
     refs: UnresolvedReference[]; retainedEdgeIds: number[]; journalKey: string;
   }): void {
@@ -752,7 +757,7 @@ export class QueryBuilder {
         this.insertNodes(bundle.added);
         this.insertEdges(bundle.edges);
         this.insertUnresolvedRefsBatch(bundle.refs);
-        this.upsertFile(bundle.file);
+        this.storeIndexedFile(bundle.file, bundle.chineseComments);
       })();
     } catch (error) { this.clearCache(); throw error; }
   }
@@ -2439,7 +2444,7 @@ export class QueryBuilder {
           +64 AS bytes FROM files WHERE path=?`)),
         metadata: this.db.prepare(aggregate(`SELECT ${bytes(['key', 'value'])}+32 AS bytes
           FROM project_metadata WHERE key IN ('sync-retry:done:'||?, 'sync-retry:pending:'||?,
-          'sync-retry:rewire:'||?, 'sync-append-delta:pending:'||?)`)),
+          'sync-retry:rewire:'||?, 'sync-append-delta:pending:'||?, ?)`)),
       };
     }
     type CostRow = { n: number; bytes: number };
@@ -2449,9 +2454,25 @@ export class QueryBuilder {
     const outgoing = stmts.outgoing.get(filePath, maxWorkRows + 1) as CostRow;
     const refs = stmts.refs.get(filePath, maxWorkRows + 1) as CostRow;
     const file = stmts.file.get(filePath) as CostRow;
-    const metadata = stmts.metadata.get(filePath, filePath, filePath, filePath) as CostRow;
+    const metadata = stmts.metadata.get(filePath, filePath, filePath, filePath, CHINESE_COMMENT_PREFIX + filePath) as CostRow;
     return { nodes: nodes.n, workRows: nodes.n + incoming.n + outgoing.n + refs.n,
       payloadBytes: nodes.bytes + incoming.bytes + outgoing.bytes + refs.bytes + file.bytes + metadata.bytes };
+  }
+
+  private deleteChineseComments(filePath: string): void {
+    const remove = this.stmts.deleteChineseComments ??= this.db.prepare('DELETE FROM project_metadata WHERE key = ?');
+    remove.run(CHINESE_COMMENT_PREFIX + filePath);
+  }
+
+  /** Publish comment evidence together with the version of the file it describes. */
+  storeIndexedFile(file: FileRecord, comments?: ChineseComment[]): void {
+    const write = () => {
+      this.upsertFile(file);
+      if (comments?.length) this.setMetadata(CHINESE_COMMENT_PREFIX + file.path, JSON.stringify(comments));
+      else this.deleteChineseComments(file.path);
+    };
+    if (this.db.inTransaction) write();
+    else this.db.transaction(write)();
   }
 
   /** Delete a file and atomically retain any callers that need source recovery. */
@@ -2465,6 +2486,7 @@ export class QueryBuilder {
         this.stmts.deleteFile = this.db.prepare('DELETE FROM files WHERE path = ?');
       }
       this.stmts.deleteFile.run(filePath);
+      this.deleteChineseComments(filePath);
     })();
   }
 
@@ -3494,6 +3516,7 @@ WHERE e.kind = 'imports'
       this.db.exec('DELETE FROM edges');
       this.db.exec('DELETE FROM nodes');
       this.db.exec('DELETE FROM files');
+      this.db.prepare('DELETE FROM project_metadata WHERE key GLOB ?').run(CHINESE_COMMENT_PREFIX + '*');
       this.db.exec("DELETE FROM project_metadata WHERE key GLOB 'sync-retry:*'");
       this.db.exec("DELETE FROM project_metadata WHERE key GLOB 'resolution-deferred:*' OR key = 'index_conformance_pending'");
     })();

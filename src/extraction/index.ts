@@ -2886,7 +2886,7 @@ export class ExtractionOrchestrator {
       nodeCount: result.nodes.length,
       errors: result.errors.length > 0 ? result.errors : undefined,
     };
-    measureStore(detail, 'fileMs', () => this.queries.upsertFile(fileRecord));
+    measureStore(detail, 'fileMs', () => this.queries.storeIndexedFile(fileRecord, result.chineseComments));
     if (detail) detail.files++;
   }
 
