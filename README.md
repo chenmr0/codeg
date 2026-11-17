@@ -376,6 +376,8 @@ AI 助手默认可用的 **7 个 MCP 工具**：
 
 `codegraph_search` 默认严格区分大小写并精确匹配，保留精确源码兜底。需要大小写纠正、模糊建议及错误 owner 恢复时，在 MCP 配置的 `env` 中设置 `CODEGRAPH_SEARCH_FUZZY=1` 并重启服务；不增加工具调用参数。CLI 的 `codegraph query` 也默认精确匹配，只有传 `--fuzzy` 才启用模糊搜索。
 
+C/C++ 搜索命中声明时会返回索引位置，并标注未找到配对定义的重载。只有索引未命中的符号才需要原文兜底。要查某个声明在源码中的出现位置，可用 `codegraph_text_search` 指定名称和源码目录。
+
 Linux 随包 ripgrep 的直接计时、扫描预算设置和完整示例见 [精准查询与原文扫描诊断](docs/search-exact-and-ripgrep-benchmark.md)。
 
 ---

@@ -3,13 +3,17 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import CodeGraph from '../src/index';
+import { createDatabase, type SqliteDatabase } from '../src/db/sqlite-adapter';
 import { formatStaleBanner, getStaticTools, ToolHandler } from '../src/mcp/tools';
 import { formatRawSourceEvidence, scanRawSourceEvidence } from '../src/mcp/raw-source-evidence';
+import * as rawWorker from '../src/mcp/raw-source-worker-client';
 
 describe('MCP bounded batch context and literal search', () => {
   let dir: string;
   let cg: CodeGraph;
   let handler: ToolHandler;
+  let db: SqliteDatabase;
+  let fixtureConnection: SqliteDatabase | undefined;
 
   beforeEach(async () => {
     vi.stubEnv('CODEGRAPH_SEARCH_FUZZY', undefined);
@@ -215,11 +219,12 @@ describe('MCP bounded batch context and literal search', () => {
         ].join('\n'),
       );
     }
-    cg = CodeGraph.initSync(dir, {
-      config: { include: ['src/**/*.ts', 'src/**/*.h', 'src/**/*.cpp'], exclude: [] },
-    });
+    cg = CodeGraph.initSync(dir);
     await cg.indexAll();
-    const db = (cg as any).db.getDb();
+    // Seed synthetic edges after indexing the isolated fixture. A portable facade
+    // does not expose a connection. The WASM fixture lives in the original handle.
+    fixtureConnection = cg.isPortableStorage() ? createDatabase(cg.getDatabaseFilePath(), { nativeOnly: true }).db : undefined;
+    db = fixtureConnection ?? (cg as any).db.getDb();
     const noArgDefinition = db.prepare(
       `SELECT id FROM nodes
        WHERE name = 'push_back_send_list' AND file_path = 'src/overloads.cpp'`,
@@ -252,9 +257,13 @@ describe('MCP bounded batch context and literal search', () => {
     handler = new ToolHandler(cg);
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     vi.unstubAllEnvs();
+    handler?.closeAll();
+    fixtureConnection?.close();
+    fixtureConnection = undefined;
     cg?.close();
+    await cg?.whenIdle();
     fs.rmSync(dir, { recursive: true, force: true });
   });
 
@@ -455,8 +464,8 @@ describe('MCP bounded batch context and literal search', () => {
     });
     expect(precise).toContain('push_back_send_list(ObDtlLinkedBuffer *buffer)');
     expect(precise).toMatch(/No indexed definition found/i);
-    expect(precise).toContain('DECLARATION_ONLY');
-    expect(precise).toMatch(/Found 3 raw-source matches/i);
+    expect(precise).toContain('overloads.h:4');
+    expect(precise).not.toMatch(/DECLARATION_ONLY|raw-source match/i);
 
     const bad = await output('search', {
       query: 'push_back_send_list',
@@ -576,7 +585,6 @@ describe('MCP bounded batch context and literal search', () => {
 
   it('caps wrong-owner recovery before grouping a high-frequency leaf', async () => {
     vi.stubEnv('CODEGRAPH_SEARCH_FUZZY', '1');
-    const db = (cg as any).db.getDb();
     const insert = db.prepare(
       `INSERT INTO nodes (
          id, kind, name, qualified_name, file_path, language,
@@ -605,7 +613,6 @@ describe('MCP bounded batch context and literal search', () => {
 
   it('bounds legacy owner pairing when path narrows a high-frequency leaf below the candidate cap', async () => {
     vi.stubEnv('CODEGRAPH_SEARCH_FUZZY', '1');
-    const db = (cg as any).db.getDb();
     const insert = db.prepare(
       `INSERT INTO nodes (
          id, kind, name, qualified_name, file_path, language,
@@ -1105,7 +1112,6 @@ describe('MCP bounded batch context and literal search', () => {
   });
 
   it('does not collapse a different overload behind a stale legacy defines edge', async () => {
-    const db = (cg as any).db.getDb();
     const definition = db.prepare(
       `SELECT id FROM nodes
        WHERE name = 'push_back_send_list' AND file_path = 'src/overloads.cpp'`,
@@ -1196,7 +1202,6 @@ describe('MCP bounded batch context and literal search', () => {
   });
 
   it('uses canonical C++ matching when an older index is missing its defines edge', async () => {
-    const db = (cg as any).db.getDb();
     db.prepare(
       `DELETE FROM edges
        WHERE kind = 'defines' AND (source IN (
@@ -1248,8 +1253,29 @@ describe('MCP bounded batch context and literal search', () => {
     const out = await output('search', { query: 'push_back_send_list' });
     expect(out).toMatch(/declaration — no indexed definition found for this exact overload/i);
     expect(out).toMatch(/authoritative for the current index/i);
-    expect(out).toContain('DECLARATION_ONLY');
-    expect(out).toMatch(/other overloads or call sites.*not definitions of this exact overload/i);
+    expect(out).not.toMatch(/DECLARATION_ONLY|raw-source match/i);
+  });
+
+  it('keeps indexed declarations out of the batch fallback and scans only genuine misses', async () => {
+    const worker = vi.spyOn(rawWorker, 'runRawEvidenceWorker');
+    try {
+      const hits = [
+        { query: 'push_back_send_list', limit: 1 },
+        { query: 'int push_back_send_list(ObDtlLinkedBuffer *buffer)', includeCode: 'if_unique' },
+      ];
+      const page = await output('search', { queries: hits });
+      expect(page).toContain('overloads.cpp:2');
+      expect(page).toMatch(/Unpaired indexed declaration outside this page:.*ObDtlBasicChannel::push_back_send_list.*buffer.*overloads\.h:4/);
+      expect(worker).not.toHaveBeenCalled();
+
+      const mixed = await output('search', { queries: [...hits, 'RAW_ONLY_MISSING_MARKER', 'TotallyAbsentSymbol'] });
+      expect(mixed).toContain('RAW_MATCHES');
+      expect(mixed).toContain('CONFIRMED_ABSENT');
+      expect(worker).toHaveBeenCalledTimes(1);
+      expect(worker.mock.calls[0]![1].specs.map(spec => spec.needle)).toEqual(['RAW_ONLY_MISSING_MARKER', 'TotallyAbsentSymbol']);
+    } finally {
+      worker.mockRestore();
+    }
   });
 
   it('does not pair same-signature declarations and definitions from unrelated owners', async () => {

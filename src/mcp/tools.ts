@@ -2201,24 +2201,14 @@ export class ToolHandler {
       exact = signatureMatches;
     }
     if (exact.length > 0) {
+      // Same-name source occurrences cannot resolve an unpaired indexed declaration.
+      // Only a graph miss below needs a raw-source search.
       const ranked = this.rankSearchCandidatesByPath(
         this.preferContainerMatches(exact, lineHint, signature),
         pathHint,
       );
-      const groups = this.relationshipOverloadGroups(cg, ranked, exactAll);
-      const declarationOnly = !this.relationshipsPending() && ranked.some((node) =>
-        node.isDeclaration === true && cppParameterKey(node) !== null &&
-        this.indexedDefinitionForDeclaration(cg, node) === null
-      );
-      const declarationEvidenceNeedle = declarationOnly ? this.rawEvidenceNeedle(query) : undefined;
-      const declarationEvidence = declarationEvidenceNeedle
-        ? await this.renderSearchRawEvidence(cg, [{
-          label: signature ?? queryText,
-          needle: declarationEvidenceNeedle,
-          purpose: 'declaration_only',
-        }], deferredRawEvidence)
-        : '';
-      if (includeCode === 'if_unique' && groups.length === 1) {
+      const groups = includeCode === 'if_unique' ? this.relationshipOverloadGroups(cg, ranked, exactAll) : [];
+      if (groups.length === 1) {
         const primary = this.rankExactSymbolNodes(groups[0]!)[0]!;
         const section = await this.renderImplementationGroup(cg, groups[0]!, false);
         const correctionNotice = caseCorrected
@@ -2242,7 +2232,6 @@ export class ToolHandler {
           '',
           section.text,
           this.formatOtherOverloadSummary(cg, query, primary),
-          declarationEvidence,
         ].filter(Boolean).join('\n')));
       }
       const total = ranked.length;
@@ -2252,7 +2241,7 @@ export class ToolHandler {
       const caseNote = caseCorrected
         ? `\n\n> Case-insensitive exact-name correction applied for "${queryText}".`
         : '';
-      const sourceNote = includeCode === 'if_unique' && groups.length > 1
+      const sourceNote = groups.length > 1
         ? this.omitRelationshipDetails()
           ? '\n\n> Multiple indexed candidates remain; use a path, line or signature to select source.'
           : `\n\n> Source was not inlined because ${groups.length} distinct logical symbols/overloads remain; use a matching path hint, line, or signature to make the target unique. A path miss keeps all exact candidates visible.`
@@ -2260,13 +2249,12 @@ export class ToolHandler {
       const note = total > limit
         ? `\n\n> Showing ${capped.length} of ${total} exact ${qualifier}matches${lineNote}. Raise \`limit\`, provide a closer path hint, or use line/signature to see the intended symbol.`
         : '';
-      const formatted = this.formatSearchResults(cg, capped.map((node) => ({ node, score: 1.0 })));
+      const formatted = this.formatSearchResults(cg, capped.map((node) => ({ node, score: 1.0 })), ranked.slice(limit));
       return this.textResult(this.truncateOutput([
         includeCodeCorrection,
         pathStatusNotice,
         lineStatusNotice,
         formatted + caseNote + sourceNote + note,
-        declarationEvidence,
       ].filter(Boolean).join('\n\n')));
     }
 
@@ -5732,9 +5720,10 @@ export class ToolHandler {
     });
   }
 
-  private formatSearchResults(cg: CodeGraph, results: SearchResult[]): string {
+  private formatSearchResults(cg: CodeGraph, results: SearchResult[], omitted: Node[] = []): string {
     const lines: string[] = [`## Search Results (${results.length} found)`, ''];
     let declarationOnlyCount = 0;
+    const relationshipsReady = !this.relationshipsPending();
     const overloadCaches = new Map<string, RelationshipOverloadCache>();
     const overloadCacheFor = (node: Node): RelationshipOverloadCache => {
       let cache = overloadCaches.get(node.name);
@@ -5744,6 +5733,13 @@ export class ToolHandler {
       }
       return cache;
     };
+    const isUnpaired = (node: Node, probeCount = 0): boolean => {
+      if (!node.isDeclaration || !relationshipsReady) return false;
+      const cache = overloadCacheFor(node);
+      if (this.relationshipFallbackExceedsBudget(probeCount, cache.candidatesByName.get(node.name)?.length ?? 0)) return false;
+      return this.relationshipParameterKey(node, cache) !== null &&
+        this.indexedDefinitionForDeclaration(cg, node, cache) === null;
+    };
 
     for (const result of results) {
       const { node } = result;
@@ -5751,11 +5747,7 @@ export class ToolHandler {
       // Compact format: one line per result with key info.
       // Tag prototypes so the agent knows to follow the `defines` edge to
       // the definition for the real body/callees rather than dead-ending.
-      const overloadCache = node.isDeclaration === true && !this.relationshipsPending() ? overloadCacheFor(node) : undefined;
-      const callableKey = this.relationshipsPending() ? null : this.relationshipParameterKey(node, overloadCache);
-      const declarationOnly = !this.relationshipsPending() && node.isDeclaration === true &&
-        callableKey !== null &&
-        this.indexedDefinitionForDeclaration(cg, node, overloadCache) === null;
+      const declarationOnly = isUnpaired(node);
       if (declarationOnly) declarationOnlyCount++;
       const declTag = node.isDeclaration === true
         ? declarationOnly
@@ -5778,6 +5770,14 @@ export class ToolHandler {
           ? 'Legacy synthesis coverage is unverified, so absence has not been established.'
           : 'Treat that as authoritative for the current index; do not use Grep or text search merely to verify absence.'),
       );
+    } else if (omitted.length && relationshipsReady &&
+      !this.relationshipFallbackExceedsBudget(omitted.length, omitted.length + results.length)) {
+      // A page of definitions can hide an unpaired declaration. Offer one indexed
+      // location without doing unbounded legacy pairing for high-frequency names.
+      const declaration = omitted.find(node => isUnpaired(node, omitted.length));
+      if (declaration) {
+        lines.push(`> Unpaired indexed declaration outside this page: \`${displaySymbol(declaration)}\` — \`${declaration.signature ?? declaration.name}\` (${formatDefinitionLocation(declaration)}).`);
+      }
     }
 
     return lines.join('\n');

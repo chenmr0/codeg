@@ -8,13 +8,19 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import CodeGraph from '../../src/index';
+import CodeGraph, { QueryBuilder } from '../../src/index';
+import { createDatabase, type SqliteDatabase } from '../../src/db/sqlite-adapter';
 import { getStaticTools, ToolHandler } from '../../src/mcp/tools';
 
 describe('codegraph_search semantics — exact by default, fuzzy via environment', () => {
   let tempDir: string;
   let cg: CodeGraph;
   let handler: ToolHandler;
+  let fixtureConnection: SqliteDatabase | undefined;
+  function fixtureDb(): SqliteDatabase {
+    if (!cg.isPortableStorage()) return (cg as any).db.getDb();
+    return fixtureConnection ??= createDatabase(cg.getDatabaseFilePath(), { nativeOnly: true }).db;
+  }
 
   beforeEach(async () => {
     vi.stubEnv('CODEGRAPH_SEARCH_FUZZY', undefined);
@@ -67,10 +73,16 @@ describe('codegraph_search semantics — exact by default, fuzzy via environment
     handler = new ToolHandler(cg);
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     vi.restoreAllMocks();
     vi.unstubAllEnvs();
-    if (cg) cg.destroy();
+    handler?.closeAll();
+    fixtureConnection?.close();
+    fixtureConnection = undefined;
+    if (cg) {
+      cg.destroy();
+      await cg.whenIdle();
+    }
     if (fs.existsSync(tempDir)) {
       fs.rmSync(tempDir, { recursive: true, force: true });
     }
@@ -113,7 +125,7 @@ describe('codegraph_search semantics — exact by default, fuzzy via environment
   });
 
   it('strict mode skips the expensive search chain and retains exact raw evidence', async () => {
-    const search = vi.spyOn(cg, 'searchNodes');
+    const search = vi.spyOn(CodeGraph.prototype, 'searchNodes');
     const result = await handler.execute('search', { query: 'missing_symbol' });
     expect(result.isError).toBeFalsy();
     expect(search).not.toHaveBeenCalled();
@@ -123,7 +135,7 @@ describe('codegraph_search semantics — exact by default, fuzzy via environment
   });
 
   it('strict mode does not correct case or recover an unknown owner', async () => {
-    const search = vi.spyOn(cg, 'searchNodes');
+    const search = vi.spyOn(CodeGraph.prototype, 'searchNodes');
     for (const query of ['HelperSync', 'LegacyService::execute']) {
       const result = await handler.execute('search', { query, includeCode: 'if_unique' });
       expect(result.isError).toBeFalsy();
@@ -148,7 +160,7 @@ describe('codegraph_search semantics — exact by default, fuzzy via environment
   });
 
   it('strict mode does not turn a kind or line mismatch into an absence scan', async () => {
-    const search = vi.spyOn(cg, 'searchNodes');
+    const search = vi.spyOn(CodeGraph.prototype, 'searchNodes');
     for (const constraints of [{ kind: 'class' }, { line: 1000 }]) {
       const result = await handler.execute('search', { query: 'helper', ...constraints });
       expect(result.isError).toBeFalsy();
@@ -161,8 +173,8 @@ describe('codegraph_search semantics — exact by default, fuzzy via environment
   });
 
   it('inherits strict mode across a batch and shares a single raw scan', async () => {
-    const search = vi.spyOn(cg, 'searchNodes');
-    const files = vi.spyOn(cg, 'getFiles');
+    const search = vi.spyOn(CodeGraph.prototype, 'searchNodes');
+    const files = vi.spyOn(CodeGraph.prototype, 'getFiles');
     const result = await handler.execute('search', {
       queries: ['FIRST_RAW_MARKER', { query: 'SECOND_RAW_MARKER' }, { query: 'helperSync', includeCode: 'if_unique' }],
     });
@@ -174,7 +186,7 @@ describe('codegraph_search semantics — exact by default, fuzzy via environment
   });
 
   it('enables fuzzy matching for single and batch requests only when the environment is 1', async () => {
-    const search = vi.spyOn(cg, 'searchNodes');
+    const search = vi.spyOn(CodeGraph.prototype, 'searchNodes');
     for (const setting of [undefined, '', '0', 'false', 'true']) {
       vi.stubEnv('CODEGRAPH_SEARCH_FUZZY', setting);
       const strict = await handler.execute('search', { query: 'nonexist' });
@@ -250,9 +262,7 @@ describe('codegraph_search semantics — exact by default, fuzzy via environment
   });
 
   it('uses path and line to pin one physical node among repeated qualified names', async () => {
-    const queries = (cg as unknown as {
-      queries: { insertNode(node: Record<string, unknown>): void };
-    }).queries;
+    const queries = new QueryBuilder(fixtureDb());
     for (let line = 1; line <= 120; line++) {
       queries.insertNode({
         id: `function:mcp-test-f-${line}`,
@@ -301,8 +311,7 @@ describe('codegraph_search semantics — exact by default, fuzzy via environment
   });
 
   it('expands a qualified declaration hit through its defines edge when the definition name is less qualified', async () => {
-    const db = (cg as any).db.getDb();
-    db.prepare(
+    fixtureDb().prepare(
       `UPDATE nodes SET qualified_name = 'execute'
        WHERE name = 'execute' AND file_path = 'src/service.cpp'`,
     ).run();
