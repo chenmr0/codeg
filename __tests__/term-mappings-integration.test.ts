@@ -94,7 +94,9 @@ describe('project mappings in native Explore', () => {
     cg = undefined;
     expect(fs.readdirSync(dir)).toEqual(['term-mappings.json']);
     expect(fs.readFileSync(file)).toEqual(bytes);
-    cg = CodeGraph.initSync(root); await cg.indexAll();
+    fs.writeFileSync(path.join(root, 'Design.md'), '- `getChannel()`：新的文档词条');
+    cg = await CodeGraph.init(root, { index: true });
+    expect(fs.readFileSync(file)).toEqual(bytes);
     expect([...(await createUpstreamExploreGraph(cg).findRelevantContext('信道配置')).nodes.values()].some(n => n.name === 'getChannel')).toBe(true);
   });
 });

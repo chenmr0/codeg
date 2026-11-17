@@ -210,7 +210,7 @@ function readDocument(root: string, file: string): string | undefined {
   } finally { fs.closeSync(fd); }
 }
 
-/** Preview the file on disk, using the very same bindings init/sync would compute
+/** Preview the file on disk, using the same bindings explicit regeneration computes
  * for a module document. For an external draft, the selected directory scopes SQL. */
 export function previewDesignDocument(input: string, project: string, selected: string | undefined, db: SqliteDatabase) {
   const document = path.resolve(input);

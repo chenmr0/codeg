@@ -489,12 +489,6 @@ export class CodeGraph {
             await coordinator.publishInitialCandidate(candidate, { timeoutMs: 30_000, signal: options.signal });
             indexed = true;
             initialResult = result;
-            if (result.complete) {
-              instance = CodeGraph.openPortable(root, dataDir);
-              const pin = instance.acquirePortableRead();
-              try { regenerateTermMappings(pin.graph); }
-              finally { pin.release(); }
-            }
           }
         } finally {
           let closed = !db;
@@ -531,7 +525,6 @@ export class CodeGraph {
       if (indexed) options.onIndexResult?.(initialResult!);
       if (options.index && !indexed) {
         const result = await instance!.indexAll({ onProgress: options.onProgress, signal: options.signal, verbose: options.verbose });
-        if (result.complete) instance!.regenerateCurrentMappings();
         options.onIndexResult?.(result);
         if (!result.success) throw new Error(result.errors.map(error => error.message).join('; ') || 'Initial indexing failed');
       }

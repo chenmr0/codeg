@@ -2,7 +2,7 @@
 
 ## 从模块 Design.md 生成映射
 
-在项目根目录运行 `codegraph init`。源码索引完整建立后，CodeGraph 扫描各级模块目录中名为 `Design.md` 的文档。文件名忽略大小写，包括 `DESIGN.md` 和 `design.md`；Git 忽略的未跟踪文档会跳过。默认生成 `.codegraph-wx/term-mappings.json`，Explore 随即可以使用。扫描完成但没有符合条件的文档或条目时，文件内容为 `{"rules":[]}`。
+在项目根目录运行 `codegraph init` 建立源码索引，再按需运行 `codegraph sync --regenerate-term-mappings` 生成术语映射。该显式命令同步源码后，扫描各级模块目录中名为 `Design.md` 的文档。文件名忽略大小写，包括 `DESIGN.md` 和 `design.md`；Git 忽略的未跟踪文档会跳过。默认写入 `.codegraph-wx/term-mappings.json`，Explore 随即可以使用。扫描完成但没有符合条件的文档或条目时，文件内容为 `{"rules":[]}`。
 
 例如，`ALD/Design.md` 的第 5 行写有：
 
@@ -131,7 +131,9 @@ codegraph mappings check --check-source
 ## 生命周期
 
 正常 init、sync、重建不会把词典纳入提取语义指纹，修改词典不触发全量重建。
-原生离线 uninit 会保留 `term-mappings.json`。重新运行带索引的 init 会根据当时的文档生成新配置；希望保留手工规则时，请先备份。启用旧目录兼容时，若仅旧目录保留了配置，重新初始化会沿用旧目录。两个目录都只有配置时优先使用 `.codegraph-wx`，两份配置各自保留。现有 portable storage 的活跃进程删除保护不变，仍须先停止相关进程。
+初次 `init` 和普通 `sync` 只负责源码索引。术语映射由 `sync --regenerate-term-mappings` 显式生成或覆盖。
+
+原生离线 uninit 会保留 `term-mappings.json`。重新运行带索引的 init 会保留已有映射及手工规则。启用旧目录兼容时，若仅旧目录保留了配置，重新初始化会沿用旧目录。两个目录都只有配置时优先使用 `.codegraph-wx`，两份配置各自保留。现有 portable storage 的活跃进程删除保护不变，仍须先停止相关进程。
 不要手工删除整个数据目录来清索引，否则词典仍会丢失。团队共用的词典应另行纳入备份或版本管理。
 
 ## 本轮验证范围

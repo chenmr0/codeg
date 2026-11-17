@@ -48,15 +48,19 @@ afterEach(async () => {
   fs.rmSync(root, { recursive: true, force: true });
 });
 
-it('indexes module documentation through the built CLI and recalls the documented ALD definitions in Explore', async () => {
+it('generates mappings only on explicit CLI sync and recalls the documented ALD definitions', async () => {
   execFileSync('git', ['init', '-q'], { cwd: root });
   write('ald/Design.md', doc);
   write('other/ald_logcode.h', '#define REDUCEBIN_ALD_INFO_LOG_OTHER(msg) msg\n');
   write('ald/unrelated.h', '#define REDUCEBIN_ALD_INFO_LOG_WRONG(msg) msg\n');
   write('other/Design.md', '- 不相关词语 `REDUCEBIN_ALD_INFO_LOG_OTHER`');
   write('.gitignore', 'other/Design.md\n');
-  command('init', root);
+  expect(command('init', root).toString()).not.toContain('Term mappings:');
   graph = CodeGraph.openSync(root);
+  expect(fs.existsSync(active())).toBe(false);
+  command('sync', root);
+  expect(fs.existsSync(active())).toBe(false);
+  command('sync', root, '--regenerate-term-mappings');
   expect(fs.existsSync(path.join(graph.getDataDirectory(), 'review'))).toBe(false);
   const db = graph.getExploreQueryConnection();
   expect(db.prepare('SELECT value FROM project_metadata WHERE key=?').get('explore:design-documents-v1')).toBeUndefined();
@@ -86,6 +90,7 @@ it('resolves symbols across source moves within a module and skips ambiguous bin
   write('ald/Design.md', doc);
   write('ald-other/ald_logcode.h', source);
   graph = await CodeGraph.init(root, { index: true });
+  await graph.sync({ regenerateTermMappings: true });
   const symbols = ['REDUCEBIN_ALD_INFO_LOG1', 'REDUCEBIN_ALD_INFO_LOG2'];
   expect(rules()).toContainEqual({ terms: ['中心层信息日志'], symbols,
     design: { document: 'ald/Design.md', documentLine: 5 } });
@@ -111,7 +116,7 @@ it.each([false, true])('discovers uppercase DESIGN.md on sync of an existing pro
   write('beqm/DESIGN.md', '- 设备初始化`deviceInit()`');
   command('sync', root);
   graph = CodeGraph.openSync(root);
-  expect(rules()).toEqual([]);
+  expect(fs.existsSync(active())).toBe(false);
   command('sync', root, '--regenerate-term-mappings');
   expect(rules()).toContainEqual({
     terms: ['中心层信息日志'], symbols: [macros[0]], design: { document: 'ald/DESIGN.md', documentLine: 5 },
@@ -126,6 +131,8 @@ it('preserves manual edits during sync and replaces them only on explicit regene
   const ordinary = async () => [...(await createUpstreamExploreGraph(graph!).findRelevantContext('aldCorePidInit')).nodes.keys()];
   const baseline = await ordinary();
   expect(baseline.length).toBeGreaterThan(0);
+  expect(fs.existsSync(active())).toBe(false);
+  await graph.sync({ regenerateTermMappings: true });
   expect(rules()).toEqual([]);
   const manual = JSON.stringify({ rules: [{ terms: ['自定义业务'], symbols: ['aldCorePidInit'] }] });
   fs.writeFileSync(active(), manual);
@@ -193,13 +200,15 @@ it('preserves a manual configuration across a published rebuild and regenerates 
   } finally { process.execArgv = argv; }
 }, 90000);
 
-it('keeps the newly indexed source usable when init cannot generate the file', async () => {
+it('defers document reads and generation errors until explicitly requested', async () => {
   const design = 'ald/Design.md';
   write(design, 'a'.repeat(1024 * 1024 + 1));
-  await expect(CodeGraph.init(root, { index: true })).rejects.toThrow(/Design document exceeds 1 MiB/);
-  graph = CodeGraph.openSync(root);
+  graph = await CodeGraph.init(root, { index: true });
   expect(graph.getIndexCompleteness().status).toBe('complete');
   expect(fs.existsSync(active())).toBe(false);
+  await graph.sync();
+  expect(fs.existsSync(active())).toBe(false);
+  await expect(graph.sync({ regenerateTermMappings: true })).rejects.toThrow(/Design document exceeds 1 MiB/);
   write(design, doc);
   await graph.sync({ regenerateTermMappings: true });
   expect(seeds('中心层信息日志').map(row => row.name)).toEqual([macros[0]]);
@@ -215,6 +224,7 @@ it('keeps physical Markdown lines across reference definitions, code fences, rep
   ];
   write('ald/DESIGN.md', input.join('\r\n'));
   graph = await CodeGraph.init(root, { index: true });
+  await graph.sync({ regenerateTermMappings: true });
   const positions = () => rules().map(rule => [rule.symbols[0], rule.design?.document, rule.design?.documentLine]);
   const expected = [
     ['aldCorePidInit', 'ald/DESIGN.md', 7], ['aldCorePidInit', 'ald/DESIGN.md', 8],
@@ -242,6 +252,7 @@ it('requires local evidence: accepts explicit typed labels, rejects concepts, co
     '', '| 接口 | 用途 |', '|---|---|', '| `DeviceObject` | 设备属性查询 |',
   ].join('\n'));
   graph = await CodeGraph.init(root, { index: true });
+  await graph.sync({ regenerateTermMappings: true });
   const expected = { name: 'CTRLTOP_PORT_CONFIG_STATUS_ENUM', file_path: 'beqm/bbutop_common.h' };
   expect(seeds('端口配置状态')).toContainEqual(expected);
   expect(seeds('未配置、已配置、配置失败')).toContainEqual(expected);
@@ -258,6 +269,7 @@ it('previews the current draft against an explicit module without changing Explo
   write('ald/Design.md', doc);
   write('other/ald_logcode.h', '#define REDUCEBIN_ALD_INFO_LOG_OTHER(msg) msg\n');
   graph = await CodeGraph.init(root, { index: true });
+  await graph.sync({ regenerateTermMappings: true });
   const original = seeds('中心层信息日志');
   const external = fs.mkdtempSync(path.join(os.tmpdir(), 'cg-preview-'));
   try {
@@ -289,6 +301,7 @@ it('explains the same named symbols and real mapped candidates for text and a re
   write('ald/DESIGN.md', '- `REDUCEBIN_ALD_INFO_LOG*`：中心层信息日志');
   write('ald/include/log2.h', '#define log2 1\n');
   graph = await CodeGraph.init(root, { index: true });
+  await graph.sync({ regenerateTermMappings: true });
   const config = [...rules(), { terms: ['进程启动', '启动进程'], symbols: [macros[0], 'aldCorePidInit', 'MissingSymbol'] }];
   fs.writeFileSync(active(), JSON.stringify({ rules: config }));
   const query = '进程启动时，在 aldCorePidInit() 和 FutureLogHook() 增加一条中心层信息日志';
