@@ -663,7 +663,6 @@ program
         throw error;
       } finally { await progress?.stop(); }
       clack.log.success(`Initialized in ${projectPath}`);
-      if (result?.complete) clack.log.info('Term mappings: ' + path.join(cg.getDataDirectory(), TERM_MAPPINGS_FILE));
       if (result) printIndexResult(clack, result, projectPath);
 
       try {
