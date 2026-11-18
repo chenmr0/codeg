@@ -5,6 +5,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { createHash, randomUUID } from "node:crypto";
+import { AsyncLocalStorage } from "node:async_hooks";
 
 interface Statement {
   get(...args: unknown[]): any;
@@ -19,6 +20,42 @@ function open(file: string, readOnly = false): Sqlite {
   const { DatabaseSync } = require("node:sqlite");
   const db: Sqlite = new DatabaseSync(file, { readOnly });
   db.exec("PRAGMA busy_timeout=0");
+  return db;
+}
+
+interface GateReadRequest {
+  finished: boolean;
+  reader?: { file: string; dev: bigint; ino: bigint; db: Sqlite };
+}
+const gateReads = new AsyncLocalStorage<GateReadRequest>();
+
+/** Share the state connection, but run every SELECT in its own autocommit read. */
+export async function withPortableGateReader<T>(action: () => Promise<T>): Promise<T> {
+  const request: GateReadRequest = { finished: false };
+  try {
+    return await gateReads.run(request, action);
+  } finally {
+    // Async work spawned inside the request can outlive the tool call.
+    request.finished = true;
+    request.reader?.db.close();
+    request.reader = undefined;
+  }
+}
+
+function requestGateReader(file: string): Sqlite | undefined {
+  const request = gateReads.getStore();
+  if (!request || request.finished) return undefined;
+  const stat = fs.lstatSync(file, { bigint: true });
+  if (!stat.isFile()) throw new Error(`Expected a regular file: ${file}`);
+  if (stat.ino === 0n) return undefined;
+  const reader = request.reader;
+  if (reader) {
+    // A different project or a replaced gate must be read through its current path.
+    return reader.file === file && reader.dev === stat.dev && reader.ino === stat.ino
+      ? reader.db : undefined;
+  }
+  const db = open(file);
+  request.reader = { file, dev: stat.dev, ino: stat.ino, db };
   return db;
 }
 export class PortableBusyError extends Error {
@@ -325,8 +362,9 @@ export class PortableCoordinator {
     }
   }
   private read(): PortableSnapshot & { journal: string | null } {
-    regular(this.gate);
-    const db = open(this.gate);
+    const shared = requestGateReader(this.gate);
+    if (!shared) regular(this.gate);
+    const db = shared ?? open(this.gate);
     try {
       db.exec("PRAGMA busy_timeout=50");
       const row = db
@@ -344,7 +382,7 @@ export class PortableCoordinator {
         throw new PortableBusyError("Portable coordination read is busy");
       throw error;
     } finally {
-      db.close();
+      if (!shared) db.close();
     }
   }
   snapshot(): PortableSnapshot {

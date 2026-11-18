@@ -14,6 +14,7 @@ import type { IndexDataReadiness } from '../index';
 import { AsyncLocalStorage } from 'async_hooks';
 import { findNearestCodeGraphRoot, getCodeGraphDir, isInitialized } from '../directory';
 import { acquireCurrentGenerationLease } from '../sync/generation-store';
+import { withPortableGateReader } from '../sync/portable/protocol';
 // Lazy-load the heavy CodeGraph chain off the MCP startup path — see the same
 // helper in engine.ts. ToolHandler must load to answer tools/list (static
 // schemas), but it must NOT drag in sqlite/query layers before the daemon binds;
@@ -1858,19 +1859,22 @@ export class ToolHandler {
     this.activeExecutions++;
     const request: GenerationRequest = { generations: new Map(), retained: new Set() };
     try {
-      return await this.exploreSession.run(options, () => this.generationRequest.run(request, () => this.executionSignal.run(
-        options.signal,
-        () => this.dataView.run({
-          symbolsOnly: toolName === 'search' || toolName === 'files' || toolName === 'text_search' ||
-            (toolName === 'node' && args.includeRelations !== true && args.targets === undefined),
-        }, () => this.executeWithSignal(toolName, args)),
-      )));
+      return await withPortableGateReader(async () => {
+        try {
+          return await this.exploreSession.run(options, () => this.generationRequest.run(request, () => this.executionSignal.run(
+            options.signal,
+            () => this.dataView.run({
+              symbolsOnly: toolName === 'search' || toolName === 'files' || toolName === 'text_search' ||
+                (toolName === 'node' && args.includeRelations !== true && args.targets === undefined),
+            }, () => this.executeWithSignal(toolName, args)),
+          )));
+        } finally {
+          this.releaseGenerationRequest(request);
+        }
+      });
     } finally {
-      try { this.releaseGenerationRequest(request); }
-      finally {
-        this.activeExecutions--;
-        if (this.activeExecutions === 0) this.idleWaiters.splice(0).forEach(resolve => resolve());
-      }
+      this.activeExecutions--;
+      if (this.activeExecutions === 0) this.idleWaiters.splice(0).forEach(resolve => resolve());
     }
 
   }
