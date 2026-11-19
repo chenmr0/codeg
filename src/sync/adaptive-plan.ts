@@ -81,8 +81,8 @@ export interface AdaptiveFallbackPolicy {
   minAffectedOldNodeFraction: number;
 }
 export const DEFAULT_ADAPTIVE_FALLBACK: Readonly<AdaptiveFallbackPolicy> = Object.freeze({
-  minChangedFiles: 128, minChangedFraction: 0.25, minWorkFraction: 0.25,
-  minAffectedOldNodes: 10_000, minAffectedOldNodeFraction: 0.25,
+  minChangedFiles: 128, minChangedFraction: 0.35, minWorkFraction: 0.35,
+  minAffectedOldNodes: 10_000, minAffectedOldNodeFraction: 0.35,
 });
 function fallbackPolicy(overrides: Partial<AdaptiveFallbackPolicy> = {}): AdaptiveFallbackPolicy {
   const policy = { ...DEFAULT_ADAPTIVE_FALLBACK, ...overrides };

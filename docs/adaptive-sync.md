@@ -17,13 +17,13 @@
         "fileScale": {
           "enabled": true,
           "minChangedFiles": 128,
-          "minChangedFraction": 0.25,
-          "minWorkFraction": 0.25
+          "minChangedFraction": 0.35,
+          "minWorkFraction": 0.35
         },
         "oldNodeScale": {
           "enabled": true,
           "minAffectedOldNodes": 10000,
-          "minAffectedOldNodeFraction": 0.25
+          "minAffectedOldNodeFraction": 0.35
         }
       }
     }

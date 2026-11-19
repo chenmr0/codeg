@@ -190,32 +190,35 @@ describe('read-only source plan', () => {
 });
 
 describe('structural sync rules', () => {
-  const boundary = () => ({ ...plan(), changedFiles: 128, totalFiles: 512, changedBytes: 25000,
+  const boundary = () => ({ ...plan(), changedFiles: 140, totalFiles: 400, changedBytes: 35000,
     totalBytes: 100000, affectedOldNodes: 0, totalNodes: 40000 });
 
   it('requires all file-scale conditions at their exact boundaries', () => {
     const work = boundary();
     expect(chooseStructuralStrategy(work)).toMatchObject({ strategy: 'rebuild', matchedRule: 'fileScale',
-      metrics: { oldFiles: 512, changedFileFraction: 0.25, changedByteFraction: 0.25 } });
-    for (const patch of [{ changedFiles: 127 }, { totalFiles: 513 }, { changedBytes: 24999 }]) {
+      metrics: { oldFiles: 400, changedFileFraction: 0.35, changedByteFraction: 0.35 } });
+    for (const patch of [{ changedFiles: 139 }, { totalFiles: 401 }, { changedBytes: 34999 }]) {
       expect(chooseStructuralStrategy({ ...work, ...patch }).strategy).toBe('incremental');
     }
-    expect(hasStructuralRebuildWork({ ...work, changedBytes: 0, affectedOldNodes: 10000 })).toBe(true);
-    expect(hasStructuralRebuildWork({ ...work, changedBytes: 0, affectedOldNodes: 9999 })).toBe(false);
+    expect(hasStructuralRebuildWork({ ...work, totalFiles: 300, changedFiles: 127 })).toBe(false);
+    expect(hasStructuralRebuildWork({ ...work, totalFiles: 300, changedFiles: 128 })).toBe(true);
+    expect(hasStructuralRebuildWork({ ...work, changedBytes: 0, affectedOldNodes: 14000 })).toBe(true);
+    expect(hasStructuralRebuildWork({ ...work, changedBytes: 0, affectedOldNodes: 13999 })).toBe(false);
   });
 
   it('keeps the node-rule ratio independent from file-scale work coverage', () => {
-    const work = { ...boundary(), affectedOldNodes: 10000, changedBytes: 0 };
+    const work = { ...boundary(), affectedOldNodes: 14000, changedBytes: 0 };
     expect(chooseStructuralStrategy(work)).toMatchObject({ matchedRule: 'both' });
     expect(chooseStructuralStrategy(work, { fallback: { minAffectedOldNodeFraction: 0.5 } })).toMatchObject({ matchedRule: 'fileScale' });
     expect(chooseStructuralStrategy(work, { fallback: { minWorkFraction: 0.5 } })).toMatchObject({ matchedRule: 'oldNodeScale' });
   });
 
   it('allows one high-node source to qualify while honoring both independent rule switches', () => {
-    const work = { ...boundary(), changedFiles: 1, affectedOldNodes: 10000, changedBytes: 1 };
+    const work = { ...boundary(), changedFiles: 1, affectedOldNodes: 14000, changedBytes: 1 };
     expect(chooseStructuralStrategy(work)).toMatchObject({ strategy: 'rebuild', matchedRule: 'oldNodeScale' });
     expect(chooseStructuralStrategy({ ...work, totalNodes: 40001 }).strategy).toBe('incremental');
-    expect(chooseStructuralStrategy({ ...work, affectedOldNodes: 9999 }).strategy).toBe('incremental');
+    expect(chooseStructuralStrategy({ ...work, totalNodes: 20000, affectedOldNodes: 9999 }).strategy).toBe('incremental');
+    expect(chooseStructuralStrategy({ ...work, totalNodes: 20000, affectedOldNodes: 10000 }).strategy).toBe('rebuild');
     expect(chooseStructuralStrategy(work, { rules: { oldNodeScale: false } }).strategy).toBe('incremental');
     expect(chooseStructuralStrategy(work, { rules: { fileScale: false } }).strategy).toBe('rebuild');
     expect(chooseStructuralStrategy(boundary(), { rules: { fileScale: false } }).strategy).toBe('incremental');
@@ -224,14 +227,14 @@ describe('structural sync rules', () => {
   });
 
   it('uses the larger old/target file population and current target bytes', () => {
-    const removed = { ...boundary(), totalFiles: 384, removed: Array.from({ length: 128 }, (_, i) => 'gone' + i),
-      changedBytes: 0, affectedOldNodes: 2500, totalNodes: 10000 };
+    const removed = { ...boundary(), totalFiles: 260, removed: Array.from({ length: 140 }, (_, i) => 'gone' + i),
+      changedBytes: 0, affectedOldNodes: 3500, totalNodes: 10000 };
     expect(chooseStructuralStrategy(removed)).toMatchObject({ strategy: 'rebuild',
-      metrics: { oldFiles: 512, totalFiles: 384, changedFileFraction: 0.25, changedByteFraction: 0 } });
-    expect(chooseStructuralStrategy({ ...removed, totalFiles: 385 }).strategy).toBe('incremental');
-    const added = { ...boundary(), added: Array.from({ length: 128 }, (_, i) => 'new' + i) };
+      metrics: { oldFiles: 400, totalFiles: 260, changedFileFraction: 0.35, changedByteFraction: 0 } });
+    expect(chooseStructuralStrategy({ ...removed, totalFiles: 261 }).strategy).toBe('incremental');
+    const added = { ...boundary(), added: Array.from({ length: 140 }, (_, i) => 'new' + i) };
     expect(chooseStructuralStrategy(added)).toMatchObject({ strategy: 'rebuild',
-      metrics: { oldFiles: 384, totalFiles: 512, changedFileFraction: 0.25, changedByteFraction: 0.25 } });
+      metrics: { oldFiles: 260, totalFiles: 400, changedFileFraction: 0.35, changedByteFraction: 0.35 } });
   });
 
   it('handles no-op, empty targets and explicit disablement without changing correctness blockers', () => {
@@ -257,19 +260,19 @@ describe('structural sync rules', () => {
 });
 
 describe('structural scoped shortcut', () => {
-  const scope = { pathsCount: 127, totalOldFiles: 512, affectedOldNodes: 0, totalOldNodes: 40000 };
+  const scope = { pathsCount: 127, totalOldFiles: 360, affectedOldNodes: 0, totalOldNodes: 40000 };
   it('uses a conservative upper bound for files and nodes', () => {
     expect(canSkipScopedAdaptivePlan(scope)).toBe(true);
     expect(canSkipScopedAdaptivePlan({ ...scope, pathsCount: 128 })).toBe(false);
     expect(canSkipScopedAdaptivePlan({ ...scope, pathsCount: 128, totalOldFiles: 100000 })).toBe(true);
     expect(canSkipScopedAdaptivePlan({ ...scope, pathsCount: 128, totalOldFiles: 0 })).toBe(false);
-    expect(canSkipScopedAdaptivePlan({ ...scope, pathsCount: 1, affectedOldNodes: 10000 })).toBe(false);
-    expect(canSkipScopedAdaptivePlan({ ...scope, affectedOldNodes: 9999 })).toBe(true);
+    expect(canSkipScopedAdaptivePlan({ ...scope, pathsCount: 1, affectedOldNodes: 14000 })).toBe(false);
+    expect(canSkipScopedAdaptivePlan({ ...scope, affectedOldNodes: 13999 })).toBe(true);
     expect(canSkipScopedAdaptivePlan({ ...scope, pathsCount: 0 })).toBe(true);
   });
   it('honors only enabled rules and custom thresholds', () => {
     expect(canSkipScopedAdaptivePlan({ ...scope, pathsCount: 128 }, { rules: { fileScale: false } })).toBe(true);
-    expect(canSkipScopedAdaptivePlan({ ...scope, affectedOldNodes: 10000 }, { rules: { oldNodeScale: false } })).toBe(true);
+    expect(canSkipScopedAdaptivePlan({ ...scope, affectedOldNodes: 14000 }, { rules: { oldNodeScale: false } })).toBe(true);
     expect(canSkipScopedAdaptivePlan(scope, { fallback: { minChangedFiles: 1, minChangedFraction: 0.01 } })).toBe(false);
     expect(canSkipScopedAdaptivePlan({ ...scope, pathsCount: 100000, affectedOldNodes: 40000 },
       { rules: { fileScale: false, oldNodeScale: false } })).toBe(true);
